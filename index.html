@@ -58,6 +58,9 @@
      auth still uses localStorage (see V16 changelog). -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<!-- V310-S3: Firebase Storage SDK for photo migration. Loaded alongside
+     database; FB.storage is initialised in fbInit() the same way FB.db is. -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -1288,6 +1291,12 @@ body[data-shell="coord"] #coord-app { display: block; }
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8m-3-3l3 3 3-3M3 11v3h10v-3"/></svg>
       Import Data
     </button>
+    <!-- V310-S3: Photo migration entry point. Admin only. One-shot tool to
+         move existing base64 photos to Firebase Storage. -->
+    <button data-admin-only class="nav-btn" data-v="admin_photo_migration" onclick="nav('admin_photo_migration')" style="display:none">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="12" height="9" rx="1"/><circle cx="8" cy="9" r="2.5"/><path d="M6 4l1-1.5h2L10 4"/></svg>
+      Photo Migration
+    </button>
   </div>
   <!-- Sidebar footer: who's logged in + clear logout button. Renders dynamically
        via _renderSidebarFoot() on every session change so role/name stay current. -->
@@ -2269,6 +2278,15 @@ function fbInit() {
   try {
     FB.app = firebase.initializeApp(FB_CONFIG);
     FB.db  = firebase.database();
+    // V310-S3: Storage handle for photo migration. Best-effort — if the
+    // Storage SDK didn't load (offline boot, CDN block) we leave FB.storage
+    // undefined and the migration UI will surface a clear error. Database
+    // operations are unaffected.
+    try {
+      if (firebase.storage) FB.storage = firebase.storage();
+    } catch(e) {
+      console.warn('[V310-S3] Firebase Storage init skipped:', e);
+    }
     console.log('[V16] Firebase initialised, namespace:', FB_NAMESPACE);
   } catch(e) {
     console.error('[V16] Firebase init failed:', e);
@@ -4151,8 +4169,10 @@ function showBeneficiaryPhotos(id) {
       + '</div>'
       + '</div>';
   }
-  const baseCard = photoCard(b.photo,        'Baseline', fmtD(b.enrollDate) || '—',  b.lat,        b.lng,        '#2E75B6', '#1B3A6B');
-  const endCard  = photoCard(b.endlinePhoto, 'Endline',  fmtD(b.endlineDate) || '—', b.endlineLat, b.endlineLng, '#10B981', '#146B38');
+  // V310-S3: Prefer Storage URL when present (post-migration), fall back to
+  // base64 b.photo / b.endlinePhoto for records that haven't been migrated.
+  const baseCard = photoCard(b.photoUrl || b.photo,                'Baseline', fmtD(b.enrollDate) || '—',  b.lat,        b.lng,        '#2E75B6', '#1B3A6B');
+  const endCard  = photoCard(b.endlinePhotoUrl || b.endlinePhoto,  'Endline',  fmtD(b.endlineDate) || '—', b.endlineLat, b.endlineLng, '#10B981', '#146B38');
   document.getElementById('show-photos-body').innerHTML =
     '<div style="padding:12px 16px;background:var(--navy4);border-radius:8px;margin-bottom:14px">'
     + '<div style="font-size:15px;font-weight:700;color:var(--navy)">' + (b.name || '—') + ' <span style="font-weight:400;color:var(--gray2);font-size:12px">· ' + b.id + '</span></div>'
@@ -5167,11 +5187,13 @@ function openDrawer(id) {
       }
     }
 
-    makeBox(eBox, b.photo,        'Enrollment', fmtD(b.enrollDate),  b.lat,         '#2E75B6', '#1B3A6B');
-    makeBox(lBox, b.endlinePhoto, 'Endline',    fmtD(b.endlineDate), b.endlineLat,  '#10B981', '#146B38');
+    // V310-S3: Prefer Storage URL when present (post-migration), fall back to
+    // base64 b.photo / b.endlinePhoto for records that haven't been migrated.
+    makeBox(eBox, b.photoUrl || b.photo,                'Enrollment', fmtD(b.enrollDate),  b.lat,         '#2E75B6', '#1B3A6B');
+    makeBox(lBox, b.endlinePhotoUrl || b.endlinePhoto,  'Endline',    fmtD(b.endlineDate), b.endlineLat,  '#10B981', '#146B38');
 
     var hint = document.getElementById('photo-box-hint');
-    if (hint) hint.textContent = (b.photo || b.endlinePhoto) ? 'Tap photo to view full size' : '';
+    if (hint) hint.textContent = ((b.photoUrl || b.photo) || (b.endlinePhotoUrl || b.endlinePhoto)) ? 'Tap photo to view full size' : '';
   })();
 
   document.getElementById('dr-actions').innerHTML = `
@@ -6953,8 +6975,10 @@ async function submitEnroll() {
         return showError((e instanceof SaveError) ? e.message : 'Save failed. Please try again.', null);
       }
       // Audit: diff only meaningful fields (skip photo which is base64 noise
-      // and timestamps that change on every save)
-      const diff = _auditDiff(before, data[idx], ['photo','endlinePhoto']);
+      // and timestamps that change on every save). V310-S3: also skip the
+      // Storage-URL fields — they change once during migration and again if
+      // re-uploaded; either way the change is mechanical, not editorial.
+      const diff = _auditDiff(before, data[idx], ['photo','endlinePhoto','photoUrl','endlinePhotoUrl']);
       if (diff) {
         const changedKeys = Object.keys(diff);
         auditLog('update', 'beneficiary', editingId, data[idx].name,
@@ -10883,7 +10907,7 @@ window.openDrawer = function(id) {
 };
 
 // ── Nav ───────────────────────────────────────────────────────────────────
-const _navRoutes_v32={dashboard:renderDashboard,beneficiaries:renderAllBeneficiaries,list:renderLivelihood,ngo:renderNGO,alerts:renderAlerts,map:renderMap,integrated:renderIntegrated,advocacy:renderAdvocacy,admin_partners:renderAdminPartners,admin_users:renderAdminUsers,admin_livelihoods:renderAdminLivelihoods,admin_schemes:renderAdminSchemes,admin_audit:renderAdminAuditLog,admin_import:renderAdminImport};
+const _navRoutes_v32={dashboard:renderDashboard,beneficiaries:renderAllBeneficiaries,list:renderLivelihood,ngo:renderNGO,alerts:renderAlerts,map:renderMap,integrated:renderIntegrated,advocacy:renderAdvocacy,admin_partners:renderAdminPartners,admin_users:renderAdminUsers,admin_livelihoods:renderAdminLivelihoods,admin_schemes:renderAdminSchemes,admin_audit:renderAdminAuditLog,admin_import:renderAdminImport,admin_photo_migration:renderAdminPhotoMigration};
 window.nav=function(v){
   // Guard admin routes — non-admins get bounced to dashboard
   if (v.startsWith('admin_') && !isAdmin()) { v = 'dashboard'; }
@@ -12565,7 +12589,7 @@ function exportBeneficiariesCsv() {
       d, p===''?'':p+'%',
       summary.names.join('; '),
       summary.received || '',
-      b.photo ? 'Yes' : 'No',
+      (b.photoUrl || b.photo) ? 'Yes' : 'No',
     ];
   });
 
@@ -14593,8 +14617,320 @@ function downloadImportErrorsCsv() {
 // Two-tab preview: Summary (counts + duplicate decision) and Detail (per-row
 // drill-down).
 let _importActiveTab = 'summary'; // 'summary' | 'detail'
-function _setImportTab(t) { _importActiveTab = t; renderAdminImport(); }
+// =============================================================================
+// PHOTO MIGRATION — V310-S3 (Step 1: existing photos to Firebase Storage)
+// =============================================================================
+// One-shot admin tool. For every beneficiary record where b.photo is a base64
+// data URL and b.photoUrl is unset, upload the photo to Firebase Storage at
+// photos/{bid}_baseline.jpg and write the resulting download URL back into
+// b.photoUrl. Same for b.endlinePhoto -> b.endlinePhotoUrl at
+// photos/{bid}_endline.jpg.
+//
+// Safety properties:
+// - Idempotent: re-running skips records that already have photoUrl set.
+// - Halt-on-error: any upload or DB-write failure stops the run with a clear
+//   message. The user can re-run; orphan Storage objects are fine (they'll be
+//   overwritten by the same path next time).
+// - Dual-write: b.photo is left in place after migration. The display code
+//   already prefers b.photoUrl when present, so cleanup is a future session.
+// - No new-write changes: this session only migrates EXISTING photos. New
+//   enrollments still write base64 to b.photo as before. Step 2 (separate
+//   session) switches enrollment/endline to upload-on-save.
+// - Per-record progress is reported through _photoMigState; the renderer
+//   re-paints on each update.
+//
+// Storage path layout: photos/{bid}_baseline.jpg, photos/{bid}_endline.jpg
+// Decided with Guru on 2026-05-07.
 
+let _photoMigState = {
+  running: false,           // true while migratePhotosToStorage is in flight
+  done: false,              // true once a run finished (success OR halt)
+  halted: false,            // true if the run halted on error
+  haltMessage: '',          // human-readable error
+  total: 0,                 // total candidate photos to upload (baseline + endline)
+  processed: 0,             // candidates processed (uploaded OR skipped)
+  uploaded: 0,              // candidates that resulted in a Storage upload
+  skipped: 0,               // candidates skipped (already had a URL or empty)
+  currentBid: '',           // beneficiary ID currently being uploaded (UI hint)
+  currentKind: '',          // 'baseline' or 'endline' (UI hint)
+  log: []                   // chronological log of events (strings)
+};
+
+function _photoMigLog(msg) {
+  _photoMigState.log.push(msg);
+  console.log('[V310-S3 photo-migration]', msg);
+}
+
+// Count how many beneficiary records still need migration. Returns
+// { recordsNeedingWork, baselineCandidates, endlineCandidates, alreadyMigrated }.
+function _photoMigCountWork() {
+  const all = (typeof loadData === 'function') ? loadData() : [];
+  let baselineCandidates = 0, endlineCandidates = 0, alreadyMigrated = 0;
+  let recordsNeedingWork = 0;
+  all.forEach(b => {
+    let needs = false;
+    // A record needs work for baseline if b.photo is a base64 data URL and
+    // b.photoUrl is not already set.
+    if (b.photo && typeof b.photo === 'string' && b.photo.startsWith('data:') && !b.photoUrl) {
+      baselineCandidates++; needs = true;
+    } else if (b.photoUrl) {
+      alreadyMigrated++;
+    }
+    if (b.endlinePhoto && typeof b.endlinePhoto === 'string' && b.endlinePhoto.startsWith('data:') && !b.endlinePhotoUrl) {
+      endlineCandidates++; needs = true;
+    } else if (b.endlinePhotoUrl) {
+      alreadyMigrated++;
+    }
+    if (needs) recordsNeedingWork++;
+  });
+  return { recordsNeedingWork, baselineCandidates, endlineCandidates, alreadyMigrated };
+}
+
+// Convert a base64 data URL to a Blob for upload. Storage's putString
+// supports data_url directly, but going via Blob is safer (explicit MIME) and
+// gives us a content size for progress.
+function _dataUrlToBlob(dataUrl) {
+  // dataUrl shape: "data:image/jpeg;base64,/9j/4AAQ..."
+  const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
+  if (!match) throw new Error('not a base64 data URL');
+  const mime = match[1];
+  const b64 = match[2];
+  const binary = atob(b64);
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
+// Upload one photo. Returns the download URL. Throws on any failure.
+async function _photoMigUploadOne(bid, kind, base64DataUrl) {
+  if (!FB.storage) throw new Error('Firebase Storage SDK not available');
+  if (!bid || !kind) throw new Error('missing bid or kind');
+  const blob = _dataUrlToBlob(base64DataUrl);
+  const path = `photos/${bid}_${kind}.jpg`;
+  const ref = FB.storage.ref().child(path);
+  const snapshot = await ref.put(blob, { contentType: blob.type || 'image/jpeg' });
+  const url = await snapshot.ref.getDownloadURL();
+  if (!url || typeof url !== 'string') throw new Error('getDownloadURL returned empty');
+  return url;
+}
+
+async function migratePhotosToStorage() {
+  if (!isAdmin()) { toast('Admin only.', 'error'); return; }
+  if (_photoMigState.running) { toast('Migration already running.', 'warning'); return; }
+
+  // Hard preconditions
+  if (typeof firebase === 'undefined' || !FB.db) {
+    toast('Firebase not initialised. Reload the page and try again.', 'error', 6000);
+    return;
+  }
+  if (!FB.storage) {
+    toast('Firebase Storage SDK not loaded. Check network and reload.', 'error', 6000);
+    return;
+  }
+  if (!FB.online) {
+    toast('You appear to be offline. Connect to the internet and try again.', 'error', 5000);
+    return;
+  }
+
+  // Reset state for a fresh run
+  _photoMigState = {
+    running: true, done: false, halted: false, haltMessage: '',
+    total: 0, processed: 0, uploaded: 0, skipped: 0,
+    currentBid: '', currentKind: '', log: []
+  };
+
+  // Snapshot work to do up-front so total/processed stay coherent even if
+  // saveData causes the cache to refresh mid-run.
+  const all = loadData();
+  const work = []; // [{ bid, kind, dataUrl }]
+  all.forEach(b => {
+    if (b.photo && typeof b.photo === 'string' && b.photo.startsWith('data:') && !b.photoUrl) {
+      work.push({ bid: b.id, kind: 'baseline', dataUrl: b.photo });
+    }
+    if (b.endlinePhoto && typeof b.endlinePhoto === 'string' && b.endlinePhoto.startsWith('data:') && !b.endlinePhotoUrl) {
+      work.push({ bid: b.id, kind: 'endline', dataUrl: b.endlinePhoto });
+    }
+  });
+  _photoMigState.total = work.length;
+  _photoMigLog(`Starting migration. ${work.length} photo(s) to upload.`);
+  renderAdminPhotoMigration();
+
+  if (work.length === 0) {
+    _photoMigState.running = false;
+    _photoMigState.done = true;
+    _photoMigLog('Nothing to do — every photo already has a Storage URL.');
+    renderAdminPhotoMigration();
+    toast('No photos to migrate. Already done.', 'info', 4000);
+    return;
+  }
+
+  for (let i = 0; i < work.length; i++) {
+    const item = work[i];
+    _photoMigState.currentBid = item.bid;
+    _photoMigState.currentKind = item.kind;
+    renderAdminPhotoMigration();
+
+    // 1. Upload
+    let url;
+    try {
+      url = await _photoMigUploadOne(item.bid, item.kind, item.dataUrl);
+      _photoMigLog(`✓ Uploaded ${item.bid} ${item.kind}`);
+    } catch (e) {
+      const msg = `Upload failed for ${item.bid} (${item.kind}): ${e && e.message ? e.message : e}`;
+      _photoMigLog('✗ ' + msg);
+      _photoMigState.halted = true;
+      _photoMigState.haltMessage = msg;
+      _photoMigState.running = false;
+      _photoMigState.done = true;
+      renderAdminPhotoMigration();
+      return;
+    }
+
+    // 2. Write the URL back to the record. Re-load array fresh because the
+    // cache may have been updated by another save in the meantime.
+    let saveErrMsg = '';
+    try {
+      const fresh = loadData();
+      const idx = fresh.findIndex(b => b.id === item.bid);
+      if (idx === -1) {
+        throw new Error('record disappeared from cache');
+      }
+      if (item.kind === 'baseline') {
+        fresh[idx].photoUrl = url;
+      } else {
+        fresh[idx].endlinePhotoUrl = url;
+      }
+      await saveData(fresh);
+      _photoMigLog(`✓ Saved photoUrl for ${item.bid} ${item.kind}`);
+    } catch (e) {
+      saveErrMsg = `DB write failed for ${item.bid} (${item.kind}): ${e && e.message ? e.message : e}. ` +
+        `Storage object was uploaded successfully but the record was not updated. ` +
+        `Re-run the migration to retry — the same Storage path will be reused.`;
+    }
+    if (saveErrMsg) {
+      _photoMigLog('✗ ' + saveErrMsg);
+      _photoMigState.halted = true;
+      _photoMigState.haltMessage = saveErrMsg;
+      _photoMigState.running = false;
+      _photoMigState.done = true;
+      renderAdminPhotoMigration();
+      return;
+    }
+
+    _photoMigState.uploaded++;
+    _photoMigState.processed++;
+    renderAdminPhotoMigration();
+  }
+
+  _photoMigState.currentBid = '';
+  _photoMigState.currentKind = '';
+  _photoMigState.running = false;
+  _photoMigState.done = true;
+  _photoMigLog(`Done. Uploaded ${_photoMigState.uploaded}/${_photoMigState.total} photo(s).`);
+  renderAdminPhotoMigration();
+  toast(`Migration complete. ${_photoMigState.uploaded} photo(s) uploaded.`, 'success', 5000);
+}
+
+function renderAdminPhotoMigration() {
+  if (!isAdmin()) {
+    document.getElementById('content').innerHTML = '<div class="empty">Admin only.</div>';
+    return;
+  }
+  const counts = _photoMigCountWork();
+  const s = _photoMigState;
+  const pct = s.total > 0 ? Math.round((s.processed / s.total) * 100) : 0;
+
+  // ── Status banner ──
+  let banner = '';
+  if (s.running) {
+    banner = `
+      <div style="background:#FEF3C7;border:1px solid #F59E0B;border-radius:8px;padding:12px 14px;margin-bottom:14px;color:#92400E">
+        <div style="font-weight:700;margin-bottom:4px">⏳ Migration in progress</div>
+        <div style="font-size:13px">Uploading <code>${escHtml(s.currentBid)}</code> · ${escHtml(s.currentKind)} (${s.processed} of ${s.total})</div>
+      </div>`;
+  } else if (s.halted) {
+    banner = `
+      <div style="background:#FEE2E2;border:1px solid #DC2626;border-radius:8px;padding:12px 14px;margin-bottom:14px;color:#991B1B">
+        <div style="font-weight:700;margin-bottom:4px">⛔ Migration halted</div>
+        <div style="font-size:13px;line-height:1.5">${escHtml(s.haltMessage)}</div>
+        <div style="font-size:12px;margin-top:8px;color:#7F1D1D">${s.uploaded} photo(s) successfully migrated before the halt. You can re-run; already-migrated records will be skipped.</div>
+      </div>`;
+  } else if (s.done) {
+    banner = `
+      <div style="background:#D1FAE5;border:1px solid #10B981;border-radius:8px;padding:12px 14px;margin-bottom:14px;color:#065F46">
+        <div style="font-weight:700;margin-bottom:4px">✅ Migration complete</div>
+        <div style="font-size:13px">${s.uploaded} of ${s.total} photo(s) uploaded successfully.</div>
+      </div>`;
+  }
+
+  // ── Progress bar (only while running or just-done) ──
+  let progressBar = '';
+  if (s.running || (s.done && s.total > 0)) {
+    progressBar = `
+      <div style="margin-bottom:16px">
+        <div style="background:var(--gray3);border-radius:6px;height:10px;overflow:hidden">
+          <div style="background:var(--navy2);height:100%;width:${pct}%;transition:width .3s"></div>
+        </div>
+        <div style="font-size:12px;color:var(--gray2);margin-top:4px">${s.processed} / ${s.total} (${pct}%)</div>
+      </div>`;
+  }
+
+  // ── Log (last 20 entries) ──
+  const recentLog = s.log.slice(-20);
+  const logHtml = recentLog.length === 0 ? '' : `
+    <div style="background:var(--gray4);border:1px solid var(--gray3);border-radius:8px;padding:10px 12px;margin-top:14px;max-height:240px;overflow-y:auto">
+      <div style="font-size:11px;font-weight:600;color:var(--gray2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px">Activity log</div>
+      ${recentLog.map(line => `<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--gray);padding:2px 0">${escHtml(line)}</div>`).join('')}
+    </div>`;
+
+  // ── Status table ──
+  const startDisabled = s.running || counts.recordsNeedingWork === 0;
+  const startLabel = s.running ? 'Migrating…' : (counts.recordsNeedingWork === 0 ? 'Nothing to migrate' : `Start migration (${counts.baselineCandidates + counts.endlineCandidates} photo${(counts.baselineCandidates + counts.endlineCandidates) === 1 ? '' : 's'})`);
+
+  document.getElementById('content').innerHTML = `
+    <div style="max-width:780px;margin:0 auto">
+      <h1 style="font-size:22px;margin-bottom:6px">Photo Migration</h1>
+      <p style="color:var(--gray2);font-size:13px;margin-bottom:18px">
+        One-time admin tool. Moves existing beneficiary photos from the database
+        (where they are stored as base64 text) into Firebase Storage. After
+        migration, the database holds a small URL instead of a multi-megabyte
+        photo string, which speeds up sync and dashboard rendering.
+      </p>
+
+      ${banner}
+      ${progressBar}
+
+      <div style="background:var(--navy4);border:1px solid var(--navy3);border-radius:10px;padding:14px 16px;margin-bottom:14px">
+        <div style="font-weight:600;color:var(--navy);margin-bottom:8px">Current state</div>
+        <div style="display:grid;grid-template-columns:auto auto;gap:6px 18px;font-size:13px">
+          <div style="color:var(--gray2)">Baseline photos still on base64</div><div style="font-weight:600">${counts.baselineCandidates}</div>
+          <div style="color:var(--gray2)">Endline photos still on base64</div><div style="font-weight:600">${counts.endlineCandidates}</div>
+          <div style="color:var(--gray2)">Photos already migrated to Storage</div><div style="font-weight:600">${counts.alreadyMigrated}</div>
+        </div>
+      </div>
+
+      <div style="background:#FFFBEB;border:1px solid #FCD34D;border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:12.5px;color:#92400E;line-height:1.55">
+        <strong>Before you start:</strong>
+        <ul style="margin:6px 0 0 18px;padding:0">
+          <li>You should already have exported the Realtime Database to a JSON file as a safety backup.</li>
+          <li>Each photo is uploaded to <code>photos/{bid}_baseline.jpg</code> or <code>photos/{bid}_endline.jpg</code>.</li>
+          <li>If anything fails, the migration stops and reports the error. The original <code>b.photo</code> field is left untouched. You can safely re-run.</li>
+          <li>This will take roughly ${counts.baselineCandidates + counts.endlineCandidates} second(s) — about one second per photo on a normal connection.</li>
+        </ul>
+      </div>
+
+      <button class="btn btn-primary" onclick="migratePhotosToStorage()" ${startDisabled ? 'disabled style="opacity:.5;cursor:not-allowed"' : ''}>
+        ${escHtml(startLabel)}
+      </button>
+
+      ${logHtml}
+    </div>`;
+}
+
+
+
+function _setImportTab(t) { _importActiveTab = t; renderAdminImport(); }
 function renderAdminImport() {
   if (!isAdmin()) {
     document.getElementById('content').innerHTML = '<div class="empty">Admin only.</div>';
