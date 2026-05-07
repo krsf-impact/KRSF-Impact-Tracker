@@ -6127,15 +6127,22 @@ function openEdit(id) {
     const relSel = document.getElementById('f-relation');
     if (relSel) relSel.value = b.relation || '';
   }
-  // Restore existing photo if editing
+  // Restore existing photo if editing.
+  // V310-S3 Step 2: We do NOT load the existing photo into capturedPhotoData.
+  // capturedPhotoData is reserved for *newly captured* base64 (from camera
+  // or gallery), which submitEnroll uploads to Storage on save. If the FC
+  // doesn't take a new photo, we want the existing record's photoUrl (or
+  // legacy b.photo for un-migrated records) to remain untouched. The thumb
+  // is shown for visual continuity only.
   resetPhotoSection();
-  if (b.photo) {
-    capturedPhotoData = b.photo;
+  const existingPhotoSrc = b.photoUrl || b.photo || '';
+  if (existingPhotoSrc) {
+    capturedPhotoData = null; // explicit — do NOT trigger re-upload on save
     capturedLat = b.lat || null;
     capturedLng = b.lng || null;
     capturedGpsAccuracy = b.gpsAccuracy || null;
     const thumb = document.getElementById('photo-thumb');
-    thumb.src = b.photo; thumb.style.display = 'block';
+    thumb.src = existingPhotoSrc; thumb.style.display = 'block';
     document.getElementById('photo-section').classList.add('has-photo');
     document.getElementById('photo-instructions').style.display = 'none';
     document.getElementById('btn-open-cam').style.display = 'none';
@@ -6876,7 +6883,10 @@ async function submitEnroll() {
     category: document.getElementById('f-cat').value,
     ngo: document.getElementById('f-ngo').value,
     coord: coordVal,
-    photo: capturedPhotoData || null,
+    // V310-S3 Step 2: photoUrl is set below, AFTER the upload-first logic.
+    // Legacy b.photo is no longer written by new saves. Existing records
+    // that still have b.photo (un-migrated) keep it via the spread in the
+    // edit branch — we don't actively delete it here. Step 3 will clean up.
     lat: capturedLat,
     lng: capturedLng,
     gpsAccuracy: capturedGpsAccuracy,
@@ -6968,12 +6978,33 @@ async function submitEnroll() {
     if (idx >= 0) {
       const before = {...data[idx]};
       data[idx] = { ...data[idx], ...fields };
+      // V310-S3 Step 2: If the FC took a NEW photo this session
+      // (capturedPhotoData is a base64 data URL), upload it to Storage
+      // BEFORE writing the record. The upload path is keyed by editingId
+      // so it overwrites the existing photo for this beneficiary. If the
+      // upload fails, we abort the save and leave the record untouched.
+      let _saveBtnHandle = null;
+      if (capturedPhotoData && typeof capturedPhotoData === 'string' && capturedPhotoData.startsWith('data:')) {
+        _saveBtnHandle = _disableSaveBtnForUpload('enroll-submit-btn', 'Uploading photo…');
+        try {
+          const url = await uploadPhotoForRecord(editingId, 'baseline', capturedPhotoData);
+          data[idx].photoUrl = url;
+          // Clear legacy base64 if it was on the record (un-migrated edit).
+          // After this save, the record uses photoUrl exclusively.
+          delete data[idx].photo;
+        } catch (e) {
+          _restoreSaveBtn(_saveBtnHandle);
+          return showError(e && e.message ? e.message : 'Photo upload failed. Please try again.', null);
+        }
+      }
       // V310-S2: await Firebase. On failure, keep form open with error.
       try {
         await saveData(data);
       } catch (e) {
+        _restoreSaveBtn(_saveBtnHandle);
         return showError((e instanceof SaveError) ? e.message : 'Save failed. Please try again.', null);
       }
+      _restoreSaveBtn(_saveBtnHandle);
       // Audit: diff only meaningful fields (skip photo which is base64 noise
       // and timestamps that change on every save). V310-S3: also skip the
       // Storage-URL fields — they change once during migration and again if
@@ -7152,15 +7183,33 @@ async function submitEnroll() {
       // when they're a coordinator, so the coord column is truthful.
       if (me.role === 'coordinator' && me.fullName) b.coord = me.fullName;
     }
+    // V310-S3 Step 2: If the FC captured a photo this session, upload it to
+    // Storage NOW, before writing the record. Upload-first design: the
+    // record only enters the database if the photo upload succeeded. Failure
+    // here aborts the save; the form stays open with a toast.
+    let _saveBtnHandle_create = null;
+    if (capturedPhotoData && typeof capturedPhotoData === 'string' && capturedPhotoData.startsWith('data:')) {
+      _saveBtnHandle_create = _disableSaveBtnForUpload('enroll-submit-btn', 'Uploading photo…');
+      try {
+        const url = await uploadPhotoForRecord(id, 'baseline', capturedPhotoData);
+        b.photoUrl = url;
+      } catch (e) {
+        _restoreSaveBtn(_saveBtnHandle_create);
+        _releaseClaim(id);
+        return showError(e && e.message ? e.message : 'Photo upload failed. Please try again.', null);
+      }
+    }
     data.push(b);
     // V310-S2: await Firebase. On failure, release the in-flight ID claim
     // and keep form open with error so user can retry without losing input.
     try {
       await saveData(data);
     } catch (e) {
+      _restoreSaveBtn(_saveBtnHandle_create);
       _releaseClaim(id);
       return showError((e instanceof SaveError) ? e.message : 'Save failed. Please try again.', null);
     }
+    _restoreSaveBtn(_saveBtnHandle_create);
     // V308.1 (Bug 7 fix): release the in-flight ID claim now that the record
     // is in localStorage (and queued for Firebase). The pending-IDs set was
     // there to prevent the same ID being minted twice during the gap between
@@ -7568,7 +7617,7 @@ function openEndlineFor(id) {
         <div id="el-photo-instructions" style="color:var(--gray2);font-size:13px;padding:20px 0">
           <div style="font-size:28px;margin-bottom:8px">📷</div>
           ${t('endline.noPhoto')}
-          ${isEdit && b.endlinePhoto ? `<div style="margin-top:6px;color:var(--green);font-size:12px">${t('endline.prevPhoto')}</div>` : ''}
+          ${isEdit && (b.endlinePhotoUrl || b.endlinePhoto) ? `<div style="margin-top:6px;color:var(--green);font-size:12px">${t('endline.prevPhoto')}</div>` : ''}
         </div>
         <div class="camera-btns">
           <button type="button" class="btn btn-primary" id="el-btn-open-cam" onclick="openEndlineCamera()">${t('endline.openCam')}</button>
@@ -7579,15 +7628,20 @@ function openEndlineFor(id) {
       </div>
     </div>
   `;
-  // Restore existing endline photo if editing
-  if (isEdit && b.endlinePhoto) {
+  // Restore existing endline photo if editing.
+  // V310-S3 Step 2: Same approach as submitEnroll — DO NOT load the existing
+  // photo into endlineCapturedPhoto. That variable is reserved for new
+  // captures so the upload-on-save logic only fires when a new photo was
+  // taken. The thumb is shown for visual continuity only.
+  const _existingEndlineSrc = b.endlinePhotoUrl || b.endlinePhoto || '';
+  if (isEdit && _existingEndlineSrc) {
     setTimeout(() => {
-      endlineCapturedPhoto = b.endlinePhoto;
+      endlineCapturedPhoto = null; // explicit — do NOT trigger re-upload on save
       endlineCapturedLat   = b.endlineLat   || null;
       endlineCapturedLng   = b.endlineLng   || null;
       endlineCapturedAcc   = b.endlineGpsAccuracy || null;
       const thumb = document.getElementById('el-photo-thumb');
-      if (thumb) { thumb.src = b.endlinePhoto; thumb.style.display = 'block'; }
+      if (thumb) { thumb.src = _existingEndlineSrc; thumb.style.display = 'block'; }
       const sec = document.getElementById('el-photo-section');
       if (sec) sec.classList.add('has-photo');
       const instr = document.getElementById('el-photo-instructions');
@@ -7659,12 +7713,33 @@ async function submitEndline() {
   // V4.1: removed pmjayEnd, pmkisanEnd, schemeBenefitEnd — those baseline
   // fields are gone, no endline counterpart. Removed inc1End/inc2End/inc3End —
   // single-field income, no components.
-  // Save endline photo from the active camera state.
-  if (endlineCapturedPhoto) {
-    b.endlinePhoto       = endlineCapturedPhoto;
+  // Update GPS regardless of whether a new photo was taken — the surveyor
+  // may have moved between visits and the lat/lng should reflect current
+  // location even if they reused the prefilled photo.
+  if (endlineCapturedLat != null || endlineCapturedLng != null) {
     b.endlineLat         = endlineCapturedLat;
     b.endlineLng         = endlineCapturedLng;
     b.endlineGpsAccuracy = endlineCapturedAcc;
+  }
+  // V310-S3 Step 2: If a NEW endline photo was captured this session,
+  // upload it to Storage now (upload-first). On failure, abort the save.
+  // If no new photo, leave the existing b.endlinePhotoUrl / b.endlinePhoto
+  // untouched (covers the "edit endline without retaking photo" case).
+  let _saveBtnHandle_endline = null;
+  if (endlineCapturedPhoto && typeof endlineCapturedPhoto === 'string' && endlineCapturedPhoto.startsWith('data:')) {
+    _saveBtnHandle_endline = _disableSaveBtnForUpload('enroll-submit-btn-endline', 'Uploading photo…');
+    try {
+      const url = await uploadPhotoForRecord(b.id, 'endline', endlineCapturedPhoto);
+      b.endlinePhotoUrl = url;
+      // Clear legacy base64 if it was on the record. After this save,
+      // endline photos use endlinePhotoUrl exclusively.
+      delete b.endlinePhoto;
+    } catch (e) {
+      _restoreSaveBtn(_saveBtnHandle_endline);
+      const msg = (e && e.message) ? e.message : 'Photo upload failed. Please try again.';
+      if (typeof toast === 'function') toast(msg, 'error', 8000);
+      return;
+    }
   }
   resetEndlineCamera();
   // V310-S2: await Firebase. On failure, keep modal open with toast so user
@@ -7672,10 +7747,12 @@ async function submitEndline() {
   try {
     await saveData(data);
   } catch (e) {
+    _restoreSaveBtn(_saveBtnHandle_endline);
     const msg = (e instanceof SaveError) ? e.message : 'Save failed. Please try again.';
     if (typeof toast === 'function') toast(msg, 'error', 8000);
     return;
   }
+  _restoreSaveBtn(_saveBtnHandle_endline);
   closeEndline();
   const d = b.endIncome - b.baseIncome;
   const p = b.baseIncome ? Math.round(d/b.baseIncome*100) : 0;
@@ -14700,6 +14777,86 @@ function _dataUrlToBlob(dataUrl) {
   const bytes = new Uint8Array(len);
   for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
   return new Blob([bytes], { type: mime });
+}
+
+// =============================================================================
+// PHOTO UPLOAD HELPER — V310-S3 Step 2 (new enrollments / endlines)
+// =============================================================================
+// Used by submitEnroll and submitEndline. Uploads a base64 photo to Storage
+// at photos/{bid}_{kind}.jpg with a 30-second timeout, returns the URL.
+//
+// Throws on:
+//   - missing Firebase Storage SDK ('Photo upload unavailable. Reload the page.')
+//   - offline                          ('You appear to be offline. Connect and try again.')
+//   - timeout                           ('Photo upload timed out. Check your connection.')
+//   - any underlying upload error      (passes through Firebase's message)
+//
+// Caller is responsible for catching the throw and re-enabling the form.
+const _PHOTO_UPLOAD_TIMEOUT_MS = 30000; // 30 seconds (V310-S3-S2 Decision 4)
+
+async function uploadPhotoForRecord(bid, kind, base64DataUrl) {
+  if (!bid || !kind) throw new Error('uploadPhotoForRecord: missing bid or kind');
+  if (!base64DataUrl || typeof base64DataUrl !== 'string') {
+    throw new Error('uploadPhotoForRecord: missing photo data');
+  }
+  if (!base64DataUrl.startsWith('data:')) {
+    // Already a URL? Caller shouldn't be calling us in that case but defend.
+    throw new Error('uploadPhotoForRecord: input is not a base64 data URL');
+  }
+  if (typeof firebase === 'undefined' || !FB.storage) {
+    throw new Error('Photo upload unavailable. Please reload the page.');
+  }
+  if (FB.online === false) {
+    throw new Error('You appear to be offline. Connect and try again.');
+  }
+
+  const blob = _dataUrlToBlob(base64DataUrl);
+  const path = `photos/${bid}_${kind}.jpg`;
+  const ref = FB.storage.ref().child(path);
+
+  // Race the upload against a timeout. Firebase's own .put() does not honour
+  // AbortController so we wrap the whole "put + getDownloadURL" in a Promise
+  // that rejects after _PHOTO_UPLOAD_TIMEOUT_MS. The actual upload may
+  // continue in the background — that's OK, the next attempt overwrites
+  // the same path.
+  const uploadPromise = (async () => {
+    const snapshot = await ref.put(blob, { contentType: blob.type || 'image/jpeg' });
+    const url = await snapshot.ref.getDownloadURL();
+    if (!url || typeof url !== 'string') throw new Error('getDownloadURL returned empty');
+    return url;
+  })();
+
+  const timeoutPromise = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error(
+      'Photo upload timed out (>30s). Check your connection and try again.'
+    )), _PHOTO_UPLOAD_TIMEOUT_MS);
+  });
+
+  return Promise.race([uploadPromise, timeoutPromise]);
+}
+
+// Disable a save button and replace its label with "Uploading photo…" text.
+// Caller must call _restoreSaveBtn(btn, originalText) afterwards (in finally).
+// Returns the original label so the caller can pass it back. The button's
+// data-en/data-gu attributes (used elsewhere for i18n) are left alone so
+// that subsequent language switches still apply correctly to the restored
+// label.
+function _disableSaveBtnForUpload(btnId, busyLabel) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return null;
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.style.opacity = '0.6';
+  btn.style.cursor = 'not-allowed';
+  btn.textContent = busyLabel || 'Uploading photo…';
+  return { btn, originalText };
+}
+function _restoreSaveBtn(handle) {
+  if (!handle || !handle.btn) return;
+  handle.btn.disabled = false;
+  handle.btn.style.opacity = '';
+  handle.btn.style.cursor = '';
+  handle.btn.textContent = handle.originalText;
 }
 
 // Upload one photo. Returns the download URL. Throws on any failure.
