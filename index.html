@@ -1702,6 +1702,48 @@ body[data-shell="coord"] #coord-app { display: block; }
 </div>
 </div>
 
+<!-- ENDLINE PHOTO MODAL (V310-S3 Step 2 follow-up). A standalone, photo-only
+     modal for capturing the "after" photo. Independent of Log Income — opened
+     from a dedicated drawer button. Saves to b.endlinePhotoUrl via the
+     upload-on-save pattern established in V310-S3 Step 2. -->
+<div class="overlay" id="elph-overlay">
+<div class="modal">
+  <div class="modal-head">
+    <div class="modal-title" id="elph-title">Endline Photo</div>
+    <button class="modal-close" onclick="closeEndlinePhotoModal()">&times;</button>
+  </div>
+  <div class="modal-body" id="elph-body">
+    <p style="color:var(--gray2);font-size:13px;margin-bottom:14px;line-height:1.5">
+      Capture the post-intervention photo of this beneficiary. The photo will be saved
+      with the beneficiary's record alongside the baseline photo, allowing before/after
+      comparison.
+    </p>
+    <div class="msec">
+      <div class="msec-title" style="margin-bottom:8px">Endline Photo &amp; GPS</div>
+      <div class="photo-section" id="elph-photo-section">
+        <video id="elph-cam-preview" class="camera-preview" autoplay playsinline muted></video>
+        <img id="elph-photo-thumb" class="photo-thumb" alt="Endline photo">
+        <canvas id="elph-cam-canvas" style="display:none"></canvas>
+        <div id="elph-photo-instructions" style="color:var(--gray2);font-size:13px;padding:20px 0;text-align:center">
+          <div style="font-size:28px;margin-bottom:8px">📷</div>
+          No endline photo yet — open the camera below.
+        </div>
+        <div class="camera-btns">
+          <button type="button" class="btn btn-primary" id="elph-btn-open-cam" onclick="openElphCamera()">📷 Open Camera</button>
+          <button type="button" class="btn" id="elph-btn-capture" onclick="captureElphPhoto()" style="display:none">Capture</button>
+          <button type="button" class="btn" id="elph-btn-retake" onclick="retakeElphPhoto()" style="display:none">↺ Retake</button>
+        </div>
+        <div id="elph-gps-status" style="margin-top:10px;min-height:24px;text-align:center"></div>
+      </div>
+    </div>
+  </div>
+  <div class="modal-foot">
+    <button class="btn" onclick="closeEndlinePhotoModal()">Cancel</button>
+    <button class="btn btn-primary" id="elph-submit-btn" onclick="submitEndlinePhotoOnly()">Save Endline Photo</button>
+  </div>
+</div>
+</div>
+
 <!-- LOG INCOME MODAL (#5). Replaces the single-shot endline submission for
      income capture. Shows existing log entries + a form to add a new one.
      Admins can also edit/delete existing entries; coordinators can only
@@ -2818,6 +2860,7 @@ function _isUserMidEdit() {
       'drawer',                  // beneficiary detail panel
       'enroll-overlay',          // enrollment form
       'endline-overlay',         // endline form
+      'elph-overlay',            // V310-S3: endline-photo-only modal
       'logincome-overlay',       // log income entry modal
       'show-photos-overlay',     // photo viewer / lightbox
       'adv-overlay',             // advocacy log modal
@@ -5202,6 +5245,9 @@ function openDrawer(id) {
       ? `<button class="btn" onclick="openEnrollAsFamilyMember('${b.id}')" title="Enroll a wife / daughter / other family member of this beneficiary for advocacy tracking only" style="color:var(--navy);border-color:var(--navy3)">+ Add Family Member</button>`
       : ''}
     <button class="btn" onclick="showBeneficiaryPhotos('${b.id}')" title="View baseline and endline photos full-size">📷 Show Photos</button>
+    ${hasLiv && b.status
+      ? `<button class="btn" onclick="openEndlinePhotoModal('${b.id}')" title="Capture or replace the endline (after) photo for this beneficiary" style="color:var(--green);border-color:var(--green2)">${(b.endlinePhotoUrl || b.endlinePhoto) ? '↺ Retake Endline Photo' : '+ Add Endline Photo'}</button>`
+      : ''}
     ${hasLiv && (Array.isArray(b.incomeLog) && b.incomeLog.length > 0 || b.endIncome != null)
       ? `<button class="btn" onclick="openLogIncomeFor('${b.id}')">View / Manage Income Log</button>`
       : ''}
@@ -7556,6 +7602,268 @@ function resetEndlineCamera() {
   stopEndlineCamera();
   endlineCapturedPhoto = null;
   endlineCapturedLat = null; endlineCapturedLng = null; endlineCapturedAcc = null;
+}
+
+// =============================================================================
+// ENDLINE PHOTO MODAL — V310-S3 Step 2 follow-up (standalone photo capture)
+// =============================================================================
+// Self-contained photo-only modal for capturing the "after" photo of a
+// beneficiary. Reachable from a dedicated "+ Add Endline Photo" button on
+// the drawer (visible only for In Progress / Completed livelihood records).
+//
+// Independent of the Log Income flow and the legacy Endline Survey modal.
+// Uses its own DOM IDs (prefix "elph-") and its own state variables so the
+// existing endline camera infrastructure remains untouched.
+//
+// Save flow: upload-on-save (V310-S3 Step 2 pattern). Photo uploads to
+// photos/{bid}_endline.jpg, then b.endlinePhotoUrl is written. b.endlinePhoto
+// (legacy base64) is deleted on save if present.
+// =============================================================================
+
+let elphCameraStream  = null;
+let elphCapturedPhoto = null;
+let elphCapturedLat   = null;
+let elphCapturedLng   = null;
+let elphCapturedAcc   = null;
+let elphCurrentBid    = null;
+
+function openEndlinePhotoModal(bid) {
+  if (!bid) return;
+  const me = currentUser();
+  if (!me) return;
+  const b = (loadData() || []).find(x => x.id === bid);
+  if (!b) { toast('Beneficiary not found.', 'error'); return; }
+
+  // Visibility gate (defence-in-depth — the drawer button already hides for
+  // these cases, but this guards against direct calls or stale buttons).
+  const hasLiv = (b.interventions || []).some(i => i !== 'Advocacy (Govt. Schemes)');
+  if (!hasLiv) {
+    toast('Endline photo not applicable for advocacy-only records.', 'error');
+    return;
+  }
+  if (!b.status) {
+    toast('Endline photo not applicable for this record.', 'error');
+    return;
+  }
+
+  elphCurrentBid = bid;
+  // Reset state for a fresh session
+  _resetElph();
+
+  // Title shows the beneficiary name + ID for context
+  document.getElementById('elph-title').textContent =
+    `Endline Photo — ${b.name || '(no name)'} (${bid})`;
+
+  // If a previous endline photo exists, show it as a thumb (visual continuity)
+  // but DO NOT load it into elphCapturedPhoto — that variable is reserved for
+  // newly-captured base64 only. If the FC saves without retaking, nothing is
+  // uploaded and the existing endlinePhotoUrl is left untouched.
+  const existing = b.endlinePhotoUrl || b.endlinePhoto || '';
+  if (existing) {
+    const thumb = document.getElementById('elph-photo-thumb');
+    if (thumb) { thumb.src = existing; thumb.style.display = 'block'; }
+    const sec = document.getElementById('elph-photo-section');
+    if (sec) sec.classList.add('has-photo');
+    const instr = document.getElementById('elph-photo-instructions');
+    if (instr) instr.style.display = 'none';
+    const btnOpen = document.getElementById('elph-btn-open-cam');
+    if (btnOpen) btnOpen.textContent = '↺ Replace Photo';
+    const gpsDiv = document.getElementById('elph-gps-status');
+    if (gpsDiv && b.endlineLat) {
+      gpsDiv.innerHTML = '<span class="gps-badge">✓ GPS (existing): ' +
+        b.endlineLat + ', ' + b.endlineLng +
+        ' (±' + (b.endlineGpsAccuracy || '?') + 'm)</span>';
+    }
+  } else {
+    const btnOpen = document.getElementById('elph-btn-open-cam');
+    if (btnOpen) btnOpen.textContent = '📷 Open Camera';
+  }
+
+  document.getElementById('elph-overlay').classList.add('open');
+  closeDrawer();
+}
+
+function closeEndlinePhotoModal() {
+  stopElphCamera();
+  document.getElementById('elph-overlay').classList.remove('open');
+  // Don't clear state here — closeDrawer / openDrawer flow may want to
+  // re-render. _resetElph runs on next open.
+}
+
+function _resetElph() {
+  stopElphCamera();
+  elphCapturedPhoto = null;
+  elphCapturedLat = null; elphCapturedLng = null; elphCapturedAcc = null;
+  const thumb = document.getElementById('elph-photo-thumb');
+  if (thumb) { thumb.style.display = 'none'; thumb.src = ''; }
+  const sec = document.getElementById('elph-photo-section');
+  if (sec) sec.classList.remove('has-photo');
+  const instr = document.getElementById('elph-photo-instructions');
+  if (instr) instr.style.display = 'block';
+  const btnOpen = document.getElementById('elph-btn-open-cam');
+  if (btnOpen) { btnOpen.style.display = 'inline-block'; btnOpen.textContent = '📷 Open Camera'; }
+  const btnCap = document.getElementById('elph-btn-capture');
+  if (btnCap) btnCap.style.display = 'none';
+  const btnRet = document.getElementById('elph-btn-retake');
+  if (btnRet) btnRet.style.display = 'none';
+  const gpsDiv = document.getElementById('elph-gps-status');
+  if (gpsDiv) gpsDiv.innerHTML = '';
+}
+
+function openElphCamera() {
+  const constraints = { video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false };
+  navigator.mediaDevices.getUserMedia(constraints)
+    .then(stream => {
+      elphCameraStream = stream;
+      const video = document.getElementById('elph-cam-preview');
+      video.srcObject = stream;
+      video.style.display = 'block';
+      // Hide thumb if there was a prior photo — switching to live preview
+      const thumb = document.getElementById('elph-photo-thumb');
+      if (thumb) { thumb.style.display = 'none'; }
+      document.getElementById('elph-photo-instructions').style.display = 'none';
+      document.getElementById('elph-btn-open-cam').style.display = 'none';
+      document.getElementById('elph-btn-capture').style.display = 'inline-block';
+      document.getElementById('elph-btn-retake').style.display = 'none';
+      fetchElphGPS();
+    })
+    .catch(err => alert(_cameraErrorMessage(err)));
+}
+
+function fetchElphGPS() {
+  const gpsDiv = document.getElementById('elph-gps-status');
+  if (!navigator.geolocation) {
+    gpsDiv.innerHTML = '<span class="gps-badge gps-badge-miss">⚠ GPS not available on this device</span>';
+    return;
+  }
+  gpsDiv.innerHTML = '<span class="gps-badge" style="background:var(--navy3);color:var(--navy)">📡 Getting GPS location...</span>';
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      elphCapturedLat = parseFloat(pos.coords.latitude.toFixed(6));
+      elphCapturedLng = parseFloat(pos.coords.longitude.toFixed(6));
+      elphCapturedAcc = Math.round(pos.coords.accuracy);
+      gpsDiv.innerHTML = '<span class="gps-badge">✓ GPS: ' + elphCapturedLat + ', ' + elphCapturedLng + ' (±' + elphCapturedAcc + 'm)</span>';
+    },
+    err => {
+      elphCapturedLat = null; elphCapturedLng = null;
+      const msg = err.code === 1 ? 'GPS permission denied' : err.code === 3 ? 'GPS timeout — try outdoors' : 'GPS unavailable';
+      gpsDiv.innerHTML = '<span class="gps-badge gps-badge-miss">⚠ ' + msg + '</span>';
+    },
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+  );
+}
+
+async function captureElphPhoto() {
+  const video  = document.getElementById('elph-cam-preview');
+  const canvas = document.getElementById('elph-cam-canvas');
+  canvas.width  = video.videoWidth  || 1280;
+  canvas.height = video.videoHeight || 720;
+  canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+  const initialDataUrl = canvas.toDataURL('image/jpeg', 0.75);
+  try {
+    elphCapturedPhoto = await _compressPhotoDataUrl(initialDataUrl);
+  } catch (err) {
+    console.warn('[elph-capture] compression failed, using initial:', err);
+    elphCapturedPhoto = initialDataUrl;
+  }
+  const thumb = document.getElementById('elph-photo-thumb');
+  thumb.src = elphCapturedPhoto;
+  thumb.style.display = 'block';
+  video.style.display = 'none';
+  document.getElementById('elph-btn-capture').style.display = 'none';
+  document.getElementById('elph-btn-retake').style.display = 'inline-block';
+  if (elphCameraStream) { elphCameraStream.getTracks().forEach(t => t.stop()); elphCameraStream = null; }
+  document.getElementById('elph-photo-section').classList.add('has-photo');
+  if (!elphCapturedLat) fetchElphGPS();
+}
+
+function retakeElphPhoto() {
+  elphCapturedPhoto = null;
+  elphCapturedLat = null; elphCapturedLng = null;
+  const thumb = document.getElementById('elph-photo-thumb');
+  if (thumb) { thumb.style.display = 'none'; thumb.src = ''; }
+  document.getElementById('elph-photo-section').classList.remove('has-photo');
+  document.getElementById('elph-btn-retake').style.display = 'none';
+  document.getElementById('elph-gps-status').innerHTML = '';
+  openElphCamera();
+}
+
+function stopElphCamera() {
+  if (elphCameraStream) { elphCameraStream.getTracks().forEach(t => t.stop()); elphCameraStream = null; }
+  const video = document.getElementById('elph-cam-preview');
+  if (video) { video.style.display = 'none'; video.srcObject = null; }
+}
+
+async function submitEndlinePhotoOnly() {
+  if (!elphCurrentBid) {
+    toast('No beneficiary selected.', 'error');
+    return;
+  }
+  // Require a fresh capture — saving with nothing new is a no-op (and a
+  // confusing UX). If the FC just wants to close, they use Cancel.
+  if (!elphCapturedPhoto || !elphCapturedPhoto.startsWith('data:')) {
+    toast('Please capture a photo before saving (or Cancel to close).', 'warning', 5000);
+    return;
+  }
+
+  // Disable the save button during upload
+  const btnHandle = _disableSaveBtnForUpload('elph-submit-btn', 'Uploading photo…');
+
+  // Re-load the record fresh so we don't clobber other concurrent edits.
+  // The cache is the source of truth (V310-S2).
+  const data = loadData();
+  const idx = data.findIndex(b => b.id === elphCurrentBid);
+  if (idx === -1) {
+    _restoreSaveBtn(btnHandle);
+    toast('Beneficiary not found in cache. Reload and try again.', 'error', 6000);
+    return;
+  }
+
+  // Upload first
+  let url;
+  try {
+    url = await uploadPhotoForRecord(elphCurrentBid, 'endline', elphCapturedPhoto);
+  } catch (e) {
+    _restoreSaveBtn(btnHandle);
+    const msg = (e && e.message) ? e.message : 'Photo upload failed. Please try again.';
+    toast(msg, 'error', 8000);
+    return;
+  }
+
+  // Apply to record + GPS (if captured this session)
+  data[idx].endlinePhotoUrl = url;
+  if (elphCapturedLat != null) {
+    data[idx].endlineLat         = elphCapturedLat;
+    data[idx].endlineLng         = elphCapturedLng;
+    data[idx].endlineGpsAccuracy = elphCapturedAcc;
+  }
+  // Clear legacy base64 if present — after this save the record is on
+  // endlinePhotoUrl exclusively.
+  delete data[idx].endlinePhoto;
+
+  // Save record
+  try {
+    await saveData(data);
+  } catch (e) {
+    _restoreSaveBtn(btnHandle);
+    const msg = (e instanceof SaveError) ? e.message : 'Save failed. Please try again.';
+    toast(msg, 'error', 8000);
+    return;
+  }
+  _restoreSaveBtn(btnHandle);
+
+  // Audit
+  try {
+    auditLog('update', 'beneficiary', elphCurrentBid, data[idx].name,
+      'Captured / updated endline photo', null);
+  } catch(e) { /* best-effort */ }
+
+  toast('Endline photo saved.', 'success', 4000);
+  closeEndlinePhotoModal();
+  // Refresh visible UI so the new photo shows up immediately
+  if (typeof renderCurrent === 'function') renderCurrent();
+  // Re-open the drawer so the FC sees the result
+  if (typeof openDrawer === 'function') openDrawer(elphCurrentBid);
 }
 
 // ── Endline Survey Page removed in v18 (orphan route, no sidebar entry).
