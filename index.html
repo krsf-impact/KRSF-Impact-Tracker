@@ -5245,7 +5245,7 @@ function openDrawer(id) {
       ? `<button class="btn" onclick="openEnrollAsFamilyMember('${b.id}')" title="Enroll a wife / daughter / other family member of this beneficiary for advocacy tracking only" style="color:var(--navy);border-color:var(--navy3)">+ Add Family Member</button>`
       : ''}
     <button class="btn" onclick="showBeneficiaryPhotos('${b.id}')" title="View baseline and endline photos full-size">📷 Show Photos</button>
-    ${hasLiv && (b.status === 'In Progress' || b.status === 'Completed')
+    ${hasLiv && b.status
       ? `<button class="btn" onclick="openEndlinePhotoModal('${b.id}')" title="Capture or replace the endline (after) photo for this beneficiary" style="color:var(--green);border-color:var(--green2)">${(b.endlinePhotoUrl || b.endlinePhoto) ? '↺ Retake Endline Photo' : '+ Add Endline Photo'}</button>`
       : ''}
     ${hasLiv && (Array.isArray(b.incomeLog) && b.incomeLog.length > 0 || b.endIncome != null)
@@ -7641,8 +7641,8 @@ function openEndlinePhotoModal(bid) {
     toast('Endline photo not applicable for advocacy-only records.', 'error');
     return;
   }
-  if (b.status !== 'In Progress' && b.status !== 'Completed') {
-    toast('Endline photo can only be captured once livelihood is in progress.', 'error');
+  if (!b.status) {
+    toast('Endline photo not applicable for this record.', 'error');
     return;
   }
 
