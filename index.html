@@ -1732,6 +1732,7 @@ body[data-shell="coord"] #coord-app { display: block; }
           <button type="button" class="btn btn-primary" id="elph-btn-open-cam" onclick="openElphCamera()">📷 Open Camera</button>
           <button type="button" class="btn" id="elph-btn-capture" onclick="captureElphPhoto()" style="display:none">Capture</button>
           <button type="button" class="btn" id="elph-btn-retake" onclick="retakeElphPhoto()" style="display:none">↺ Retake</button>
+          <label class="btn" style="cursor:pointer;margin:0;display:inline-flex;align-items:center;gap:5px">📁 Upload<input type="file" accept="image/*" style="display:none" onchange="handleElphPhotoUpload(this)"></label>
         </div>
         <div id="elph-gps-status" style="margin-top:10px;min-height:24px;text-align:center"></div>
       </div>
@@ -7786,6 +7787,54 @@ function retakeElphPhoto() {
   document.getElementById('elph-btn-retake').style.display = 'none';
   document.getElementById('elph-gps-status').innerHTML = '';
   openElphCamera();
+}
+
+// Gallery upload path — mirrors handlePhotoUpload from the enrollment form.
+// Lets the FC pick an existing photo from their phone instead of using the
+// in-app camera. Same compression pipeline, same end state — sets
+// elphCapturedPhoto so submitEndlinePhotoOnly's upload path picks it up.
+async function handleElphPhotoUpload(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  // If the camera was open, stop it — switching to gallery means the
+  // FC abandoned the live preview.
+  stopElphCamera();
+  // Reset the file input value so picking the SAME file twice (e.g. after
+  // a retake-then-upload) still fires onchange. Some browsers skip the
+  // event if the file path didn't change.
+  input.value = '';
+
+  const reader = new FileReader();
+  reader.onload = async function(e) {
+    try {
+      elphCapturedPhoto = await _compressPhotoDataUrl(e.target.result);
+    } catch (err) {
+      console.warn('[elph-upload] compression failed, using original:', err);
+      elphCapturedPhoto = e.target.result;
+    }
+    const thumb = document.getElementById('elph-photo-thumb');
+    const instr = document.getElementById('elph-photo-instructions');
+    if (thumb) { thumb.src = elphCapturedPhoto; thumb.style.display = 'block'; }
+    if (instr) instr.style.display = 'none';
+    document.getElementById('elph-photo-section').classList.add('has-photo');
+    // After upload, hide camera/capture buttons and show retake (which
+    // re-opens the camera if FC wants to ditch the gallery pick).
+    const btnOpen = document.getElementById('elph-btn-open-cam');
+    const btnCap  = document.getElementById('elph-btn-capture');
+    const btnRet  = document.getElementById('elph-btn-retake');
+    if (btnOpen) btnOpen.style.display = 'none';
+    if (btnCap)  btnCap.style.display  = 'none';
+    if (btnRet)  btnRet.style.display  = 'inline-block';
+    // GPS — uploaded photos don't have inherent GPS context for our
+    // workflow (we record where the visit happened, not where the file
+    // was taken). Trigger a fresh fetch so the saved record's coords
+    // reflect the FC's current location.
+    fetchElphGPS();
+  };
+  reader.onerror = function() {
+    toast('Could not read the selected image. Try a different file.', 'error', 5000);
+  };
+  reader.readAsDataURL(file);
 }
 
 function stopElphCamera() {
