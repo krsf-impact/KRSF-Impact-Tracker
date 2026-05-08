@@ -15439,8 +15439,265 @@ function renderAdminPhotoMigration() {
       </button>
 
       ${logHtml}
+
+      ${_renderPhotoCleanupSection()}
     </div>`;
 }
+
+// =============================================================================
+// PHOTO CLEANUP — V310-S3 Step 3 (delete legacy base64 from migrated records)
+// =============================================================================
+// After Step 1 migrated photos to Storage, records carry both b.photo (legacy
+// base64) AND b.photoUrl (Storage URL). The base64 was kept as a safety
+// fallback. Step 3 sweeps the database and deletes b.photo / b.endlinePhoto
+// from any record where the corresponding Storage URL is set, freeing
+// bandwidth on every page load (pre-Step-3, the entire collection downloads
+// the base64 strings on every fbSync, which is the dominant cost).
+//
+// Safety properties:
+// - Idempotent: re-running skips records where the legacy field is already
+//   gone.
+// - Defensive URL check: only deletes legacy field if the corresponding URL
+//   looks like a Firebase Storage URL. Records with a non-Storage URL (which
+//   shouldn't happen, but) are left alone.
+// - Halt-on-error: any DB write failure stops the run with a clear message.
+//   Re-runnable safely.
+// - Does NOT touch Storage. Files in photos/ remain intact.
+// - Does NOT touch records that have base64 but no Storage URL (those are
+//   un-migrated; Step 1's tool handles them).
+// =============================================================================
+
+const _STORAGE_URL_PREFIX = 'https://firebasestorage.googleapis.com/';
+
+let _photoCleanupState = {
+  running: false,
+  done: false,
+  halted: false,
+  haltMessage: '',
+  total: 0,
+  processed: 0,
+  cleaned: 0,        // legacy fields removed
+  skipped: 0,        // record matched but URL was not a Storage URL
+  log: []
+};
+
+function _photoCleanupLog(msg) {
+  _photoCleanupState.log.push(msg);
+  console.log('[V310-S3-Step3 cleanup]', msg);
+}
+
+// Count records carrying redundant legacy base64. Returns:
+// { baselineRedundant, endlineRedundant, recordsAffected }
+function _photoCleanupCountWork() {
+  const all = (typeof loadData === 'function') ? loadData() : [];
+  let baselineRedundant = 0, endlineRedundant = 0;
+  const recordSet = new Set();
+  all.forEach(b => {
+    const bUrl = b.photoUrl;
+    const eUrl = b.endlinePhotoUrl;
+    if (typeof b.photo === 'string' && b.photo.startsWith('data:') &&
+        typeof bUrl === 'string' && bUrl.startsWith(_STORAGE_URL_PREFIX)) {
+      baselineRedundant++; recordSet.add(b.id);
+    }
+    if (typeof b.endlinePhoto === 'string' && b.endlinePhoto.startsWith('data:') &&
+        typeof eUrl === 'string' && eUrl.startsWith(_STORAGE_URL_PREFIX)) {
+      endlineRedundant++; recordSet.add(b.id);
+    }
+  });
+  return { baselineRedundant, endlineRedundant, recordsAffected: recordSet.size };
+}
+
+async function cleanupLegacyBase64Photos() {
+  if (!isAdmin()) { toast('Admin only.', 'error'); return; }
+  if (_photoCleanupState.running) { toast('Cleanup already running.', 'warning'); return; }
+
+  // Reset state
+  _photoCleanupState = {
+    running: true, done: false, halted: false, haltMessage: '',
+    total: 0, processed: 0, cleaned: 0, skipped: 0, log: []
+  };
+
+  // Snapshot work up-front
+  const all = loadData();
+  const work = []; // [{ bid, kind }]
+  all.forEach(b => {
+    if (typeof b.photo === 'string' && b.photo.startsWith('data:') &&
+        typeof b.photoUrl === 'string' && b.photoUrl.startsWith(_STORAGE_URL_PREFIX)) {
+      work.push({ bid: b.id, kind: 'baseline' });
+    }
+    if (typeof b.endlinePhoto === 'string' && b.endlinePhoto.startsWith('data:') &&
+        typeof b.endlinePhotoUrl === 'string' && b.endlinePhotoUrl.startsWith(_STORAGE_URL_PREFIX)) {
+      work.push({ bid: b.id, kind: 'endline' });
+    }
+  });
+  _photoCleanupState.total = work.length;
+  _photoCleanupLog(`Starting cleanup. ${work.length} legacy field(s) to delete.`);
+  renderAdminPhotoMigration();
+
+  if (work.length === 0) {
+    _photoCleanupState.running = false;
+    _photoCleanupState.done = true;
+    _photoCleanupLog('Nothing to do — no redundant legacy base64 found.');
+    renderAdminPhotoMigration();
+    toast('No legacy base64 to clean. Database is already URL-only.', 'info', 4000);
+    return;
+  }
+
+  // Process record-by-record. We re-load the full array each time and save
+  // the whole array — the same pattern as Step 1 and Step 2 — so concurrent
+  // edits from other users don't get clobbered.
+  for (let i = 0; i < work.length; i++) {
+    const item = work[i];
+    let saveErrMsg = '';
+    try {
+      const fresh = loadData();
+      const idx = fresh.findIndex(b => b.id === item.bid);
+      if (idx === -1) {
+        _photoCleanupLog(`⚠ Record ${item.bid} disappeared from cache — skipping`);
+        _photoCleanupState.skipped++;
+        _photoCleanupState.processed++;
+        continue;
+      }
+      // Defensive re-check: don't delete unless the URL is still a Storage
+      // URL. Guards against the rare case where someone edited the record
+      // mid-cleanup.
+      const fieldKey  = item.kind === 'baseline' ? 'photo'    : 'endlinePhoto';
+      const urlKey    = item.kind === 'baseline' ? 'photoUrl' : 'endlinePhotoUrl';
+      const url = fresh[idx][urlKey];
+      if (typeof url !== 'string' || !url.startsWith(_STORAGE_URL_PREFIX)) {
+        _photoCleanupLog(`⚠ ${item.bid} ${item.kind}: URL not a Storage URL anymore — skipping`);
+        _photoCleanupState.skipped++;
+        _photoCleanupState.processed++;
+        continue;
+      }
+      if (typeof fresh[idx][fieldKey] !== 'string' || !fresh[idx][fieldKey].startsWith('data:')) {
+        // Already cleaned — concurrent run or already-done in this session
+        _photoCleanupLog(`✓ ${item.bid} ${item.kind}: already cleaned — skipping`);
+        _photoCleanupState.skipped++;
+        _photoCleanupState.processed++;
+        continue;
+      }
+      delete fresh[idx][fieldKey];
+      await saveData(fresh);
+      _photoCleanupLog(`✓ Deleted ${item.kind} base64 from ${item.bid}`);
+      _photoCleanupState.cleaned++;
+    } catch (e) {
+      saveErrMsg = `Cleanup failed at ${item.bid} (${item.kind}): ${e && e.message ? e.message : e}`;
+    }
+    if (saveErrMsg) {
+      _photoCleanupLog('✗ ' + saveErrMsg);
+      _photoCleanupState.halted = true;
+      _photoCleanupState.haltMessage = saveErrMsg + ' Re-run to retry; already-cleaned records will be skipped.';
+      _photoCleanupState.running = false;
+      _photoCleanupState.done = true;
+      renderAdminPhotoMigration();
+      return;
+    }
+    _photoCleanupState.processed++;
+    renderAdminPhotoMigration();
+  }
+
+  _photoCleanupState.running = false;
+  _photoCleanupState.done = true;
+  _photoCleanupLog(`Done. Cleaned ${_photoCleanupState.cleaned} field(s), skipped ${_photoCleanupState.skipped}.`);
+  renderAdminPhotoMigration();
+  toast(`Cleanup complete. ${_photoCleanupState.cleaned} legacy field(s) removed.`, 'success', 5000);
+}
+
+function _renderPhotoCleanupSection() {
+  const counts = _photoCleanupCountWork();
+  const s = _photoCleanupState;
+  const pct = s.total > 0 ? Math.round((s.processed / s.total) * 100) : 0;
+
+  let banner = '';
+  if (s.running) {
+    banner = `
+      <div style="background:#FEF3C7;border:1px solid #F59E0B;border-radius:8px;padding:12px 14px;margin-bottom:14px;color:#92400E">
+        <div style="font-weight:700;margin-bottom:4px">⏳ Cleanup in progress</div>
+        <div style="font-size:13px">Processed ${s.processed} of ${s.total} (${pct}%)</div>
+      </div>`;
+  } else if (s.halted) {
+    banner = `
+      <div style="background:#FEE2E2;border:1px solid #DC2626;border-radius:8px;padding:12px 14px;margin-bottom:14px;color:#991B1B">
+        <div style="font-weight:700;margin-bottom:4px">⛔ Cleanup halted</div>
+        <div style="font-size:13px;line-height:1.5">${escHtml(s.haltMessage)}</div>
+        <div style="font-size:12px;margin-top:8px;color:#7F1D1D">${s.cleaned} field(s) cleaned before the halt.</div>
+      </div>`;
+  } else if (s.done) {
+    banner = `
+      <div style="background:#D1FAE5;border:1px solid #10B981;border-radius:8px;padding:12px 14px;margin-bottom:14px;color:#065F46">
+        <div style="font-weight:700;margin-bottom:4px">✅ Cleanup complete</div>
+        <div style="font-size:13px">${s.cleaned} legacy field(s) deleted, ${s.skipped} skipped.</div>
+      </div>`;
+  }
+
+  let progressBar = '';
+  if (s.running || (s.done && s.total > 0)) {
+    progressBar = `
+      <div style="margin-bottom:14px">
+        <div style="background:var(--gray3);border-radius:6px;height:10px;overflow:hidden">
+          <div style="background:#10B981;height:100%;width:${pct}%;transition:width .3s"></div>
+        </div>
+        <div style="font-size:12px;color:var(--gray2);margin-top:4px">${s.processed} / ${s.total} (${pct}%)</div>
+      </div>`;
+  }
+
+  const recentLog = s.log.slice(-15);
+  const logHtml = recentLog.length === 0 ? '' : `
+    <div style="background:var(--gray4);border:1px solid var(--gray3);border-radius:8px;padding:10px 12px;margin-top:14px;max-height:200px;overflow-y:auto">
+      <div style="font-size:11px;font-weight:600;color:var(--gray2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px">Cleanup log</div>
+      ${recentLog.map(line => `<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--gray);padding:2px 0">${escHtml(line)}</div>`).join('')}
+    </div>`;
+
+  const totalRedundant = counts.baselineRedundant + counts.endlineRedundant;
+  const startDisabled = s.running || totalRedundant === 0;
+  const startLabel = s.running ? 'Cleaning…' :
+    (totalRedundant === 0 ? 'Nothing to clean' :
+     `Start cleanup (${totalRedundant} field${totalRedundant === 1 ? '' : 's'})`);
+
+  return `
+    <hr style="margin:32px 0;border:none;border-top:1px solid var(--gray3)">
+
+    <h2 style="font-size:18px;margin-bottom:6px">Cleanup Legacy Base64 Fields</h2>
+    <p style="color:var(--gray2);font-size:13px;margin-bottom:18px;line-height:1.55">
+      After photos were migrated to Firebase Storage, the original base64 strings
+      were kept on each record as a safety fallback. This step deletes those
+      legacy base64 fields, since the photos are now served from Storage URLs.
+      <strong>This shrinks the database significantly</strong> and reduces the
+      bandwidth used on every page load.
+    </p>
+
+    ${banner}
+    ${progressBar}
+
+    <div style="background:var(--navy4);border:1px solid var(--navy3);border-radius:10px;padding:14px 16px;margin-bottom:14px">
+      <div style="font-weight:600;color:var(--navy);margin-bottom:8px">Current state</div>
+      <div style="display:grid;grid-template-columns:auto auto;gap:6px 18px;font-size:13px">
+        <div style="color:var(--gray2)">Records with redundant baseline base64</div><div style="font-weight:600">${counts.baselineRedundant}</div>
+        <div style="color:var(--gray2)">Records with redundant endline base64</div><div style="font-weight:600">${counts.endlineRedundant}</div>
+        <div style="color:var(--gray2)">Total records affected</div><div style="font-weight:600">${counts.recordsAffected}</div>
+      </div>
+    </div>
+
+    <div style="background:#FFFBEB;border:1px solid #FCD34D;border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:12.5px;color:#92400E;line-height:1.55">
+      <strong>Before you start:</strong>
+      <ul style="margin:6px 0 0 18px;padding:0">
+        <li>You should have a fresh Realtime Database JSON backup. This step deletes data.</li>
+        <li>Only deletes <code>b.photo</code> / <code>b.endlinePhoto</code> when the corresponding Storage URL is present and valid. Records without a Storage URL are left alone.</li>
+        <li>Storage files (<code>photos/...</code>) are not touched.</li>
+        <li>Halt-on-error and re-runnable. Already-cleaned records are skipped on subsequent runs.</li>
+      </ul>
+    </div>
+
+    <button class="btn" style="background:#10B981;color:#fff;border-color:#10B981" onclick="cleanupLegacyBase64Photos()" ${startDisabled ? 'disabled style="opacity:.5;cursor:not-allowed;background:#9CA3AF;border-color:#9CA3AF"' : ''}>
+      ${escHtml(startLabel)}
+    </button>
+
+    ${logHtml}
+  `;
+}
+
+
 
 
 
