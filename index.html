@@ -2377,31 +2377,32 @@ async function fbInitialSync() {
     // boot-time bandwidth. After this change, audit log alone (~3 MB at
     // 7,150 entries) drops to ~80 KB on boot — a ~40x reduction for that
     // collection.
+    // V311 (2026-05-10) bandwidth fix: removed redundant .once() fetches for
+    // beneficiaries and advocacy. The child_added listeners attached in
+    // fbAttachListeners() replay every existing record on attach, so the
+    // .once() was downloading the same data twice. Cache hydration now
+    // happens through the listeners' batched flush (_benefFlushNow,
+    // _advFlushNow) which coalesces the ~3,800 child_added events into a
+    // single render via the existing 200ms trailing-edge batch.
+    //
+    // FB.lastBenef and FB.lastAdv start empty; the listeners populate them
+    // on first event (see line 2686-2687 for benef, equivalent for adv).
+    // Echo suppression still works: writes update FB.lastBenef[id] BEFORE
+    // the write, listener sees matching hash, skips.
     const [
-      benefSnap, advSnap, partSnap, cfgSnap, auditSnap, usersSnap
+      partSnap, cfgSnap, auditSnap, usersSnap
     ] = await Promise.all([
-      fbRef('beneficiaries').once('value'),
-      fbRef('advocacy').once('value'),
       fbRef('partners').once('value'),
       fbRef('config').once('value'),
       fbRef('audit').orderByChild('ts').limitToLast(200).once('value'),
       fbRef('users').once('value'),
     ]);
     // ─ Beneficiaries ──────────────────────────────────────────────────
-    const fbBenef = Object.values(benefSnap.val() || {});
-    // V310: hydrate the in-memory cache (cloud-authoritative) instead of LS.
-    _hydrateBenefCache(fbBenef);
-    FB.lastBenef = fbToMap(fbBenef, 'id');
+    // Hydration deferred to child_added listener (see V311 note above).
+    FB.lastBenef = {};
     // ─ Advocacy ──────────────────────────────────────────────────────
-    // Advocacy records have NO id field — only bid (beneficiary id) + scheme.
-    // We synthesise a stable key: bid__schemeSlug, so re-saving the same
-    // (bid, scheme) pair updates instead of duplicating.
-    const fbAdv = Object.values(advSnap.val() || {});
-    // V310: stamp __fbk before hydration so the cache key matches what
-    // listeners will use, and what loadAdv consumers expect.
-    const fbAdvStamped = fbAdv.map(fbStampAdvKey);
-    _hydrateAdvCache(fbAdvStamped);
-    FB.lastAdv = fbToMap(fbAdvStamped, '__fbk');
+    // Hydration deferred to child_added listener (see V311 note above).
+    FB.lastAdv = {};
     // ─ Partners ──────────────────────────────────────────────────────
     const fbPart = Object.values(partSnap.val() || {});
     // V310: hydrate the in-memory cache (cloud-authoritative) instead of LS.
@@ -2525,51 +2526,90 @@ function mergeAuditLogs(cloud, local) {
 // 3 reconnects, every event would fire 8x — multiplying bandwidth, render
 // work, and localStorage churn. There's currently only one call site
 // (fbInitialSync line ~2212), but this guard prevents future foot-guns.
+// V312 (2026-05-10): _listenersAttached now tracks ONLY the listeners that
+// don't depend on user role (audit, partners, config, advocacy, users).
+// Beneficiary listener is tracked separately via _benefListenersAttached
+// because it must re-attach on login to reflect the current user's role.
 let _listenersAttached = false;
+let _benefListenersAttached = false;
 function fbAttachListeners() {
   if (!FB.db) return;
-  if (_listenersAttached) {
-    console.warn('[V309] fbAttachListeners called more than once — ignoring duplicate attach');
-    return;
+  if (!_listenersAttached) {
+    _listenersAttached = true;
+    // ── Advocacy ─────────────────────────────────────────────────────────
+    // V309 (2026-05-05) bandwidth fix: same pattern as beneficiaries above.
+    // Old listener was .on('value') on the entire advocacy collection
+    // (~1.75 MB at ~3,500 records); every advocacy edit on any device
+    // re-downloaded the full collection to every connected device.
+    //
+    // Note on the key field: advocacy records have NO natural id — only
+    // bid + scheme. fbStampAdvKey synthesises a stable __fbk key from
+    // those two fields. The listener echoes the same scheme: hash the
+    // stamped record, compare against FB.lastAdv[__fbk].
+    //
+    // V312 (2026-05-10): advocacy is NOT scoped by role for now. Records
+    // don't consistently carry an indexable scope field (createdBy or ngo
+    // would need backfilling). At ~340 bytes per record × 3,800 records ≈
+    // 1.3 MB per cold boot, the advocacy listener is a smaller contributor
+    // than beneficiaries (~3 MB). Revisit after observing the impact of
+    // the beneficiary scoping.
+    fbAdvHandleChild('child_added');
+    fbAdvHandleChild('child_changed');
+    fbAdvHandleChild('child_removed');
+    // ── Partners ─────────────────────────────────────────────────────────
+    // V310: partners is small (13 records) and rarely changes (only when
+    // an admin adds/edits a partner via Admin > Partners). Keeping the
+    // value-style listener is fine — bandwidth impact is negligible.
+    // Listener now updates the in-memory cache; localStorage is not touched.
+    _attachNonBenefListeners();
   }
-  _listenersAttached = true;
-  // ── Beneficiaries ────────────────────────────────────────────────────
-  // V309 (2026-05-05) bandwidth fix: previous code used .on('value') which
-  // re-downloaded the ENTIRE beneficiary collection (~3 MB at 3,500 records)
-  // every time any field on any record changed. With 30 active users editing
-  // throughout the day, this drove substantial bandwidth.
-  //
-  // New approach: per-child events. Each event delivers exactly one record.
-  // Echo suppression uses FB.lastBenef map: when we write a record, we update
-  // FB.lastBenef[id] = hash(record) BEFORE the write. The listener computes
-  // the same hash and skips if it matches — that's our own write coming back.
-  //
-  // localStorage writes are batched at the 200ms trailing edge to handle
-  // bulk operations efficiently (a 100-record bulk import generates 100
-  // child events in rapid succession; without batching, we'd write the
-  // full 3 MB array to localStorage 100 times. With batching, we write it
-  // once.)
-  fbBenefHandleChild('child_added');
-  fbBenefHandleChild('child_changed');
-  fbBenefHandleChild('child_removed');
-  // ── Advocacy ─────────────────────────────────────────────────────────
-  // V309 (2026-05-05) bandwidth fix: same pattern as beneficiaries above.
-  // Old listener was .on('value') on the entire advocacy collection
-  // (~1.75 MB at ~3,500 records); every advocacy edit on any device
-  // re-downloaded the full collection to every connected device.
-  //
-  // Note on the key field: advocacy records have NO natural id — only
-  // bid + scheme. fbStampAdvKey synthesises a stable __fbk key from
-  // those two fields. The listener echoes the same scheme: hash the
-  // stamped record, compare against FB.lastAdv[__fbk].
-  fbAdvHandleChild('child_added');
-  fbAdvHandleChild('child_changed');
-  fbAdvHandleChild('child_removed');
-  // ── Partners ─────────────────────────────────────────────────────────
-  // V310: partners is small (13 records) and rarely changes (only when
-  // an admin adds/edits a partner via Admin > Partners). Keeping the
-  // value-style listener is fine — bandwidth impact is negligible.
-  // Listener now updates the in-memory cache; localStorage is not touched.
+  // ── Beneficiaries (role-scoped) ─────────────────────────────────────
+  // V312 bandwidth fix: see _benefScopedQuery for rationale. We attach
+  // beneficiary listeners only AFTER currentUser() is known, so the query
+  // can be scoped to the right slice. On a returning user (session in
+  // localStorage), this runs immediately at boot. On first-time login,
+  // doLogin() calls fbAttachListeners() again after saveSession.
+  if (!_benefListenersAttached) {
+    const u = (typeof currentUser === 'function') ? currentUser() : null;
+    if (u) {
+      _benefListenersAttached = true;
+      // V309 (2026-05-05) bandwidth fix: previous code used .on('value') which
+      // re-downloaded the ENTIRE beneficiary collection (~3 MB at 3,500 records)
+      // every time any field on any record changed. With 30 active users editing
+      // throughout the day, this drove substantial bandwidth.
+      //
+      // New approach: per-child events. Each event delivers exactly one record.
+      // Echo suppression uses FB.lastBenef map: when we write a record, we update
+      // FB.lastBenef[id] = hash(record) BEFORE the write. The listener computes
+      // the same hash and skips if it matches — that's our own write coming back.
+      //
+      // localStorage writes are batched at the 200ms trailing edge to handle
+      // bulk operations efficiently.
+      //
+      // V312: per-child events now go through a role-scoped query.
+      fbBenefHandleChild('child_added');
+      fbBenefHandleChild('child_changed');
+      fbBenefHandleChild('child_removed');
+    }
+    // If u is null (logged out / not yet logged in), defer attach to login.
+  }
+}
+
+// V312: helper to detach beneficiary listeners on logout. The non-benef
+// listeners (audit, partners, advocacy, etc.) stay attached — they aren't
+// role-scoped and carry no PII for the next user.
+function fbBenefDetachOnLogout() {
+  if (typeof fbBenefDetachListeners === 'function') fbBenefDetachListeners();
+  _benefListenersAttached = false;
+  // Reset the echo-suppression map so the new user's listener doesn't
+  // suppress legitimate child_added events whose hashes happen to match
+  // a previous user's records.
+  FB.lastBenef = {};
+}
+
+// V312: extracted from fbAttachListeners so the non-role-dependent
+// listeners can attach once at boot. Pulled out for clarity.
+function _attachNonBenefListeners() {
   fbRef('partners').on('value', snap => {
     const arr = Object.values(snap.val() || {});
     const newMap = fbToMap(arr, 'id');
@@ -2662,8 +2702,54 @@ function fbAttachListeners() {
 const _benefPending = new Map();
 let _benefFlushTimer = null;
 
+// V312 (2026-05-10) bandwidth fix: role-scoped beneficiary queries.
+//
+// Previously `fbRef('beneficiaries').on(...)` attached an unscoped listener
+// that received every record on attach (and on every reconnect). For 28 of
+// 30 users (FCs and NGO partners) this delivered 3,800+ records when their
+// UI would only show ~50 (FC) or ~300 (NGO partner). Result: ~95% of
+// listener bandwidth was downloading records the user can never see.
+//
+// Now each role attaches a query that the database filters server-side:
+//   admin       -> full collection (admin needs everything)
+//   ngo         -> orderByChild('ngo').equalTo(u.ngo)
+//   coordinator -> orderByChild('createdBy').equalTo(u.userId)
+//
+// REQUIRED: database rules must declare these as indexed fields, otherwise
+// Firebase warns and degrades to client-side filtering (no bandwidth save).
+// See firebase.rules.json next to this file:
+//     "beneficiaries": { ".indexOn": ["createdBy", "ngo"] }
+//
+// Edge case: household-head lookups across FCs. If FC-A's record has
+// headId pointing to a record owned by FC-B, FC-A no longer has the head
+// record in cache. UI degrades to "(unknown head)" but doesn't break.
+// Acceptable for now; full fix requires a separate household-heads index.
+//
+// Edge case: reassignment. If admin changes a record's createdBy from
+// FC-A to FC-B, Firebase fires child_removed on FC-A's listener (record
+// no longer matches the query) and child_added on FC-B's listener. The
+// existing handlers cope correctly.
+function _benefScopedQuery() {
+  const u = (typeof currentUser === 'function') ? currentUser() : null;
+  if (!u) return null;  // No user yet — caller should not attach
+  if (u.role === 'admin') return fbRef('beneficiaries');
+  if (u.role === 'ngo' && u.ngo) {
+    return fbRef('beneficiaries').orderByChild('ngo').equalTo(u.ngo);
+  }
+  if (u.role === 'coordinator' && u.userId) {
+    return fbRef('beneficiaries').orderByChild('createdBy').equalTo(u.userId);
+  }
+  // Unknown/incomplete role: fall back to full fetch rather than show
+  // empty data. Better to over-fetch than break the UI.
+  return fbRef('beneficiaries');
+}
+// Track the query handle so we can detach on logout.
+let _benefQueryHandle = null;
 function fbBenefHandleChild(eventType) {
-  fbRef('beneficiaries').on(eventType, snap => {
+  const q = _benefScopedQuery();
+  if (!q) return;  // No user — nothing to attach
+  _benefQueryHandle = q;  // Same query each call within one session
+  q.on(eventType, snap => {
     const id = snap.key;
     if (!id) return;
     if (eventType === 'child_removed') {
@@ -2687,6 +2773,14 @@ function fbBenefHandleChild(eventType) {
     FB.lastBenef[id] = incomingHash;
     _benefScheduleFlush();
   });
+}
+// V312: detach all beneficiary listeners. Called on logout so the next
+// login attaches fresh listeners scoped to the new user's role.
+function fbBenefDetachListeners() {
+  if (_benefQueryHandle) {
+    try { _benefQueryHandle.off(); } catch(_){}
+    _benefQueryHandle = null;
+  }
 }
 
 function _benefScheduleFlush() {
@@ -13490,6 +13584,12 @@ async function doLogin() {
 
   // Success — persist session, hide login, render app
   saveSession({userId:user.id, username:user.username, role:user.role, ngo:user.ngo, fullName:user.fullName});
+  // V312: now that currentUser() resolves to the new user, attach the
+  // role-scoped beneficiary listener. fbAttachListeners() is idempotent
+  // for the non-benef listeners; it only attaches the benef listener if
+  // _benefListenersAttached is false. This call is a no-op for returning
+  // users who already had a session at boot.
+  try { if (typeof fbAttachListeners === 'function') fbAttachListeners(); } catch(_){}
   auditLog('login', 'session', user.id, user.username, `Signed in as ${user.role}${user.ngo?' ('+user.ngo+')':''}`, null);
   document.getElementById('login-overlay').style.display = 'none';
   document.getElementById('login-username').value = '';
@@ -13502,6 +13602,15 @@ function doLogout() {
   const me = currentUser();
   if (me) auditLog('logout', 'session', me.userId, me.username, 'Signed out', null);
   saveSession(null);
+  // V312: detach the role-scoped beneficiary listener so the next login
+  // can re-attach with the new user's role and scope. Other listeners
+  // (audit, partners, advocacy, users, config) stay attached — they
+  // aren't role-scoped.
+  try { if (typeof fbBenefDetachOnLogout === 'function') fbBenefDetachOnLogout(); } catch(_){}
+  // Clear cached beneficiary records from the previous session so the
+  // login screen doesn't briefly show stale data while the new user's
+  // listeners populate.
+  try { if (typeof RecordCache === 'object' && RecordCache.benef) RecordCache.benef.clear(); } catch(_){}
   // Clear any open overlays so nothing leaks between sessions
   document.querySelectorAll('.overlay.open, .drawer.open').forEach(el => el.classList.remove('open'));
   document.getElementById('login-overlay').style.display = 'flex';
