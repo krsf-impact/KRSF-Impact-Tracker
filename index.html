@@ -2925,6 +2925,28 @@ function _renderCurrentViewNow() {
   try {
     // Modal guard — common patterns from V15
     if (_isUserMidEdit()) return;
+    // V313 (2026-05-12) shell dispatch fix: coord shell has its own list
+    // renderer (coordRenderList) and writes to #coord-list. The manager
+    // shell uses _navRoutes_v32 which writes to admin DOM elements.
+    //
+    // Pre-V313, this function checked _navRoutes_v32 FIRST and returned
+    // early if currentView matched a route — so when a coord-shell user's
+    // listener delivered a record and triggered a re-render, the function
+    // ran an admin renderer (e.g. renderAllBeneficiaries) that wrote to
+    // admin DOM. The coord shell's #coord-list was never refreshed, so
+    // FCs saw "0 beneficiaries enrolled" even though their cache held
+    // records. Workaround was for the FC to refresh, navigate, or call
+    // coordRenderList() manually.
+    //
+    // Fix: check shell first. If body.dataset.shell === 'coord', always
+    // dispatch to coordRenderList — bypassing the manager nav-routes
+    // table entirely. This mirrors what window.renderCurrent (line 11389)
+    // already does for direct calls; we extend the same dispatch to the
+    // debounced listener-driven path.
+    if (document.body.dataset.shell === 'coord') {
+      if (typeof coordRenderList === 'function') coordRenderList();
+      return;
+    }
     if (typeof _navRoutes_v32 === 'object' && typeof currentView === 'string') {
       const fn = _navRoutes_v32[currentView];
       if (typeof fn === 'function') { fn(); return; }
