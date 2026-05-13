@@ -2094,7 +2094,19 @@ const FB = {
   // localStorageFull: false,
   // Suppress local listener echo: when WE write to FB, the on('value') fires
   // for OUR write too. We don't want to re-render or re-save in that case.
-  suppressEcho: new Set()  // set of "<collection>:<id>:<jsonHash>" we just wrote
+  suppressEcho: new Set(),  // set of "<collection>:<id>:<jsonHash>" we just wrote
+  // V317 (2026-05-13): replay-completion gates. Set true only after the
+  // initial listener replay for each collection has finished AND the first
+  // cache flush has happened. saveData/saveAdv block on these — see Bug 1
+  // in the V317 review: prior to this gate, a save during the listener
+  // replay window saw a partial cache (loadData() returned a subset of the
+  // user's actual records) while FB.lastBenef was fully populated. fbDiff
+  // then classified the in-flight records as DELETES and the multi-path
+  // update wiped them. The replay gate closes that window.
+  benefReplayComplete: false,
+  advReplayComplete: false,
+  _benefReplayQuietTimer: null,
+  _advReplayQuietTimer: null
 };
 
 // ── V310-S2 SaveError ─────────────────────────────────────────────────────
@@ -2305,6 +2317,11 @@ function fbUpdatePill() {
   pill.classList.remove('synced','pending','offline','error');
   // V310-S2: queue layer removed. Pill states simplify to:
   //   Cloud unavailable / Offline / Syncing(n) / Synced / Connecting...
+  // V317: added an "Initialising..." state for when the listener is still
+  // replaying. Users seeing this know NOT to attempt a save yet — it'll
+  // be blocked by the replay gate (Bug 1 fix). Once both benef and adv
+  // listeners signal replay-complete (or have no records to replay), the
+  // pill flips to Synced.
   if (FB.initFailed) {
     pill.classList.add('error');
     txt.textContent = 'Cloud unavailable';
@@ -2317,6 +2334,11 @@ function fbUpdatePill() {
     pill.classList.add('pending');
     txt.textContent = `Syncing (${FB.pendingWrites})`;
     pill.title = `${FB.pendingWrites} pending write${FB.pendingWrites>1?'s':''} to cloud.`;
+  } else if (FB.ready && (!FB.benefReplayComplete || !FB.advReplayComplete)) {
+    // V317: ready but replay still in progress — block saves with a clear status.
+    pill.classList.add('pending');
+    txt.textContent = 'Initialising...';
+    pill.title = 'Loading your records from the cloud. Please wait a few seconds before saving.';
   } else if (FB.ready) {
     pill.classList.add('synced');
     txt.textContent = 'Synced';
@@ -2572,6 +2594,13 @@ function fbAttachListeners() {
       fbBenefHandleChild('child_added');
       fbBenefHandleChild('child_changed');
       fbBenefHandleChild('child_removed');
+      // V317: arm the replay-complete quiet timer here too. If the user's
+      // role-scoped query returns zero records, the listener never fires
+      // and the per-event timer arming in fbBenefHandleChild never runs,
+      // so the replay gate would stay closed forever and the user could
+      // never save. Arming at attach time guarantees the gate opens after
+      // 500ms of silence whether or not any records arrive.
+      _armBenefReplayQuietTimer();
     }
   }
   // ── Advocacy (role-scoped, V314) ───────────────────────────────────
@@ -2584,6 +2613,7 @@ function fbAttachListeners() {
       fbAdvHandleChild('child_added');
       fbAdvHandleChild('child_changed');
       fbAdvHandleChild('child_removed');
+      _armAdvReplayQuietTimer();  // V317: same cold-empty defence as benef.
     }
   }
 }
@@ -2602,6 +2632,28 @@ function fbBenefDetachOnLogout() {
   // a previous user's records.
   FB.lastBenef = {};
   FB.lastAdv = {};
+  // V317: clear the in-memory record cache too — it holds the previous
+  // user's role-scoped slice, which is wrong for the next user. If we
+  // don't clear it, the migration IIFEs and any pre-login render could
+  // see the wrong dataset. RecordCache.primed stays true (LS users/partners
+  // are still valid). loadData()/loadAdv() will return [] until the new
+  // user's listener delivers their scoped records.
+  RecordCache.benef.clear();
+  RecordCache.adv.clear();
+  // V317: reset replay-completion gates so saveData/saveAdv re-arm correctly
+  // for the next user. Without this, the gates would still read "complete"
+  // from the previous session and the next user could save before their
+  // listener had populated the cache.
+  FB.benefReplayComplete = false;
+  FB.advReplayComplete = false;
+  if (FB._benefReplayQuietTimer) { clearTimeout(FB._benefReplayQuietTimer); FB._benefReplayQuietTimer = null; }
+  if (FB._advReplayQuietTimer) { clearTimeout(FB._advReplayQuietTimer); FB._advReplayQuietTimer = null; }
+  // Clear any pending mutations that haven't flushed — they belong to the
+  // previous user's session.
+  if (_benefPending && _benefPending.clear) _benefPending.clear();
+  if (_advPending && _advPending.clear) _advPending.clear();
+  if (_benefFlushTimer) { clearTimeout(_benefFlushTimer); _benefFlushTimer = null; }
+  if (_advFlushTimer) { clearTimeout(_advFlushTimer); _advFlushTimer = null; }
 }
 
 // V312: extracted from fbAttachListeners so the non-role-dependent
@@ -2753,9 +2805,13 @@ function fbBenefHandleChild(eventType) {
       // Echo suppression for deletes: if FB.lastBenef no longer has this id,
       // we already removed it locally — this event is the echo of our delete.
       if (FB.lastBenef && !(id in FB.lastBenef)) return;
+      // V317: do NOT update FB.lastBenef here. The deletion is queued in
+      // _benefPending; _benefFlushNow applies it to both the cache and
+      // FB.lastBenef atomically. This keeps the two in lockstep so a
+      // concurrent save can never see them in a divergent state.
       _benefPending.set(id, { type: 'del' });
-      if (FB.lastBenef) delete FB.lastBenef[id];
       _benefScheduleFlush();
+      _armBenefReplayQuietTimer();
       return;
     }
     // child_added or child_changed
@@ -2765,11 +2821,33 @@ function fbBenefHandleChild(eventType) {
     // Echo suppression: if our last-known hash for this id matches the
     // incoming record, this is our own write coming back. Skip.
     if (FB.lastBenef && FB.lastBenef[id] === incomingHash) return;
-    _benefPending.set(id, { type: 'put', record });
-    if (!FB.lastBenef) FB.lastBenef = {};
-    FB.lastBenef[id] = incomingHash;
+    // V317: stash the hash inside the pending op rather than updating
+    // FB.lastBenef synchronously. _benefFlushNow advances both the cache
+    // and FB.lastBenef together. See Bug 1 in the V317 review for the
+    // race scenario this closes.
+    _benefPending.set(id, { type: 'put', record, hash: incomingHash });
     _benefScheduleFlush();
+    _armBenefReplayQuietTimer();
   });
+}
+
+// V317: arm a "quiet" timer that flips FB.benefReplayComplete once the
+// listener has been silent for 500ms AND the pending queue has flushed.
+// Replay is "done" when nothing has arrived for 500ms; at that point we
+// flush any final pending mutations and open the write gate.
+function _armBenefReplayQuietTimer() {
+  if (FB.benefReplayComplete) return;
+  if (FB._benefReplayQuietTimer) clearTimeout(FB._benefReplayQuietTimer);
+  FB._benefReplayQuietTimer = setTimeout(() => {
+    FB._benefReplayQuietTimer = null;
+    // Force any pending mutations to flush before opening the gate so a
+    // save that fires the instant the gate opens still sees a complete
+    // cache.
+    if (_benefFlushTimer) { clearTimeout(_benefFlushTimer); _benefFlushTimer = null; }
+    _benefFlushNow();
+    FB.benefReplayComplete = true;
+    fbUpdatePill();
+  }, 500);
 }
 // V312: detach all beneficiary listeners. Called on logout so the next
 // login attaches fresh listeners scoped to the new user's role.
@@ -2792,9 +2870,22 @@ function _benefFlushNow() {
   // 200ms batching is retained — its primary purpose now is to coalesce
   // re-renders during bulk operations (a 100-record bulk import generates
   // 100 child events, but we only re-render once per 200ms quiet window).
+  //
+  // V317: ALSO update FB.lastBenef here, in lockstep with the cache. Prior
+  // to V317, FB.lastBenef was updated synchronously inside the listener
+  // handler while the cache lagged behind by up to 200ms. fbDiff compared
+  // a fully-populated FB.lastBenef against a partially-populated cache
+  // and classified the missing records as deletes — wiping them from
+  // Firebase via the multi-path update. See V317 review Bug 1.
+  if (!FB.lastBenef) FB.lastBenef = {};
   for (const [id, op] of _benefPending) {
-    if (op.type === 'del') RecordCache.benef.delete(id);
-    else if (op.type === 'put') RecordCache.benef.set(id, op.record);
+    if (op.type === 'del') {
+      RecordCache.benef.delete(id);
+      delete FB.lastBenef[id];
+    } else if (op.type === 'put') {
+      RecordCache.benef.set(id, op.record);
+      FB.lastBenef[id] = op.hash;
+    }
   }
   _benefPending.clear();
   try { renderCurrentView(); } catch(_){}
@@ -2854,9 +2945,10 @@ function fbAdvHandleChild(eventType) {
     if (!fbKey) return;
     if (eventType === 'child_removed') {
       if (FB.lastAdv && !(fbKey in FB.lastAdv)) return;  // echo of our delete
+      // V317: defer FB.lastAdv mutation to flush time. See V317 review Bug 1.
       _advPending.set(fbKey, { type: 'del' });
-      if (FB.lastAdv) delete FB.lastAdv[fbKey];
       _advScheduleFlush();
+      _armAdvReplayQuietTimer();
       return;
     }
     const raw = snap.val();
@@ -2867,11 +2959,25 @@ function fbAdvHandleChild(eventType) {
     const record = fbStampAdvKey({ ...raw });
     const incomingHash = fbHash(record);
     if (FB.lastAdv && FB.lastAdv[fbKey] === incomingHash) return;  // echo
-    _advPending.set(fbKey, { type: 'put', record });
-    if (!FB.lastAdv) FB.lastAdv = {};
-    FB.lastAdv[fbKey] = incomingHash;
+    // V317: stash hash in pending op; flush advances FB.lastAdv with cache.
+    _advPending.set(fbKey, { type: 'put', record, hash: incomingHash });
     _advScheduleFlush();
+    _armAdvReplayQuietTimer();
   });
+}
+
+// V317: advocacy replay-complete quiet timer (symmetric to the beneficiary
+// helper above). See V317 review Bug 1 for rationale.
+function _armAdvReplayQuietTimer() {
+  if (FB.advReplayComplete) return;
+  if (FB._advReplayQuietTimer) clearTimeout(FB._advReplayQuietTimer);
+  FB._advReplayQuietTimer = setTimeout(() => {
+    FB._advReplayQuietTimer = null;
+    if (_advFlushTimer) { clearTimeout(_advFlushTimer); _advFlushTimer = null; }
+    _advFlushNow();
+    FB.advReplayComplete = true;
+    fbUpdatePill();
+  }, 500);
 }
 // V314: detach the role-scoped advocacy listener on logout.
 let _advQueryHandle = null;
@@ -2891,9 +2997,17 @@ function _advFlushNow() {
   _advFlushTimer = null;
   if (_advPending.size === 0) return;
   // V310: apply pending mutations directly to the in-memory cache.
+  // V317: also update FB.lastAdv in lockstep with the cache to close the
+  // listener/diff race. See V317 review Bug 1 for the scenario this fixes.
+  if (!FB.lastAdv) FB.lastAdv = {};
   for (const [k, op] of _advPending) {
-    if (op.type === 'del') RecordCache.adv.delete(k);
-    else if (op.type === 'put') RecordCache.adv.set(k, op.record);
+    if (op.type === 'del') {
+      RecordCache.adv.delete(k);
+      delete FB.lastAdv[k];
+    } else if (op.type === 'put') {
+      RecordCache.adv.set(k, op.record);
+      FB.lastAdv[k] = op.hash;
+    }
   }
   _advPending.clear();
   try { renderCurrentView(); } catch(_){}
@@ -3086,6 +3200,55 @@ async function fbSyncCollection(coll, newArr, idField, lastMapRef) {
   if (!FB.online) throw new SaveError('offline');
   if (!FB.db) throw new SaveError('no-db');
   const diff = fbDiff(newArr, FB[lastMapRef], idField);
+  if (diff.writes.length === 0 && diff.deletes.length === 0) return;
+  // V317 Fix C: reassign-guard. Before we issue any delete, verify each
+  // record is actually gone from Firebase. The diff thinks a record is
+  // deleted because it's in FB[lastMapRef] but not in newArr — but that
+  // can also happen when an admin reassigned the record to a different
+  // NGO/coordinator while we were preparing this save, and our listener
+  // hasn't yet processed the resulting child_removed event for our
+  // role-scoped query. In that case Firebase still has the record, just
+  // with a different owner; the record SHOULD NOT be deleted. We do one
+  // .once('value') per deletion candidate (typically zero in steady state,
+  // so the round-trips don't add up) and drop deletes that still exist.
+  //
+  // This adds latency only on the rare path where a delete is queued. The
+  // common save (a new record, an edit) issues zero deletes and pays nothing.
+  const survivingDeletes = [];
+  const oldLastMapForGuard = FB[lastMapRef];
+  for (const d of diff.deletes) {
+    try {
+      const snap = await FB.db.ref(`${FB_NAMESPACE}/${coll}/${d}`).once('value');
+      if (snap.exists()) {
+        // Record still in Firebase — it was reassigned out of our scope
+        // (admin moved it to a different ngo/coordinator while we were
+        // preparing this save) and our listener hasn't yet processed the
+        // child_removed for that reassignment. The record SHOULD NOT be
+        // deleted — Firebase still owns the canonical copy.
+        //
+        // CRITICAL: also re-seed diff.newMap with whatever hash WAS in the
+        // old lastMap for this id (or any non-empty marker if absent).
+        // Without this, after `FB[lastMapRef] = diff.newMap` below, lastMap
+        // loses the entry entirely. The next save would then see the
+        // (still-stale) local record as a fresh write — fbDiff would
+        // classify it as a write and the multi-path update would push our
+        // local copy back to Firebase, REVERTING the admin's reassignment.
+        // Keeping the old hash means the next diff sees no change and skips.
+        if (oldLastMapForGuard && d in oldLastMapForGuard) {
+          diff.newMap[d] = oldLastMapForGuard[d];
+        }
+        console.warn(`[V317 reassign-guard] Skipping delete of ${coll}/${d} — still exists in Firebase (likely reassigned).`);
+      } else {
+        survivingDeletes.push(d);
+      }
+    } catch (e) {
+      // If the verify call itself failed, be conservative: keep the delete.
+      // (A network blip during verify shouldn't paper over a legitimate user-initiated delete.)
+      console.warn(`[V317 reassign-guard] Verify failed for ${coll}/${d}; keeping delete:`, e);
+      survivingDeletes.push(d);
+    }
+  }
+  diff.deletes = survivingDeletes;
   if (diff.writes.length === 0 && diff.deletes.length === 0) return;
   // Stamp metadata
   const u = (typeof currentUser === 'function') ? currentUser() : null;
@@ -3377,6 +3540,19 @@ async function saveData(arr) {
   // V310-S2: Firebase-only writes. Cache is updated AFTER the cloud write
   // confirms (Decision 1B). On failure, throws SaveError — caller catches
   // and surfaces to the user.
+  // ── V317 replay-complete gate ──
+  // Block the save if the beneficiary listener hasn't finished its initial
+  // replay. See V317 review Bug 1: prior to this gate, a save during
+  // replay saw a partial cache while FB.lastBenef was already populated,
+  // and fbDiff classified the in-flight records as deletes — wiping them.
+  // Skip the gate during bulk import: bulk import explicitly takes
+  // responsibility for cache state via _hydrateBenefCache and the
+  // _bulkImportInProgress flag below.
+  if (!FB.benefReplayComplete && !_bulkImportInProgress) {
+    const msg = 'Still syncing with the server, please wait a few seconds and try again.';
+    if (typeof toast === 'function') toast(msg, 'warn', 5000);
+    throw new SaveError('not-ready', new Error('benef listener replay incomplete'));
+  }
   // ── NGO integrity gate ──
   // Block the save if any beneficiary has a b.ngo that isn't a registered
   // partner. Prevents stale-session writes (e.g. "KRSF" leaking through when
@@ -3995,34 +4171,62 @@ function _markMigrationDone(name) {
 // that arrive later via Firebase sync from a device that never ran the
 // migration. The MIGRATION_FLAGS_KEY entry is no longer used for this
 // migration but is preserved on disk for any other future migration.
+//
+// V317: Two safety changes — see Bug 4 in the V317 review.
+//   1. Gate with _migrationDone('ownership'), same pattern as the other
+//      two migration IIFEs. Today this is a no-op because V315 makes
+//      loadData() return [] at script-parse time (cache is empty before
+//      the listener replays), but it's a footgun for any future change
+//      that re-primes the cache earlier.
+//   2. Defer the call to the next tick so even if some future code path
+//      re-primes the cache before this IIFE runs, the migration still
+//      sees the post-listener state. The setTimeout(0) also gives the
+//      listener a chance to attach, though we don't depend on it.
 (function migrateBeneficiaryOwnership(){
-  const all = loadData();
-  let changed = false;
-  let backfillCount = 0;
-  all.forEach(b => {
-    if (!b.createdBy) {
-      b.createdBy = 'u-admin';
-      b.createdByName = b.coord || 'System Administrator';
-      changed = true;
-      backfillCount++;
-    }
-  });
-  if (changed) {
-    // V310-S2: update cache directly (so the migration is visible immediately
-    // even if Firebase is slow / unreachable) and fire-and-forget Firebase.
-    // The migration is idempotent (runs every page load) so a failed Firebase
-    // write here will just re-run on next boot.
-    _hydrateBenefCache(all);
-    fbSyncCollection('beneficiaries', all, 'id', 'lastBenef').catch(e =>
-      console.warn('[V310-S2] ownership-migration Firebase write failed:', e));
-    console.warn(`[ownership-migration] Backfilled createdBy on ${backfillCount} record(s) ` +
-      `that arrived without it. These records are now owned by admin and visible ` +
-      `to admin only. To re-assign, use the "Reassign coordinator" workflow.`);
-  }
-  // Mark the flag for any audit checks that look for it. Previous behaviour
-  // skipped on subsequent loads via this flag — we no longer do, but the
-  // flag write keeps backwards-compat with anything reading it.
-  _markMigrationDone('ownership');
+  if (_migrationDone('ownership')) return;  // V317: one-shot like the others
+  setTimeout(() => {
+    // V317: only run after replay completes, so we operate on a real
+    // dataset. If replay never completes (no user logged in, init failed),
+    // the migration just doesn't run this session — same as the other two
+    // migrations' behaviour when their flag is set.
+    const tryRun = () => {
+      if (!FB.benefReplayComplete) {
+        // Listener still streaming — poll again in 1s. Give up after 30s.
+        if (!migrateBeneficiaryOwnership._attempts) migrateBeneficiaryOwnership._attempts = 0;
+        migrateBeneficiaryOwnership._attempts++;
+        if (migrateBeneficiaryOwnership._attempts > 30) {
+          console.info('[ownership-migration] gave up after 30s — replay never completed this session');
+          return;
+        }
+        setTimeout(tryRun, 1000);
+        return;
+      }
+      const all = loadData();
+      let changed = false;
+      let backfillCount = 0;
+      all.forEach(b => {
+        if (!b.createdBy) {
+          b.createdBy = 'u-admin';
+          b.createdByName = b.coord || 'System Administrator';
+          changed = true;
+          backfillCount++;
+        }
+      });
+      if (changed) {
+        // V310-S2: update cache directly (so the migration is visible immediately
+        // even if Firebase is slow / unreachable) and fire-and-forget Firebase.
+        _hydrateBenefCache(all);
+        fbSyncCollection('beneficiaries', all, 'id', 'lastBenef').catch(e =>
+          console.warn('[V310-S2] ownership-migration Firebase write failed:', e));
+        console.warn(`[ownership-migration] Backfilled createdBy on ${backfillCount} record(s) ` +
+          `that arrived without it. These records are now owned by admin and visible ` +
+          `to admin only. To re-assign, use the "Reassign coordinator" workflow.`);
+      }
+      // Mark the flag so this migration doesn't re-run on next boot.
+      _markMigrationDone('ownership');
+    };
+    tryRun();
+  }, 0);
 })();
 
 
@@ -9669,6 +9873,13 @@ function loadAdv() {
 }
 async function saveAdv(arr) {
   // V310-S2: Firebase-only writes. Cache after Firebase confirms.
+  // V317: replay-complete gate. See V317 review Bug 1 for the listener/diff
+  // race scenario. Skip during bulk import (same rationale as saveData).
+  if (!FB.advReplayComplete && !_bulkImportInProgress) {
+    const msg = 'Still syncing with the server, please wait a few seconds and try again.';
+    if (typeof toast === 'function') toast(msg, 'warn', 5000);
+    throw new SaveError('not-ready', new Error('adv listener replay incomplete'));
+  }
   // Stamp synthetic Firebase key (bid + scheme slug) on every record so
   // the same (beneficiary, scheme) pair updates instead of duplicating.
   const stamped = (arr || []).map(fbStampAdvKey);
@@ -10090,47 +10301,77 @@ async function saveAdvocacy() {
 // ── PATCH 1: Runtime data migration (old statuses → new 3-stage) ──────────
 (function migrateStatuses() {
   if (_migrationDone('statuses')) return;  // skip on subsequent loads (fix #17)
-  const map = {
-    'Training Completed':   'Intervention In Progress',
-    'Intervention Started': 'Intervention In Progress',
-    'Endline Completed':    'Completed'
-  };
-  const data = loadData();
-  let changed = false;
-  data.forEach(b => {
-    if (map[b.status]) { b.status = map[b.status]; changed = true; }
-  });
-  if (changed) {
-    // V310-S2: update cache directly + fire-and-forget Firebase.
-    _hydrateBenefCache(data);
-    fbSyncCollection('beneficiaries', data, 'id', 'lastBenef').catch(e =>
-      console.warn('[V310-S2] migrateStatuses Firebase write failed:', e));
-  }
-  _markMigrationDone('statuses');
+  // V317: defer to after listener replay. Without this gate, on a slow
+  // connection the migration could fire on a partial cache, then call
+  // fbSyncCollection — which would diff the partial cache against a
+  // fully-streamed FB.lastBenef and treat the missing records as deletes.
+  // See V317 review Bug 1.
+  setTimeout(function tryRun() {
+    if (!FB.benefReplayComplete) {
+      if (!migrateStatuses._attempts) migrateStatuses._attempts = 0;
+      migrateStatuses._attempts++;
+      if (migrateStatuses._attempts > 30) {
+        console.info('[migrateStatuses] gave up after 30s — replay never completed');
+        return;
+      }
+      setTimeout(tryRun, 1000);
+      return;
+    }
+    const map = {
+      'Training Completed':   'Intervention In Progress',
+      'Intervention Started': 'Intervention In Progress',
+      'Endline Completed':    'Completed'
+    };
+    const data = loadData();
+    let changed = false;
+    data.forEach(b => {
+      if (map[b.status]) { b.status = map[b.status]; changed = true; }
+    });
+    if (changed) {
+      // V310-S2: update cache directly + fire-and-forget Firebase.
+      _hydrateBenefCache(data);
+      fbSyncCollection('beneficiaries', data, 'id', 'lastBenef').catch(e =>
+        console.warn('[V310-S2] migrateStatuses Firebase write failed:', e));
+    }
+    _markMigrationDone('statuses');
+  }, 0);
 })();
 
 // ── PATCH 1b: Advocacy scheme-name migration (old seed names → canonical) ──
 (function migrateAdvSchemeNames() {
   if (_migrationDone('advSchemeNames')) return;  // skip on subsequent loads (fix #17)
-  const nameMap = {
-    'MGNREGS': 'MGNREGA',
-    'PM Awas Yojana': 'PM Awas Yojana (PMAY)'
-  };
-  const adv = loadAdv();
-  let changed = false;
-  adv.forEach(rec => {
-    (rec.schemeRows || []).forEach(r => {
-      if (r && nameMap[r.scheme]) { r.scheme = nameMap[r.scheme]; changed = true; }
+  // V317: same deferral pattern as migrateStatuses above. See V317 review Bug 1.
+  setTimeout(function tryRun() {
+    if (!FB.advReplayComplete) {
+      if (!migrateAdvSchemeNames._attempts) migrateAdvSchemeNames._attempts = 0;
+      migrateAdvSchemeNames._attempts++;
+      if (migrateAdvSchemeNames._attempts > 30) {
+        console.info('[migrateAdvSchemeNames] gave up after 30s — replay never completed');
+        return;
+      }
+      setTimeout(tryRun, 1000);
+      return;
+    }
+    const nameMap = {
+      'MGNREGS': 'MGNREGA',
+      'PM Awas Yojana': 'PM Awas Yojana (PMAY)'
+    };
+    const adv = loadAdv();
+    let changed = false;
+    adv.forEach(rec => {
+      (rec.schemeRows || []).forEach(r => {
+        if (r && nameMap[r.scheme]) { r.scheme = nameMap[r.scheme]; changed = true; }
+      });
     });
-  });
-  if (changed) {
-    // V310-S2: update cache directly + fire-and-forget Firebase.
-    const stamped = adv.map(fbStampAdvKey);
-    _hydrateAdvCache(stamped);
-    fbSyncCollection('advocacy', stamped, '__fbk', 'lastAdv').catch(e =>
-      console.warn('[V310-S2] migrateAdvSchemeNames Firebase write failed:', e));
-  }
-  _markMigrationDone('advSchemeNames');
+    if (changed) {
+      // V310-S2: update cache directly + fire-and-forget Firebase.
+      const stamped = adv.map(fbStampAdvKey);
+      _hydrateAdvCache(stamped);
+      fbSyncCollection('advocacy', stamped, '__fbk', 'lastAdv').catch(e =>
+        console.warn('[V310-S2] migrateAdvSchemeNames Firebase write failed:', e));
+    }
+    _markMigrationDone('advSchemeNames');
+  }, 0);
 })();
 
 // ── PATCH 2: All Beneficiaries view (master list with multi-select delete) ─
@@ -15084,6 +15325,17 @@ async function confirmBulkImport() {
   }
 
   if (!confirm(`Ready to import ${importable.length} beneficiaries. This cannot be undone from the UI. Continue?`)) return;
+
+  // V317: bulk imports must wait for listener replay to complete. The import
+  // reads loadData() to detect duplicates and to merge new records into the
+  // existing dataset. If we run before replay completes, loadData() returns
+  // a partial cache; the final saveData(data) then diffs against a fully
+  // populated FB.lastBenef and treats records absent from the partial cache
+  // as deletes — wiping potentially hundreds of records. See V317 review Bug 3.
+  if (!FB.benefReplayComplete || !FB.advReplayComplete) {
+    toast('Still syncing with the server. Please wait a few seconds and try the import again.', 'warn', 6000);
+    return;
+  }
 
   const data = loadData();
   const advData = loadAdv();
