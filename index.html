@@ -4881,7 +4881,27 @@ function _releaseClaim(id) {
   } catch (_) {}
 }
 
-function genId(district) {
+// V316 (2026-05-13) CRITICAL FIX: genId now async + Firebase-authoritative.
+//
+// PRE-V316 BUG: V312 introduced role-scoped listeners. After V312, an FC's
+// local data (loadData) and FB.lastBenef only contained the FC's OWN records.
+// genId computed max+1 from this scoped set — totally missing records
+// belonging to other coordinators in the same NGO/state.
+//
+// Result: an FC enrolling a new Gujarat record would compute max from their
+// own ~50 GJ records (e.g., max = KRSF-GJ-3552) and mint KRSF-GJ-3553. But
+// if KRSF-GJ-3553 already existed (created by a different FC), the new save
+// SILENTLY OVERWROTE that record.
+//
+// V316 fix: query Firebase directly for the highest id with the state prefix,
+// using the `id` index. This sees ALL records regardless of role-scope.
+// Function is now async; the two callers (submitEnroll and bulk import) have
+// been updated to await.
+//
+// If Firebase is unreachable, we throw — refusing to mint an ID is safer
+// than minting one that may collide. The caller's catch surfaces a clear
+// "could not generate ID" error to the user.
+async function genId(district) {
   // V308.1 (Bug 5 fix): Defensive input validation. The previous code called
   // .includes() on whatever was passed, throwing TypeError on null/undefined
   // and producing a silently bad "KRSF-XX-0001" record on empty / unknown
@@ -4890,12 +4910,6 @@ function genId(district) {
   if (typeof district !== 'string' || !district.trim()) {
     throw new Error('genId: state/district required (got: ' + JSON.stringify(district) + ')');
   }
-
-  // V2 #1: Use loadData() not getData() — the latter is role-scoped so a
-  // coordinator would only see their own records and compute max+1 against
-  // that subset, colliding with IDs they cannot see. loadData reads the full
-  // dataset; no scoping needed since we only touch the id column.
-  const data = loadData();
   // Look up 2-letter code by matching the state name (longest-first)
   // against the stored "District, State" composite.
   let code = null;
@@ -4904,65 +4918,78 @@ function genId(district) {
   }
   // V308.1 (Bug 6 fix): Refuse to silently fall back to "XX". Empty / unknown
   // / mistyped state names used to produce "KRSF-XX-0001" records with no
-  // way to detect them after the fact. Now we throw with a clear diagnostic
-  // so the caller (or a developer using the console) knows exactly what went
-  // wrong instead of a silent data-quality failure.
+  // way to detect them after the fact. Now we throw with a clear diagnostic.
   if (!code) {
     throw new Error('genId: no state code found in "' + district + '". ' +
       'Expected one of the registered states (e.g. "Anand, Gujarat" or "Gujarat"). ' +
       'Check that the state field is filled in correctly.');
   }
-  // Find the highest existing numeric suffix for this code and add 1
-  // — counting records alone causes collisions with seed IDs.
   const prefix = `KRSF-${code}-`;
-  // Post-audit fix: check BOTH local data AND the live Firebase cached map
-  // (FB.lastBenef). Without the Firebase check, Tab A computing maxN from
-  // stale local data while Tab B just pushed KRSF-GJ-0042 to Firebase would
-  // produce a collision the moment Tab A's listener echoes. Merging both
-  // sources closes most of the concurrency race window.
-  const fbIds = (typeof FB === 'object' && FB && FB.lastBenef)
-    ? Object.keys(FB.lastBenef)
-    : [];
-  // V308.1 (Bug 7 fix): Also include in-flight pending claims from THIS
-  // tab and other tabs of the same browser. Closes the same-millisecond
-  // race window that the random-suffix recovery doesn't catch (because
-  // it only triggers if the colliding ID is already-saved data).
+
+  // V316: fetch the highest existing id with this prefix from Firebase
+  // directly. Uses orderByKey() which is implicitly indexed (no rule needed)
+  // and limitToLast(1) to fetch just one record — minimal bandwidth.
+  //
+  // startAt/endAt bound the query to keys starting with our prefix. Since
+  // Firebase orders keys lexically, all "KRSF-GJ-..." keys fall between
+  // "KRSF-GJ-" and "KRSF-GJ-~" (~ sorts after digits and uppercase letters).
+  if (!FB || !FB.db) {
+    throw new Error('genId: Firebase unavailable. Please check your connection and try again.');
+  }
+  let serverMaxN = 0;
+  try {
+    const snap = await fbRef('beneficiaries')
+      .orderByKey()
+      .startAt(prefix)
+      .endAt(prefix + '\uf8ff')
+      .limitToLast(1)
+      .once('value');
+    const obj = snap.val() || {};
+    for (const k of Object.keys(obj)) {
+      if (typeof k === 'string' && k.startsWith(prefix)) {
+        // Parse numeric suffix. Some legacy IDs may have a "-XX" random
+        // suffix (race recovery in pre-V316 genId); strip that before
+        // parsing so 'KRSF-GJ-3553-A7' still gives us 3553.
+        const suffix = k.slice(prefix.length).split('-')[0];
+        const n = parseInt(suffix, 10);
+        if (!isNaN(n) && n > serverMaxN) serverMaxN = n;
+      }
+    }
+  } catch (e) {
+    throw new Error('genId: could not query Firebase for max id. ' + (e && e.message ? e.message : e));
+  }
+
+  // Also include in-flight pending claims from THIS tab and other tabs of
+  // the same browser. These are IDs that genId already minted in the last
+  // few seconds but whose saves haven't landed in Firebase yet, so the
+  // server's max wouldn't include them.
   const pendingIds = _loadPendingIds();
-  // Merge in our in-memory pending set (some entries may not be in the
-  // localStorage broadcast yet if a write was blocked by quota).
   const now = Date.now();
   for (const [id, expiry] of _pendingIds.entries()) {
     if (expiry > now) pendingIds.add(id);
   }
-  const combinedIds = new Set([...data.map(b => b.id), ...fbIds, ...pendingIds]);
-  let maxN = 0;
-  combinedIds.forEach(id => {
+  // Local data (mostly redundant with the Firebase fetch, but cheap and
+  // closes a tiny race window where a save just happened on this tab and
+  // is in the cache but hasn't propagated back yet).
+  const localIds = loadData().map(b => b.id);
+  let localMaxN = 0;
+  [...localIds, ...pendingIds].forEach(id => {
     if (typeof id === 'string' && id.startsWith(prefix)) {
-      const n = parseInt(id.slice(prefix.length), 10);
-      if (!isNaN(n) && n > maxN) maxN = n;
+      const suffix = id.slice(prefix.length).split('-')[0];
+      const n = parseInt(suffix, 10);
+      if (!isNaN(n) && n > localMaxN) localMaxN = n;
     }
   });
-  // V2 #1: Belt-and-braces — assert uniqueness against combined dataset before
-  // returning. If by any race condition our computed id already exists,
-  // pivot to a non-sequential random suffix.
-  //
-  // Option A (Issue #3 fix): incrementing on collision doesn't work for
-  // concurrent-save races. If Ramesh and Kiran both compute maxN=41 and
-  // race, bumping Kiran's candidate to 0043 only helps if nothing ELSE is
-  // in flight. Meanwhile a third tab could also be computing 41→43 and
-  // colliding again. Once we detect ANY collision, we break the sequential
-  // pattern with a random 2-char suffix (A-Z, 0-9). Example:
-  //   First tab: KRSF-GJ-0042
-  //   Second tab (collision detected): KRSF-GJ-0042-X7
-  //   Third tab (collision detected): KRSF-GJ-0042-M3
-  // The suffixed form is visually distinct so admins can spot race-created
-  // IDs and investigate if needed. 36^2 = 1,296 possible suffixes, so the
-  // collision rate among simultaneously-racing tabs is negligible.
+  const maxN = Math.max(serverMaxN, localMaxN);
+
+  // Belt-and-braces: assert uniqueness. If by any race condition our computed
+  // id already exists in pending or local, pivot to a random suffix. The
+  // Firebase fetch already covered everything in the database; this only
+  // catches the same-second race where two tabs both mint maxN+1.
+  const combinedIds = new Set([...localIds, ...pendingIds]);
   let candidate = `${prefix}${String(maxN + 1).padStart(4,'0')}`;
   if (combinedIds.has(candidate)) {
-    // Collision detected. Try random suffixes up to 20 attempts, then
-    // fall back to a longer random token as absolute last resort.
-    const CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I for readability
+    const CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     const randChar = () => CHARS[Math.floor(Math.random() * CHARS.length)];
     let attempts = 0;
     do {
@@ -4970,16 +4997,11 @@ function genId(district) {
       candidate = `${prefix}${String(maxN + 1).padStart(4,'0')}-${suffix}`;
       attempts++;
     } while (combinedIds.has(candidate) && attempts < 20);
-    // Absolute last resort — if 20 random attempts all collided, use a
-    // longer timestamp-based suffix. Practically unreachable.
     if (combinedIds.has(candidate)) {
       candidate = `${prefix}${String(maxN + 1).padStart(4,'0')}-${Date.now().toString(36).slice(-4)}`;
     }
   }
-  // V308.1 (Bug 7 fix): Claim the ID in the pending-IDs set before returning.
-  // This is what stops the next genId call (in this tab or another tab of
-  // the same browser) from minting the same ID before this caller's save
-  // has landed in Firebase.
+  // Claim the ID in the pending-IDs set before returning.
   _claimId(candidate);
   return candidate;
 }
@@ -7363,10 +7385,10 @@ async function submitEnroll() {
     // dropdown — matches how other validation failures are presented.
     let id;
     try {
-      id = genId(stateForId);
+      id = await genId(stateForId);  // V316: now async to query Firebase for max id
     } catch (e) {
       console.error('[enroll] genId failed:', e);
-      return showError('Could not generate beneficiary ID — please re-select the State and try again.', 'f-state');
+      return showError('Could not generate beneficiary ID: ' + (e && e.message ? e.message : 'unknown error') + ' — please check your connection and try again.', 'f-state');
     }
     // Tag the record with the current user's id + display name. This is what
     // role-scoped getData() uses to show coordinators only their own records.
@@ -15092,7 +15114,12 @@ async function confirmBulkImport() {
   // normally.
   _bulkImportInProgress = true;
   try {
-    importable.forEach(v => {
+    // V316: changed forEach → for...of to support async genId. Each iteration
+    // now awaits genId's Firebase fetch (one round-trip per row). For large
+    // imports this adds latency but is required for correctness — without
+    // the await, genId would have been called synchronously and returned a
+    // Promise instead of an id, breaking the entire flow.
+    for (const v of importable) {
     const p = v.parsed;
     // Build district string in the app's stored format: "District, State"
     const fullDistrict = p.district + ', ' + p.state;
@@ -15106,10 +15133,10 @@ async function confirmBulkImport() {
     // have caught this upstream, so reaching here means a validation hole.
     let id;
     try {
-      id = genId(fullDistrict);
+      id = await genId(fullDistrict);
     } catch (e) {
       console.warn('[bulk-import] Row ' + v.rowIdx + ' skipped — genId failed: ' + e.message);
-      return;
+      continue;
     }
     rowIdxToId[v.rowIdx] = id;
     // Family members are saved as advocacy-only records with headId pointing
@@ -15127,7 +15154,7 @@ async function confirmBulkImport() {
         if (typeof console !== 'undefined') {
           console.warn(`[bulk-import] Family-member row ${v.rowIdx} skipped — head row ${v.headRowIdx} not in importable set`);
         }
-        return;
+        continue;
       }
       familyMemberCount++;
     }
@@ -15222,7 +15249,7 @@ async function confirmBulkImport() {
         ngo: p.ngo || null,
       });
     }
-  });
+  }  // V316: closes for-of (was forEach callback)
   } finally {
     // V309: ALWAYS clear the flag, even if a row threw above. Otherwise
     // every subsequent saveData() call in the session would silently skip
