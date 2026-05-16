@@ -2083,7 +2083,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V320';
+const APP_VERSION = 'V321';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // ── Sync state (in-memory) ─────────────────────────────────────────────────
@@ -3222,44 +3222,72 @@ async function fbSyncCollection(coll, newArr, idField, lastMapRef) {
   // can also happen when an admin reassigned the record to a different
   // NGO/coordinator while we were preparing this save, and our listener
   // hasn't yet processed the resulting child_removed event for our
-  // role-scoped query. In that case Firebase still has the record, just
-  // with a different owner; the record SHOULD NOT be deleted. We do one
-  // .once('value') per deletion candidate (typically zero in steady state,
-  // so the round-trips don't add up) and drop deletes that still exist.
+  // role-scoped query.
   //
-  // This adds latency only on the rare path where a delete is queued. The
-  // common save (a new record, an edit) issues zero deletes and pays nothing.
+  // V321 BUGFIX: the original V317 guard skipped the delete whenever the
+  // record still existed in Firebase at guard time. That is wrong: for an
+  // INTENTIONAL delete (single delete, bulk delete) the record ALWAYS still
+  // exists at guard time — the delete write has not been issued yet. So the
+  // guard suppressed every intentional delete, the multi-path update wrote
+  // nothing, and Firebase kept all records. The dashboard count dropped
+  // (local UI only) but a refresh re-read Firebase and "restored" everything.
+  // Bulk delete had been silently broken since V317 (13 May 2026).
+  //
+  // The correct distinction: a reassignment CHANGES the record's ngo /
+  // createdBy — that is what a reassignment IS. An intentional delete leaves
+  // a record that is still within the deleting user's scope. So the guard
+  // now skips a delete ONLY when the live Firebase record exists AND has
+  // moved OUT of the current user's scope. If the live record is still in
+  // scope (or the user is an admin, who has no scope boundary), the delete
+  // is genuine and proceeds.
   const survivingDeletes = [];
   const oldLastMapForGuard = FB[lastMapRef];
+  const _guardUser = (typeof currentUser === 'function') ? currentUser() : null;
+  // Returns true if `rec` is still within _guardUser's visibility scope.
+  // Admins see everything; ngo users see their ngo; coordinators see their
+  // own createdBy. Only meaningful for the beneficiaries/advocacy collections
+  // (both carry ngo + createdBy); for any other collection we treat the
+  // record as in-scope so the delete proceeds (those collections are
+  // admin-only and have no reassignment concept).
+  const _recInScope = (rec) => {
+    if (!_guardUser) return true;
+    if (_guardUser.role === 'admin') return true;
+    if (coll !== 'beneficiaries' && coll !== 'advocacy') return true;
+    if (_guardUser.role === 'ngo') return rec && rec.ngo === _guardUser.ngo;
+    if (_guardUser.role === 'coordinator') return rec && rec.createdBy === _guardUser.userId;
+    return true;  // unknown role — don't suppress a delete
+  };
   for (const d of diff.deletes) {
     try {
       const snap = await FB.db.ref(`${FB_NAMESPACE}/${coll}/${d}`).once('value');
-      if (snap.exists()) {
-        // Record still in Firebase — it was reassigned out of our scope
-        // (admin moved it to a different ngo/coordinator while we were
-        // preparing this save) and our listener hasn't yet processed the
+      if (snap.exists() && !_recInScope(snap.val())) {
+        // Record still in Firebase AND it has moved out of our scope — it
+        // was reassigned out from under us (admin moved it to a different
+        // ngo/coordinator) and our listener hasn't yet processed the
         // child_removed for that reassignment. The record SHOULD NOT be
-        // deleted — Firebase still owns the canonical copy.
+        // deleted — Firebase still owns the canonical copy under its new
+        // owner. This is the genuine V317 reassign case.
         //
         // CRITICAL: also re-seed diff.newMap with whatever hash WAS in the
-        // old lastMap for this id (or any non-empty marker if absent).
-        // Without this, after `FB[lastMapRef] = diff.newMap` below, lastMap
-        // loses the entry entirely. The next save would then see the
-        // (still-stale) local record as a fresh write — fbDiff would
-        // classify it as a write and the multi-path update would push our
-        // local copy back to Firebase, REVERTING the admin's reassignment.
-        // Keeping the old hash means the next diff sees no change and skips.
+        // old lastMap for this id. Without this, after `FB[lastMapRef] =
+        // diff.newMap` below, lastMap loses the entry entirely, and the next
+        // save would diff the still-stale local record as a fresh write and
+        // push it back to Firebase — REVERTING the admin's reassignment.
         if (oldLastMapForGuard && d in oldLastMapForGuard) {
           diff.newMap[d] = oldLastMapForGuard[d];
         }
-        console.warn(`[V317 reassign-guard] Skipping delete of ${coll}/${d} — still exists in Firebase (likely reassigned).`);
+        console.warn(`[V321 reassign-guard] Skipping delete of ${coll}/${d} — still exists in Firebase under a different owner (reassigned).`);
       } else {
+        // Either the record is genuinely gone, OR it still exists and is
+        // still in our scope (an intentional delete). Both cases: proceed
+        // with the delete.
         survivingDeletes.push(d);
       }
     } catch (e) {
       // If the verify call itself failed, be conservative: keep the delete.
-      // (A network blip during verify shouldn't paper over a legitimate user-initiated delete.)
-      console.warn(`[V317 reassign-guard] Verify failed for ${coll}/${d}; keeping delete:`, e);
+      // A network blip during verify shouldn't paper over a legitimate
+      // user-initiated delete.
+      console.warn(`[V321 reassign-guard] Verify failed for ${coll}/${d}; keeping delete:`, e);
       survivingDeletes.push(d);
     }
   }
