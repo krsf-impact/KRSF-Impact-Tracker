@@ -2083,7 +2083,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V318';
+const APP_VERSION = 'V319';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // ── Sync state (in-memory) ─────────────────────────────────────────────────
@@ -7179,7 +7179,15 @@ async function submitEnroll() {
   // edit — the wrappers for 1.7 / 1.11 are hidden in both cases. Stored as
   // 0 / 1 in the create branch below; preserved as-is on edit (the spread
   // {...data[idx], ...fields} keeps existing values when fields omits them).
-  if (!isFamilyMemberMode) {
+  // V319: Annual Household Income is the baseline for impact measurement, so
+  // it's required for any beneficiary on a livelihood programme. Advocacy-only
+  // beneficiaries (Advocacy ticked, no Livelihood) have no baseline→endline
+  // income lifecycle, so the field is optional for them — a blank total is
+  // stored as baseIncome = 0 in the create branch below (same convention used
+  // for family-member records). Family-member mode still skips this entirely
+  // (the 1.11 wrapper is hidden in that mode).
+  const isAdvocacyOnly = advOn && !livOn;
+  if (!isFamilyMemberMode && !isAdvocacyOnly) {
     if (!total || isNaN(total)) { showError('Annual Household Income (field 1.11) is required — this is the baseline for impact measurement.', 'f-total'); return; }
   }
   const hhSizeVal = isFamilyMemberMode
@@ -7371,7 +7379,12 @@ async function submitEnroll() {
     fields.sources      = sources;
     fields.land         = landVal;
     fields.livestock    = livestockVal;
-    fields.baseIncome   = total;
+    // V319: baseIncome is required for livelihood beneficiaries (validated
+    // above) but optional for advocacy-only ones. A blank income parses to
+    // NaN — coerce that to 0 so the stored record always has a numeric
+    // baseIncome (NaN would break the income-delta maths and serialise badly
+    // to Firebase). 0 is the same convention family-member records use.
+    fields.baseIncome   = isNaN(total) ? 0 : total;
     fields.interventions= interventions;
   }
 
@@ -7728,6 +7741,27 @@ async function submitEnroll() {
       // Refresh the list (in case it's the visible view) so the new family
       // member is reflected. The success modal sits on top regardless.
       renderCurrent();
+    } else if (advOn) {
+      // V319: the enrollment included advocacy data. Skip the "add a family
+      // member?" success modal and open the new beneficiary's drawer directly
+      // so the FC immediately sees the record — including the advocacy/scheme
+      // section they just filled in — and can verify it landed correctly.
+      // (Livelihood-only enrollments keep the success modal below, since the
+      // family-member prompt is the more useful next step there.)
+      //
+      // Route to the list view first, then open the drawer on top — the
+      // drawer's close handlers expect the list view underneath. Same pattern
+      // enrollSuccessDone() uses. The timeout lets the list render before the
+      // drawer slides over it, and getData() is re-checked in case the record
+      // is outside the current user's scope (e.g. admin-created under another
+      // NGO — shouldn't happen here, but the guard is cheap).
+      toast('Enrolled — ID: ' + id, 'success');
+      nav('list');
+      setTimeout(() => {
+        try {
+          if (getData().some(x => x.id === id)) openDrawer(id);
+        } catch(_) {}
+      }, 150);
     } else {
       // Regular enrollment success. Show the Enrollment Success modal which
       // confirms the save and asks the FC whether they want to add a family
@@ -7899,29 +7933,19 @@ function enrollSuccessAddFamilyMember() {
   }, 80);
 }
 
-// Tap handler for "No, Done". Closes the success modal and opens the head's
-// drawer (or the just-enrolled head's drawer for head context) so the FC
-// can verify the household at a glance. For family-member context, this is
-// where the FC sees all the linked family members listed under the head.
+// Tap handler for "No, Done". Closes the success modal and returns to the
+// list view. V319: previously this also auto-opened the just-enrolled (or
+// head) beneficiary's drawer. That was removed — the FC has already finished
+// with this beneficiary by tapping "Done", and they can open the drawer
+// themselves from the list if they want to verify it. Landing straight on the
+// list keeps the post-enrollment flow predictable.
 function enrollSuccessDone() {
-  const landOnId = _justEnrolledLandOnId;
   const modal = document.getElementById('enroll-success-modal');
   if (modal) modal.style.display = 'none';
   document.body.classList.remove('modal-open');
   _justEnrolledHeadId = null;
   _justEnrolledLandOnId = null;
-  // Route to the list view, then open the relevant drawer on top so the
-  // close-drawer state is correct (drawer's onclick handlers expect the
-  // list view underneath).
   nav('list');
-  if (landOnId) {
-    setTimeout(() => {
-      try {
-        const stillExists = getData().some(x => x.id === landOnId);
-        if (stillExists) openDrawer(landOnId);
-      } catch(_) {}
-    }, 150);
-  }
 }
 
 
