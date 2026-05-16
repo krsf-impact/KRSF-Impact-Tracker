@@ -2083,7 +2083,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V319';
+const APP_VERSION = 'V320';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // ── Sync state (in-memory) ─────────────────────────────────────────────────
@@ -3309,6 +3309,66 @@ async function fbSyncCollection(coll, newArr, idField, lastMapRef) {
   }
 }
 
+// ── V320: targeted per-record write (for migrations) ──────────────────────
+// fbSyncCollection() diffs a WHOLE array against FB[lastMapRef]. That is
+// correct for a user-initiated save (the array IS the user's full intended
+// state) but DANGEROUS for the migration IIFEs: a migration only ever fixes
+// a handful of records, yet it used to hand its whole loadData()/loadAdv()
+// array to fbSyncCollection. If that array was even slightly stale relative
+// to a concurrent bulk-delete on another device, fbSyncCollection's diff
+// would treat the just-deleted records as fresh writes and push them all
+// back to Firebase — silently resurrecting deleted data, and without any
+// audit entry (the migration write path never called auditLog).
+//
+// fbWriteChangedRecords writes ONLY the records the caller actually changed.
+// It cannot touch — let alone resurrect — any record the caller didn't hand
+// it. `changed` is an array of the modified record objects. idField is 'id'
+// for beneficiaries, '__fbk' for advocacy. lastMapRef is 'lastBenef' /
+// 'lastAdv'. cacheSet(record) updates the in-memory cache for one record.
+//
+// Throws SaveError on failure, like fbSyncCollection. On failure FB[lastMapRef]
+// is left untouched for the changed ids so a later sync can still correct them.
+async function fbWriteChangedRecords(coll, changed, idField, lastMapRef, cacheSet) {
+  if (FB.initFailed) throw new SaveError('init-failed');
+  if (!FB.online)    throw new SaveError('offline');
+  if (!FB.db)        throw new SaveError('no-db');
+  if (!changed || changed.length === 0) return 0;
+  const u = (typeof currentUser === 'function') ? currentUser() : null;
+  const now = Date.now();
+  const updates = {};
+  for (const rec of changed) {
+    const id = rec && rec[idField];
+    if (!id) continue;
+    rec._lastEditedBy = u ? (u.username || u.userId || 'migration') : 'migration';
+    rec._lastEditedAt = now;
+    updates[`${FB_NAMESPACE}/${coll}/${id}`] = rec;
+  }
+  const ids = Object.keys(updates);
+  if (ids.length === 0) return 0;
+  try {
+    FB.pendingWrites++;
+    fbUpdatePill();
+    await FB.db.ref().update(updates);
+  } catch (e) {
+    console.warn(`[V320] fbWriteChangedRecords failed for ${coll}:`, e);
+    throw new SaveError('write-failed', e);
+  } finally {
+    FB.pendingWrites--;
+    fbUpdatePill();
+  }
+  // Success: advance the diff baseline and the cache for ONLY these records.
+  // We deliberately do not clear or rebuild the whole cache/map — untouched
+  // records are not ours to move.
+  if (!FB[lastMapRef]) FB[lastMapRef] = {};
+  for (const rec of changed) {
+    const id = rec && rec[idField];
+    if (!id) continue;
+    FB[lastMapRef][id] = fbHash(rec);
+    if (typeof cacheSet === 'function') { try { cacheSet(rec); } catch(_){} }
+  }
+  return ids.length;
+}
+
 // Whole-array sync (for tiny config arrays only — livtypes, schemes).
 // V310-S2: queue removed. Config stays localStorage-backed (Decision 4 in
 // Session 2 plan: config is small, low-churn, not part of the cap problem).
@@ -4217,22 +4277,37 @@ function _markMigrationDone(name) {
         return;
       }
       const all = loadData();
-      let changed = false;
+      // V320: collect the actual changed record objects, not just a boolean.
+      // The migration writes ONLY these — see fbWriteChangedRecords. The old
+      // code handed the whole `all` array to fbSyncCollection, whose diff
+      // could resurrect records deleted on another device. A per-record
+      // write cannot touch anything outside `changedRecs`.
+      const changedRecs = [];
       let backfillCount = 0;
       all.forEach(b => {
         if (!b.createdBy) {
           b.createdBy = 'u-admin';
           b.createdByName = b.coord || 'System Administrator';
-          changed = true;
+          changedRecs.push(b);
           backfillCount++;
         }
       });
-      if (changed) {
-        // V310-S2: update cache directly (so the migration is visible immediately
-        // even if Firebase is slow / unreachable) and fire-and-forget Firebase.
-        _hydrateBenefCache(all);
-        fbSyncCollection('beneficiaries', all, 'id', 'lastBenef').catch(e =>
-          console.warn('[V310-S2] ownership-migration Firebase write failed:', e));
+      if (changedRecs.length) {
+        // V320: update the cache for ONLY the changed records (not a full
+        // _hydrateBenefCache, which would clear the cache and refill it from
+        // this possibly-stale `all` array), and write only those records to
+        // Firebase via the targeted per-record path.
+        const cacheSet = rec => { if (rec && rec.id) RecordCache.benef.set(rec.id, rec); };
+        fbWriteChangedRecords('beneficiaries', changedRecs, 'id', 'lastBenef', cacheSet)
+          .then(n => {
+            if (n > 0) {
+              auditLog('migration', 'beneficiary', 'batch',
+                'V320 ownership migration',
+                `Backfilled createdBy on ${n} record(s) that arrived without it`,
+                null);
+            }
+          })
+          .catch(e => console.warn('[V320] ownership-migration write failed:', e));
         console.warn(`[ownership-migration] Backfilled createdBy on ${backfillCount} record(s) ` +
           `that arrived without it. These records are now owned by admin and visible ` +
           `to admin only. To re-assign, use the "Reassign coordinator" workflow.`);
@@ -8588,11 +8663,16 @@ function openLogIncomeFor(id) {
   // closes the modal without adding anything new.
   const migrated = _ensureIncomeLogMigrated(b);
   if (migrated) {
-    // V310-S2: fire-and-forget — modal opens regardless. Migration is
-    // idempotent and will retry next time the modal opens.
-    _hydrateBenefCache(data);
-    fbSyncCollection('beneficiaries', data, 'id', 'lastBenef').catch(e =>
-      console.warn('[V310-S2] income_log_migrate Firebase write failed:', e));
+    // V320: write ONLY the one migrated record. Previously this called
+    // _hydrateBenefCache(data) + fbSyncCollection('beneficiaries', data, …),
+    // a whole-array diff that could resurrect records deleted on another
+    // device. _ensureIncomeLogMigrated mutates exactly one record (b), so a
+    // targeted single-record write is both safer and correct.
+    // Fire-and-forget — the modal opens regardless; the migration is
+    // idempotent and retries next time the modal opens.
+    const cacheSet = rec => { if (rec && rec.id) RecordCache.benef.set(rec.id, rec); };
+    fbWriteChangedRecords('beneficiaries', [b], 'id', 'lastBenef', cacheSet)
+      .catch(e => console.warn('[V320] income_log_migrate Firebase write failed:', e));
     auditLog('income_log_migrate', 'beneficiary', b.id, b.name,
       `Migrated previous endline entry (₹${(b.incomeLog[0].amount||0).toLocaleString('en-IN')}) into income log`,
       null);
@@ -10408,15 +10488,27 @@ async function saveAdvocacy() {
       'Endline Completed':    'Completed'
     };
     const data = loadData();
-    let changed = false;
+    // V320: collect changed record objects; write only these (see
+    // fbWriteChangedRecords). Previously the whole `data` array went to
+    // fbSyncCollection, whose diff could resurrect records deleted elsewhere.
+    const changedRecs = [];
     data.forEach(b => {
-      if (map[b.status]) { b.status = map[b.status]; changed = true; }
+      if (map[b.status]) { b.status = map[b.status]; changedRecs.push(b); }
     });
-    if (changed) {
-      // V310-S2: update cache directly + fire-and-forget Firebase.
-      _hydrateBenefCache(data);
-      fbSyncCollection('beneficiaries', data, 'id', 'lastBenef').catch(e =>
-        console.warn('[V310-S2] migrateStatuses Firebase write failed:', e));
+    if (changedRecs.length) {
+      // V320: update the cache for ONLY the changed records (not a full
+      // _hydrateBenefCache), and write only those records to Firebase.
+      const cacheSet = rec => { if (rec && rec.id) RecordCache.benef.set(rec.id, rec); };
+      fbWriteChangedRecords('beneficiaries', changedRecs, 'id', 'lastBenef', cacheSet)
+        .then(n => {
+          if (n > 0) {
+            auditLog('migration', 'beneficiary', 'batch',
+              'V320 status migration',
+              `Normalised legacy status on ${n} record(s)`,
+              null);
+          }
+        })
+        .catch(e => console.warn('[V320] migrateStatuses write failed:', e));
     }
     _markMigrationDone('statuses');
   }, 0);
@@ -10442,18 +10534,33 @@ async function saveAdvocacy() {
       'PM Awas Yojana': 'PM Awas Yojana (PMAY)'
     };
     const adv = loadAdv();
-    let changed = false;
+    // V320: track which advocacy records actually changed; write only those.
+    // Previously the whole `adv` array (re-stamped) went to fbSyncCollection,
+    // whose diff could resurrect advocacy records deleted on another device.
+    const changedRecs = [];
     adv.forEach(rec => {
+      let recChanged = false;
       (rec.schemeRows || []).forEach(r => {
-        if (r && nameMap[r.scheme]) { r.scheme = nameMap[r.scheme]; changed = true; }
+        if (r && nameMap[r.scheme]) { r.scheme = nameMap[r.scheme]; recChanged = true; }
       });
+      if (recChanged) changedRecs.push(rec);
     });
-    if (changed) {
-      // V310-S2: update cache directly + fire-and-forget Firebase.
-      const stamped = adv.map(fbStampAdvKey);
-      _hydrateAdvCache(stamped);
-      fbSyncCollection('advocacy', stamped, '__fbk', 'lastAdv').catch(e =>
-        console.warn('[V310-S2] migrateAdvSchemeNames Firebase write failed:', e));
+    if (changedRecs.length) {
+      // Stamp __fbk on just the changed records (the write path keys on it).
+      const stampedChanged = changedRecs.map(fbStampAdvKey);
+      // V320: update the cache for ONLY the changed records (not a full
+      // _hydrateAdvCache), and write only those records to Firebase.
+      const cacheSet = rec => { if (rec && rec.__fbk) RecordCache.adv.set(rec.__fbk, rec); };
+      fbWriteChangedRecords('advocacy', stampedChanged, '__fbk', 'lastAdv', cacheSet)
+        .then(n => {
+          if (n > 0) {
+            auditLog('migration', 'advocacy', 'batch',
+              'V320 scheme-name migration',
+              `Normalised legacy scheme names on ${n} advocacy record(s)`,
+              null);
+          }
+        })
+        .catch(e => console.warn('[V320] migrateAdvSchemeNames write failed:', e));
     }
     _markMigrationDone('advSchemeNames');
   }, 0);
