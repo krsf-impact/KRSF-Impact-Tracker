@@ -1297,6 +1297,15 @@ body[data-shell="coord"] #coord-app { display: block; }
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="12" height="9" rx="1"/><circle cx="8" cy="9" r="2.5"/><path d="M6 4l1-1.5h2L10 4"/></svg>
       Photo Migration
     </button>
+    <!-- V318: Advocacy backfill entry point. Admin only. One-shot tool to
+         stamp missing ngo/createdBy fields on legacy advocacy records so
+         the role-scoped listener (V314) can pull them in. Without this,
+         NGO users see false "advocacy-tagged but no schemes logged" alerts
+         for beneficiaries whose advocacy records pre-date V314. -->
+    <button data-admin-only class="nav-btn" data-v="admin_advocacy_backfill" onclick="nav('admin_advocacy_backfill')" style="display:none">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8m0 0l-3-3m3 3l3-3M3 14h10"/></svg>
+      Advocacy Backfill
+    </button>
   </div>
   <!-- Sidebar footer: who's logged in + clear logout button. Renders dynamically
        via _renderSidebarFoot() on every session change so role/name stay current. -->
@@ -1316,9 +1325,9 @@ body[data-shell="coord"] #coord-app { display: block; }
           Logout
         </button>
       </div>
-      <div style="padding:6px 14px 10px;font-size:10px;color:rgba(255,255,255,0.35);text-align:center">Program Year 2026</div>
+      <div id="sidebar-program-year" style="padding:6px 14px 10px;font-size:10px;color:rgba(255,255,255,0.35);text-align:center">Program Year 2026 · <span id="sidebar-app-version">V—</span></div>
     </div>
-    <div id="sidebar-no-user" style="padding:12px 18px;font-size:11px;color:rgba(255,255,255,0.35)">Program Year 2026</div>
+    <div id="sidebar-no-user" style="padding:12px 18px;font-size:11px;color:rgba(255,255,255,0.35)">Program Year 2026 · <span id="sidebar-app-version-nouser">V—</span></div>
   </div>
 </div>
 
@@ -2070,6 +2079,11 @@ const FB_CONFIG = {
 const FB_NAMESPACE = 'krsf_tracker';  // top-level node, isolates from other apps
 // V310-S2: SYNC_QUEUE_KEY removed (offline queue layer removed).
 const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
+
+// V318: single source of truth for the app version, rendered in sidebar footer
+// and exposed on window for DevTools introspection. Bump on every release.
+const APP_VERSION = 'V318';
+try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // ── Sync state (in-memory) ─────────────────────────────────────────────────
 const FB = {
@@ -4663,6 +4677,12 @@ window.addEventListener('DOMContentLoaded', () => {
   // Show mobile filter row on mobile
   const mfr = document.getElementById('mob-filter-row');
   if (mfr && window.innerWidth <= 768) mfr.style.display = 'flex';
+  // V318: populate version string in both sidebar footers (logged-in and
+  // logged-out states). Single source: APP_VERSION constant near top of script.
+  const v1 = document.getElementById('sidebar-app-version');
+  const v2 = document.getElementById('sidebar-app-version-nouser');
+  if (v1) v1.textContent = APP_VERSION;
+  if (v2) v2.textContent = APP_VERSION;
 });
 
 // ── Location Data ─────────────────────────────────────────────────────────
@@ -9487,17 +9507,57 @@ function getAlerts() {
       }
     }
 
-    // ── Rule 8: advocacy-tagged but no scheme rows logged ────────────────
-    // The beneficiary has Advocacy in their interventions but no advocacy
-    // record has been logged for them. Common symptom of incomplete data
-    // entry — FC selected Advocacy but never opened the advocacy modal.
+    // ── Rule 8: advocacy-tagged with stuck "Need to Apply" schemes ──────────
+    // V318: only flag beneficiaries whose advocacy work has been stalled for
+    // more than 60 days. Previously fired whenever schemeRowCount===0, which
+    // produced thousands of false positives for legacy records and gave NGO
+    // users an unmanageable alert badge. New behaviour:
+    //
+    //   (a) Advocacy intervention is tagged but NO advocacy record exists,
+    //       AND the beneficiary was enrolled > 60 days ago → alert (genuine
+    //       data-entry gap). Within 60 days, give the FC time to log schemes.
+    //
+    //   (b) Advocacy record(s) exist AND at least one scheme row is still in
+    //       'Need to Apply' status AND the oldest such advocacy record was
+    //       created > 60 days ago → alert. Within 60 days, the plan is fresh
+    //       and the FC may still be working on the application.
+    //
+    // Schemes already at Applied, Rejected, or Benefits Received do not
+    // trigger the alert at all. Only "stuck-at-Need-to-Apply" is flagged.
     const advTagged = (b.interventions || []).includes('Advocacy (Govt. Schemes)');
     if (advTagged) {
-      const schemeRowCount = (advByBid[b.id] || [])
-        .reduce((sum, rec) => sum + ((rec.schemeRows || []).filter(r => !r._deleted).length), 0);
-      if (schemeRowCount === 0) {
-        alerts.push({type:'amber',msg:`<strong>${_eid} — ${_en}</strong> (${_eng}) — advocacy-tagged but no schemes logged yet. Log at least one scheme via Advocacy → Log.`,id:b.id});
+      const STALE_DAYS = 60;
+      const advRecs = advByBid[b.id] || [];
+      const liveRows = advRecs.flatMap(r => (r.schemeRows || []).filter(sr => !sr._deleted));
+      const needToApplyRows = liveRows.filter(sr => sr.status === 'Need to Apply');
+
+      if (advRecs.length === 0) {
+        // Case (a): no advocacy record at all.
+        const d = daysSince(b.enrollDate);
+        if (d !== null && d > STALE_DAYS) {
+          alerts.push({type:'amber',msg:`<strong>${_eid} — ${_en}</strong> (${_eng}) — advocacy-tagged but no schemes logged in ${d} days since enrolment. Log at least one scheme via Advocacy → Log.`,id:b.id});
+        }
+      } else if (needToApplyRows.length > 0) {
+        // Case (b): at least one scheme stuck at Need to Apply. Use the
+        // earliest createdAt across this beneficiary's advocacy records as
+        // the staleness anchor. If no createdAt is present, we can't prove
+        // freshness — fall back to the beneficiary's enrolDate.
+        const createdAts = advRecs.map(r => r.createdAt).filter(Boolean);
+        let anchor = null;
+        if (createdAts.length > 0) {
+          anchor = createdAts.reduce((earliest, ts) => ts < earliest ? ts : earliest);
+        } else {
+          anchor = b.enrollDate || null;
+        }
+        const d = daysSince(anchor);
+        if (d !== null && d > STALE_DAYS) {
+          alerts.push({type:'amber',msg:`<strong>${_eid} — ${_en}</strong> (${_eng}) — ${needToApplyRows.length} scheme${needToApplyRows.length===1?'':'s'} stuck at Need to Apply for ${d} days. Update status via Advocacy → Log.`,id:b.id});
+        }
       }
+      // If we reach here without pushing, the beneficiary is either:
+      //   - newly enrolled (< 60 days) — give FCs time
+      //   - has advocacy record but all schemes have moved past Need to Apply
+      // Both are healthy states. No alert.
     }
   });
 
@@ -9586,7 +9646,7 @@ function renderAlerts() {
             <tr style="border-bottom:1px solid #F3F4F6"><td style="padding:6px 8px"><span style="color:var(--amber);font-weight:500">Amber</span></td><td style="padding:6px 8px">"In Progress" for &gt; 270 days (endline likely due)</td></tr>
             <tr style="border-bottom:1px solid #F3F4F6"><td style="padding:6px 8px"><span style="color:var(--amber);font-weight:500">Amber</span></td><td style="padding:6px 8px">Endline income exactly equal to baseline (suspiciously flat)</td></tr>
             <tr style="border-bottom:1px solid #F3F4F6"><td style="padding:6px 8px"><span style="color:var(--amber);font-weight:500">Amber</span></td><td style="padding:6px 8px">Income more than doubled (verify before reporting)</td></tr>
-            <tr style="border-bottom:1px solid #F3F4F6"><td style="padding:6px 8px"><span style="color:var(--amber);font-weight:500">Amber</span></td><td style="padding:6px 8px">Advocacy-tagged but no schemes logged yet</td></tr>
+            <tr style="border-bottom:1px solid #F3F4F6"><td style="padding:6px 8px"><span style="color:var(--amber);font-weight:500">Amber</span></td><td style="padding:6px 8px">Advocacy stalled &gt; 60 days (no schemes logged, or scheme stuck at "Need to Apply")</td></tr>
             <tr style="border-bottom:1px solid #F3F4F6"><td style="padding:6px 8px"><span style="color:var(--amber);font-weight:500">Amber</span></td><td style="padding:6px 8px">Scheme marked "Benefits Received" with ₹0 amount</td></tr>
             <tr style="border-bottom:1px solid #F3F4F6"><td style="padding:6px 8px"><span style="color:var(--amber);font-weight:500">Amber</span></td><td style="padding:6px 8px">No intervention type assigned</td></tr>
             <tr><td style="padding:6px 8px"><span style="color:var(--green);font-weight:500">Green</span></td><td style="padding:6px 8px">50–100% income growth (case study candidates); &gt; 100% growth (exceptional, verify)</td></tr>
@@ -11831,7 +11891,7 @@ window.openDrawer = function(id) {
 };
 
 // ── Nav ───────────────────────────────────────────────────────────────────
-const _navRoutes_v32={dashboard:renderDashboard,beneficiaries:renderAllBeneficiaries,list:renderLivelihood,ngo:renderNGO,alerts:renderAlerts,map:renderMap,integrated:renderIntegrated,advocacy:renderAdvocacy,admin_partners:renderAdminPartners,admin_users:renderAdminUsers,admin_livelihoods:renderAdminLivelihoods,admin_schemes:renderAdminSchemes,admin_audit:renderAdminAuditLog,admin_import:renderAdminImport,admin_photo_migration:renderAdminPhotoMigration};
+const _navRoutes_v32={dashboard:renderDashboard,beneficiaries:renderAllBeneficiaries,list:renderLivelihood,ngo:renderNGO,alerts:renderAlerts,map:renderMap,integrated:renderIntegrated,advocacy:renderAdvocacy,admin_partners:renderAdminPartners,admin_users:renderAdminUsers,admin_livelihoods:renderAdminLivelihoods,admin_schemes:renderAdminSchemes,admin_audit:renderAdminAuditLog,admin_import:renderAdminImport,admin_photo_migration:renderAdminPhotoMigration,admin_advocacy_backfill:renderAdminAdvocacyBackfill};
 window.nav=function(v){
   // Guard admin routes — non-admins get bounced to dashboard
   if (v.startsWith('admin_') && !isAdmin()) { v = 'dashboard'; }
@@ -17654,6 +17714,261 @@ function _fmtBatchDate(iso) {
   setTimeout(_auditAgePruneOnBoot, 2000);
   renderAfterLogin();
 })();
+
+// ═════════════════════════════════════════════════════════════════════════════
+// V318 (2026-05-16): Advocacy backfill
+// ─────────────────────────────────────────────────────────────────────────────
+// Bug: V314 added role-scoping to the advocacy listener
+// (orderByChild('ngo').equalTo(u.ngo) for NGO users,
+// orderByChild('createdBy').equalTo(u.userId) for FCs). But advocacy records
+// created BEFORE V314 don't have ngo/createdBy fields stamped on them.
+// Firebase's orderByChild+equalTo excludes records where the child key is
+// missing entirely, so NGO users' role-scoped listener silently drops those
+// records.
+//
+// Symptom: NGO partner (Bhiloda) sees thousands of false "advocacy-tagged but
+// no schemes logged yet" alerts (Rule 8). The records exist in Firebase and
+// are visible in the per-beneficiary drawer (which uses
+// _hydrateAdvForBeneficiary, bypassing the listener) but invisible to
+// loadAdv() which reads from the role-scoped cache.
+//
+// Fix: walk every advocacy record, find ones missing ngo or createdBy, look up
+// the linked beneficiary by bid, copy the beneficiary's ngo and createdBy
+// fields onto the advocacy record. Idempotent: re-running does nothing.
+//
+// Admin-only. Logged to audit trail. One-shot — should not need to run again
+// once executed successfully.
+// ═════════════════════════════════════════════════════════════════════════════
+const _advBackfillState = {
+  scanned: false, scanning: false,
+  total: 0, needsFix: 0, alreadyOk: 0, orphaned: 0,
+  running: false, done: false,
+  processed: 0, fixed: 0, failed: 0,
+  halted: false, haltMessage: '',
+  log: [], candidates: []
+};
+
+function _advBackfillLog(msg) {
+  const stamp = new Date().toLocaleTimeString();
+  _advBackfillState.log.push(`[${stamp}] ${msg}`);
+  if (_advBackfillState.log.length > 200) _advBackfillState.log.shift();
+}
+
+async function _advBackfillScan() {
+  if (!isAdmin()) return;
+  _advBackfillState.scanning = true;
+  _advBackfillState.scanned = false;
+  _advBackfillState.candidates = [];
+  _advBackfillState.needsFix = 0;
+  _advBackfillState.alreadyOk = 0;
+  _advBackfillState.orphaned = 0;
+  _advBackfillState.log = [];
+  _advBackfillLog('Scan starting…');
+  renderAdminAdvocacyBackfill();
+
+  const benefs = getData();
+  const benefByBid = {};
+  benefs.forEach(b => { benefByBid[b.id] = b; });
+
+  const advs = loadAdv();
+  _advBackfillState.total = advs.length;
+  _advBackfillLog(`Scanning ${advs.length} advocacy records against ${benefs.length} beneficiaries…`);
+
+  for (const a of advs) {
+    const needsNgo = !a.ngo;
+    const needsCreatedBy = !a.createdBy;
+    if (!needsNgo && !needsCreatedBy) {
+      _advBackfillState.alreadyOk++;
+      continue;
+    }
+    const b = benefByBid[a.bid];
+    if (!b) {
+      _advBackfillState.orphaned++;
+      _advBackfillLog(`⚠ Orphan: ${a.__fbk || a.id} (bid=${a.bid}) — no matching beneficiary, skipping`);
+      continue;
+    }
+    if (!b.ngo) {
+      _advBackfillState.orphaned++;
+      _advBackfillLog(`⚠ Beneficiary ${a.bid} has no ngo set — cannot backfill ${a.__fbk || a.id}, skipping`);
+      continue;
+    }
+    _advBackfillState.needsFix++;
+    _advBackfillState.candidates.push({
+      fbKey: a.__fbk,
+      bid: a.bid,
+      bname: a.bname,
+      ngo: b.ngo,
+      createdBy: b.createdBy || 'u-admin-backfill',
+      hasNgo: !needsNgo,
+      hasCreatedBy: !needsCreatedBy
+    });
+  }
+
+  _advBackfillState.scanning = false;
+  _advBackfillState.scanned = true;
+  _advBackfillLog(`Scan complete: ${_advBackfillState.needsFix} need fix, ${_advBackfillState.alreadyOk} already OK, ${_advBackfillState.orphaned} orphaned (can't fix).`);
+  renderAdminAdvocacyBackfill();
+}
+
+async function _advBackfillRun() {
+  if (!isAdmin()) return;
+  if (_advBackfillState.running) return;
+  if (!_advBackfillState.scanned) {
+    toast('Please run Scan first.', 'warn', 4000);
+    return;
+  }
+  if (_advBackfillState.candidates.length === 0) {
+    toast('Nothing to fix.', 'info', 3000);
+    return;
+  }
+
+  _advBackfillState.running = true;
+  _advBackfillState.done = false;
+  _advBackfillState.processed = 0;
+  _advBackfillState.fixed = 0;
+  _advBackfillState.failed = 0;
+  _advBackfillState.halted = false;
+  _advBackfillState.haltMessage = '';
+  _advBackfillLog(`Starting backfill for ${_advBackfillState.candidates.length} records…`);
+  renderAdminAdvocacyBackfill();
+
+  // Process in batches via multi-path update for efficiency.
+  // 200 records per batch = ~50KB per update — well within Firebase limits.
+  const BATCH = 200;
+  const cands = _advBackfillState.candidates.slice();
+  for (let i = 0; i < cands.length; i += BATCH) {
+    const slice = cands.slice(i, i + BATCH);
+    const updates = {};
+    for (const c of slice) {
+      if (!c.fbKey) continue;
+      const path = `${FB_NAMESPACE}/advocacy/${c.fbKey}`;
+      if (!c.hasNgo) updates[`${path}/ngo`] = c.ngo;
+      if (!c.hasCreatedBy) updates[`${path}/createdBy`] = c.createdBy;
+    }
+    try {
+      await FB.db.ref().update(updates);
+      _advBackfillState.fixed += slice.length;
+      _advBackfillState.processed += slice.length;
+      _advBackfillLog(`Batch ${Math.ceil((i+BATCH)/BATCH)}: fixed ${slice.length} records (${_advBackfillState.processed}/${cands.length})`);
+      renderAdminAdvocacyBackfill();
+    } catch (e) {
+      _advBackfillState.failed += slice.length;
+      _advBackfillState.processed += slice.length;
+      _advBackfillState.halted = true;
+      _advBackfillState.haltMessage = (e && e.message) || 'Firebase update failed';
+      _advBackfillLog(`✗ Batch ${Math.ceil((i+BATCH)/BATCH)} FAILED: ${_advBackfillState.haltMessage}`);
+      _advBackfillState.running = false;
+      _advBackfillState.done = true;
+      renderAdminAdvocacyBackfill();
+      return;
+    }
+  }
+
+  _advBackfillState.running = false;
+  _advBackfillState.done = true;
+  _advBackfillLog(`Done. Fixed ${_advBackfillState.fixed} records.`);
+  try {
+    auditLog({
+      action: 'backfill',
+      collection: 'advocacy',
+      recordId: 'batch',
+      description: `V318 advocacy backfill: stamped ngo/createdBy on ${_advBackfillState.fixed} records`
+    });
+  } catch(_){}
+  renderAdminAdvocacyBackfill();
+  if (typeof toast === 'function') toast(`Backfill complete. ${_advBackfillState.fixed} records updated.`, 'success', 5000);
+}
+
+function renderAdminAdvocacyBackfill() {
+  if (!isAdmin()) {
+    document.getElementById('content').innerHTML = '<div class="empty">Admin only.</div>';
+    return;
+  }
+  const s = _advBackfillState;
+  const pct = s.candidates.length > 0
+    ? Math.round((s.processed / s.candidates.length) * 100)
+    : 0;
+  const canScan = !s.scanning && !s.running;
+  const canRun = s.scanned && !s.running && s.candidates.length > 0;
+
+  const logHtml = s.log.length === 0
+    ? '<div style="color:var(--gray2);font-size:12px">No activity yet. Click Scan to begin.</div>'
+    : s.log.map(l => `<div style="font-family:Consolas,monospace;font-size:11px;color:var(--gray1);padding:2px 0">${escHtml(l)}</div>`).join('');
+
+  document.getElementById('content').innerHTML = `
+    <div style="max-width:880px;margin:0 auto;padding:0 4px">
+      <h2 style="margin:0 0 6px">Advocacy Backfill</h2>
+      <div style="color:var(--gray2);font-size:13px;margin-bottom:18px;line-height:1.55">
+        One-shot tool to stamp <code>ngo</code> and <code>createdBy</code> fields on legacy
+        advocacy records. Records created before V314 (May 2026) are missing these fields,
+        which makes them invisible to NGO partners' role-scoped listener — causing false
+        "advocacy-tagged but no schemes logged" alerts. Running this once permanently
+        fixes the alerts.
+      </div>
+
+      <div style="display:flex;gap:8px;margin-bottom:16px">
+        <button class="btn btn-primary" onclick="_advBackfillScan()" ${canScan?'':'disabled style="opacity:.5;cursor:not-allowed"'}>
+          ${s.scanning ? 'Scanning…' : 'Scan'}
+        </button>
+        <button class="btn btn-primary" onclick="_advBackfillRun()" ${canRun?'':'disabled style="opacity:.5;cursor:not-allowed"'}>
+          ${s.running ? 'Running…' : 'Run Backfill'}
+        </button>
+      </div>
+
+      ${s.scanned ? `
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
+          <div class="stat" style="padding:14px">
+            <div style="color:var(--gray2);font-size:11px;text-transform:uppercase;letter-spacing:.5px">Total Records</div>
+            <div style="font-size:22px;font-weight:600;margin-top:4px">${s.total.toLocaleString()}</div>
+          </div>
+          <div class="stat" style="padding:14px">
+            <div style="color:var(--gray2);font-size:11px;text-transform:uppercase;letter-spacing:.5px">Already OK</div>
+            <div style="font-size:22px;font-weight:600;color:var(--green);margin-top:4px">${s.alreadyOk.toLocaleString()}</div>
+          </div>
+          <div class="stat" style="padding:14px">
+            <div style="color:var(--gray2);font-size:11px;text-transform:uppercase;letter-spacing:.5px">Need Fix</div>
+            <div style="font-size:22px;font-weight:600;color:var(--amber);margin-top:4px">${s.needsFix.toLocaleString()}</div>
+          </div>
+          <div class="stat" style="padding:14px">
+            <div style="color:var(--gray2);font-size:11px;text-transform:uppercase;letter-spacing:.5px">Orphaned</div>
+            <div style="font-size:22px;font-weight:600;color:var(--gray2);margin-top:4px">${s.orphaned.toLocaleString()}</div>
+          </div>
+        </div>
+      ` : ''}
+
+      ${s.running || s.done ? `
+        <div style="margin-bottom:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <span style="font-size:13px;color:var(--gray1)">Progress: ${s.processed.toLocaleString()} / ${s.candidates.length.toLocaleString()}</span>
+            <span style="font-size:13px;color:var(--gray1)">${pct}%</span>
+          </div>
+          <div style="background:var(--gray4);height:6px;border-radius:3px;overflow:hidden">
+            <div style="width:${pct}%;height:100%;background:var(--blue);transition:width .3s"></div>
+          </div>
+          ${s.halted ? `<div style="color:var(--red);font-size:12px;margin-top:8px">✗ Halted: ${escHtml(s.haltMessage)}</div>` : ''}
+        </div>
+      ` : ''}
+
+      <div style="border:1px solid var(--gray3);border-radius:8px;padding:12px;background:#FAFAFA;max-height:280px;overflow-y:auto">
+        <div style="font-size:11px;font-weight:600;color:var(--gray2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Activity Log</div>
+        ${logHtml}
+      </div>
+
+      <div style="color:var(--gray2);font-size:12px;margin-top:16px;line-height:1.6">
+        <strong>What this does:</strong> For every advocacy record missing <code>ngo</code> or
+        <code>createdBy</code>, looks up the linked beneficiary and copies those fields onto the
+        advocacy record. Idempotent — running it twice does nothing the second time.
+        <br><br>
+        <strong>Orphaned records</strong> are advocacy records whose <code>bid</code> doesn't match
+        any beneficiary (or whose beneficiary lacks an <code>ngo</code> field). These can't be
+        backfilled automatically and should be investigated manually via the audit log.
+      </div>
+    </div>
+  `;
+}
+// ═════════════════════════════════════════════════════════════════════════════
+// End V318 advocacy backfill
+// ═════════════════════════════════════════════════════════════════════════════
 
 </script>
 </body>
