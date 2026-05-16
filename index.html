@@ -1355,12 +1355,13 @@ body[data-shell="coord"] #coord-app { display: block; }
     <select class="fsel" id="mob-state-filter" onchange="stateFilter=this.value;document.getElementById('state-filter').value=this.value;renderCurrent()"><option value="">All States</option><option>Andhra Pradesh</option><option>Arunachal Pradesh</option><option>Assam</option><option>Bihar</option><option>Chhattisgarh</option><option>Goa</option><option>Gujarat</option><option>Haryana</option><option>Himachal Pradesh</option><option>Jharkhand</option><option>Karnataka</option><option>Kerala</option><option>Madhya Pradesh</option><option>Maharashtra</option><option>Manipur</option><option>Meghalaya</option><option>Mizoram</option><option>Nagaland</option><option>Odisha</option><option>Punjab</option><option>Rajasthan</option><option>Sikkim</option><option>Tamil Nadu</option><option>Telangana</option><option>Tripura</option><option>Uttar Pradesh</option><option>Uttarakhand</option><option>West Bengal</option><option>Andaman & Nicobar Islands</option><option>Chandigarh</option><option>Dadra & Nagar Haveli and Daman & Diu</option><option>Delhi</option><option>Jammu & Kashmir</option><option>Ladakh</option><option>Lakshadweep</option><option>Puducherry</option></select>
     <select class="fsel" id="mob-ngo-filter" onchange="ngoFilter=this.value;document.getElementById('ngo-filter').value=this.value;_rebuildStateFilterOptions();renderCurrent()"><option value="">All NGOs</option></select>
   </div>
-  <!-- Admin-only date range filter row. Hidden for NGO + Coordinator by
-       _applyRoleVisibility (data-admin-only). Enables queries like "how many
-       beneficiaries were added between Jan 30 and Mar 15?" or "which endlines
-       were completed in Q1?". Applies to EVERY view via filteredAll() —
-       dashboard KPIs, livelihood list, map, CSV export. -->
-  <div id="date-range-filter-row" data-admin-only style="display:none;padding:8px 16px;background:var(--gray4);border-bottom:1px solid var(--gray3);align-items:center;gap:12px;flex-wrap:wrap;font-size:12px">
+  <!-- Date range filter row. Visible to admin + NGO roles (V318); hidden
+       for coordinators (they see only their own records). Controlled by
+       _applyRoleVisibility — not the data-admin-only attribute. Enables
+       queries like "how many beneficiaries were added between Jan 30 and
+       Mar 15?" or "which endlines were completed in Q1?". Applies to EVERY
+       view via filteredAll() — dashboard KPIs, livelihood list, map, CSV. -->
+  <div id="date-range-filter-row" style="display:none;padding:8px 16px;background:var(--gray4);border-bottom:1px solid var(--gray3);align-items:center;gap:12px;flex-wrap:wrap;font-size:12px">
     <span style="font-weight:600;color:var(--navy);display:inline-flex;align-items:center;gap:5px">📅 Date ranges</span>
     <div style="display:inline-flex;align-items:center;gap:6px">
       <span style="color:var(--gray2)">Baseline:</span>
@@ -14337,14 +14338,20 @@ function _renderUserPill() {
 function _applyRoleVisibility() {
   const u = currentUser();
   const isAdm = u && u.role === 'admin';
+  const isNgo = u && u.role === 'ngo';
   document.querySelectorAll('[data-admin-only]').forEach(el => {
     el.style.display = isAdm ? '' : 'none';
   });
-  // Special case: date-range filter row needs display:flex (not the default
-  // inline that empty-string falls back to). Without this the inputs wrap
-  // incorrectly. Applied only when admin is the current role.
+  // V318: date-range filter row is visible to BOTH admin and NGO roles.
+  // NGO partners need it to answer questions like "how many beneficiaries
+  // were enrolled this week?" or "which endlines were completed in Q1?"
+  // without manually filtering after seeing the unfiltered total.
+  // Coordinators still don't see it — they only see their own records and
+  // typically already know what they recently entered.
+  // Special case: needs display:flex (not the default inline that empty
+  // string falls back to). Without this the inputs wrap incorrectly.
   const dr = document.getElementById('date-range-filter-row');
-  if (dr) dr.style.display = isAdm ? 'flex' : 'none';
+  if (dr) dr.style.display = (isAdm || isNgo) ? 'flex' : 'none';
   // Set body data-role so CSS selectors can target role-specific UI
   // (see CSS rule body[data-role="coordinator"] ... { display:none })
   document.body.dataset.role = u ? u.role : '';
@@ -17868,12 +17875,17 @@ async function _advBackfillRun() {
   _advBackfillState.done = true;
   _advBackfillLog(`Done. Fixed ${_advBackfillState.fixed} records.`);
   try {
-    auditLog({
-      action: 'backfill',
-      collection: 'advocacy',
-      recordId: 'batch',
-      description: `V318 advocacy backfill: stamped ngo/createdBy on ${_advBackfillState.fixed} records`
-    });
+    // V318: auditLog signature is positional: (action, recordType, recordId,
+    // recordLabel, summary, changes). Passing an object made every batch's
+    // audit write fail in Firebase ("contains undefined in property recordType").
+    auditLog(
+      'backfill',
+      'advocacy',
+      'batch',
+      `V318 advocacy backfill`,
+      `Stamped ngo/createdBy on ${_advBackfillState.fixed} records`,
+      null
+    );
   } catch(_){}
   renderAdminAdvocacyBackfill();
   if (typeof toast === 'function') toast(`Backfill complete. ${_advBackfillState.fixed} records updated.`, 'success', 5000);
