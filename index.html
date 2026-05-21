@@ -19249,7 +19249,12 @@ async function _dedupScan() {
       .once('value');
     const auditObj = auditSnap.val() || {};
 
-    // Step 2: group create events by recordId, keep only beneficiary creates
+    // Step 2: group create events by recordId, keep only beneficiary creates.
+    // IMPORTANT: Only flag IDs >= 10000 per state prefix. The bug (REST 400
+    // causing serverMaxN=0 and falling back to localMaxN) only started at
+    // the 5-digit boundary. IDs below 10000 may have multiple create events
+    // for legitimate reasons (re-enrollments, early app versions) and must
+    // NOT be treated as duplicates.
     const byId = {};
     Object.values(auditObj).forEach(ev => {
       if (!ev || ev.recordType !== 'beneficiary') return;
@@ -19257,6 +19262,12 @@ async function _dedupScan() {
       if (!id || !id.startsWith('KRSF-')) return;
       // Skip recovery audit entries (those we wrote ourselves)
       if ((ev.summary||'').includes('Recovered from duplicate')) return;
+      // Only consider IDs that could be victims of the genId bug:
+      // format is KRSF-XX-NNNNN where NNNNN >= 10000
+      const parts = id.split('-');
+      if (parts.length < 3) return;
+      const numericPart = parseInt(parts[2], 10);
+      if (isNaN(numericPart) || numericPart < 10000) return; // pre-bug IDs safe
       if (!byId[id]) byId[id] = [];
       byId[id].push(ev);
     });
@@ -19288,7 +19299,10 @@ async function _dedupScan() {
       _dedupLog('  Live (untouched): ' + (creates[creates.length-1].recordLabel||'?') +
                 ' enrolled ' + (creates[creates.length-1].ts||'').substring(0,10));
 
-      // All but the last are victims
+      // All but the last are victims. Deduplicate by name+ngo+date in case
+      // the audit log has duplicate entries for the same event (can happen
+      // if the app retried a save that partially succeeded).
+      const seenVictims = new Set();
       for (let i = 0; i < creates.length - 1; i++) {
         const ev = creates[i];
         let details = {};
@@ -19297,18 +19311,27 @@ async function _dedupScan() {
         } else if (ev.details && typeof ev.details === 'object') {
           details = ev.details;
         }
+        const name  = ev.recordLabel || details.name  || '(unknown)';
+        const ngo   = ev.ngo         || details.ngo   || '';
+        const day   = (ev.ts||'').substring(0,10);
+        const dedup = name + '|' + ngo + '|' + day;
+        if (seenVictims.has(dedup)) {
+          _dedupLog('  (Skipping duplicate audit entry for ' + name + ')');
+          continue;
+        }
+        seenVictims.add(dedup);
         victims.push({
           overwrittenAt: dupId,
-          auditTs:       ev.ts          || '',
-          name:          ev.recordLabel || details.name  || '(unknown)',
-          ngo:           ev.ngo         || details.ngo   || '',
-          coord:         ev.username    || ev.userId     || details.coord || '',
+          auditTs:       ev.ts    || '',
+          name,
+          ngo,
+          coord:         ev.username || ev.userId || details.coord || '',
           details,
           auditEvent:    ev,
         });
-        _dedupLog('  Victim: ' + (ev.recordLabel||'(unknown)') +
+        _dedupLog('  Victim: ' + name +
                   ' by ' + (ev.username||'unknown FC') +
-                  ' on ' + (ev.ts||'').substring(0,10));
+                  ' on ' + day);
       }
     }
 
