@@ -11928,7 +11928,7 @@ function _livBenTabFull(allB) {
   </tr>`).join('');
 
   return chips+`<div class="card"><div class="card-head">
-    <div class="card-title">${escHtml(livInterv||'All Beneficiaries')}${livStage?' · '+stageLabel(livStage):''} <span style="font-size:12px;font-weight:400;color:var(--gray2)">${totalFiltered} records</span></div>
+    <div class="card-title">${escHtml(livInterv||'All Beneficiaries')}${livStage?' · '+stageLabel(livStage):''} <span style="font-size:12px;font-weight:400;color:var(--gray2)">${list.length} records</span></div>
     <div class="filters"><input id="liv-search-input" class="fsearch" placeholder="Search name, ID, village..." value="${escHtml(livSearch)}" oninput="_searchDebounce('liv', this.value, () => { livSearch = _searchDebounceVal.liv; renderLivelihood(); })">
     <button class="btn btn-primary btn-sm" onclick="openEnroll()">+ Enroll</button></div></div>
     ${list.length===0?'<div class="empty">No beneficiaries match.</div>':`<table class="tbl"><thead><tr><th style="width:52px;text-align:center">Sr. No.</th><th>Beneficiary</th><th>Location</th><th>Partner</th><th>Intervention</th><th>Baseline</th><th>Stage</th><th>Income Delta</th></tr></thead><tbody>${rows}</tbody></table>`}
@@ -12558,6 +12558,10 @@ window.nav=function(v){
     v = 'beneficiaries';
   }
   currentView=v;
+  // V324: reset pagination and memoization cache on every nav so that
+  // newly restored records (e.g. after dedup fix) are always visible.
+  if (typeof allBCurrentPage !== 'undefined') allBCurrentPage = 1;
+  if (typeof _allBEnrichedCache !== 'undefined') { _allBEnrichedCache = null; _allBEnrichedCacheKey = null; }
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
   const btn=document.querySelector(`.nav-btn[data-v="${v}"]`); if(btn)btn.classList.add('active');
   // Sync mobile bottom nav. Without this, navigating via sidebar on mobile
