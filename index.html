@@ -1272,6 +1272,13 @@ body[data-shell="coord"] #coord-app { display: block; }
             ગુજરાતી
           </button>
         </div>
+        <button class="coord-header-account" onclick="nav('alerts')" aria-label="Alerts and flags"
+          id="coord-alerts-btn"
+          style="position:relative">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px"><path d="M8 2a4.5 4.5 0 0 1 4.5 4.5c0 2.5.5 3.5 1.5 4.5H2c1-1 1.5-2 1.5-4.5A4.5 4.5 0 0 1 8 2zm-1.5 9.5a1.5 1.5 0 0 0 3 0"/></svg>
+          <span>Alerts</span>
+          <span id="coord-alert-badge" style="display:none;position:absolute;top:2px;right:2px;background:#EF4444;color:#fff;font-size:9px;font-weight:700;border-radius:8px;padding:1px 4px;min-width:14px;text-align:center"></span>
+        </button>
         <button class="coord-header-account" onclick="openMobAccountSheet()" aria-label="Account and sign out">
           <span class="coord-header-avatar" id="coord-avatar">?</span>
           <span>Account</span>
@@ -1383,7 +1390,7 @@ body[data-shell="coord"] #coord-app { display: block; }
     </button>
     <!-- V310-S3: Photo migration entry point. Admin only. One-shot tool to
          move existing base64 photos to Firebase Storage. -->
-    <button data-admin-only class="nav-btn" data-v="admin_photo_migration" onclick="nav('admin_photo_migration')" style="display:none">
+    <button data-admin-only class="nav-btn" data-v="admin_photo_migration" onclick="nav('admin_photo_migration')" style="display:none" data-sidebar-hidden="true">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="12" height="9" rx="1"/><circle cx="8" cy="9" r="2.5"/><path d="M6 4l1-1.5h2L10 4"/></svg>
       Photo Migration
     </button>
@@ -1392,7 +1399,7 @@ body[data-shell="coord"] #coord-app { display: block; }
          the role-scoped listener (V314) can pull them in. Without this,
          NGO users see false "advocacy-tagged but no schemes logged" alerts
          for beneficiaries whose advocacy records pre-date V314. -->
-    <button data-admin-only class="nav-btn" data-v="admin_advocacy_backfill" onclick="nav('admin_advocacy_backfill')" style="display:none">
+    <button data-admin-only class="nav-btn" data-v="admin_advocacy_backfill" onclick="nav('admin_advocacy_backfill')" style="display:none" data-sidebar-hidden="true">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8m0 0l-3-3m3 3l3-3M3 14h10"/></svg>
       Advocacy Backfill
     </button>
@@ -1544,6 +1551,27 @@ body[data-shell="coord"] #coord-app { display: block; }
         <button type="button" class="inline-warn-btn-cancel" onclick="_viewDupMobileExisting()"
                 data-en="View existing beneficiary" data-gu="હાલના લાભાર્થી જુઓ">View existing beneficiary</button>
         <button type="button" class="inline-warn-btn-confirm" onclick="_confirmDupMobileWarn()"
+                data-en="Different person — proceed" data-gu="અલગ વ્યક્તિ — આગળ વધો">Different person — proceed</button>
+      </div>
+    </div>
+    <!-- V326: Soft name+village+NGO duplicate warning. Shown on submit when the
+         entered name AND village AND NGO already match an existing beneficiary.
+         Soft (not a hard block) because spelling variations of the same person
+         are possible and a coordinator should be able to override. -->
+    <div class="inline-warn" id="dup-name-warn">
+      <div class="inline-warn-title"
+           data-en="⚠ Possible duplicate — this person may already be enrolled"
+           data-gu="⚠ સંભવિત ડુપ્લિકેટ — આ વ્યક્તિ કદાચ પહેલાંથી નોંધાયેલ છે">⚠ Possible duplicate — this person may already be enrolled</div>
+      <div id="dup-name-warn-msg"></div>
+      <div style="margin-top:6px;font-size:12px"
+           data-en="A beneficiary with the same name in the same village and NGO is already on record. Is this the same person enrolled twice, or a different person with the same name?"
+           data-gu="આ જ ગામ અને NGOમાં આ જ નામની વ્યક્તિ પહેલાંથી નોંધાયેલ છે. શું આ એ જ વ્યક્તિ બે વાર નોંધાઈ છે, કે અલગ વ્યક્તિ છે?">A beneficiary with the same name in the same village and NGO is already on record. Is this the same person enrolled twice, or a different person with the same name?</div>
+      <div class="inline-warn-actions" style="flex-wrap:wrap;gap:6px">
+        <button type="button" class="inline-warn-btn-cancel" onclick="_dismissDupNameWarn()"
+                data-en="Go back to check" data-gu="તપાસવા પાછા જાઓ">Go back to check</button>
+        <button type="button" class="inline-warn-btn-cancel" onclick="_viewDupNameExisting()"
+                data-en="View existing record" data-gu="હાલની એન્ટ્રી જુઓ">View existing record</button>
+        <button type="button" class="inline-warn-btn-confirm" onclick="_confirmDupNameWarn()"
                 data-en="Different person — proceed" data-gu="અલગ વ્યક્તિ — આગળ વધો">Different person — proceed</button>
       </div>
     </div>
@@ -2181,7 +2209,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V325';
+const APP_VERSION = 'V326';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // ── Sync state (in-memory) ─────────────────────────────────────────────────
@@ -5585,6 +5613,63 @@ async function _genIdCore(district) {
   }
   // Claim the ID in the pending-IDs set before returning.
   _claimId(candidate);
+
+  // V326: Firebase atomic reservation — write a lightweight marker under
+  // id_reservations/ BEFORE returning the candidate. Two devices computing
+  // the same candidate simultaneously will race here; the transaction ensures
+  // only ONE of them succeeds and the other backs off and re-fetches.
+  try {
+    if (FB && FB.db) {
+      const safeKey = candidate.replace(/[.#$\[\]]/g, '_');
+      const resRef = fbRef('id_reservations/' + safeKey);
+      const txResult = await resRef.transaction(current => {
+        if (current !== null) return undefined; // abort — already claimed
+        return { ts: new Date().toISOString(), by: (currentUser() || {}).userId || 'unknown' };
+      });
+      if (!txResult.committed) {
+        // Collision — another device reserved this ID. Fetch the latest max
+        // and try the next slot.
+        console.warn('[genId] reservation collision on', candidate, '— retrying with incremented max');
+        const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';
+        const NS = 'krsf_tracker';
+        let authToken2 = '';
+        try {
+          const authUser2 = firebase.auth ? firebase.auth().currentUser : null;
+          if (authUser2) authToken2 = await authUser2.getIdToken();
+        } catch (_) {}
+        // Fetch beneficiary keys + reservation keys to find true max
+        let newMax = maxN;
+        const fetchShallow = async path => {
+          const u = `${DB_URL}/${NS}/${path}.json?shallow=true${authToken2 ? '&auth=' + authToken2 : ''}`;
+          const r = await fetch(u);
+          return r.ok ? await r.json() : null;
+        };
+        const [bKeys, rKeys] = await Promise.all([fetchShallow('beneficiaries'), fetchShallow('id_reservations')]);
+        for (const obj of [bKeys, rKeys]) {
+          if (obj && typeof obj === 'object') {
+            for (const k of Object.keys(obj)) {
+              const normK = k.replace(/_/g, '-');
+              if (normK.startsWith(prefix)) {
+                const n = parseInt(normK.slice(prefix.length).split('-')[0], 10);
+                if (!isNaN(n) && n > newMax) newMax = n;
+              }
+            }
+          }
+        }
+        const newCandidate = `${prefix}${String(newMax + 1).padStart(4,'0')}`;
+        _releaseClaim(candidate);
+        _claimId(newCandidate);
+        candidate = newCandidate;
+        // Reserve the new candidate (best-effort, no retry)
+        await fbRef('id_reservations/' + newCandidate.replace(/[.#$\[\]]/g, '_'))
+          .set({ ts: new Date().toISOString(), by: (currentUser() || {}).userId || 'unknown' })
+          .catch(() => {});
+      }
+    }
+  } catch (_) {
+    // Reservation is best-effort — never block enroll on a reservation failure.
+  }
+
   return candidate;
 }
 
@@ -6229,6 +6314,12 @@ let editingId = null;
 // other row. The relationship surfaces only on the detail drawer.
 let familyMemberHeadId = null;
 
+// V326: Double-submit guard. submitEnroll() sets this true the moment the
+// button is tapped and clears it only when the function exits (success or
+// error). Any re-entrant call from a rapid second tap is silently dropped —
+// the button is also visually disabled as a belt-and-braces measure.
+let _enrollSubmitInFlight = false;
+
 // Tracks the id of the beneficiary just enrolled via the regular Enroll flow.
 // Set when submitEnroll's create branch shows the Enrollment Success modal,
 // read by enrollSuccessAddFamilyMember() to know which head to link to.
@@ -6349,6 +6440,10 @@ function openEnroll() {
   const dmw = document.getElementById('dup-mobile-warn'); if (dmw) dmw.classList.remove('show');
   _dupMobileConfirmedFor = null;
   _dupMobileExistingId = null;
+  // Reset duplicate-name soft-warn state (V326)
+  const dnw = document.getElementById('dup-name-warn'); if (dnw) dnw.classList.remove('show');
+  _dupNameConfirmedFor = null;
+  _dupNameExistingId = null;
   // Refresh dynamic dropdowns
   injectDynamicOptions();
   _refreshLivelihoodChips();
@@ -6813,6 +6908,49 @@ function _confirmDupMobileWarn() {
   submitEnroll();
 }
 
+// V326: Name+village+NGO duplicate check state — mirrors the mobile dup pattern.
+// _dupNameConfirmedFor stores the "name|village|ngo" key that the coordinator
+// has explicitly confirmed is a different person, so re-submitting after
+// confirmation skips the check cleanly.
+let _dupNameConfirmedFor = null;
+let _dupNameExistingId   = null;
+
+function _dismissDupNameWarn() {
+  const warn = document.getElementById('dup-name-warn');
+  if (warn) warn.classList.remove('show');
+  _dupNameConfirmedFor = null;
+  _dupNameExistingId = null;
+  const nameEl = document.getElementById('f-name');
+  if (nameEl) {
+    try { nameEl.scrollIntoView({behavior:'smooth', block:'center'}); } catch(_) { nameEl.scrollIntoView(); }
+    setTimeout(() => { try { nameEl.focus({preventScroll:true}); nameEl.select(); } catch(_) { nameEl.focus(); } }, 300);
+  }
+}
+
+function _viewDupNameExisting() {
+  const id = _dupNameExistingId;
+  const warn = document.getElementById('dup-name-warn');
+  if (warn) warn.classList.remove('show');
+  _dupNameConfirmedFor = null;
+  _dupNameExistingId = null;
+  closeEnroll();
+  if (id && typeof openDrawer === 'function') {
+    setTimeout(() => { try { openDrawer(id); } catch(_) {} }, 100);
+  }
+}
+
+function _confirmDupNameWarn() {
+  const warn = document.getElementById('dup-name-warn');
+  if (warn) warn.classList.remove('show');
+  // Build the key from current form values and store it as confirmed
+  const name    = (document.getElementById('f-name')?.value || '').trim().toLowerCase();
+  const village = (document.getElementById('f-village')?.value || '').trim().toLowerCase();
+  const ngo     = (document.getElementById('f-ngo')?.value || '').trim().toLowerCase();
+  _dupNameConfirmedFor = `${name}|${village}|${ngo}`;
+  _dupNameExistingId = null;
+  submitEnroll();
+}
+
 // Lock/unlock the NGO Partner + Field Coordinator fields based on the current
 // user's role. Called on openEnroll() and openEdit() so the lock is consistent.
 //
@@ -6949,6 +7087,10 @@ function openEdit(id) {
   const dmw = document.getElementById('dup-mobile-warn'); if (dmw) dmw.classList.remove('show');
   _dupMobileConfirmedFor = null;
   _dupMobileExistingId = null;
+  // Reset duplicate-name soft-warn state (V326 — also skipped during edit)
+  const dnw = document.getElementById('dup-name-warn'); if (dnw) dnw.classList.remove('show');
+  _dupNameConfirmedFor = null;
+  _dupNameExistingId = null;
   // V4.1: income-mismatch banner is gone (single income field)
   // Refresh dynamic dropdowns (bring in newly added partners/livelihood types)
   injectDynamicOptions();
@@ -7472,6 +7614,31 @@ function advEnrollCollectRows() {
 }
 
 async function submitEnroll() {
+  // V326: Double-submit guard — drop any re-entrant call that arrives while a
+  // previous submitEnroll is still in-flight (e.g. double-tap, accidental
+  // second press during the genId network round-trip). This is the primary
+  // guard; the button disable below is belt-and-braces for the UI.
+  if (_enrollSubmitInFlight) {
+    console.warn('[submitEnroll] Re-entrant call blocked (already in-flight).');
+    return;
+  }
+  _enrollSubmitInFlight = true;
+  // Immediately disable the submit button so the user sees a visual signal
+  // that the tap registered and a second tap won't trigger another enroll.
+  const _submitBtnHandle = _disableSaveBtnForUpload('enroll-submit-btn', 'Saving…');
+
+  // Wrap everything in a try/finally so _enrollSubmitInFlight is ALWAYS
+  // cleared and the button ALWAYS re-enabled, even if an exception escapes
+  // validation or some early-return path was missed.
+  try {
+    return await _submitEnrollInner();
+  } finally {
+    _enrollSubmitInFlight = false;
+    _restoreSaveBtn(_submitBtnHandle);
+  }
+}
+
+async function _submitEnrollInner() {
   const err = document.getElementById('enroll-err');
 
   // Family-member mode flag. Two paths feed into it:
@@ -7674,6 +7841,41 @@ async function submitEnroll() {
     }
   }
 
+  // V326: Soft name + village + NGO duplicate check for single-enroll flow.
+  // The bulk-import path already does this check; the single-enroll form was
+  // missing it, which allowed the same person to be enrolled multiple times
+  // (e.g. Pargi Savjibha Bachubhai enrolled 20+ times in one session).
+  // Skipped for: family-member creates (headId set — intentionally a new
+  // record under the same household), editing an existing record.
+  if (!editingId && !isFamilyMemberCreate && name && village) {
+    const ngoVal = (document.getElementById('f-ngo')?.value || '').trim();
+    const dupKey = `${name.toLowerCase()}|${village.toLowerCase()}|${ngoVal.toLowerCase()}`;
+    if (dupKey !== _dupNameConfirmedFor) {
+      const all = loadData();
+      const existing = all.find(b =>
+        b.name && b.village &&
+        b.name.trim().toLowerCase() === name.toLowerCase() &&
+        b.village.trim().toLowerCase() === village.toLowerCase() &&
+        (b.ngo || '').trim().toLowerCase() === ngoVal.toLowerCase()
+      );
+      if (existing) {
+        _dupNameExistingId = existing.id;
+        const warn = document.getElementById('dup-name-warn');
+        const msg  = document.getElementById('dup-name-warn-msg');
+        if (warn && msg) {
+          msg.innerHTML =
+            `<b>${(name).replace(/</g,'&lt;')}</b> from <b>${(village).replace(/</g,'&lt;')}</b>` +
+            ` is already enrolled as <b>${existing.id}</b>` +
+            (existing.enrollDate ? ` on ${existing.enrollDate}` : '') + `.`;
+          warn.classList.add('show');
+          const body = document.querySelector('#enroll-overlay .modal-body');
+          if (body) body.scrollTop = 0;
+        }
+        return;
+      }
+    }
+  }
+
   // V4.1: removed aadhaar/pmjay vs hhSize checks — those fields are gone.
 
   // Land + livestock + baseline-income sanity caps. Skipped for family-member
@@ -7710,6 +7912,8 @@ async function submitEnroll() {
   _baselineConfirmedFor = null;
   _dupMobileConfirmedFor = null;
   _dupMobileExistingId = null;
+  _dupNameConfirmedFor = null;
+  _dupNameExistingId = null;
 
   // V4.1: build record with new schema only. Splits into two paths:
   //   • Normal (livelihood + advocacy beneficiary) — captures land, livestock,
@@ -10028,6 +10232,13 @@ function updateAlertBadge() {
   updateMobAlertBadge(count);
 }
 function renderAlerts() {
+  // V325: coordinators use the coord shell — render into coord-list instead
+  // of #content, and show a back button
+  const u = currentUser();
+  if (u && u.role === 'coordinator') {
+    _renderCoordAlerts();
+    return;
+  }
   const alerts = getAlerts();
   const redCount   = alerts.filter(a => a.type === 'red').length;
   const amberCount = alerts.filter(a => a.type === 'amber').length;
@@ -11778,9 +11989,25 @@ function _renderDashboardRecentUpdates(list) {
   // panel CRUD (user/partner/scheme/livelihood_type) because those are
   // config changes, not field activity — they have their own audit log tab.
   const relevantTypes = new Set(['beneficiary', 'advocacy']);
+
+  // V326: Admin users see ALL beneficiary/advocacy events from the audit log
+  // regardless of whether the beneficiary ID is already in the loaded cache.
+  // Pre-V326, a freshly created record (e.g. KRSF-GJ-10840 through 10859)
+  // whose Firebase data hadn't yet been received by the listener would be
+  // absent from visibleIds, causing it to silently drop from Recent Updates
+  // even though its audit entry existed. The audit log IS the source of truth
+  // for Recent Updates; we should never filter it by the (potentially stale)
+  // local data cache for admin users.
+  const isAdmin = me && me.role === 'admin';
+
   const events = audit
     .filter(e => relevantTypes.has(e.recordType))
     .filter(e => {
+      if (isAdmin) {
+        // Admin sees everything in the beneficiary/advocacy audit trail —
+        // no scoping by visibleIds (which may lag behind fresh enrollments).
+        return true;
+      }
       if (e.recordType === 'beneficiary') {
         // Visible to current user OR logged by current user
         return visibleIds.has(e.recordId) || (myUserId && e.userId === myUserId);
@@ -11861,12 +12088,18 @@ function _renderDashboardRecentUpdates(list) {
     // For beneficiary events we can make the row clickable to open the drawer;
     // for advocacy events the recordId is ADV-xxx so we resolve it through
     // the advocacy store (same lookup used for visibility filter above).
+    // V326: For admin users, also allow clicking records that aren't in the
+    // local cache yet (newly created records visible in audit before the
+    // Firebase listener has delivered them). openDrawer() handles the
+    // not-found case gracefully.
     let bid = null;
-    if (e.recordType === 'beneficiary' && visibleIds.has(e.recordId)) {
-      bid = e.recordId;
+    if (e.recordType === 'beneficiary') {
+      if (visibleIds.has(e.recordId) || isAdmin) {
+        bid = e.recordId;
+      }
     } else if (e.recordType === 'advocacy') {
       const resolved = advBidByAdvId[e.recordId];
-      if (resolved && visibleIds.has(resolved)) {
+      if (resolved && (visibleIds.has(resolved) || isAdmin)) {
         bid = resolved;
       } else {
         // Legacy fallback: advocacy record was deleted, match by name
@@ -11878,7 +12111,7 @@ function _renderDashboardRecentUpdates(list) {
     return `<tr ${bid?`onclick="openDrawer('${ebid}')" style="cursor:pointer"`:''}>
       <td style="font-size:12px;color:var(--gray2);white-space:nowrap">${ago(e.ts)}</td>
       <td><div class="bname">${beneficiaryName||'—'}</div>${bid?`<div class="bid">${ebid}</div>`:''}</td>
-      <td style="font-size:12px;color:var(--gray1)">${(bid && ngoById[bid]) ? escHtml(ngoById[bid]) : '—'}</td>
+      <td style="font-size:12px;color:var(--gray1)">${(bid && ngoById[bid]) ? escHtml(ngoById[bid]) : (e.ngo ? escHtml(e.ngo) : '—')}</td>
       <td><span style="display:inline-block;padding:2px 8px;border-radius:10px;background:${col}22;color:${col};font-size:10px;font-weight:600;text-transform:uppercase;white-space:nowrap">${label}</span></td>
       <td style="font-size:12px;color:var(--gray1);line-height:1.4">${summary||'—'}</td>
       <td style="font-size:11px;color:var(--gray2);white-space:nowrap">${who}</td>
@@ -12596,7 +12829,7 @@ window.nav=function(v){
   // 'enroll' is handled specially below (it opens the enrollment modal and
   // bounces back to beneficiaries). All other routes redirect.
   const me = currentUser();
-  if (me && me.role === 'coordinator' && v !== 'beneficiaries') {
+  if (me && me.role === 'coordinator' && v !== 'beneficiaries' && v !== 'alerts') {
     if (v === 'enroll') {
       // Treat enroll as a modal trigger, not a real view
       if (currentView !== 'beneficiaries') currentView = 'beneficiaries';
@@ -15371,6 +15604,7 @@ function mountCoordApp() {
   try { _refreshLangToggleLabel(); } catch(_){}
   // Initial list render
   coordRenderList();
+  _coordUpdateAlertBadge();
 }
 
 // Mount the manager shell (unchanged behaviour from v20.x).
@@ -15404,6 +15638,58 @@ function _coordClassifyProg(b, advByBid) {
   const schemeCnt = (advByBid[b.id] || []).length;
   const hasAdv = schemeCnt > 0 || (b.interventions||[]).includes('Advocacy (Govt. Schemes)');
   return { hasLiv, hasAdv };
+}
+
+function _renderCoordAlerts() {
+  const coordList = document.getElementById('coord-list');
+  const coordCount = document.getElementById('coord-count-bar');
+  if (!coordList) return;
+
+  const alerts = getAlerts();
+  const redCount   = alerts.filter(a => a.type === 'red').length;
+  const amberCount = alerts.filter(a => a.type === 'amber').length;
+  const active     = redCount + amberCount;
+
+  if (coordCount) coordCount.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0">
+      <span style="font-size:13px;font-weight:600;color:var(--gray1)">
+        Alerts & Flags ${active > 0 ? `<span style="background:#EF4444;color:#fff;font-size:10px;font-weight:700;border-radius:8px;padding:1px 6px;margin-left:4px">${active}</span>` : ''}
+      </span>
+      <button onclick="coordRenderList()" style="border:none;background:none;color:var(--navy);font-size:12px;font-weight:600;cursor:pointer;padding:4px 8px">
+        ← Back to Beneficiaries
+      </button>
+    </div>`;
+
+  if (alerts.length === 0) {
+    coordList.innerHTML = '<div style="padding:32px 16px;text-align:center;color:var(--gray2);font-size:14px">No active alerts. All your beneficiaries are on track.</div>';
+    return;
+  }
+
+  coordList.innerHTML = alerts.map(a => `
+    <div class="alert alert-${a.type}" ${a.id ? `onclick="openDrawer('${a.id}')" style="cursor:pointer"` : ''}
+      style="margin-bottom:8px;border-radius:8px;padding:10px 14px;display:flex;align-items:flex-start;gap:10px;
+             background:${a.type==='red'?'#FEF2F2':a.type==='amber'?'#FFFBEB':'#F0FDF4'};
+             border-left:4px solid ${a.type==='red'?'#EF4444':a.type==='amber'?'#F59E0B':'#10B981'}">
+      <span style="font-weight:700;font-size:16px;color:${a.type==='red'?'#EF4444':a.type==='amber'?'#F59E0B':'#10B981'};flex-shrink:0">${a.type==='green'?'✓':'!'}</span>
+      <div style="font-size:13px;line-height:1.5;color:var(--gray1)">${a.msg}</div>
+    </div>
+  `).join('');
+}
+
+function _coordUpdateAlertBadge() {
+  // Update the alert count badge in the coordinator header
+  try {
+    const badge = document.getElementById('coord-alert-badge');
+    if (!badge) return;
+    const alerts = getAlerts();
+    const active = alerts.filter(a => a.type === 'red' || a.type === 'amber').length;
+    if (active > 0) {
+      badge.textContent = active > 99 ? '99+' : String(active);
+      badge.style.display = 'block';
+    } else {
+      badge.style.display = 'none';
+    }
+  } catch(_) {}
 }
 
 function coordRenderList() {
@@ -15605,6 +15891,12 @@ function _applyRoleVisibility() {
   const isNgo = u && u.role === 'ngo';
   document.querySelectorAll('[data-admin-only]').forEach(el => {
     el.style.display = isAdm ? '' : 'none';
+  });
+  // V325: utility-only tools are permanently hidden from sidebar even for
+  // admins. They remain accessible by typing their route in the console
+  // if ever needed (e.g. window.nav('admin_dedup_ids')).
+  document.querySelectorAll('[data-sidebar-hidden="true"]').forEach(el => {
+    el.style.display = 'none';
   });
   // V318: date-range filter row is visible to BOTH admin and NGO roles.
   // NGO partners need it to answer questions like "how many beneficiaries
