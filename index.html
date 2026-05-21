@@ -19585,6 +19585,22 @@ async function _dedupScan() {
   renderAdminDedupIds();
 
   try {
+    // Step 0: fetch IDs already resolved by a previous fix run. These will
+    // always have multiple create events in the audit log (the original
+    // duplicate writes are permanent), but we skip them so the tool only
+    // shows genuinely unresolved collisions.
+    _dedupLog('Fetching previously resolved IDs…');
+    let resolvedIds = new Set();
+    try {
+      const resolvedSnap = await fbRef('dedup_resolved').once('value');
+      const resolvedObj = resolvedSnap.val() || {};
+      // Keys are stored with . # $ [ ] replaced by _; restore - for matching
+      Object.keys(resolvedObj).forEach(k => resolvedIds.add(k.replace(/_/g, '-')));
+      _dedupLog('Already resolved: ' + resolvedIds.size + ' ID(s) — these will be skipped.');
+    } catch(_) {
+      _dedupLog('(Could not load resolved list — will show all duplicates)');
+    }
+
     // Step 1: fetch ALL audit log 'create' events for beneficiaries in one query.
     // We scan the entire audit log for creates — this finds duplicates at ANY id
     // (10000, 10001, 10002 ... all of them), not just 10000.
@@ -19619,8 +19635,9 @@ async function _dedupScan() {
     });
 
     // Step 3: find every ID that has MORE than one create event — those are
-    // the overwritten victims. Sort each group by timestamp oldest-first.
-    const duplicateIds = Object.keys(byId).filter(id => byId[id].length > 1);
+    // the overwritten victims. Skip any already resolved by a previous fix run.
+    const duplicateIds = Object.keys(byId)
+      .filter(id => byId[id].length > 1 && !resolvedIds.has(id));
     duplicateIds.sort(); // KRSF-GJ-10000 before KRSF-GJ-10001 etc.
 
     _dedupLog('Found ' + Object.keys(byId).length + ' unique IDs with create events.');
@@ -19765,6 +19782,17 @@ async function _dedupFix() {
       auditLog('create', 'beneficiary', newId, victim.name,
         'Recovered from duplicate ' + victim.overwrittenAt + ' overwrite. Original enrolment: ' + victim.auditTs, null);
 
+      // V326: Mark this ID as resolved in Firebase so future scans skip it.
+      // Without this, the original duplicate create events remain in the audit
+      // log forever and the scan re-reports the same 170 IDs every time.
+      try {
+        await fbRef('dedup_resolved/' + victim.overwrittenAt.replace(/[.#$\[\]]/g, '_')).set({
+          resolvedAt: new Date().toISOString(),
+          resolvedBy: (currentUser()||{}).fullName || 'Admin',
+          newId,
+        });
+      } catch(_) { /* best-effort — don't block the fix on a metadata write */ }
+
       _dedupLog('  ✓ Written as ' + newId);
       fixed++;
     } catch(e) {
@@ -19777,6 +19805,39 @@ async function _dedupFix() {
   _dedupState.skipped = skipped;
   _dedupState.phase   = 'done';
   _dedupLog('\nDone. ' + fixed + ' record(s) restored. ' + (skipped>0 ? skipped + ' skipped.' : ''));
+  renderAdminDedupIds();
+}
+
+async function _dedupMarkAllResolved() {
+  if (!isAdmin()) return;
+  if (_dedupState.phase !== 'scanned') return;
+  if (_dedupState.affectedIds.length === 0) return;
+  if (!confirm(
+    'This will mark all ' + _dedupState.affectedIds.length + ' duplicate ID(s) as already resolved.\n\n' +
+    'Use this when the overwritten records were already fixed manually or by a previous run.\n\n' +
+    'Future scans will skip these IDs. Continue?'
+  )) return;
+
+  _dedupState.phase = 'fixing';
+  _dedupLog('\nMarking ' + _dedupState.affectedIds.length + ' ID(s) as resolved…');
+  renderAdminDedupIds();
+
+  const by = (currentUser()||{}).fullName || 'Admin';
+  const ts = new Date().toISOString();
+  try {
+    await Promise.all(
+      _dedupState.affectedIds.map(id =>
+        fbRef('dedup_resolved/' + id.replace(/[.#$\[\]]/g, '_'))
+          .set({ resolvedAt: ts, resolvedBy: by, markedManually: true })
+      )
+    );
+    _dedupState.phase = 'done';
+    _dedupLog('✓ All ' + _dedupState.affectedIds.length + ' ID(s) marked as resolved. Future scans will skip them.');
+  } catch(e) {
+    _dedupState.phase = 'error';
+    _dedupState.errorMsg = e.message || String(e);
+    _dedupLog('✗ Failed to mark resolved: ' + (e.message || e));
+  }
   renderAdminDedupIds();
 }
 
@@ -19838,6 +19899,11 @@ function renderAdminDedupIds() {
           style="${canRelink?'background:#7C3AED;border-color:#7C3AED':''}">
           🔗 ${s.phase==='relinking'?'Relinking…':'Relink Advocacy Records'}
         </button>
+        ${canFix ? `<button class="btn" onclick="_dedupMarkAllResolved()"
+          style="background:#F59E0B;border-color:#F59E0B;color:#fff"
+          title="Use this if these IDs were already fixed manually. Marks them as resolved so they won't appear in future scans.">
+          ✓ Already Fixed — Mark All as Resolved
+        </button>` : ''}
         <span style="font-size:12px;color:var(--gray2);margin-left:4px">${phaseLabel}</span>
       </div>
 
