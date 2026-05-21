@@ -1145,6 +1145,96 @@ body[data-shell="coord"] #coord-app { display: block; }
   100% { box-shadow: 0 0 0 0 rgba(220,38,38,0); border-radius:8px; }
 }
 .krsf-pulse { animation: krsfPulse 0.6s ease-out 2; outline: 2px solid #DC2626; outline-offset: 2px; border-radius: 8px; }
+
+/* ── V322: Advocacy modal — mobile stacked layout ────────────────────────
+   The Log Advocacy modal's scheme rows use a 5-column desktop grid
+   (1.6fr 1.1fr 0.9fr 1.6fr 28px). On phones (~380 px viewport) all five
+   columns get squashed so badly that scheme names truncate to "Birth Cer…"
+   and status reads "Ben…". This block keeps the desktop grid intact and
+   replaces it on small screens with a stacked card layout: row 1 = scheme
+   + status side by side, row 2 = amount + remarks side by side, with the
+   delete × pinned top-right. Per-cell labels surface via data-label so
+   the FC always knows what each control means. */
+@media (max-width: 600px) {
+  /* The wrapper holding the rows turns into a 1-column stack. */
+  #adv-scheme-rows {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 10px !important;
+    padding: 8px !important;
+    background: #FAFAFA;
+  }
+  /* Hide the desktop 5-column header strip on mobile — each card carries
+     its own inline labels instead. */
+  #adv-overlay .adv-grid-header { display: none !important; }
+  /* Each scheme row becomes a card on its own. */
+  #adv-scheme-rows > div[id^="adv-row-"] {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    grid-template-areas:
+      "scheme   delete"
+      "status   status"
+      "amount   amount"
+      "remarks  remarks" !important;
+    gap: 8px !important;
+    background: #fff !important;
+    border: 1px solid var(--gray3) !important;
+    border-radius: 10px !important;
+    padding: 10px !important;
+    align-items: stretch !important;
+  }
+  /* Each cell loses its right-border (desktop divider) and gets its
+     own grid-area + label-on-top. */
+  #adv-scheme-rows > div[id^="adv-row-"] > div {
+    border-right: none !important;
+    padding: 0 !important;
+  }
+  #adv-scheme-rows > div[id^="adv-row-"] > div[data-cell="scheme"]  { grid-area: scheme; }
+  #adv-scheme-rows > div[id^="adv-row-"] > div[data-cell="status"]  { grid-area: status; }
+  #adv-scheme-rows > div[id^="adv-row-"] > div[data-cell="amount"]  { grid-area: amount; }
+  #adv-scheme-rows > div[id^="adv-row-"] > div[data-cell="remarks"] { grid-area: remarks; }
+  #adv-scheme-rows > div[id^="adv-row-"] > div[data-cell="delete"]  {
+    grid-area: delete;
+    display: flex !important;
+    justify-content: flex-end !important;
+    align-items: flex-start !important;
+  }
+  /* Inline label above each control. ::before reads the data-label.
+     Hidden on the delete cell. */
+  #adv-scheme-rows > div[id^="adv-row-"] > div[data-cell]:not([data-cell="delete"])::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--gray2);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 3px;
+  }
+  /* Hide the amount cell entirely when it's been visibility:hidden by
+     advOnStatusChange — visibility:hidden still occupies grid space, so
+     we override that with display:none on mobile to recover the row. */
+  #adv-scheme-rows > div[id^="adv-row-"] > div[data-cell="amount"][style*="visibility:hidden"],
+  #adv-scheme-rows > div[id^="adv-row-"] > div[data-cell="amount"][style*="visibility: hidden"] {
+    display: none !important;
+  }
+  /* All form controls inside the card get bigger touch targets and 16px
+     font so iOS doesn't auto-zoom. */
+  #adv-scheme-rows select,
+  #adv-scheme-rows input[type="number"],
+  #adv-scheme-rows input[type="text"] {
+    font-size: 16px !important;
+    padding: 9px 10px !important;
+    min-height: 40px;
+  }
+  /* The × button gets a larger hit-area on mobile so it's easier to tap
+     without zooming. */
+  #adv-scheme-rows > div[id^="adv-row-"] > div[data-cell="delete"] button {
+    font-size: 22px !important;
+    padding: 4px 10px !important;
+    line-height: 1 !important;
+  }
+}
 </style>
 </head>
 <body>
@@ -1305,6 +1395,10 @@ body[data-shell="coord"] #coord-app { display: block; }
     <button data-admin-only class="nav-btn" data-v="admin_advocacy_backfill" onclick="nav('admin_advocacy_backfill')" style="display:none">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8m0 0l-3-3m3 3l3-3M3 14h10"/></svg>
       Advocacy Backfill
+    </button>
+    <button data-admin-only class="nav-btn" data-v="admin_dedup_ids" onclick="nav('admin_dedup_ids')" style="display:none">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h8M2 12h5"/><circle cx="12" cy="11" r="3"/><path d="M11 11h2M12 10v2"/></svg>
+      Fix Duplicate IDs
     </button>
   </div>
   <!-- Sidebar footer: who's logged in + clear logout button. Renders dynamically
@@ -2083,7 +2177,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V321';
+const APP_VERSION = 'V322';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // ── Sync state (in-memory) ─────────────────────────────────────────────────
@@ -2697,6 +2791,20 @@ function _attachNonBenefListeners() {
       try { renderCurrentView(); } catch(_){}
     }
   });
+  // V322: live listener for scheme metadata (default benefit amounts).
+  // Missing node / null / non-object => empty map; this is normal on a
+  // freshly-deployed install where no admin has set defaults yet.
+  fbRef('config/schemes_meta').on('value', snap => {
+    const v = snap.val();
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      localStorage.setItem('krsf_schemes_meta_v1', JSON.stringify(v));
+      try { renderCurrentView(); } catch(_){}
+    } else if (v === null) {
+      // Explicit "no defaults configured" — clear the local mirror so we
+      // don't carry a stale map after the admin clears every entry.
+      localStorage.removeItem('krsf_schemes_meta_v1');
+    }
+  });
   // Audit log (V308.2 — in-memory cache only) — drives the Recent Updates
   // card on the dashboard. Without this, audit events written on
   // Coordinator A's device would never appear in Admin's Recent Updates view.
@@ -3151,6 +3259,7 @@ function _isUserMidEdit() {
       'logincome-overlay',       // log income entry modal
       'show-photos-overlay',     // photo viewer / lightbox
       'adv-overlay',             // advocacy log modal
+      'bulkstatus-overlay',      // V322: bulk status update modal
       'reassign-modal',          // reassign beneficiary
       'enroll-success-modal',    // "Add a family member?" prompt
       'myaccount-modal',         // user changes own profile/password
@@ -3413,6 +3522,29 @@ async function fbSyncWholeArray(path, arr) {
     await fbRef(path).set(arr);
   } catch(e) {
     console.warn(`[V310-S2] Whole-array write failed for ${path}:`, e);
+  } finally {
+    FB.pendingWrites--;
+    fbUpdatePill();
+  }
+}
+
+// V322: same idea as fbSyncWholeArray, but for object-shaped config
+// (currently used only by config/schemes_meta). Separate function so the
+// .set() payload type stays unambiguous and the storage shape stays
+// distinct from arrays — `set({})` in Firebase is "delete the node", which
+// is what we want for an empty meta map; `set([])` would persist an empty
+// array, which is a different shape.
+async function fbSyncWholeObject(path, obj) {
+  if (FB.initFailed || !FB.online || !FB.db) {
+    console.warn(`[V322] Skipping cloud sync for ${path} (offline / not ready). Local copy preserved.`);
+    return;
+  }
+  try {
+    FB.pendingWrites++;
+    fbUpdatePill();
+    await fbRef(path).set(obj || {});
+  } catch(e) {
+    console.warn(`[V322] Whole-object write failed for ${path}:`, e);
   } finally {
     FB.pendingWrites--;
     fbUpdatePill();
@@ -4206,6 +4338,60 @@ function saveSchemes(arr) {
   // V16: whole-array sync — admin-only config, tiny, low concurrency risk.
   localStorage.setItem(SCHEMES_KEY, JSON.stringify(arr));
   fbSyncWholeArray('config/schemes', arr || []);
+}
+
+// ── V322: SCHEME METADATA (default benefit amount per scheme) ──────────────
+// Why a separate node, not inline on getSchemes(): getSchemes() returns a
+// PLAIN STRING ARRAY consumed by ~14 call sites (enrollment panel, filter
+// chips, dropdowns, bulk import, etc.) all of which expect strings. Changing
+// the shape would break every one of them. So V322 keeps schemes as strings
+// and stores metadata in a sibling object node keyed by scheme name.
+//
+// Storage shape (Firebase + localStorage):
+//   { "PM-KISAN": { defaultAmount: 6000 }, "Ayushman Bharat": { defaultAmount: 500000 }, ... }
+// A scheme with no entry, or with defaultAmount missing / 0 / null, behaves
+// exactly as today — the FC enters the amount manually. This is purely
+// additive: zero impact on the ~3,800 existing advocacy records or their
+// stored benefitAmt values.
+const SCHEMES_META_KEY = 'krsf_schemes_meta_v1';
+function getSchemesMeta() {
+  try {
+    const raw = localStorage.getItem(SCHEMES_META_KEY);
+    if (raw) { const obj = JSON.parse(raw); if (obj && typeof obj === 'object' && !Array.isArray(obj)) return obj; }
+  } catch(_) {}
+  return {};
+}
+function saveSchemesMeta(obj) {
+  // Validate: drop any keys with non-finite or negative amounts to keep
+  // storage clean. A 0 / missing amount is the "no default" sentinel and
+  // is stored explicitly only if the admin entered 0 deliberately; the
+  // admin UI strips empty inputs before calling save.
+  const clean = {};
+  Object.keys(obj || {}).forEach(k => {
+    const v = obj[k];
+    if (!v || typeof v !== 'object') return;
+    const amt = Number(v.defaultAmount);
+    if (Number.isFinite(amt) && amt >= 0) {
+      clean[k] = { defaultAmount: amt };
+    }
+  });
+  localStorage.setItem(SCHEMES_META_KEY, JSON.stringify(clean));
+  fbSyncWholeObject('config/schemes_meta', clean);
+}
+// Convenience: returns the default amount for a scheme name, or 0 when not
+// configured. Callers can distinguish "no default set" from "default of 0"
+// via hasSchemeDefault() below — needed by the bulk-update warning path.
+function getSchemeDefaultAmount(schemeName) {
+  if (!schemeName) return 0;
+  const meta = getSchemesMeta()[schemeName];
+  if (!meta) return 0;
+  const amt = Number(meta.defaultAmount);
+  return Number.isFinite(amt) && amt > 0 ? amt : 0;
+}
+function hasSchemeDefault(schemeName) {
+  if (!schemeName) return false;
+  const meta = getSchemesMeta()[schemeName];
+  return !!(meta && Number.isFinite(Number(meta.defaultAmount)) && Number(meta.defaultAmount) > 0);
 }
 
 // Role-scoped data getter. Replaces direct getData() calls at the view layer
@@ -5254,33 +5440,60 @@ async function genId(district) {
   }
   const prefix = `KRSF-${code}-`;
 
-  // V316: fetch the highest existing id with this prefix from Firebase
-  // directly. Uses orderByKey() which is implicitly indexed (no rule needed)
-  // and limitToLast(1) to fetch just one record — minimal bandwidth.
+  // V324 fix: use Firebase REST API with shallow=true to fetch ONLY the keys
+  // under beneficiaries/ that match the state prefix, then find the numeric
+  // max by parsing each key.
   //
-  // startAt/endAt bound the query to keys starting with our prefix. Since
-  // Firebase orders keys lexically, all "KRSF-GJ-..." keys fall between
-  // "KRSF-GJ-" and "KRSF-GJ-~" (~ sorts after digits and uppercase letters).
+  // Why not the SDK (orderByKey + limitToLast(1))?
+  //   Firebase sorts keys LEXICALLY. 'KRSF-GJ-9999' > 'KRSF-GJ-10000'
+  //   because '9' > '1'. So limitToLast(1) always returns KRSF-GJ-9999 as
+  //   the max once you pass 9999, causing genId to keep re-minting KRSF-GJ-10000
+  //   and overwriting the same record. Count was stuck at 9663.
+  //
+  // Why not SDK without limitToLast?
+  //   Without limitToLast the SDK downloads full record DATA for every
+  //   matching node (~9000 records × full beneficiary object = several MB).
+  //   On a slow mobile connection this times out and the enrolment fails.
+  //
+  // REST shallow=true:
+  //   Returns ONLY the keys as a flat JSON object {key: true, ...}.
+  //   No record data. Fast (~5-10 KB for 9000 keys). Works offline-first
+  //   (falls back to localIds if fetch fails). Numeric max is found correctly
+  //   by parsing every returned key — no reliance on lexical order at all.
   if (!FB || !FB.db) {
     throw new Error('genId: Firebase unavailable. Please check your connection and try again.');
   }
   let serverMaxN = 0;
   try {
-    const snap = await fbRef('beneficiaries')
-      .orderByKey()
-      .startAt(prefix)
-      .endAt(prefix + '\uf8ff')
-      .limitToLast(1)
-      .once('value');
-    const obj = snap.val() || {};
-    for (const k of Object.keys(obj)) {
-      if (typeof k === 'string' && k.startsWith(prefix)) {
-        // Parse numeric suffix. Some legacy IDs may have a "-XX" random
-        // suffix (race recovery in pre-V316 genId); strip that before
-        // parsing so 'KRSF-GJ-3553-A7' still gives us 3553.
-        const suffix = k.slice(prefix.length).split('-')[0];
-        const n = parseInt(suffix, 10);
-        if (!isNaN(n) && n > serverMaxN) serverMaxN = n;
+    // Build the REST URL. Firebase auth token is not needed for reads when
+    // database rules allow authenticated reads — we include the auth token
+    // from the current SDK session so rules are satisfied.
+    const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';
+    const NS     = 'krsf_tracker';
+    // Get the current user's ID token from the Firebase Auth instance
+    let authToken = '';
+    try {
+      const fbApp = firebase.app();
+      const authUser = firebase.auth ? firebase.auth().currentUser : null;
+      if (authUser) authToken = await authUser.getIdToken();
+    } catch (_) { /* auth unavailable — try unauthenticated, rules permitting */ }
+    const encodedPrefix   = encodeURIComponent('"' + prefix + '"');
+    const encodedEnd      = encodeURIComponent('"' + prefix + '\uf8ff"');
+    const authSuffix      = authToken ? `&auth=${authToken}` : '';
+    const url = `${DB_URL}/${NS}/beneficiaries.json?shallow=true&orderBy=%22%24key%22&startAt=${encodedPrefix}&endAt=${encodedEnd}${authSuffix}`;
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error('REST fetch failed: ' + resp.status);
+    const keysObj = await resp.json(); // { 'KRSF-GJ-0001': true, 'KRSF-GJ-10000': true, ... }
+    if (keysObj && typeof keysObj === 'object') {
+      for (const k of Object.keys(keysObj)) {
+        if (k.startsWith(prefix)) {
+          // Parse numeric suffix. Some legacy IDs may have a "-XX" random
+          // suffix (race recovery in pre-V316 genId); strip that before
+          // parsing so 'KRSF-GJ-3553-A7' still gives us 3553.
+          const suffix = k.slice(prefix.length).split('-')[0];
+          const n = parseInt(suffix, 10);
+          if (!isNaN(n) && n > serverMaxN) serverMaxN = n;
+        }
       }
     }
   } catch (e) {
@@ -5523,6 +5736,35 @@ function openDrawer(id) {
     }
   }
 
+  // V322: per-record undo banner for the most recent bulk status update.
+  // Visible to admin / NGO / coordinator (anyone who could have run a
+  // bulk update against this record). Depth 1 — only the latest batch is
+  // restorable. The snapshot lives on the advocacy record, not on the
+  // beneficiary, so we look it up via _getBulkStatusSnapshotForBeneficiary.
+  let _bulkStatusBannerHtml = '';
+  if (_canBulkStatusUpdate()) {
+    const _bsSnap = (typeof _getBulkStatusSnapshotForBeneficiary === 'function')
+      ? _getBulkStatusSnapshotForBeneficiary(b.id) : null;
+    if (_bsSnap) {
+      const _byName  = escHtml(_bsSnap.by || '?');
+      const _atDate  = fmtD((_bsSnap.at || '').split('T')[0]);
+      const _scheme  = escHtml(_bsSnap.scheme || '');
+      const _fromS   = escHtml(_bsSnap.fromStatus || '');
+      const _toS     = escHtml(_bsSnap.toStatus || '');
+      const _bidEsc  = escHtml(b.id);
+      const _rowCount = Object.keys(_bsSnap.rowsBefore || {}).length;
+      _bulkStatusBannerHtml = `
+        <div style="background:#FFFBEB;border:1px solid #FBBF24;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:12px">
+          <div style="font-weight:600;color:#92400E;margin-bottom:4px">⏪ Last bulk status update available to undo</div>
+          <div style="color:var(--gray1);margin-bottom:8px;line-height:1.5">
+            Batch <code>${escHtml(_bsSnap.batchId||'')}</code> applied by <b>${_byName}</b> on ${_atDate}.
+            Restores ${_rowCount} row${_rowCount===1?'':'s'} for <b>${_scheme}</b> from <b>${_toS}</b> back to <b>${_fromS}</b>.
+          </div>
+          <button class="btn btn-sm" style="color:#92400E;border-color:#FBBF24" onclick="_undoBulkStatusForBeneficiary('${_bidEsc}')">↶ Undo bulk status update</button>
+        </div>`;
+    }
+  }
+
   // Linked family members listing — for HEAD records only (i.e. not for a
   // record that itself has a headId). When a head has wives / daughters /
   // etc enrolled via the family-member shortcut, surface them here so the
@@ -5563,6 +5805,7 @@ function openDrawer(id) {
 
   document.getElementById('dr-body').innerHTML = `
     ${_familyHeadHtml}
+    ${_bulkStatusBannerHtml}
     ${hasLiv ? `<div class="ds">
       <div class="ds-title">Status</div>
       <span class="status-pill ${SC[b.status]||''}" style="font-size:13px;padding:5px 12px"><span class="dot"></span>${stageLabel(b.status)}</span>
@@ -10027,7 +10270,7 @@ function refreshMapMarkers() {
         <button class="btn btn-sm btn-primary" type="button" onclick="advAddSchemeRow()">+ Add Scheme</button>
       </div>
       <div style="margin-top:8px;border:1px solid var(--gray3);border-radius:8px;overflow:hidden">
-        <div style="display:grid;grid-template-columns:1.6fr 1.1fr 0.9fr 1.6fr 28px;background:#FAFAFA;border-bottom:1px solid var(--gray3);padding:7px 10px;font-size:10px;font-weight:600;color:var(--gray2);text-transform:uppercase;letter-spacing:.05em">
+        <div class="adv-grid-header" style="display:grid;grid-template-columns:1.6fr 1.1fr 0.9fr 1.6fr 28px;background:#FAFAFA;border-bottom:1px solid var(--gray3);padding:7px 10px;font-size:10px;font-weight:600;color:var(--gray2);text-transform:uppercase;letter-spacing:.05em">
           <span>Scheme</span><span>Status</span><span>Benefit Amount (₹)</span><span>Remarks (per application)</span><span></span>
         </div>
         <div id="adv-scheme-rows"></div>
@@ -10045,6 +10288,121 @@ function refreshMapMarkers() {
   </div>
 </div>
 </div>
+
+<!-- V322: BULK STATUS UPDATE MODAL ────────────────────────────────────────
+     Lets admin / NGO / coordinator bulk-flip the status of a single scheme
+     across many beneficiaries in their scope. Two-pane modal: (1) scope &
+     scheme picker on top, (2) preview list of affected beneficiaries below.
+     The "Apply" button is disabled until the preview is non-empty AND the
+     user has explicitly ticked the "I have taken a Firebase backup" box. -->
+<div class="overlay" id="bulkstatus-overlay">
+<div class="modal" style="width:780px;max-width:96vw">
+  <div class="modal-head">
+    <div class="modal-title">⚡ Bulk Update Scheme Status</div>
+    <button class="modal-close" onclick="closeBulkStatusModal()">&times;</button>
+  </div>
+  <div class="modal-body" style="max-height:75vh;overflow-y:auto">
+    <div class="error-msg" id="bulkstatus-err"></div>
+    <!-- Step 1: scheme & source/target status -->
+    <div class="msec">
+      <div class="msec-title">1 · Pick scheme & status transition</div>
+      <div class="frow">
+        <div class="fg">
+          <label>Scheme *</label>
+          <select id="bulkstatus-scheme" onchange="_bulkStatusOnPickerChange()">
+            <option value="">— Select scheme —</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label>Source status (only flip rows currently at this status)</label>
+          <select id="bulkstatus-from" onchange="_bulkStatusOnPickerChange()">
+            <option value="Need to Apply">Need to Apply</option>
+            <option value="Applied">Applied</option>
+            <option value="Rejected">Rejected</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label>Target status *</label>
+          <select id="bulkstatus-to" onchange="_bulkStatusOnPickerChange()">
+            <option value="Benefits Received">Benefits Received</option>
+            <option value="Applied">Applied</option>
+            <option value="Rejected">Rejected</option>
+            <option value="Need to Apply">Need to Apply</option>
+          </select>
+        </div>
+      </div>
+      <!-- Amount control — only visible when target = Benefits Received -->
+      <div id="bulkstatus-amt-block" style="display:none;margin-top:10px;padding:10px 12px;background:var(--navy4);border:1px solid var(--navy3);border-radius:7px">
+        <div style="font-size:12px;color:var(--navy);font-weight:600;margin-bottom:6px">Benefit amount</div>
+        <div id="bulkstatus-amt-msg" style="font-size:12px;color:var(--gray1);margin-bottom:8px"></div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+            <input type="radio" name="bulkstatus-amtmode" value="default" id="bulkstatus-amtmode-default" onchange="_bulkStatusOnAmtModeChange()">
+            <span>Use configured default per scheme</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+            <input type="radio" name="bulkstatus-amtmode" value="override" onchange="_bulkStatusOnAmtModeChange()">
+            <span>Override with a single amount:</span>
+          </label>
+          <input type="number" min="0" id="bulkstatus-amt-override" placeholder="₹"
+            style="padding:5px 9px;border:1px solid var(--gray3);border-radius:5px;font-size:12px;font-family:var(--font);width:120px;text-align:right" disabled
+            oninput="_bulkStatusUpdatePreviewCount()">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+            <input type="radio" name="bulkstatus-amtmode" value="blank" onchange="_bulkStatusOnAmtModeChange()">
+            <span>Leave blank (FCs fill in later)</span>
+          </label>
+        </div>
+      </div>
+    </div>
+    <!-- Step 2: scope filter -->
+    <div class="msec">
+      <div class="msec-title">2 · Scope <span style="font-size:11px;font-weight:400;color:var(--gray2)">(within what you can see)</span></div>
+      <div class="frow">
+        <div class="fg" id="bulkstatus-ngo-fg" style="display:none">
+          <label>NGO</label>
+          <select id="bulkstatus-ngo" onchange="_bulkStatusUpdatePreviewCount()">
+            <option value="">All NGOs</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label>Coordinator</label>
+          <select id="bulkstatus-coord" onchange="_bulkStatusUpdatePreviewCount()">
+            <option value="">All coordinators in scope</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label>Village (optional)</label>
+          <input type="text" id="bulkstatus-village" placeholder="Partial match…" oninput="_bulkStatusUpdatePreviewCount()">
+        </div>
+      </div>
+    </div>
+    <!-- Step 3: preview + confirm -->
+    <div class="msec">
+      <div class="msec-title" style="display:flex;justify-content:space-between;align-items:center">
+        <span>3 · Preview <span style="font-size:11px;font-weight:400;color:var(--gray2)">— shows first 10 affected</span></span>
+        <span id="bulkstatus-count" style="font-size:13px;font-weight:600;color:var(--gray1)">—</span>
+      </div>
+      <div id="bulkstatus-preview" style="border:1px solid var(--gray3);border-radius:7px;background:#FAFAFA;padding:8px;max-height:220px;overflow-y:auto;font-size:12px;color:var(--gray1)">
+        <div style="text-align:center;padding:20px;color:var(--gray2)">Pick a scheme above to see what would change.</div>
+      </div>
+      <div id="bulkstatus-ack-admin" style="margin-top:12px;padding:10px 12px;background:#FFFBEB;border:1px solid #FBBF24;border-radius:7px;font-size:12px;color:#92400E;display:none">
+        <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer">
+          <input type="checkbox" id="bulkstatus-backup-ack" onchange="_bulkStatusUpdatePreviewCount()" style="margin-top:2px">
+          <span><b>I have taken a Firebase JSON backup.</b> Bulk updates touch many records at once. Even though each record is individually undoable from the beneficiary drawer, please export the database first via Firebase Console → Realtime Database → Data → Export JSON.</span>
+        </label>
+      </div>
+      <div id="bulkstatus-ack-nonadmin" style="margin-top:12px;padding:10px 12px;background:#EFF6FF;border:1px solid #93C5FD;border-radius:7px;font-size:12px;color:var(--navy);display:none">
+        <b>About to update <span id="bulkstatus-ack-scope">records in your scope</span>.</b> Each change is individually undoable from that beneficiary's drawer if needed.
+      </div>
+    </div>
+  </div>
+  <div class="modal-foot">
+    <button class="btn" onclick="closeBulkStatusModal()">Cancel</button>
+    <button class="btn btn-primary" id="bulkstatus-apply" disabled style="opacity:.5;cursor:not-allowed" onclick="applyBulkStatusUpdate()">Apply to 0 record(s)</button>
+  </div>
+</div>
+</div>
+<!-- END V322 bulk status modal -->
 
 <script>
 // ── ADVOCACY DATA ─────────────────────────────────────────────────────────
@@ -10121,29 +10479,61 @@ function advAddSchemeRow(scheme, status, benefitRecd, benefitAmt, remarks) {
   // accommodate; the remarks column flexes to take leftover space.
   row.style.cssText = 'display:grid;grid-template-columns:1.6fr 1.1fr 0.9fr 1.6fr 28px;gap:0;border-bottom:1px solid var(--gray3);align-items:center';
   row.innerHTML =
-    `<div style="padding:6px 8px;border-right:1px solid var(--gray3)">
-       <select style="width:100%;padding:5px 6px;border:1px solid var(--gray3);border-radius:5px;font-size:12px;font-family:var(--font);background:#fff">
+    `<div data-cell="scheme" data-label="Scheme" style="padding:6px 8px;border-right:1px solid var(--gray3)">
+       <select onchange="advOnSchemeChange(${rowId})" style="width:100%;padding:5px 6px;border:1px solid var(--gray3);border-radius:5px;font-size:12px;font-family:var(--font);background:#fff">
          <option value="">— Select scheme —</option>${schemeOpts}
        </select>
      </div>
-     <div style="padding:6px 8px;border-right:1px solid var(--gray3)">
+     <div data-cell="status" data-label="Status" style="padding:6px 8px;border-right:1px solid var(--gray3)">
        <select onchange="advOnStatusChange(${rowId})" style="width:100%;padding:5px 6px;border:1px solid var(--gray3);border-radius:5px;font-size:12px;font-family:var(--font);background:#fff">${statusOpts}</select>
      </div>
-     <div id="adv-amt-wrap-${rowId}" style="padding:6px 8px;border-right:1px solid var(--gray3);${showAmt?'':'visibility:hidden'}">
+     <div data-cell="amount" data-label="Amount (₹)" id="adv-amt-wrap-${rowId}" style="padding:6px 8px;border-right:1px solid var(--gray3);${showAmt?'':'visibility:hidden'}">
        <input type="number" min="0" placeholder="0" value="${amtVal}" id="adv-amt-${rowId}"
               style="width:100%;padding:5px 6px;border:1px solid var(--gray3);border-radius:5px;font-size:12px;font-family:var(--font);background:#fff;text-align:right">
      </div>
-     <div style="padding:6px 8px;border-right:1px solid var(--gray3)">
+     <div data-cell="remarks" data-label="Remarks" style="padding:6px 8px;border-right:1px solid var(--gray3)">
        <input type="text" class="adv-row-remarks" placeholder="Remarks (e.g. tractor, rotavator…)" value="${remarksVal}" maxlength="200"
               style="width:100%;padding:5px 6px;border:1px solid var(--gray3);border-radius:5px;font-size:12px;font-family:var(--font);background:#fff">
      </div>
-     <div style="display:flex;align-items:center;justify-content:center">
-       <button type="button" onclick="document.getElementById('adv-row-${rowId}').remove()" style="background:none;border:none;color:var(--gray2);cursor:pointer;font-size:16px;padding:4px">×</button>
+     <div data-cell="delete" style="display:flex;align-items:center;justify-content:center">
+       <button type="button" onclick="document.getElementById('adv-row-${rowId}').remove()" style="background:none;border:none;color:var(--gray2);cursor:pointer;font-size:16px;padding:4px" title="Remove this scheme">×</button>
      </div>`;
   wrap.appendChild(row);
+  // V323: if the row opens already in Benefits Received and a default is
+  // configured, lock the amount field immediately so it is non-editable
+  // right from the start (not only after the user changes the status).
+  if (initStatus === 'Benefits Received' && scheme) {
+    const def = getSchemeDefaultAmount(scheme);
+    if (def > 0) {
+      const amtInput = document.getElementById('adv-amt-' + rowId);
+      _advLockAmtInput(amtInput, def);
+    }
+  }
 }
 
 // Show/hide the benefit-amount input when the status dropdown changes
+// V323: Helpers — lock or unlock the amount input when a scheme default is
+// configured by admin. Locked = read-only, navy border, lock-icon tooltip.
+function _advLockAmtInput(input, def) {
+  if (!input) return;
+  input.value    = def;
+  input.readOnly = true;
+  input.style.border     = '1.5px solid var(--navy)';
+  input.style.background = '#EFF6FF';
+  input.style.color      = 'var(--navy)';
+  input.style.cursor     = 'not-allowed';
+  input.title = '\u{1F512} Admin has set this amount to \u20B9' + Number(def).toLocaleString('en-IN') + '. It cannot be changed here.';
+}
+function _advUnlockAmtInput(input) {
+  if (!input) return;
+  input.readOnly = false;
+  input.style.border     = '1px solid var(--gray3)';
+  input.style.background = '#fff';
+  input.style.color      = '';
+  input.style.cursor     = '';
+  input.title = '';
+}
+
 function advOnStatusChange(rowId) {
   const row = document.getElementById('adv-row-' + rowId);
   if (!row) return;
@@ -10153,10 +10543,41 @@ function advOnStatusChange(rowId) {
   if (!statusSel || !wrap) return;
   if (statusSel.value === 'Benefits Received') {
     wrap.style.visibility = 'visible';
-    if (input) input.focus();
+    // V323: auto-fill from the configured default for this scheme.
+    // If a default is set by admin, the field is LOCKED (read-only) so
+    // FCs cannot modify it. No default => field is editable as before.
+    const schemeSel  = row.querySelectorAll('select')[0];
+    const schemeName = schemeSel ? schemeSel.value : '';
+    const def = getSchemeDefaultAmount(schemeName);
+    if (def > 0) {
+      _advLockAmtInput(input, def);
+    } else {
+      _advUnlockAmtInput(input);
+      if (input) input.focus();
+    }
   } else {
     wrap.style.visibility = 'hidden';
-    if (input) input.value = '';
+    if (input) { input.value = ''; _advUnlockAmtInput(input); }
+  }
+}
+
+// V323: when the FC changes the scheme on a row already in Benefits Received,
+// re-evaluate the lock: lock to the new scheme's default, or unlock if none.
+function advOnSchemeChange(rowId) {
+  const row = document.getElementById('adv-row-' + rowId);
+  if (!row) return;
+  const statusSel = row.querySelectorAll('select')[1];
+  const input     = document.getElementById('adv-amt-' + rowId);
+  if (!statusSel || !input) return;
+  if (statusSel.value !== 'Benefits Received') return;
+  const schemeSel  = row.querySelectorAll('select')[0];
+  const schemeName = schemeSel ? schemeSel.value : '';
+  const def = getSchemeDefaultAmount(schemeName);
+  if (def > 0) {
+    _advLockAmtInput(input, def);
+  } else {
+    _advUnlockAmtInput(input);
+    input.value = '';
   }
 }
 
@@ -11477,7 +11898,7 @@ function _livBenTabFull(allB) {
   </tr>`).join('');
 
   return chips+`<div class="card"><div class="card-head">
-    <div class="card-title">${escHtml(livInterv||'All Beneficiaries')}${livStage?' · '+stageLabel(livStage):''} <span style="font-size:12px;font-weight:400;color:var(--gray2)">${list.length} records</span></div>
+    <div class="card-title">${escHtml(livInterv||'All Beneficiaries')}${livStage?' · '+stageLabel(livStage):''} <span style="font-size:12px;font-weight:400;color:var(--gray2)">${totalFiltered} records</span></div>
     <div class="filters"><input id="liv-search-input" class="fsearch" placeholder="Search name, ID, village..." value="${escHtml(livSearch)}" oninput="_searchDebounce('liv', this.value, () => { livSearch = _searchDebounceVal.liv; renderLivelihood(); })">
     <button class="btn btn-primary btn-sm" onclick="openEnroll()">+ Enroll</button></div></div>
     ${list.length===0?'<div class="empty">No beneficiaries match.</div>':`<table class="tbl"><thead><tr><th style="width:52px;text-align:center">Sr. No.</th><th>Beneficiary</th><th>Location</th><th>Partner</th><th>Intervention</th><th>Baseline</th><th>Stage</th><th>Income Delta</th></tr></thead><tbody>${rows}</tbody></table>`}
@@ -11794,29 +12215,52 @@ let _allBVisibleIds=[];
 // rerenders within a session.
 let allBProgFilter = '';
 
+// V323 — Pagination for All Beneficiaries (9000+ records need paging)
+const ALL_B_PAGE_SIZE = 100;
+let allBCurrentPage = 1;
+
+// V323 — Memoization: cache the expensive enrichment pass across re-renders
+// that only change the page. The cache key is a cheap fingerprint of the
+// underlying data counts + boundary IDs. It is invalidated automatically
+// whenever the Firebase listeners push new data (which triggers a fresh
+// renderAllBeneficiaries call with different fingerprint data).
+let _allBEnrichedCache     = null;
+let _allBEnrichedCacheKey  = null;
+function _allBCacheKey(allB, advArr) {
+  return allB.length + '|' + advArr.length + '|'
+    + (allB[0]  && allB[0].id  || '') + '|'
+    + (allB[allB.length-1] && allB[allB.length-1].id || '');
+}
+
 function renderAllBeneficiaries() {
   const allB=filteredAll();
-  // Enrich with program membership + impact numbers — same shape as Integrated
-  // view's enrichment so the two pages can share column semantics. For each
-  // beneficiary we compute hasLiv/hasAdv (program badges), incDelta (baseline→
-  // endline income change), and benefitAmt (sum of Rs received across schemes).
   const advArr = (() => { try { return loadAdv(); } catch(e){ return []; } })();
-  const advBidSet = new Set(advArr.map(a => a.bid));
-  // Build latest-scheme-per-beneficiary map to compute benefitAmt per row.
-  const latestByBid = {};
-  if (typeof _advLatestRowsAll === 'function') {
-    _advLatestRowsAll(advArr).forEach(r => {
-      (latestByBid[r.__bid] = latestByBid[r.__bid] || []).push(r);
+
+  // V323: Memoize the expensive enrichment pass. Re-compute only when the
+  // underlying data has actually changed (different count or boundary IDs).
+  const cacheKey = _allBCacheKey(allB, advArr);
+  let enriched;
+  if (_allBEnrichedCache && _allBEnrichedCacheKey === cacheKey) {
+    enriched = _allBEnrichedCache;
+  } else {
+    const advBidSet = new Set(advArr.map(a => a.bid));
+    const latestByBid = {};
+    if (typeof _advLatestRowsAll === 'function') {
+      _advLatestRowsAll(advArr).forEach(r => {
+        (latestByBid[r.__bid] = latestByBid[r.__bid] || []).push(r);
+      });
+    }
+    enriched = allB.map(b => {
+      const hasLiv = (b.interventions||[]).some(i => i && i !== 'Advocacy (Govt. Schemes)');
+      const hasAdv = advBidSet.has(b.id) || (b.interventions||[]).includes('Advocacy (Govt. Schemes)');
+      const schemeRows = latestByBid[b.id] || [];
+      const incDelta   = b.endIncome != null ? (b.endIncome - b.baseIncome) : 0;
+      const benefitAmt = schemeRows.filter(r => r.benefitRecd === 'Yes').reduce((s, r) => s + (r.benefitAmt || 0), 0);
+      return { ...b, hasLiv, hasAdv, incDelta, benefitAmt };
     });
+    _allBEnrichedCache    = enriched;
+    _allBEnrichedCacheKey = cacheKey;
   }
-  const enriched = allB.map(b => {
-    const hasLiv = (b.interventions||[]).some(i => i && i !== 'Advocacy (Govt. Schemes)');
-    const hasAdv = advBidSet.has(b.id) || (b.interventions||[]).includes('Advocacy (Govt. Schemes)');
-    const schemeRows = latestByBid[b.id] || [];
-    const incDelta   = b.endIncome != null ? (b.endIncome - b.baseIncome) : 0;
-    const benefitAmt = schemeRows.filter(r => r.benefitRecd === 'Yes').reduce((s, r) => s + (r.benefitAmt || 0), 0);
-    return { ...b, hasLiv, hasAdv, incDelta, benefitAmt };
-  });
   const livOnlyList = enriched.filter(b => b.hasLiv && !b.hasAdv);
   const dualList    = enriched.filter(b => b.hasLiv &&  b.hasAdv);
   const advOnlyList = enriched.filter(b => !b.hasLiv && b.hasAdv);
@@ -11831,7 +12275,16 @@ function renderAllBeneficiaries() {
 
   if (allBSearch) list=list.filter(b=>b.name.toLowerCase().includes(allBSearch.toLowerCase())||b.id.toLowerCase().includes(allBSearch.toLowerCase())||b.village.toLowerCase().includes(allBSearch.toLowerCase())||b.ngo.toLowerCase().includes(allBSearch.toLowerCase()));
 
-  const visibleIds=list.map(b=>b.id);
+  // V323 Pagination: clamp current page to valid range after filter changes.
+  const totalFiltered = list.length;
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / ALL_B_PAGE_SIZE));
+  if (allBCurrentPage > totalPages) allBCurrentPage = totalPages;
+  if (allBCurrentPage < 1) allBCurrentPage = 1;
+  const pageStart = (allBCurrentPage - 1) * ALL_B_PAGE_SIZE;
+  const pageEnd   = Math.min(pageStart + ALL_B_PAGE_SIZE, totalFiltered);
+  const pagedList = list.slice(pageStart, pageEnd);
+
+  const visibleIds=pagedList.map(b=>b.id);
   _allBVisibleIds = visibleIds; // stash for toggleSelectAll
   const allSelected=visibleIds.length>0&&visibleIds.every(id=>allBSelected.has(id));
   const someSelected=visibleIds.some(id=>allBSelected.has(id));
@@ -11842,7 +12295,7 @@ function renderAllBeneficiaries() {
   const cardHtml = (key, label, val, col, textc) => {
     const act = allBProgFilter === key;
     const p = key === '' ? 100 : pctOf(val);
-    return `<div onclick="allBProgFilter='${act?'':key}';allBSelected=new Set();renderAllBeneficiaries()" style="background:#fff;border:2px solid ${act?col:'#E5E7EB'};border-radius:9px;padding:12px 16px;cursor:pointer;transition:.15s" onmouseover="this.style.borderColor='${col}'" onmouseout="this.style.borderColor='${act?col:'#E5E7EB'}'">
+    return `<div onclick="allBProgFilter='${act?'':key}';allBSelected=new Set();allBCurrentPage=1;renderAllBeneficiaries()" style="background:#fff;border:2px solid ${act?col:'#E5E7EB'};border-radius:9px;padding:12px 16px;cursor:pointer;transition:.15s" onmouseover="this.style.borderColor='${col}'" onmouseout="this.style.borderColor='${act?col:'#E5E7EB'}'">
       <div style="font-size:10px;font-weight:600;text-transform:uppercase;color:${textc};margin-bottom:6px;letter-spacing:.04em">${label}</div>
       <div style="font-size:28px;font-weight:700;color:${textc};line-height:1;margin-bottom:6px">${val}</div>
       <div style="height:4px;background:#F3F4F6;border-radius:2px;overflow:hidden;margin-bottom:4px"><div style="width:${p}%;height:100%;background:${col}"></div></div>
@@ -11850,7 +12303,7 @@ function renderAllBeneficiaries() {
     </div>`;
   };
 
-  document.getElementById('page-count').textContent=list.length+' beneficiaries';
+  document.getElementById('page-count').textContent=totalFiltered+' beneficiaries';
   document.getElementById('content').innerHTML=`
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
       ${cardHtml('',        'All Beneficiaries', total,            '#374151', '#374151')}
@@ -11861,26 +12314,21 @@ function renderAllBeneficiaries() {
     <div class="card"><div class="card-head">
       <div class="card-title">All Beneficiaries${allBProgFilter==='livOnly'?' · Livelihood Only':allBProgFilter==='dual'?' · Dual':allBProgFilter==='advOnly'?' · Advocacy Only':''} <span style="font-size:12px;font-weight:400;color:var(--gray2)">${list.length} records</span></div>
       <div class="filters">
-        <input id="allb-search-input" class="fsearch" placeholder="Search name, ID, village, NGO..." value="${escHtml(allBSearch)}" oninput="_searchDebounce('allb', this.value, () => { allBSearch = _searchDebounceVal.allb; allBSelected = new Set(); renderAllBeneficiaries(); })">
+        <input id="allb-search-input" class="fsearch" placeholder="Search name, ID, village, NGO..." value="${escHtml(allBSearch)}" oninput="_searchDebounce('allb', this.value, () => { allBSearch = _searchDebounceVal.allb; allBSelected = new Set(); allBCurrentPage = 1; renderAllBeneficiaries(); })">
         ${allBSelected.size>0?`<button class="btn btn-sm" style="color:var(--red);border-color:var(--red)" data-delete-action onclick="deleteSelectedBeneficiaries()">🗑 Delete ${allBSelected.size} selected</button>`:''}
+        ${_canBulkStatusUpdate()?`<button class="btn btn-sm" onclick="openBulkStatusModal()" title="V322: bulk-flip the status of one scheme across many beneficiaries">⚡ Bulk Update Status</button>`:''}
         ${_canExport()?`<button class="btn btn-sm" onclick="exportBeneficiariesCsv()" title="Download as CSV (opens in Excel)">📥 Export to Excel</button>`:''}
       </div></div>
-      ${list.length===0?'<div class="empty">No beneficiaries match.</div>':(() => {
-        // Columns match Integrated view exactly: Sr. No. · Beneficiary ·
-        // Location · Partner · Program · Income Delta · Scheme Benefits ·
-        // Total Impact. Two additions: (1) a checkbox column at the left
-        // for bulk-select/delete (Admin/NGO only — coordinators' CSS hides
-        // the bulk delete bar); (2) an optional "Created By" column inserted
-        // between Partner and Program for Admin/NGO users (A15 feature).
+      ${totalFiltered===0?'<div class="empty">No beneficiaries match.</div>':(() => {
         const u = currentUser();
         const showCreator = u && (u.role === 'admin' || u.role === 'ngo');
         const creatorHeader = showCreator ? '<th>Created By</th>' : '';
         const creatorCell = b => showCreator
           ? `<td style="font-size:12px;color:var(--gray1)">${escHtml(b.createdByName||b.coord||'—')}</td>`
           : '';
-        // Row renderer — mirrors Integrated view's cell formatting so the
-        // two tables look identical at a glance.
-        const rowHtml = list.map((b, i) => {
+        // V323: render only the current page slice (pagedList) for perf.
+        const rowHtml = pagedList.map((b, i) => {
+          const srNo = pageStart + i + 1; // global serial number across pages
           const isSel = allBSelected.has(b.id);
           const d = b.incDelta;
           const impact = (b.incDelta||0) + (b.benefitAmt||0);
@@ -11899,7 +12347,7 @@ function renderAllBeneficiaries() {
             : `<span style="color:var(--gray2);font-size:12px">—</span>`;
           return `<tr style="background:${isSel?'#EEF4FB':''};cursor:pointer" onclick="openDrawer('${escHtml(b.id)}')">
             <td style="padding:10px 10px" onclick="event.stopPropagation()"><input type="checkbox" ${isSel?'checked':''} onchange="toggleBeneficiary('${escHtml(b.id)}',this.checked)" style="cursor:pointer;width:15px;height:15px"></td>
-            <td style="color:var(--gray2);font-size:12px;text-align:center">${i+1}</td>
+            <td style="color:var(--gray2);font-size:12px;text-align:center">${srNo}</td>
             <td><div class="bname">${escHtml(b.name)}</div><div class="bid">${escHtml(b.id)}</div></td>
             <td>${escHtml(b.village)}<br><span style="font-size:11px;color:var(--gray2)">${escHtml(b.district)}</span></td>
             <td style="font-size:12px">${escHtml(b.ngo)}</td>
@@ -11910,6 +12358,17 @@ function renderAllBeneficiaries() {
             <td>${impactCell}</td>
           </tr>`;
         }).join('');
+        const pgBar = totalPages > 1 ? `
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-top:1px solid var(--gray3);background:var(--gray4);border-radius:0 0 8px 8px;flex-wrap:wrap;gap:8px">
+            <span style="font-size:12px;color:var(--gray2)">Showing ` + (pageStart+1) + `\u2013` + pageEnd + ` of ` + totalFiltered + `</span>
+            <div style="display:flex;gap:5px;align-items:center">
+              <button onclick="allBCurrentPage=1;renderAllBeneficiaries()" ` + (allBCurrentPage===1?'disabled style="opacity:.4;cursor:not-allowed"':'style="cursor:pointer"') + ` style="padding:4px 8px;border:1px solid var(--gray3);border-radius:5px;background:#fff;font-size:12px">&#171;</button>
+              <button onclick="allBCurrentPage--;renderAllBeneficiaries()" ` + (allBCurrentPage===1?'disabled style="opacity:.4;cursor:not-allowed"':'style="cursor:pointer"') + ` style="padding:4px 10px;border:1px solid var(--gray3);border-radius:5px;background:#fff;font-size:12px">&#8249; Prev</button>
+              <span style="font-size:12px;font-weight:600;color:var(--navy);padding:4px 10px;background:var(--navy3);border-radius:5px">` + allBCurrentPage + ` / ` + totalPages + `</span>
+              <button onclick="allBCurrentPage++;renderAllBeneficiaries()" ` + (allBCurrentPage===totalPages?'disabled style="opacity:.4;cursor:not-allowed"':'style="cursor:pointer"') + ` style="padding:4px 10px;border:1px solid var(--gray3);border-radius:5px;background:#fff;font-size:12px">Next &#8250;</button>
+              <button onclick="allBCurrentPage=${totalPages};renderAllBeneficiaries()" ` + (allBCurrentPage===totalPages?'disabled style="opacity:.4;cursor:not-allowed"':'style="cursor:pointer"') + ` style="padding:4px 8px;border:1px solid var(--gray3);border-radius:5px;background:#fff;font-size:12px">&#187;</button>
+            </div>
+          </div>` : '';
         return `<div style="overflow-x:auto"><table class="tbl"><thead><tr>
           <th style="width:36px;padding:9px 10px"><input type="checkbox" id="select-all-cb" ${allSelected?'checked':''} onchange="toggleSelectAll(this)" style="cursor:pointer;width:15px;height:15px" title="${allSelected?'Deselect all':'Select all'}"></th>
           <th style="width:52px;text-align:center">Sr. No.</th>
@@ -11921,7 +12380,7 @@ function renderAllBeneficiaries() {
           <th>Income Delta</th>
           <th>Scheme Benefits</th>
           <th>Total Impact</th>
-        </tr></thead><tbody>${rowHtml}</tbody></table></div>`;
+        </tr></thead><tbody>${rowHtml}</tbody></table></div>${pgBar}`;
       })()}
     </div>`;
   const cb=document.getElementById('select-all-cb');
@@ -12051,7 +12510,7 @@ window.openDrawer = function(id) {
 };
 
 // ── Nav ───────────────────────────────────────────────────────────────────
-const _navRoutes_v32={dashboard:renderDashboard,beneficiaries:renderAllBeneficiaries,list:renderLivelihood,ngo:renderNGO,alerts:renderAlerts,map:renderMap,integrated:renderIntegrated,advocacy:renderAdvocacy,admin_partners:renderAdminPartners,admin_users:renderAdminUsers,admin_livelihoods:renderAdminLivelihoods,admin_schemes:renderAdminSchemes,admin_audit:renderAdminAuditLog,admin_import:renderAdminImport,admin_photo_migration:renderAdminPhotoMigration,admin_advocacy_backfill:renderAdminAdvocacyBackfill};
+const _navRoutes_v32={dashboard:renderDashboard,beneficiaries:renderAllBeneficiaries,list:renderLivelihood,ngo:renderNGO,alerts:renderAlerts,map:renderMap,integrated:renderIntegrated,advocacy:renderAdvocacy,admin_partners:renderAdminPartners,admin_users:renderAdminUsers,admin_livelihoods:renderAdminLivelihoods,admin_schemes:renderAdminSchemes,admin_audit:renderAdminAuditLog,admin_import:renderAdminImport,admin_photo_migration:renderAdminPhotoMigration,admin_advocacy_backfill:renderAdminAdvocacyBackfill,admin_dedup_ids:renderAdminDedupIds};
 window.nav=function(v){
   // Guard admin routes — non-admins get bounced to dashboard
   if (v.startsWith('admin_') && !isAdmin()) { v = 'dashboard'; }
@@ -12870,6 +13329,7 @@ function adminDeleteLivType(idx) {
 
 function renderAdminSchemes() {
   const schemes = getSchemes();
+  const meta = getSchemesMeta();   // V322
   const allAdv = (typeof loadAdv === 'function') ? loadAdv() : [];
   const usage = {};
   schemes.forEach(s => { usage[s] = 0; });
@@ -12882,9 +13342,23 @@ function renderAdminSchemes() {
   const rows = schemes.map((s, i) => {
     const isFirst = (i === 0);
     const isLast  = (i === schemes.length - 1);
+    // V322: per-scheme default benefit amount. Empty input = no default
+    // (the FC enters the amount manually as today). The input commits on
+    // blur or Enter via adminSetSchemeDefaultAmount().
+    const defAmt = (meta[s] && Number.isFinite(Number(meta[s].defaultAmount)) && Number(meta[s].defaultAmount) > 0)
+      ? Number(meta[s].defaultAmount) : '';
+    const defCell = `<td style="text-align:center">
+      <input type="number" min="0" step="1" value="${defAmt}" placeholder="—"
+             id="sch-def-${i}"
+             onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"
+             onblur="adminSetSchemeDefaultAmount(${i}, this.value)"
+             title="Default benefit amount in ₹. When an FC flips a scheme row to 'Benefits Received', this amount auto-fills. Leave blank for no default (FC enters manually)."
+             style="width:120px;padding:5px 8px;border:1px solid var(--gray3);border-radius:5px;font-size:12px;font-family:var(--font);text-align:right;background:#fff">
+    </td>`;
     return `<tr>
     <td style="color:var(--gray2);font-size:12px;text-align:center">${i+1}</td>
     <td><div class="bname">${s}</div></td>
+    ${defCell}
     <td style="text-align:center;font-weight:500">${usage[s]||0}</td>
     <td style="white-space:nowrap">
       <button class="btn btn-sm" onclick="adminMoveSchemeToTop(${i})" title="Move to top of list" ${isFirst?'disabled style="opacity:.35;cursor:not-allowed"':''}>⤒ Top</button>
@@ -12900,16 +13374,547 @@ function renderAdminSchemes() {
     <div class="card">
       <div class="card-head">
         <div class="card-title">Government Schemes <span style="font-size:12px;font-weight:400;color:var(--gray2)">${schemes.length} total</span></div>
+        <div class="filters">
+          <button class="btn btn-sm btn-primary" onclick="openBulkStatusModal()" title="Bulk-update scheme status for many beneficiaries at once (V322)">⚡ Bulk Update Status</button>
+        </div>
       </div>
       <div style="padding:14px 16px;border-bottom:1px solid var(--gray3);background:#FAFAFA">
         <div style="display:flex;gap:8px;align-items:center">
           <input id="new-scheme" placeholder="e.g., Palak Mata Pita Yojana" style="flex:1;padding:8px 11px;border:1px solid var(--gray3);border-radius:7px;font-size:13px;font-family:var(--font)" onkeydown="if(event.key==='Enter')adminAddScheme()">
           <button class="btn btn-primary btn-sm" onclick="adminAddScheme()">+ Add Scheme</button>
         </div>
-        <div style="font-size:11px;color:var(--gray2);margin-top:6px;line-height:1.5">New schemes appear in the enrollment scheme panel, the + Log Advocacy modal dropdown, and the Advocacy tab's filter chips. Use ↑ ↓ ⤒ Top to reorder — the order here controls where each scheme appears across the app. Removing a scheme keeps existing advocacy records intact.</div>
+        <div style="font-size:11px;color:var(--gray2);margin-top:6px;line-height:1.5">New schemes appear in the enrollment scheme panel, the + Log Advocacy modal dropdown, and the Advocacy tab's filter chips. Use ↑ ↓ ⤒ Top to reorder — the order here controls where each scheme appears across the app. Removing a scheme keeps existing advocacy records intact. <b>V322:</b> set a <b>Default Amount</b> per scheme — when an FC flips a scheme row to "Benefits Received", this amount auto-fills. Blank = FC enters manually (as before).</div>
       </div>
-      ${schemes.length===0?'<div class="empty">No schemes configured. Add one above.</div>':`<table class="tbl"><thead><tr><th style="width:52px;text-align:center">Sr. No.</th><th>Scheme</th><th style="text-align:center">Used by (scheme rows)</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table>`}
+      ${schemes.length===0?'<div class="empty">No schemes configured. Add one above.</div>':`<table class="tbl"><thead><tr><th style="width:52px;text-align:center">Sr. No.</th><th>Scheme</th><th style="text-align:center">Default Amount (₹)</th><th style="text-align:center">Used by (scheme rows)</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table>`}
     </div>`;
+}
+
+// V322: commit handler for the per-scheme default-amount input on the
+// Advocacy Management table. Empty / 0 / non-numeric => clear the default.
+// Positive integer => save it. Writes via saveSchemesMeta which mirrors to
+// Firebase (config/schemes_meta).
+function adminSetSchemeDefaultAmount(idx, rawVal) {
+  const schemes = getSchemes();
+  const name = schemes[idx];
+  if (!name) return;
+  const meta = getSchemesMeta();
+  const prev = (meta[name] && Number(meta[name].defaultAmount) > 0) ? Number(meta[name].defaultAmount) : 0;
+  const trimmed = String(rawVal == null ? '' : rawVal).trim();
+  let newAmt = 0;
+  if (trimmed !== '') {
+    const n = Number(trimmed);
+    if (!Number.isFinite(n) || n < 0) {
+      toast('Enter a positive number, or leave blank for no default.', 'error');
+      // Re-render so the input snaps back to the previously-saved value
+      renderAdminSchemes();
+      return;
+    }
+    newAmt = Math.round(n);
+  }
+  if (newAmt === prev) return; // no-op — don't churn Firebase or audit log
+  if (newAmt > 0) {
+    meta[name] = { defaultAmount: newAmt };
+  } else {
+    delete meta[name];
+  }
+  saveSchemesMeta(meta);
+  auditLog('update', 'scheme', name, name,
+    prev > 0 && newAmt > 0
+      ? `Updated default amount for ${name}: ₹${prev.toLocaleString('en-IN')} → ₹${newAmt.toLocaleString('en-IN')}`
+      : newAmt > 0
+        ? `Set default amount for ${name}: ₹${newAmt.toLocaleString('en-IN')}`
+        : `Cleared default amount for ${name} (was ₹${prev.toLocaleString('en-IN')})`,
+    { defaultAmount: [prev || null, newAmt || null] });
+  toast(newAmt > 0 ? `Default for "${name}" set to ₹${newAmt.toLocaleString('en-IN')}` : `Default for "${name}" cleared`, 'success');
+}
+
+// ── V322: BULK STATUS UPDATE ───────────────────────────────────────────────
+// Lets an admin / NGO partner / coordinator (each within their own scope)
+// flip the status of one scheme across many beneficiaries in one go. The
+// flow is deliberately conservative:
+//   - target rows are filtered by (scheme, source status) — never blanket
+//   - per-beneficiary snapshot stamped on the advocacy record so each
+//     change is individually undoable from the beneficiary drawer
+//   - the "Apply" button stays disabled until a Firebase backup is
+//     explicitly acknowledged
+//   - one audit entry per affected beneficiary plus one summary entry
+//
+// Storage shape of the per-record snapshot, stored on the advocacy record:
+//   advRec._preBulkStatusSnapshot = {
+//     batchId, at, by, byUserId,
+//     fromStatus, toStatus, scheme,
+//     // For each schemeRow that was changed, the pre-change values keyed
+//     // by row __rowKey (bid::scheme::remarks):
+//     rowsBefore: { [rowKey]: { status, benefitRecd, benefitAmt } }
+//   }
+// Depth 1 (latest batch only). The undo restores from the snapshot and
+// deletes _preBulkStatusSnapshot. No side-effects on income log or any
+// beneficiary-level fields.
+
+// In-memory state for the modal's current selection. Reset on open/close.
+let _bulkStatusState = {
+  affectedBids: [],
+  affectedRowKeys: 0,  // total scheme-row count across all bids
+};
+
+// Map of which roles can run a bulk status update. Per Guru's spec:
+// admin + NGO + coordinator, each in their own scope (the same scope
+// boundary getData() already enforces). The button is rendered in the
+// Advocacy Management screen; that screen is admin-only today, so we
+// also expose an entry point from the All Beneficiaries view below.
+function _canBulkStatusUpdate() {
+  const u = currentUser();
+  if (!u) return false;
+  return ['admin', 'ngo', 'coordinator'].includes(u.role);
+}
+
+function openBulkStatusModal() {
+  if (!_canBulkStatusUpdate()) { toast('You do not have permission for bulk updates.', 'error'); return; }
+  const overlay = document.getElementById('bulkstatus-overlay');
+  if (!overlay) return;
+  // Populate scheme dropdown — uses getSchemes() so it always reflects the
+  // current admin-configured list including order.
+  const schemeSel = document.getElementById('bulkstatus-scheme');
+  schemeSel.innerHTML = '<option value="">— Select scheme —</option>' +
+    getSchemes().map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('');
+  // NGO filter: only shown for admin. NGO users see only their NGO. Coordinators
+  // see only their own records. The scope is enforced again at apply time
+  // via getData(), not just by hiding UI.
+  const u = currentUser();
+  const ngoFg = document.getElementById('bulkstatus-ngo-fg');
+  const ngoSel = document.getElementById('bulkstatus-ngo');
+  if (u && u.role === 'admin') {
+    ngoFg.style.display = '';
+    // Distinct NGOs from current data — small list, fine to recompute.
+    const ngos = Array.from(new Set(loadData().map(b => b.ngo).filter(Boolean))).sort();
+    ngoSel.innerHTML = '<option value="">All NGOs</option>' +
+      ngos.map(n => `<option value="${escHtml(n)}">${escHtml(n)}</option>`).join('');
+  } else {
+    ngoFg.style.display = 'none';
+    ngoSel.value = '';
+  }
+  // Coordinator filter — admin/NGO see the list; coordinator's own scope
+  // is always just themselves, so this is hidden for them.
+  const coordSel = document.getElementById('bulkstatus-coord');
+  if (u && u.role === 'coordinator') {
+    coordSel.parentElement.style.display = 'none';
+  } else {
+    coordSel.parentElement.style.display = '';
+    const visible = getData(); // role-scoped — NGO sees only their NGO's records
+    const coords = Array.from(new Set(visible.map(b => b.createdByName || b.coord).filter(Boolean))).sort();
+    coordSel.innerHTML = '<option value="">All coordinators in scope</option>' +
+      coords.map(c => `<option value="${escHtml(c)}">${escHtml(c)}</option>`).join('');
+  }
+  // Reset other inputs
+  document.getElementById('bulkstatus-from').value = 'Need to Apply';
+  document.getElementById('bulkstatus-to').value = 'Benefits Received';
+  document.getElementById('bulkstatus-village').value = '';
+  document.getElementById('bulkstatus-amt-override').value = '';
+  document.getElementById('bulkstatus-amt-override').disabled = true;
+  document.getElementById('bulkstatus-backup-ack').checked = false;
+  document.getElementById('bulkstatus-err').classList.remove('show');
+  // V322 post-review: show the Firebase-backup-acknowledgement gate ONLY to
+  // admin. NGO partners and coordinators don't have Firebase Console access
+  // — asking them to "export the database" is impossible for them. They get
+  // a softer informational notice instead, and the apply button gates only
+  // on having a non-empty preview. Per-record undo from the drawer remains
+  // available to all three roles as the actual safety net.
+  const _ackAdmin = document.getElementById('bulkstatus-ack-admin');
+  const _ackOther = document.getElementById('bulkstatus-ack-nonadmin');
+  const _ackScopeLbl = document.getElementById('bulkstatus-ack-scope');
+  if (u && u.role === 'admin') {
+    _ackAdmin.style.display = '';
+    _ackOther.style.display = 'none';
+  } else {
+    _ackAdmin.style.display = 'none';
+    _ackOther.style.display = '';
+    if (_ackScopeLbl) {
+      _ackScopeLbl.textContent = (u && u.role === 'ngo')
+        ? `records across ${escHtml(u.ngo || 'your NGO')}`
+        : 'records you created';
+    }
+  }
+  // Default amount-mode = "default" (use configured per-scheme defaults).
+  const r = document.getElementById('bulkstatus-amtmode-default');
+  if (r) r.checked = true;
+  _bulkStatusOnPickerChange();
+  overlay.classList.add('open');
+}
+
+function closeBulkStatusModal() {
+  const overlay = document.getElementById('bulkstatus-overlay');
+  if (overlay) overlay.classList.remove('open');
+}
+
+// Show / hide the amount-mode block when target status is / isn't
+// "Benefits Received". The amount question only makes sense for that
+// transition; for all other targets we just flip status and leave
+// benefitAmt alone.
+function _bulkStatusOnPickerChange() {
+  const target = document.getElementById('bulkstatus-to').value;
+  const block = document.getElementById('bulkstatus-amt-block');
+  if (target === 'Benefits Received') {
+    block.style.display = '';
+  } else {
+    block.style.display = 'none';
+  }
+  _bulkStatusOnAmtModeChange();
+  _bulkStatusUpdatePreviewCount();
+}
+
+function _bulkStatusOnAmtModeChange() {
+  const target = document.getElementById('bulkstatus-to').value;
+  const sch = document.getElementById('bulkstatus-scheme').value;
+  const msg = document.getElementById('bulkstatus-amt-msg');
+  const overrideInp = document.getElementById('bulkstatus-amt-override');
+  // Reflect mode → enable/disable override input
+  const mode = (document.querySelector('input[name="bulkstatus-amtmode"]:checked')||{}).value || 'default';
+  overrideInp.disabled = (mode !== 'override');
+  if (!msg) return;
+  if (target !== 'Benefits Received') {
+    msg.textContent = '';
+    return;
+  }
+  if (!sch) {
+    msg.textContent = 'Pick a scheme above to see its configured default.';
+    msg.style.color = 'var(--gray2)';
+    return;
+  }
+  if (mode === 'default') {
+    if (hasSchemeDefault(sch)) {
+      msg.innerHTML = `Configured default for <b>${escHtml(sch)}</b>: <b>₹${getSchemeDefaultAmount(sch).toLocaleString('en-IN')}</b>. Each affected row will be set to this amount.`;
+      msg.style.color = 'var(--gray1)';
+    } else {
+      msg.innerHTML = `⚠ <b>No default amount configured for "${escHtml(sch)}".</b> Set one in the Advocacy Management table above, or pick "Override" / "Leave blank" below.`;
+      msg.style.color = '#92400E';
+    }
+  } else if (mode === 'override') {
+    msg.innerHTML = `Each affected row will be set to the override amount you enter.`;
+    msg.style.color = 'var(--gray1)';
+  } else {
+    msg.innerHTML = `Status will flip to <b>Benefits Received</b> but the amount will stay at <b>₹0</b>. Useful when amounts vary too much per beneficiary — FCs can fill them in from the drawer later.`;
+    msg.style.color = 'var(--gray1)';
+  }
+  _bulkStatusUpdatePreviewCount();
+}
+
+// Compute which (beneficiary, advocacy record, schemeRow) tuples would be
+// affected by the current selection. Honours role scope via getData().
+function _bulkStatusComputeAffected() {
+  const sch = document.getElementById('bulkstatus-scheme').value;
+  const fromStatus = document.getElementById('bulkstatus-from').value;
+  const ngoFilter = document.getElementById('bulkstatus-ngo').value;
+  const coordFilter = document.getElementById('bulkstatus-coord').value;
+  const villageQ = document.getElementById('bulkstatus-village').value.trim().toLowerCase();
+  if (!sch) return { bids: [], rowCount: 0, sample: [] };
+  // Build the in-scope beneficiary set (getData honours role-scoping)
+  const visible = getData().filter(b => {
+    if (ngoFilter && b.ngo !== ngoFilter) return false;
+    if (coordFilter && (b.createdByName || b.coord || '') !== coordFilter) return false;
+    if (villageQ && !(b.village || '').toLowerCase().includes(villageQ)) return false;
+    return true;
+  });
+  const visibleIdSet = new Set(visible.map(b => b.id));
+  const byId = {};
+  visible.forEach(b => { byId[b.id] = b; });
+  // Walk advocacy records — but only those whose bid is in the visible set.
+  // loadAdv() returns role-scoped data already (cache is role-scoped).
+  const adv = loadAdv();
+  const affectedBids = new Set();
+  let rowCount = 0;
+  const sample = [];
+  // _advNormStatus equivalent for matching the source filter.
+  // The schemeRow may have status 'Approved' + benefitRecd 'Yes' which
+  // we surface to the FC as 'Benefits Received'. Normalise here so the
+  // user's "from" pick matches the stored row state intuitively.
+  const normStatus = r => {
+    if (r.status === 'Need to Apply') return 'Need to Apply';
+    if (r.status === 'Rejected') return 'Rejected';
+    if (r.benefitRecd === 'Yes' || r.status === 'Approved') return 'Benefits Received';
+    return 'Applied';
+  };
+  adv.forEach(rec => {
+    if (!visibleIdSet.has(rec.bid)) return;
+    (rec.schemeRows || []).forEach(r => {
+      if (!r || r._deleted) return;
+      if (r.scheme !== sch) return;
+      if (normStatus(r) !== fromStatus) return;
+      affectedBids.add(rec.bid);
+      rowCount++;
+      if (sample.length < 10) {
+        const b = byId[rec.bid];
+        if (b) sample.push({ id: b.id, name: b.name, village: b.village, remarks: r.remarks || '' });
+      }
+    });
+  });
+  return { bids: Array.from(affectedBids), rowCount, sample };
+}
+
+function _bulkStatusUpdatePreviewCount() {
+  const target = document.getElementById('bulkstatus-to').value;
+  const sch = document.getElementById('bulkstatus-scheme').value;
+  // V322 post-review: the Firebase-backup checkbox only gates admin. For
+  // NGO / coordinator the ack is implicitly granted (they can't take a
+  // Firebase backup anyway; the per-record undo banner is their safety
+  // net). Same expression that drove the original gate.
+  const _isAdminRole = (typeof isAdmin === 'function') ? isAdmin() : false;
+  const ack = _isAdminRole
+    ? document.getElementById('bulkstatus-backup-ack').checked
+    : true;
+  const { bids, rowCount, sample } = _bulkStatusComputeAffected();
+  _bulkStatusState.affectedBids = bids;
+  _bulkStatusState.affectedRowKeys = rowCount;
+  document.getElementById('bulkstatus-count').textContent =
+    sch ? `${rowCount} scheme row${rowCount===1?'':'s'} across ${bids.length} beneficiar${bids.length===1?'y':'ies'}` : '—';
+  const preview = document.getElementById('bulkstatus-preview');
+  if (!sch) {
+    preview.innerHTML = '<div style="text-align:center;padding:20px;color:var(--gray2)">Pick a scheme above to see what would change.</div>';
+  } else if (bids.length === 0) {
+    preview.innerHTML = '<div style="text-align:center;padding:20px;color:var(--gray2)">No matching scheme rows in scope. Try a different source status or scope filter.</div>';
+  } else {
+    preview.innerHTML = sample.map(s =>
+      `<div style="padding:6px 10px;border-bottom:1px solid var(--gray3);display:flex;justify-content:space-between;gap:8px">
+         <span style="flex:1"><b>${escHtml(s.name)}</b> <span style="color:var(--gray2);font-size:11px">${escHtml(s.id)}${s.village?(' · '+escHtml(s.village)):''}</span></span>
+         ${s.remarks ? `<span style="color:var(--gray2);font-size:11px">${escHtml(s.remarks)}</span>` : ''}
+       </div>`
+    ).join('') + (bids.length > sample.length
+      ? `<div style="padding:8px 10px;text-align:center;color:var(--gray2);font-size:11px">…and ${bids.length - sample.length} more beneficiar${bids.length-sample.length===1?'y':'ies'} not shown</div>`
+      : '');
+  }
+  // Apply-button enablement
+  const apply = document.getElementById('bulkstatus-apply');
+  // Amount validation when target=Benefits Received in override mode
+  let amtMsg = '';
+  if (target === 'Benefits Received') {
+    const mode = (document.querySelector('input[name="bulkstatus-amtmode"]:checked')||{}).value || 'default';
+    if (mode === 'override') {
+      const v = Number(document.getElementById('bulkstatus-amt-override').value);
+      if (!Number.isFinite(v) || v < 0) amtMsg = 'Enter a valid override amount.';
+    }
+    // Default mode + no configured default => allow (per-row stays at 0, FC fills later — same as blank)
+  }
+  const canApply = sch && rowCount > 0 && ack && !amtMsg;
+  apply.disabled = !canApply;
+  apply.style.opacity = canApply ? '1' : '.5';
+  apply.style.cursor = canApply ? 'pointer' : 'not-allowed';
+  apply.textContent = `Apply to ${rowCount} record${rowCount===1?'':'s'}`;
+  // Surface the override-validation error inline
+  if (amtMsg) {
+    const errEl = document.getElementById('bulkstatus-err');
+    errEl.textContent = amtMsg;
+    errEl.classList.add('show');
+  } else {
+    document.getElementById('bulkstatus-err').classList.remove('show');
+  }
+}
+
+// Apply the bulk update. Wraps the same _trySave pattern as the rest of
+// the app so a Firebase failure surfaces a toast and bails before any
+// audit-log spam. One audit entry per beneficiary + one summary entry.
+async function applyBulkStatusUpdate() {
+  if (!_canBulkStatusUpdate()) { toast('Permission denied.', 'error'); return; }
+  const target = document.getElementById('bulkstatus-to').value;
+  const sourceStatus = document.getElementById('bulkstatus-from').value;
+  const sch = document.getElementById('bulkstatus-scheme').value;
+  const { bids, rowCount } = _bulkStatusComputeAffected();
+  if (!sch || rowCount === 0) {
+    toast('Nothing to update.', 'error');
+    return;
+  }
+  // Decide the amount strategy
+  let amtMode = 'na'; // not applicable (target != Benefits Received)
+  let overrideAmt = 0;
+  if (target === 'Benefits Received') {
+    amtMode = (document.querySelector('input[name="bulkstatus-amtmode"]:checked')||{}).value || 'default';
+    if (amtMode === 'override') {
+      overrideAmt = Number(document.getElementById('bulkstatus-amt-override').value);
+      if (!Number.isFinite(overrideAmt) || overrideAmt < 0) { toast('Invalid override amount.', 'error'); return; }
+    }
+  }
+  // Final confirm — explicit numbers, never a hand-wavy "you sure?"
+  const confirmMsg = `Apply this bulk update?\n\n` +
+    `Scheme: ${sch}\n` +
+    `Status: ${sourceStatus} → ${target}\n` +
+    `Beneficiaries: ${bids.length}\n` +
+    `Scheme rows affected: ${rowCount}\n\n` +
+    `Each change is individually undoable from the beneficiary drawer.\n` +
+    `This cannot be undone in bulk.`;
+  if (!confirm(confirmMsg)) return;
+
+  const me = currentUser() || {};
+  const nowIso = new Date().toISOString();
+  const batchId = 'BSU-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,7);
+
+  // Load fresh, mutate, save once
+  const adv = loadAdv();
+  const visible = getData();
+  const visibleIdSet = new Set(visible.map(b => b.id));
+  // Re-apply the exact same scope filter so user-edits between preview and
+  // apply don't slip records out of scope. (Belt and braces.)
+  const ngoFilter = document.getElementById('bulkstatus-ngo').value;
+  const coordFilter = document.getElementById('bulkstatus-coord').value;
+  const villageQ = document.getElementById('bulkstatus-village').value.trim().toLowerCase();
+  const inScopeBid = bid => {
+    const b = visible.find(x => x.id === bid);
+    if (!b) return false;
+    if (ngoFilter && b.ngo !== ngoFilter) return false;
+    if (coordFilter && (b.createdByName || b.coord || '') !== coordFilter) return false;
+    if (villageQ && !(b.village || '').toLowerCase().includes(villageQ)) return false;
+    return true;
+  };
+  const normStatus = r => {
+    if (r.status === 'Need to Apply') return 'Need to Apply';
+    if (r.status === 'Rejected') return 'Rejected';
+    if (r.benefitRecd === 'Yes' || r.status === 'Approved') return 'Benefits Received';
+    return 'Applied';
+  };
+  // Map UI status → stored (status, benefitRecd) pair. Mirrors advGetRows().
+  const mapToStored = s => {
+    if (s === 'Benefits Received') return { status: 'Approved', benefitRecd: 'Yes' };
+    if (s === 'Rejected')          return { status: 'Rejected', benefitRecd: 'No' };
+    if (s === 'Need to Apply')     return { status: 'Need to Apply', benefitRecd: 'No' };
+    return { status: 'Applied', benefitRecd: 'No' };
+  };
+  const storedTarget = mapToStored(target);
+
+  let touchedRecords = 0, touchedRows = 0;
+  const perBidAudit = [];
+  adv.forEach(rec => {
+    if (!visibleIdSet.has(rec.bid)) return;
+    if (!inScopeBid(rec.bid)) return;
+    const rowsBefore = {};
+    let changedHere = 0;
+    (rec.schemeRows || []).forEach(r => {
+      if (!r || r._deleted) return;
+      if (r.scheme !== sch) return;
+      if (normStatus(r) !== sourceStatus) return;
+      // Snapshot the pre-state for this row. Key it by remarks so duplicate
+      // applications (i-Khedut tractor + rotavator) under the same scheme
+      // survive undo without collision.
+      const rowKey = (r.remarks || '');
+      rowsBefore[rowKey] = {
+        status: r.status,
+        benefitRecd: r.benefitRecd || 'No',
+        benefitAmt: Number(r.benefitAmt) || 0,
+      };
+      // Apply the new status
+      r.status = storedTarget.status;
+      r.benefitRecd = storedTarget.benefitRecd;
+      // Apply amount per the chosen mode
+      if (target === 'Benefits Received') {
+        if (amtMode === 'default') {
+          const def = getSchemeDefaultAmount(sch);
+          r.benefitAmt = def > 0 ? def : (Number(r.benefitAmt) || 0); // preserve existing if no default
+        } else if (amtMode === 'override') {
+          r.benefitAmt = overrideAmt;
+        } else { // 'blank'
+          r.benefitAmt = 0;
+        }
+      } else {
+        // Moving away from Benefits Received → clear the stored amount,
+        // matching the modal's behaviour (advOnStatusChange clears too).
+        r.benefitAmt = 0;
+      }
+      changedHere++;
+      touchedRows++;
+    });
+    if (changedHere > 0) {
+      // Stamp the snapshot. Depth 1 — if a previous bulk update on this
+      // record hasn't been undone, this overwrites it (same as the
+      // endline bulk pattern).
+      rec._preBulkStatusSnapshot = {
+        batchId,
+        at: nowIso,
+        by: me.fullName || me.username || 'User',
+        byUserId: me.userId || 'u-anon',
+        fromStatus: sourceStatus,
+        toStatus: target,
+        scheme: sch,
+        amtMode: amtMode,
+        rowsBefore,
+      };
+      touchedRecords++;
+      perBidAudit.push({ bid: rec.bid, n: changedHere });
+    }
+  });
+
+  if (touchedRecords === 0) {
+    toast('No rows matched at apply time — nothing changed.', 'warn');
+    return;
+  }
+
+  if (!await _trySave(() => saveAdv(adv), 'bulk status update')) return;
+
+  // Per-beneficiary audit entries (so admin can find "what happened to
+  // beneficiary X" in the trail later) + one summary entry.
+  perBidAudit.forEach(({ bid, n }) => {
+    const b = visible.find(x => x.id === bid);
+    auditLog('bulk_status_update', 'beneficiary', bid, b ? b.name : bid,
+      `Bulk: ${sch} (${n} row${n===1?'':'s'}) ${sourceStatus} → ${target} · batch ${batchId}`,
+      { schemeStatus: [sourceStatus, target] });
+  });
+  auditLog('bulk_status_update_summary', 'batch', batchId, batchId,
+    `Bulk status update: ${touchedRecords} beneficiar${touchedRecords===1?'y':'ies'}, ${touchedRows} scheme row${touchedRows===1?'':'s'}. Scheme: ${sch}. ${sourceStatus} → ${target}. Amount mode: ${amtMode}${amtMode==='override'?` (₹${overrideAmt.toLocaleString('en-IN')})`:''}.`,
+    null);
+
+  toast(`Updated ${touchedRows} row${touchedRows===1?'':'s'} across ${touchedRecords} beneficiar${touchedRecords===1?'y':'ies'}.`, 'success');
+  closeBulkStatusModal();
+  try { renderCurrentView(); } catch(_) {}
+  try { updateAlertBadge(); } catch(_) {}
+}
+
+// Per-record undo. Called from the banner inside the drawer. Restores the
+// schemeRow values stamped in _preBulkStatusSnapshot.rowsBefore.
+async function _undoBulkStatusForBeneficiary(bid) {
+  // Permission: only the original applier's role-class can undo. To keep
+  // things simple and conservative: admin OR the role-class that owns
+  // this scope (same boundary as the apply).
+  if (!_canBulkStatusUpdate()) { toast('Permission denied.', 'error'); return; }
+  const adv = loadAdv();
+  // There may be multiple advocacy records under one bid (e.g. one per
+  // scheme set); only those carrying a snapshot are restorable.
+  const targets = adv.filter(r => r.bid === bid && r._preBulkStatusSnapshot);
+  if (targets.length === 0) { toast('No bulk-status snapshot on this record.', 'error'); return; }
+  const snap = targets[0]._preBulkStatusSnapshot; // banner only shows one batch at a time per drawer
+  if (!confirm(`Undo the last bulk status update on this record?\n\nBatch: ${snap.batchId}\nBy: ${snap.by}\nAt: ${(snap.at||'').split('T')[0]}\nScheme: ${snap.scheme}\n${snap.fromStatus} → ${snap.toStatus}\n\nThe affected scheme rows will revert to their pre-batch state.`)) return;
+
+  let restored = 0;
+  targets.forEach(rec => {
+    const s = rec._preBulkStatusSnapshot;
+    if (!s) return;
+    (rec.schemeRows || []).forEach(r => {
+      if (!r || r._deleted) return;
+      if (r.scheme !== s.scheme) return;
+      const key = (r.remarks || '');
+      const before = s.rowsBefore[key];
+      if (!before) return; // wasn't part of the batch
+      r.status = before.status;
+      r.benefitRecd = before.benefitRecd;
+      r.benefitAmt = before.benefitAmt;
+      restored++;
+    });
+    delete rec._preBulkStatusSnapshot;
+  });
+
+  if (!await _trySave(() => saveAdv(adv), 'undo bulk status update')) return;
+
+  const b = (loadData().find(x => x.id === bid)) || {};
+  auditLog('bulk_status_undo', 'beneficiary', bid, b.name || bid,
+    `Undo bulk status: batch ${snap.batchId}, scheme ${snap.scheme}, ${snap.toStatus} → ${snap.fromStatus} on ${restored} row${restored===1?'':'s'}.`,
+    null);
+  toast(`Restored ${restored} row${restored===1?'':'s'} to pre-bulk state.`, 'success');
+  try { renderCurrentView(); } catch(_) {}
+  try { if (typeof openDrawer === 'function') openDrawer(bid); } catch(_) {}
+}
+
+// Helper used by the drawer to know whether to render the undo banner.
+// Returns the snapshot of the most-recent batch (depth 1) or null.
+function _getBulkStatusSnapshotForBeneficiary(bid) {
+  const adv = loadAdv();
+  for (const r of adv) {
+    if (r.bid === bid && r._preBulkStatusSnapshot) return r._preBulkStatusSnapshot;
+  }
+  return null;
 }
 
 function adminAddScheme() {
@@ -12977,6 +13982,16 @@ async function adminRenameScheme(idx) {
   }
   schemes[idx] = trimmed;
   saveSchemes(schemes);
+  // V322: cascade the rename into config/schemes_meta. A rename should
+  // preserve the configured default amount under the new name; otherwise
+  // the admin would have to re-enter it. Skip if the old name had no
+  // metadata entry.
+  const meta = getSchemesMeta();
+  if (Object.prototype.hasOwnProperty.call(meta, oldName)) {
+    meta[trimmed] = meta[oldName];
+    delete meta[oldName];
+    saveSchemesMeta(meta);
+  }
   // V310-S2: Cascade rename — await Firebase. saveSchemes is config (LS-only).
   let changed = 0;
   if (typeof loadAdv === 'function' && typeof saveAdv === 'function') {
@@ -13011,6 +14026,14 @@ function adminDeleteScheme(idx) {
   if (!confirm(msg)) return;
   schemes.splice(idx, 1);
   saveSchemes(schemes);
+  // V322: drop the meta entry too. Historical schemeRows that still
+  // reference this name keep their stored benefitAmt — only the default
+  // (which is a NEW-row hint) goes away with the scheme itself.
+  const meta = getSchemesMeta();
+  if (Object.prototype.hasOwnProperty.call(meta, name)) {
+    delete meta[name];
+    saveSchemesMeta(meta);
+  }
   auditLog('delete', 'scheme', name, name,
     `Removed scheme: ${name}${inUse>0?` (${inUse} historical row${inUse===1?'':'s'} kept tag)`:''}`, null);
   toast('Removed: ' + name, 'success');
@@ -18139,6 +19162,288 @@ function renderAdminAdvocacyBackfill() {
 }
 // ═════════════════════════════════════════════════════════════════════════════
 // End V318 advocacy backfill
+// ═════════════════════════════════════════════════════════════════════════════
+
+// ═════════════════════════════════════════════════════════════════════════════
+// V324 — Duplicate ID cleanup tool
+//
+// Root cause: genId used Firebase's lexical limitToLast(1) to find the max ID.
+// 'KRSF-GJ-9999' sorts after 'KRSF-GJ-10000' lexically, so the max was always
+// returned as 9999, causing KRSF-GJ-10000 to be re-minted and overwrite the
+// same Firebase node on every new enrolment. This tool:
+//   1. Scans Firebase for all beneficiary IDs that have been enrolled more
+//      than once (same Firebase key → only one record survives, but the audit
+//      log and advocacy records reveal the overwrites).
+//   2. For KRSF-GJ-10000 specifically: fetches all versions from the audit log
+//      and lets the admin preview + restore overwritten records as new IDs.
+//   3. Assigns fresh IDs (starting from max+1) to each recovered record and
+//      writes them back to Firebase without touching anything else.
+// ═════════════════════════════════════════════════════════════════════════════
+
+const _dedupState = {
+  phase: 'idle',   // idle | scanning | scanned | fixing | done | error
+  log:   [],
+  overwritten: [], // [{lostData, currentData, suggestedId}]
+  currentRecord: null,
+  errorMsg: '',
+  fixed: 0,
+  skipped: 0,
+};
+
+function _dedupLog(msg) {
+  _dedupState.log.push(msg);
+  renderAdminDedupIds();
+}
+
+async function _dedupScan() {
+  if (!isAdmin()) return;
+  if (!FB || !FB.db) { _dedupState.phase='error'; _dedupState.errorMsg='Firebase unavailable.'; renderAdminDedupIds(); return; }
+
+  _dedupState.phase = 'scanning';
+  _dedupState.log   = [];
+  _dedupState.overwritten = [];
+  _dedupState.fixed = 0;
+  _dedupState.skipped = 0;
+  renderAdminDedupIds();
+
+  try {
+    // Step 1: fetch the current live record for KRSF-GJ-10000
+    _dedupLog('Fetching current KRSF-GJ-10000 from Firebase…');
+    const liveSnap = await fbRef('beneficiaries/KRSF-GJ-10000').once('value');
+    const liveData = liveSnap.val();
+    if (!liveData) {
+      _dedupLog('⚠️  KRSF-GJ-10000 does not exist in Firebase. Nothing to fix.');
+      _dedupState.phase = 'scanned';
+      renderAdminDedupIds();
+      return;
+    }
+    _dedupState.currentRecord = liveData;
+    _dedupLog('✓ Current live record: ' + (liveData.name||'(no name)') + ' | ' + (liveData.ngo||'') + ' | enrolled ' + (liveData.createdAt||'').substring(0,10));
+
+    // Step 2: fetch the audit log to find all "create" events for KRSF-GJ-10000
+    // Each time the record was overwritten, an audit entry was written for the
+    // new enrolment. We find all create entries for this ID — each represents
+    // one enrolment that landed on this key.
+    _dedupLog('Scanning audit log for all enrolments at KRSF-GJ-10000…');
+    const auditSnap = await fbRef('audit')
+      .orderByChild('recordId')
+      .equalTo('KRSF-GJ-10000')
+      .once('value');
+    const auditObj = auditSnap.val() || {};
+    const createEvents = Object.values(auditObj)
+      .filter(e => e && e.action === 'create')
+      .sort((a,b) => new Date(a.ts||0) - new Date(b.ts||0));
+
+    _dedupLog('Found ' + createEvents.length + ' create event(s) for KRSF-GJ-10000 in audit log.');
+
+    if (createEvents.length <= 1) {
+      _dedupLog('Only one create event found — no overwrite victims to recover.');
+      _dedupState.phase = 'scanned';
+      renderAdminDedupIds();
+      return;
+    }
+
+    // Step 3: for each create event except the LAST one (which is the current
+    // live record), attempt to reconstruct what was overwritten.
+    // The audit log stores: name, ngo, coord, action, ts, recordId, details.
+    // We can recover: name, ngo, coord, createdAt from the audit entry.
+    // The actual beneficiary fields (village, district, phone, etc.) are in
+    // the audit `details` field if the app serialised them, otherwise we
+    // recover what we can.
+    const victims = [];
+    for (let i = 0; i < createEvents.length - 1; i++) {
+      const ev = createEvents[i];
+      // Parse details if available (V308+ audit includes JSON details)
+      let details = {};
+      if (ev.details && typeof ev.details === 'string') {
+        try { details = JSON.parse(ev.details); } catch(_) {}
+      } else if (ev.details && typeof ev.details === 'object') {
+        details = ev.details;
+      }
+      victims.push({
+        auditTs:  ev.ts || '',
+        name:     ev.recordName || details.name || '(unknown)',
+        ngo:      ev.ngo  || details.ngo  || '',
+        coord:    ev.by   || details.coord || '',
+        details,
+        auditEvent: ev,
+      });
+      _dedupLog('  Victim #' + (i+1) + ': ' + (ev.recordName||'(unknown)') + ' enrolled ' + (ev.ts||'').substring(0,10));
+    }
+
+    _dedupState.overwritten = victims;
+    _dedupState.phase = 'scanned';
+    _dedupLog('\nScan complete. ' + victims.length + ' overwritten record(s) found. Review below and click Fix to reassign new IDs.');
+    renderAdminDedupIds();
+
+  } catch(e) {
+    _dedupState.phase = 'error';
+    _dedupState.errorMsg = e.message || String(e);
+    renderAdminDedupIds();
+  }
+}
+
+async function _dedupFix() {
+  if (!isAdmin()) return;
+  if (_dedupState.phase !== 'scanned') return;
+  if (_dedupState.overwritten.length === 0) return;
+  if (!confirm('This will write ' + _dedupState.overwritten.length + ' new beneficiary record(s) to Firebase with fresh IDs. The current KRSF-GJ-10000 record is untouched. Continue?')) return;
+
+  _dedupState.phase = 'fixing';
+  _dedupLog('\nStarting fix…');
+  renderAdminDedupIds();
+
+  let fixed = 0, skipped = 0;
+  for (const victim of _dedupState.overwritten) {
+    try {
+      // Generate a proper new ID using the fixed genId
+      _dedupLog('Generating new ID for: ' + victim.name + '…');
+      // Determine district from details or ngo state
+      const district = victim.details.state || victim.details.district || 'Gujarat';
+      const newId = await genId(district);
+      _dedupLog('  → New ID: ' + newId);
+
+      // Build the recovered record. Use whatever we have from the audit log.
+      const recovered = Object.assign({}, victim.details, {
+        id:          newId,
+        name:        victim.name  || victim.details.name  || '',
+        ngo:         victim.ngo   || victim.details.ngo   || '',
+        coord:       victim.coord || victim.details.coord || '',
+        createdAt:   victim.auditTs || new Date().toISOString(),
+        createdBy:   victim.auditEvent.byUserId || '',
+        _recoveredFrom: 'KRSF-GJ-10000',
+        _recoveredAt:   new Date().toISOString(),
+        _recoveredBy:   (currentUser()||{}).fullName || 'Admin',
+      });
+      delete recovered.id; // will be set by Firebase key
+
+      // Write to Firebase under the new ID
+      await fbRef('beneficiaries/' + newId).set({ ...recovered, id: newId });
+      // Also update RecordCache
+      RecordCache.benef.set(newId, { ...recovered, id: newId });
+
+      auditLog('create', 'beneficiary', newId, victim.name,
+        'Recovered from duplicate KRSF-GJ-10000 overwrite. Original enrolment: ' + victim.auditTs, null);
+
+      _dedupLog('  ✓ Written as ' + newId);
+      fixed++;
+    } catch(e) {
+      _dedupLog('  ✗ Failed for ' + victim.name + ': ' + (e.message || e));
+      skipped++;
+    }
+  }
+
+  _dedupState.fixed   = fixed;
+  _dedupState.skipped = skipped;
+  _dedupState.phase   = 'done';
+  _dedupLog('\nDone. ' + fixed + ' record(s) restored. ' + skipped + ' skipped.');
+  if (fixed > 0) {
+    _dedupLog('Next enrolment will use ID beyond ' + (10000 + fixed) + ' — V324 genId fix ensures no further collisions.');
+  }
+  renderAdminDedupIds();
+}
+
+function renderAdminDedupIds() {
+  if (!isAdmin()) {
+    document.getElementById('content').innerHTML = '<div class="empty">Admin only.</div>';
+    return;
+  }
+  const s = _dedupState;
+
+  const phaseLabel = {idle:'Ready to scan',scanning:'Scanning…',scanned:'Scan complete',fixing:'Fixing…',done:'Done',error:'Error'}[s.phase]||s.phase;
+  const canScan = s.phase === 'idle' || s.phase === 'scanned' || s.phase === 'done' || s.phase === 'error';
+  const canFix  = s.phase === 'scanned' && s.overwritten.length > 0;
+
+  const victimRows = s.overwritten.map((v,i) => `
+    <tr>
+      <td style="font-size:12px;color:var(--gray2)">${i+1}</td>
+      <td><strong>${escHtml(v.name)}</strong></td>
+      <td style="font-size:12px">${escHtml(v.ngo)}</td>
+      <td style="font-size:12px">${escHtml(v.coord)}</td>
+      <td style="font-size:12px;color:var(--gray2)">${(v.auditTs||'').substring(0,10)}</td>
+      <td><span style="background:#FEF3C7;color:#92400E;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">Will get new ID</span></td>
+    </tr>`).join('');
+
+  const logHtml = s.log.length
+    ? s.log.map(l=>`<div style="font-family:Consolas,monospace;font-size:11px;color:var(--gray1);padding:2px 0;white-space:pre-wrap">${escHtml(l)}</div>`).join('')
+    : '<div style="color:var(--gray2);font-size:12px">No activity yet. Click Scan to begin.</div>';
+
+  document.getElementById('content').innerHTML = `
+    <div style="max-width:900px;margin:0 auto;padding:0 4px">
+      <h2 style="margin:0 0 4px">Fix Duplicate IDs</h2>
+      <div style="color:var(--gray2);font-size:13px;margin-bottom:18px;line-height:1.6">
+        <strong>What happened:</strong> A bug in V316–V323 caused KRSF-GJ-10000 to be re-minted
+        on every new Gujarat enrolment (because Firebase's lexical sort returned KRSF-GJ-9999 as
+        the max, skipping 10000). Each new enrolment silently overwrote the previous KRSF-GJ-10000
+        record. This tool scans the audit log to find all overwritten victims and restores each
+        one with a fresh ID. The current live KRSF-GJ-10000 record is left untouched.
+        <br><br>
+        <strong>V324</strong> fixes the root cause — no new duplicates will occur after this deploy.
+      </div>
+
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:20px">
+        <button class="btn btn-primary" onclick="_dedupScan()" ${canScan?'':'disabled style="opacity:.5;cursor:not-allowed"'}>
+          🔍 ${s.phase==='scanning'?'Scanning…':'Scan for Victims'}
+        </button>
+        <button class="btn btn-primary" onclick="_dedupFix()" ${canFix?'':'disabled style="opacity:.5;cursor:not-allowed"'}
+          style="${canFix?'background:var(--green);border-color:var(--green)':''}">
+          🔧 ${s.phase==='fixing'?'Fixing…':'Restore Overwritten Records'}
+        </button>
+        <span style="font-size:12px;color:var(--gray2);margin-left:8px">${phaseLabel}</span>
+      </div>
+
+      ${s.phase==='error' ? `<div style="background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:12px;color:var(--red);font-size:13px;margin-bottom:16px">✗ ${escHtml(s.errorMsg)}</div>` : ''}
+
+      ${s.currentRecord ? `
+        <div style="background:#F0FDF4;border:1px solid #86EFAC;border-radius:8px;padding:12px;margin-bottom:16px">
+          <div style="font-size:11px;font-weight:600;color:#166534;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Current Live KRSF-GJ-10000 (will NOT be changed)</div>
+          <div style="font-size:13px;color:var(--gray1)">
+            <strong>${escHtml(s.currentRecord.name||'')}</strong> &nbsp;|&nbsp;
+            ${escHtml(s.currentRecord.ngo||'')} &nbsp;|&nbsp;
+            ${escHtml(s.currentRecord.village||'')} &nbsp;|&nbsp;
+            Enrolled: ${(s.currentRecord.createdAt||'').substring(0,10)}
+          </div>
+        </div>` : ''}
+
+      ${s.overwritten.length > 0 ? `
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-head">
+            <div class="card-title">Overwritten Records — ${s.overwritten.length} victim(s) found</div>
+          </div>
+          <div style="overflow-x:auto">
+            <table class="tbl">
+              <thead><tr>
+                <th>#</th><th>Name</th><th>Partner NGO</th><th>FC / Enrolled By</th><th>Enrolment Date</th><th>Action</th>
+              </tr></thead>
+              <tbody>${victimRows}</tbody>
+            </table>
+          </div>
+        </div>` : (s.phase==='scanned' ? '<div style="background:#F0FDF4;border:1px solid #86EFAC;border-radius:8px;padding:14px;color:#166534;font-size:13px;margin-bottom:16px">✓ No overwritten records found — nothing to restore.</div>' : '')}
+
+      ${s.phase==='done' ? `
+        <div style="background:#EFF6FF;border:1px solid #93C5FD;border-radius:8px;padding:12px;margin-bottom:16px;font-size:13px;color:var(--navy)">
+          ✓ Fix complete. <strong>${s.fixed}</strong> record(s) restored with new IDs.
+          ${s.skipped>0?`<strong>${s.skipped}</strong> skipped (see log).`:''}<br>
+          Future enrolments will use KRSF-GJ-10001 onwards — the V324 genId fix is active.
+        </div>` : ''}
+
+      <div style="border:1px solid var(--gray3);border-radius:8px;padding:12px;background:#FAFAFA;max-height:300px;overflow-y:auto">
+        <div style="font-size:11px;font-weight:600;color:var(--gray2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Activity Log</div>
+        ${logHtml}
+      </div>
+
+      <div style="color:var(--gray2);font-size:12px;margin-top:16px;line-height:1.6">
+        <strong>Note:</strong> Records restored here will appear in All Beneficiaries with their new IDs.
+        Their advocacy records (if any) are still linked to KRSF-GJ-10000 — use the Advocacy Backfill
+        tool afterward if needed. This tool is safe to run multiple times (idempotent — already-restored
+        records won't be duplicated again since their audit entries now have new IDs).
+      </div>
+    </div>
+  `;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// End V324 duplicate ID cleanup
 // ═════════════════════════════════════════════════════════════════════════════
 
 </script>
