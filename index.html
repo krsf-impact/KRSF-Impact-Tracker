@@ -5495,25 +5495,25 @@ async function _genIdCore(district) {
   }
   let serverMaxN = 0;
   try {
-    // Build the REST URL. Firebase auth token is not needed for reads when
-    // database rules allow authenticated reads — we include the auth token
-    // from the current SDK session so rules are satisfied.
+    // V324 fix: use Firebase REST API with shallow=true to fetch all beneficiary
+    // keys and find the numeric max for this state prefix.
+    //
+    // IMPORTANT: shallow=true and orderBy/startAt/endAt are MUTUALLY EXCLUSIVE
+    // in the Firebase REST API — combining them returns HTTP 400. We fetch ALL
+    // keys with shallow=true (no filter params) and filter by prefix client-side.
+    // With ~10,000 total keys across all states this is ~200KB — fast and safe.
     const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';
     const NS     = 'krsf_tracker';
-    // Get the current user's ID token from the Firebase Auth instance
+    // Include auth token so Firebase security rules are satisfied
     let authToken = '';
     try {
-      const fbApp = firebase.app();
       const authUser = firebase.auth ? firebase.auth().currentUser : null;
       if (authUser) authToken = await authUser.getIdToken();
-    } catch (_) { /* auth unavailable — try unauthenticated, rules permitting */ }
-    const encodedPrefix   = encodeURIComponent('"' + prefix + '"');
-    const encodedEnd      = encodeURIComponent('"' + prefix + '\uf8ff"');
-    const authSuffix      = authToken ? `&auth=${authToken}` : '';
-    const url = `${DB_URL}/${NS}/beneficiaries.json?shallow=true&orderBy=%22%24key%22&startAt=${encodedPrefix}&endAt=${encodedEnd}${authSuffix}`;
+    } catch (_) { /* auth unavailable */ }
+    const url = `${DB_URL}/${NS}/beneficiaries.json?shallow=true${authToken ? '&auth=' + authToken : ''}`;
     const resp = await fetch(url);
     if (!resp.ok) throw new Error('REST fetch failed: ' + resp.status);
-    const keysObj = await resp.json(); // { 'KRSF-GJ-0001': true, 'KRSF-GJ-10000': true, ... }
+    const keysObj = await resp.json(); // { 'KRSF-GJ-0001': true, 'KRSF-MH-0001': true, ... }
     if (keysObj && typeof keysObj === 'object') {
       for (const k of Object.keys(keysObj)) {
         if (k.startsWith(prefix)) {
@@ -19211,13 +19211,14 @@ function renderAdminAdvocacyBackfill() {
 // ═════════════════════════════════════════════════════════════════════════════
 
 const _dedupState = {
-  phase: 'idle',   // idle | scanning | scanned | fixing | done | error
-  log:   [],
-  overwritten: [], // [{lostData, currentData, suggestedId}]
+  phase:       'idle',  // idle | scanning | scanned | fixing | done | error
+  log:         [],
+  overwritten: [],      // [{overwrittenAt, name, ngo, coord, auditTs, details, auditEvent}]
+  affectedIds: [],      // list of duplicate IDs found (KRSF-GJ-10000, 10001, etc.)
   currentRecord: null,
-  errorMsg: '',
-  fixed: 0,
-  skipped: 0,
+  errorMsg:    '',
+  fixed:       0,
+  skipped:     0,
 };
 
 function _dedupLog(msg) {
@@ -19232,83 +19233,89 @@ async function _dedupScan() {
   _dedupState.phase = 'scanning';
   _dedupState.log   = [];
   _dedupState.overwritten = [];
+  _dedupState.affectedIds = [];
   _dedupState.fixed = 0;
   _dedupState.skipped = 0;
   renderAdminDedupIds();
 
   try {
-    // Step 1: fetch the current live record for KRSF-GJ-10000
-    _dedupLog('Fetching current KRSF-GJ-10000 from Firebase…');
-    const liveSnap = await fbRef('beneficiaries/KRSF-GJ-10000').once('value');
-    const liveData = liveSnap.val();
-    if (!liveData) {
-      _dedupLog('⚠️  KRSF-GJ-10000 does not exist in Firebase. Nothing to fix.');
-      _dedupState.phase = 'scanned';
-      renderAdminDedupIds();
-      return;
-    }
-    _dedupState.currentRecord = liveData;
-    _dedupLog('✓ Current live record: ' + (liveData.name||'(no name)') + ' | ' + (liveData.ngo||'') + ' | enrolled ' + (liveData.createdAt||'').substring(0,10));
-
-    // Step 2: fetch the audit log to find all "create" events for KRSF-GJ-10000
-    // Each time the record was overwritten, an audit entry was written for the
-    // new enrolment. We find all create entries for this ID — each represents
-    // one enrolment that landed on this key.
-    _dedupLog('Scanning audit log for all enrolments at KRSF-GJ-10000…');
+    // Step 1: fetch ALL audit log 'create' events for beneficiaries in one query.
+    // We scan the entire audit log for creates — this finds duplicates at ANY id
+    // (10000, 10001, 10002 ... all of them), not just 10000.
+    _dedupLog('Fetching all beneficiary create events from audit log…');
     const auditSnap = await fbRef('audit')
-      .orderByChild('recordId')
-      .equalTo('KRSF-GJ-10000')
+      .orderByChild('action')
+      .equalTo('create')
       .once('value');
     const auditObj = auditSnap.val() || {};
-    const createEvents = Object.values(auditObj)
-      .filter(e => e && e.action === 'create')
-      .sort((a,b) => new Date(a.ts||0) - new Date(b.ts||0));
 
-    _dedupLog('Found ' + createEvents.length + ' create event(s) for KRSF-GJ-10000 in audit log.');
+    // Step 2: group create events by recordId, keep only beneficiary creates
+    const byId = {};
+    Object.values(auditObj).forEach(ev => {
+      if (!ev || ev.recordType !== 'beneficiary') return;
+      const id = ev.recordId;
+      if (!id || !id.startsWith('KRSF-')) return;
+      // Skip recovery audit entries (those we wrote ourselves)
+      if ((ev.summary||'').includes('Recovered from duplicate')) return;
+      if (!byId[id]) byId[id] = [];
+      byId[id].push(ev);
+    });
 
-    if (createEvents.length <= 1) {
-      _dedupLog('Only one create event found — no overwrite victims to recover.');
+    // Step 3: find every ID that has MORE than one create event — those are
+    // the overwritten victims. Sort each group by timestamp oldest-first.
+    const duplicateIds = Object.keys(byId).filter(id => byId[id].length > 1);
+    duplicateIds.sort(); // KRSF-GJ-10000 before KRSF-GJ-10001 etc.
+
+    _dedupLog('Found ' + Object.keys(byId).length + ' unique IDs with create events.');
+    _dedupLog('Found ' + duplicateIds.length + ' ID(s) with duplicate create events (overwrite victims).');
+
+    if (duplicateIds.length === 0) {
+      _dedupLog('\n✓ No duplicate IDs found — database is clean.');
       _dedupState.phase = 'scanned';
       renderAdminDedupIds();
       return;
     }
 
-    // Step 3: for each create event except the LAST one (which is the current
-    // live record), attempt to reconstruct what was overwritten.
-    // The audit log stores: name, ngo, coord, action, ts, recordId, details.
-    // We can recover: name, ngo, coord, createdAt from the audit entry.
-    // The actual beneficiary fields (village, district, phone, etc.) are in
-    // the audit `details` field if the app serialised them, otherwise we
-    // recover what we can.
+    // Step 4: for each duplicate ID, sort creates by timestamp.
+    // The LAST create = current live record (untouched).
+    // All EARLIER creates = overwritten victims to be recovered.
     const victims = [];
-    for (let i = 0; i < createEvents.length - 1; i++) {
-      const ev = createEvents[i];
-      // Parse details if available (V308+ audit includes JSON details)
-      let details = {};
-      if (ev.details && typeof ev.details === 'string') {
-        try { details = JSON.parse(ev.details); } catch(_) {}
-      } else if (ev.details && typeof ev.details === 'object') {
-        details = ev.details;
+    _dedupState.affectedIds = duplicateIds;
+
+    for (const dupId of duplicateIds) {
+      const creates = byId[dupId].sort((a,b) => new Date(a.ts||0) - new Date(b.ts||0));
+      _dedupLog('\n' + dupId + ': ' + creates.length + ' create event(s)');
+      _dedupLog('  Live (untouched): ' + (creates[creates.length-1].recordLabel||'?') +
+                ' enrolled ' + (creates[creates.length-1].ts||'').substring(0,10));
+
+      // All but the last are victims
+      for (let i = 0; i < creates.length - 1; i++) {
+        const ev = creates[i];
+        let details = {};
+        if (ev.details && typeof ev.details === 'string') {
+          try { details = JSON.parse(ev.details); } catch(_) {}
+        } else if (ev.details && typeof ev.details === 'object') {
+          details = ev.details;
+        }
+        victims.push({
+          overwrittenAt: dupId,
+          auditTs:       ev.ts          || '',
+          name:          ev.recordLabel || details.name  || '(unknown)',
+          ngo:           ev.ngo         || details.ngo   || '',
+          coord:         ev.username    || ev.userId     || details.coord || '',
+          details,
+          auditEvent:    ev,
+        });
+        _dedupLog('  Victim: ' + (ev.recordLabel||'(unknown)') +
+                  ' by ' + (ev.username||'unknown FC') +
+                  ' on ' + (ev.ts||'').substring(0,10));
       }
-      // Audit entry fields (from auditLog() function):
-      //   recordLabel = beneficiary name (4th arg to auditLog)
-      //   username    = FC who enrolled (from currentUser().username)
-      //   ngo         = NGO of the FC (from currentUser().ngo)
-      //   summary     = "Enrolled in <NGO>, baseline ₹X, interventions: Y"
-      victims.push({
-        auditTs:  ev.ts          || '',
-        name:     ev.recordLabel || details.name  || '(unknown)',
-        ngo:      ev.ngo         || details.ngo   || '',
-        coord:    ev.username    || ev.userId      || details.coord || '',
-        details,
-        auditEvent: ev,
-      });
-      _dedupLog('  Victim #' + (i+1) + ': ' + (ev.recordLabel||'(unknown)') + ' by ' + (ev.username||'(unknown FC)') + ' enrolled ' + (ev.ts||'').substring(0,10));
     }
 
     _dedupState.overwritten = victims;
     _dedupState.phase = 'scanned';
-    _dedupLog('\nScan complete. ' + victims.length + ' overwritten record(s) found. Review below and click Fix to reassign new IDs.');
+    _dedupLog('\nScan complete. ' + victims.length + ' overwritten record(s) across ' +
+              duplicateIds.length + ' duplicate ID(s). Review below and click Fix.');
     renderAdminDedupIds();
 
   } catch(e) {
@@ -19322,7 +19329,9 @@ async function _dedupFix() {
   if (!isAdmin()) return;
   if (_dedupState.phase !== 'scanned') return;
   if (_dedupState.overwritten.length === 0) return;
-  if (!confirm('This will write ' + _dedupState.overwritten.length + ' new beneficiary record(s) to Firebase with fresh IDs. The current KRSF-GJ-10000 record is untouched. Continue?')) return;
+  if (!confirm('This will write ' + _dedupState.overwritten.length +
+               ' new beneficiary record(s) to Firebase with fresh IDs.\n\n' +
+               'The current live record at each duplicate ID is left untouched.\n\nContinue?')) return;
 
   _dedupState.phase = 'fixing';
   _dedupLog('\nStarting fix…');
@@ -19331,34 +19340,34 @@ async function _dedupFix() {
   let fixed = 0, skipped = 0;
   for (const victim of _dedupState.overwritten) {
     try {
-      // Generate a proper new ID using the fixed genId
-      _dedupLog('Generating new ID for: ' + victim.name + '…');
-      // Determine district from details or ngo state
-      const district = victim.details.state || victim.details.district || 'Gujarat';
+      _dedupLog('Generating new ID for: ' + victim.name + ' (was ' + victim.overwrittenAt + ')…');
+      // Determine state from the overwritten ID prefix (e.g. KRSF-GJ → Gujarat)
+      const stateCode = victim.overwrittenAt.split('-')[1] || 'GJ';
+      const stateMap  = { GJ:'Gujarat', MH:'Maharashtra', AS:'Assam', NL:'Nagaland',
+                          HR:'Haryana', RJ:'Rajasthan', MP:'Madhya Pradesh', UP:'Uttar Pradesh' };
+      const district  = victim.details.state || victim.details.district ||
+                        stateMap[stateCode]  || 'Gujarat';
       const newId = await genId(district);
       _dedupLog('  → New ID: ' + newId);
 
-      // Build the recovered record. Use whatever we have from the audit log.
       const recovered = Object.assign({}, victim.details, {
-        id:          newId,
-        name:        victim.name  || victim.details.name  || '',
-        ngo:         victim.ngo   || victim.details.ngo   || '',
-        coord:       victim.coord || victim.details.coord || '',
-        createdAt:   victim.auditTs || new Date().toISOString(),
-        createdBy:   victim.auditEvent.userId   || '',
-        _recoveredFrom: 'KRSF-GJ-10000',
+        id:             newId,
+        name:           victim.name  || victim.details.name  || '',
+        ngo:            victim.ngo   || victim.details.ngo   || '',
+        coord:          victim.coord || victim.details.coord || '',
+        createdAt:      victim.auditTs || new Date().toISOString(),
+        createdBy:      victim.auditEvent.userId || '',
+        _recoveredFrom: victim.overwrittenAt,
         _recoveredAt:   new Date().toISOString(),
         _recoveredBy:   (currentUser()||{}).fullName || 'Admin',
       });
-      delete recovered.id; // will be set by Firebase key
+      delete recovered.id;
 
-      // Write to Firebase under the new ID
       await fbRef('beneficiaries/' + newId).set({ ...recovered, id: newId });
-      // Also update RecordCache
       RecordCache.benef.set(newId, { ...recovered, id: newId });
 
       auditLog('create', 'beneficiary', newId, victim.name,
-        'Recovered from duplicate KRSF-GJ-10000 overwrite. Original enrolment: ' + victim.auditTs, null);
+        'Recovered from duplicate ' + victim.overwrittenAt + ' overwrite. Original enrolment: ' + victim.auditTs, null);
 
       _dedupLog('  ✓ Written as ' + newId);
       fixed++;
@@ -19371,10 +19380,7 @@ async function _dedupFix() {
   _dedupState.fixed   = fixed;
   _dedupState.skipped = skipped;
   _dedupState.phase   = 'done';
-  _dedupLog('\nDone. ' + fixed + ' record(s) restored. ' + skipped + ' skipped.');
-  if (fixed > 0) {
-    _dedupLog('Next enrolment will use ID beyond ' + (10000 + fixed) + ' — V324 genId fix ensures no further collisions.');
-  }
+  _dedupLog('\nDone. ' + fixed + ' record(s) restored. ' + (skipped>0 ? skipped + ' skipped.' : ''));
   renderAdminDedupIds();
 }
 
@@ -19384,94 +19390,109 @@ function renderAdminDedupIds() {
     return;
   }
   const s = _dedupState;
-
-  const phaseLabel = {idle:'Ready to scan',scanning:'Scanning…',scanned:'Scan complete',fixing:'Fixing…',done:'Done',error:'Error'}[s.phase]||s.phase;
-  const canScan = s.phase === 'idle' || s.phase === 'scanned' || s.phase === 'done' || s.phase === 'error';
+  const phaseLabel = {idle:'Ready to scan',scanning:'Scanning…',scanned:'Scan complete',
+                      fixing:'Fixing…',done:'Done',error:'Error'}[s.phase]||s.phase;
+  const canScan = ['idle','scanned','done','error'].includes(s.phase);
   const canFix  = s.phase === 'scanned' && s.overwritten.length > 0;
 
-  const victimRows = s.overwritten.map((v,i) => `
-    <tr>
-      <td style="font-size:12px;color:var(--gray2)">${i+1}</td>
-      <td><strong>${escHtml(v.name)}</strong></td>
-      <td style="font-size:12px">${escHtml(v.ngo)}</td>
-      <td style="font-size:12px">${escHtml(v.coord)}</td>
-      <td style="font-size:12px;color:var(--gray2)">${(v.auditTs||'').substring(0,10)}</td>
-      <td><span style="background:#FEF3C7;color:#92400E;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">Will get new ID</span></td>
-    </tr>`).join('');
+  // Group victims by which ID they were overwritten at
+  const byId = {};
+  (s.overwritten||[]).forEach(v => {
+    const k = v.overwrittenAt || 'KRSF-GJ-10000';
+    if (!byId[k]) byId[k] = [];
+    byId[k].push(v);
+  });
+
+  const idSections = Object.keys(byId).sort().map(dupId => {
+    const rows = byId[dupId].map((v,i) => `
+      <tr>
+        <td style="font-size:11px;color:var(--gray2)">${dupId}</td>
+        <td><strong>${escHtml(v.name)}</strong></td>
+        <td style="font-size:12px">${escHtml(v.ngo)}</td>
+        <td style="font-size:12px">${escHtml(v.coord)}</td>
+        <td style="font-size:12px;color:var(--gray2)">${(v.auditTs||'').substring(0,10)}</td>
+        <td><span style="background:#FEF3C7;color:#92400E;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">Will get new ID</span></td>
+      </tr>`).join('');
+    return rows;
+  }).join('');
 
   const logHtml = s.log.length
     ? s.log.map(l=>`<div style="font-family:Consolas,monospace;font-size:11px;color:var(--gray1);padding:2px 0;white-space:pre-wrap">${escHtml(l)}</div>`).join('')
     : '<div style="color:var(--gray2);font-size:12px">No activity yet. Click Scan to begin.</div>';
 
   document.getElementById('content').innerHTML = `
-    <div style="max-width:900px;margin:0 auto;padding:0 4px">
+    <div style="max-width:960px;margin:0 auto;padding:0 4px">
       <h2 style="margin:0 0 4px">Fix Duplicate IDs</h2>
       <div style="color:var(--gray2);font-size:13px;margin-bottom:18px;line-height:1.6">
-        <strong>What happened:</strong> A bug in V316–V323 caused KRSF-GJ-10000 to be re-minted
-        on every new Gujarat enrolment (because Firebase's lexical sort returned KRSF-GJ-9999 as
-        the max, skipping 10000). Each new enrolment silently overwrote the previous KRSF-GJ-10000
-        record. This tool scans the audit log to find all overwritten victims and restores each
-        one with a fresh ID. The current live KRSF-GJ-10000 record is left untouched.
-        <br><br>
-        <strong>V324</strong> fixes the root cause — no new duplicates will occur after this deploy.
+        Scans the <strong>entire audit log</strong> for beneficiary IDs that were enrolled more
+        than once (KRSF-GJ-10000 through 10005 and any others). Each overwritten victim is
+        restored with a fresh ID. Current live records at each duplicate ID are untouched.
       </div>
 
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:20px">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:20px;flex-wrap:wrap">
         <button class="btn btn-primary" onclick="_dedupScan()" ${canScan?'':'disabled style="opacity:.5;cursor:not-allowed"'}>
-          🔍 ${s.phase==='scanning'?'Scanning…':'Scan for Victims'}
+          🔍 ${s.phase==='scanning'?'Scanning…':'Scan All Duplicate IDs'}
         </button>
         <button class="btn btn-primary" onclick="_dedupFix()" ${canFix?'':'disabled style="opacity:.5;cursor:not-allowed"'}
           style="${canFix?'background:var(--green);border-color:var(--green)':''}">
-          🔧 ${s.phase==='fixing'?'Fixing…':'Restore Overwritten Records'}
+          🔧 ${s.phase==='fixing'?'Fixing…':'Restore All Overwritten Records'}
         </button>
-        <span style="font-size:12px;color:var(--gray2);margin-left:8px">${phaseLabel}</span>
+        <span style="font-size:12px;color:var(--gray2);margin-left:4px">${phaseLabel}</span>
       </div>
 
-      ${s.phase==='error' ? `<div style="background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:12px;color:var(--red);font-size:13px;margin-bottom:16px">✗ ${escHtml(s.errorMsg)}</div>` : ''}
+      ${s.phase==='error'?`<div style="background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:12px;color:var(--red);font-size:13px;margin-bottom:16px">✗ ${escHtml(s.errorMsg)}</div>`:''}
 
-      ${s.currentRecord ? `
-        <div style="background:#F0FDF4;border:1px solid #86EFAC;border-radius:8px;padding:12px;margin-bottom:16px">
-          <div style="font-size:11px;font-weight:600;color:#166534;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Current Live KRSF-GJ-10000 (will NOT be changed)</div>
-          <div style="font-size:13px;color:var(--gray1)">
-            <strong>${escHtml(s.currentRecord.name||'')}</strong> &nbsp;|&nbsp;
-            ${escHtml(s.currentRecord.ngo||'')} &nbsp;|&nbsp;
-            ${escHtml(s.currentRecord.village||'')} &nbsp;|&nbsp;
-            Enrolled: ${(s.currentRecord.createdAt||'').substring(0,10)}
+      ${s.affectedIds&&s.affectedIds.length>0?`
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
+          <div class="stat" style="padding:14px">
+            <div style="color:var(--gray2);font-size:11px;text-transform:uppercase;letter-spacing:.5px">Duplicate IDs Found</div>
+            <div style="font-size:26px;font-weight:700;color:var(--red);margin-top:4px">${s.affectedIds.length}</div>
+            <div style="font-size:11px;color:var(--gray2);margin-top:2px">${s.affectedIds.join(', ')}</div>
           </div>
-        </div>` : ''}
+          <div class="stat" style="padding:14px">
+            <div style="color:var(--gray2);font-size:11px;text-transform:uppercase;letter-spacing:.5px">Victims to Restore</div>
+            <div style="font-size:26px;font-weight:700;color:var(--amber);margin-top:4px">${s.overwritten.length}</div>
+          </div>
+          <div class="stat" style="padding:14px">
+            <div style="color:var(--gray2);font-size:11px;text-transform:uppercase;letter-spacing:.5px">Restored So Far</div>
+            <div style="font-size:26px;font-weight:700;color:var(--green);margin-top:4px">${s.fixed}</div>
+          </div>
+        </div>`:''
+      }
 
-      ${s.overwritten.length > 0 ? `
+      ${s.overwritten.length>0?`
         <div class="card" style="margin-bottom:16px">
           <div class="card-head">
-            <div class="card-title">Overwritten Records — ${s.overwritten.length} victim(s) found</div>
+            <div class="card-title">Overwritten Records — ${s.overwritten.length} victim(s) across ${(s.affectedIds||[]).length} duplicate ID(s)</div>
           </div>
           <div style="overflow-x:auto">
             <table class="tbl">
               <thead><tr>
-                <th>#</th><th>Name</th><th>Partner NGO</th><th>FC / Enrolled By</th><th>Enrolment Date</th><th>Action</th>
+                <th>Was Enrolled At</th><th>Name</th><th>Partner NGO</th>
+                <th>FC</th><th>Date</th><th>Action</th>
               </tr></thead>
-              <tbody>${victimRows}</tbody>
+              <tbody>${idSections}</tbody>
             </table>
           </div>
-        </div>` : (s.phase==='scanned' ? '<div style="background:#F0FDF4;border:1px solid #86EFAC;border-radius:8px;padding:14px;color:#166534;font-size:13px;margin-bottom:16px">✓ No overwritten records found — nothing to restore.</div>' : '')}
+        </div>`:(s.phase==='scanned'?'<div style="background:#F0FDF4;border:1px solid #86EFAC;border-radius:8px;padding:14px;color:#166534;font-size:13px;margin-bottom:16px">✓ No duplicate IDs found — database is clean.</div>':'')}
 
-      ${s.phase==='done' ? `
+      ${s.phase==='done'?`
         <div style="background:#EFF6FF;border:1px solid #93C5FD;border-radius:8px;padding:12px;margin-bottom:16px;font-size:13px;color:var(--navy)">
-          ✓ Fix complete. <strong>${s.fixed}</strong> record(s) restored with new IDs.
+          ✓ Fix complete. <strong>${s.fixed}</strong> record(s) restored.
           ${s.skipped>0?`<strong>${s.skipped}</strong> skipped (see log).`:''}<br>
-          Future enrolments will use KRSF-GJ-10001 onwards — the V324 genId fix is active.
-        </div>` : ''}
+          V324 genId fix is active — no new duplicates will occur.
+        </div>`:''}
 
-      <div style="border:1px solid var(--gray3);border-radius:8px;padding:12px;background:#FAFAFA;max-height:300px;overflow-y:auto">
+      <div style="border:1px solid var(--gray3);border-radius:8px;padding:12px;background:#FAFAFA;max-height:320px;overflow-y:auto">
         <div style="font-size:11px;font-weight:600;color:var(--gray2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Activity Log</div>
         ${logHtml}
       </div>
 
       <div style="color:var(--gray2);font-size:12px;margin-top:16px;line-height:1.6">
-        <strong>Note:</strong> Records restored here will appear in All Beneficiaries with their new IDs.
-        Their advocacy records (if any) are still linked to KRSF-GJ-10000 — use the Advocacy Backfill
-        tool afterward if needed. This tool is safe to run multiple times (idempotent — already-restored
-        records won't be duplicated again since their audit entries now have new IDs).
+        <strong>What this scans:</strong> Every beneficiary ID in the audit log that has more than
+        one "create" event — meaning it was enrolled, overwritten by a new enrolment at the same ID,
+        enrolled again, overwritten again, etc. All versions except the current live record are
+        recovered with fresh IDs. Safe to run multiple times.
       </div>
     </div>
   `;
