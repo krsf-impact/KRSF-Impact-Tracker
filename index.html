@@ -1400,6 +1400,10 @@ body[data-shell="coord"] #coord-app { display: block; }
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h8M2 12h5"/><circle cx="12" cy="11" r="3"/><path d="M11 11h2M12 10v2"/></svg>
       Fix Duplicate IDs
     </button>
+    <button data-admin-only class="nav-btn" data-v="admin_delete_dupes" onclick="nav('admin_delete_dupes')" style="display:none">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M5 4V2h6v2M6 7v5M10 7v5"/><rect x="2" y="4" width="12" height="10" rx="1"/></svg>
+      Delete Duplicate Records
+    </button>
   </div>
   <!-- Sidebar footer: who's logged in + clear logout button. Renders dynamically
        via _renderSidebarFoot() on every session change so role/name stay current. -->
@@ -12584,7 +12588,7 @@ window.openDrawer = function(id) {
 };
 
 // ── Nav ───────────────────────────────────────────────────────────────────
-const _navRoutes_v32={dashboard:renderDashboard,beneficiaries:renderAllBeneficiaries,list:renderLivelihood,ngo:renderNGO,alerts:renderAlerts,map:renderMap,integrated:renderIntegrated,advocacy:renderAdvocacy,admin_partners:renderAdminPartners,admin_users:renderAdminUsers,admin_livelihoods:renderAdminLivelihoods,admin_schemes:renderAdminSchemes,admin_audit:renderAdminAuditLog,admin_import:renderAdminImport,admin_photo_migration:renderAdminPhotoMigration,admin_advocacy_backfill:renderAdminAdvocacyBackfill,admin_dedup_ids:renderAdminDedupIds};
+const _navRoutes_v32={dashboard:renderDashboard,beneficiaries:renderAllBeneficiaries,list:renderLivelihood,ngo:renderNGO,alerts:renderAlerts,map:renderMap,integrated:renderIntegrated,advocacy:renderAdvocacy,admin_partners:renderAdminPartners,admin_users:renderAdminUsers,admin_livelihoods:renderAdminLivelihoods,admin_schemes:renderAdminSchemes,admin_audit:renderAdminAuditLog,admin_import:renderAdminImport,admin_photo_migration:renderAdminPhotoMigration,admin_advocacy_backfill:renderAdminAdvocacyBackfill,admin_dedup_ids:renderAdminDedupIds,admin_delete_dupes:renderAdminDeleteDupes};
 window.nav=function(v){
   // Guard admin routes — non-admins get bounced to dashboard
   if (v.startsWith('admin_') && !isAdmin()) { v = 'dashboard'; }
@@ -19706,6 +19710,242 @@ Advocacy relink done. ${relinked} relinked, ${alreadyOk} untouched (live records
 
 // ═════════════════════════════════════════════════════════════════════════════
 // End V324 duplicate ID cleanup
+// ═════════════════════════════════════════════════════════════════════════════
+
+// ═════════════════════════════════════════════════════════════════════════════
+// V325 — Delete Duplicate Beneficiary Records
+//
+// Finds beneficiaries with the same name + NGO combination, groups them,
+// lets admin review and delete the extras (keeping the oldest by createdAt).
+// Specifically handles the case where the recovery tool ran twice and created
+// duplicate restored records (e.g. two Nilamben Kamleshbhai Damor entries).
+// ═════════════════════════════════════════════════════════════════════════════
+
+const _delDupState = {
+  phase:    'idle',  // idle | scanning | scanned | deleting | done | error
+  log:      [],
+  groups:   [],      // [{name, ngo, records:[{id,createdAt,hasAdv}], keepId, deleteIds}]
+  toDelete: 0,
+  deleted:  0,
+  errorMsg: '',
+};
+
+function _delDupLog(msg) {
+  _delDupState.log.push(msg);
+  renderAdminDeleteDupes();
+}
+
+async function _delDupScan() {
+  if (!isAdmin()) return;
+  _delDupState.phase  = 'scanning';
+  _delDupState.log    = [];
+  _delDupState.groups = [];
+  _delDupState.toDelete = 0;
+  _delDupState.deleted  = 0;
+  renderAdminDeleteDupes();
+
+  try {
+    _delDupLog('Loading all beneficiaries...');
+    const all = getData();
+    _delDupLog('Total beneficiaries: ' + all.length);
+
+    // Group by name + ngo (case-insensitive, trimmed)
+    const byKey = {};
+    all.forEach(b => {
+      const key = (b.name||'').trim().toLowerCase() + '||' + (b.ngo||'').trim().toLowerCase();
+      if (!byKey[key]) byKey[key] = [];
+      byKey[key].push(b);
+    });
+
+    // Find groups with more than 1 record
+    const advArr = loadAdv();
+    const bidSet = new Set(advArr.map(a => a.bid));
+
+    const dupGroups = [];
+    for (const key of Object.keys(byKey)) {
+      const recs = byKey[key];
+      if (recs.length < 2) continue;
+
+      // Sort by createdAt ascending — oldest first = keeper
+      recs.sort((a,b) => (a.createdAt||'') < (b.createdAt||'') ? -1 : 1);
+
+      // Check which records have advocacy data
+      const withAdv    = recs.filter(r => bidSet.has(r.id));
+      // Prefer keeping the one WITH advocacy data; if none have it, keep oldest
+      const keeper     = withAdv.length > 0 ? withAdv[0] : recs[0];
+      const deleteRecs = recs.filter(r => r.id !== keeper.id);
+
+      dupGroups.push({
+        name:       recs[0].name,
+        ngo:        recs[0].ngo,
+        records:    recs.map(r => ({
+          id:        r.id,
+          createdAt: r.createdAt,
+          hasAdv:    bidSet.has(r.id),
+          _recoveredFrom: r._recoveredFrom || null,
+        })),
+        keepId:     keeper.id,
+        deleteIds:  deleteRecs.map(r => r.id),
+      });
+    }
+
+    dupGroups.sort((a,b) => a.name.localeCompare(b.name));
+    _delDupState.groups   = dupGroups;
+    _delDupState.toDelete = dupGroups.reduce((s,g) => s + g.deleteIds.length, 0);
+    _delDupState.phase    = 'scanned';
+    _delDupLog('Found ' + dupGroups.length + ' duplicate group(s), ' + _delDupState.toDelete + ' record(s) to delete.');
+    renderAdminDeleteDupes();
+  } catch(e) {
+    _delDupState.phase    = 'error';
+    _delDupState.errorMsg = e.message || String(e);
+    renderAdminDeleteDupes();
+  }
+}
+
+async function _delDupDelete() {
+  if (!isAdmin()) return;
+  if (_delDupState.phase !== 'scanned') return;
+  if (_delDupState.toDelete === 0) return;
+  if (!confirm(
+    'This will permanently delete ' + _delDupState.toDelete + ' duplicate record(s) from Firebase.\n\n' +
+    'The oldest record in each group (or the one with advocacy data) is kept.\n\n' +
+    'This CANNOT be undone. Continue?'
+  )) return;
+
+  _delDupState.phase = 'deleting';
+  _delDupLog('\nStarting deletion...');
+  renderAdminDeleteDupes();
+
+  let deleted = 0, failed = 0;
+  for (const group of _delDupState.groups) {
+    for (const delId of group.deleteIds) {
+      try {
+        _delDupLog('Deleting ' + delId + ' (' + group.name + ')...');
+        await fbRef('beneficiaries/' + delId).remove();
+        RecordCache.benef.delete(delId);
+        auditLog('delete', 'beneficiary', delId, group.name,
+          'Deleted duplicate — kept ' + group.keepId, null);
+        _delDupLog('  OK deleted ' + delId);
+        deleted++;
+      } catch(e) {
+        _delDupLog('  FAILED ' + delId + ': ' + (e.message||e));
+        failed++;
+      }
+    }
+  }
+
+  // Invalidate caches so UI updates
+  _allBEnrichedCache = null; _allBEnrichedCacheKey = null;
+  _delDupState.deleted = deleted;
+  _delDupState.phase   = 'done';
+  _delDupLog('\nDone. ' + deleted + ' deleted, ' + failed + ' failed.');
+  renderAdminDeleteDupes();
+}
+
+function renderAdminDeleteDupes() {
+  if (!isAdmin()) {
+    document.getElementById('content').innerHTML = '<div class="empty">Admin only.</div>';
+    return;
+  }
+  const s = _delDupState;
+  const canScan   = ['idle','scanned','done','error'].includes(s.phase);
+  const canDelete = s.phase === 'scanned' && s.toDelete > 0;
+  const phaseLabel = {idle:'Ready',scanning:'Scanning...',scanned:'Scan complete',
+                      deleting:'Deleting...',done:'Done',error:'Error'}[s.phase]||s.phase;
+
+  const groupRows = s.groups.map(g => {
+    const recRows = g.records.map(r => {
+      const isKeeper = r.id === g.keepId;
+      const bg = isKeeper ? '#F0FDF4' : '#FEF2F2';
+      const label = isKeeper
+        ? '<span style="background:#D1FAE5;color:#065F46;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">KEEP</span>'
+        : '<span style="background:#FEE2E2;color:#991B1B;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">DELETE</span>';
+      const advBadge = r.hasAdv
+        ? '<span style="background:#EFF6FF;color:#1D4ED8;padding:2px 6px;border-radius:4px;font-size:10px;margin-left:4px">Has Advocacy</span>'
+        : '';
+      const recBadge = r._recoveredFrom
+        ? `<span style="background:#FEF3C7;color:#92400E;padding:2px 6px;border-radius:4px;font-size:10px;margin-left:4px">Recovered from ${escHtml(r._recoveredFrom)}</span>`
+        : '';
+      return `<tr style="background:${bg}">
+        <td style="padding:6px 10px;font-size:12px;font-family:monospace">${escHtml(r.id)}</td>
+        <td style="padding:6px 10px;font-size:12px">${(r.createdAt||'').substring(0,16).replace('T',' ')}</td>
+        <td style="padding:6px 10px">${label}${advBadge}${recBadge}</td>
+      </tr>`;
+    }).join('');
+
+    return `<tr style="background:#F8FAFC;border-top:2px solid var(--gray3)">
+      <td colspan="3" style="padding:8px 10px;font-weight:600;font-size:13px">
+        ${escHtml(g.name)} &nbsp;<span style="color:var(--gray2);font-weight:400;font-size:12px">${escHtml(g.ngo)}</span>
+        &nbsp;<span style="color:var(--red);font-size:12px">${g.deleteIds.length} duplicate${g.deleteIds.length>1?'s':''}</span>
+      </td>
+    </tr>${recRows}`;
+  }).join('');
+
+  const logHtml = s.log.length
+    ? s.log.map(l=>`<div style="font-family:Consolas,monospace;font-size:11px;color:var(--gray1);padding:2px 0">${escHtml(l)}</div>`).join('')
+    : '<div style="color:var(--gray2);font-size:12px">Click Scan to begin.</div>';
+
+  document.getElementById('content').innerHTML = `
+    <div style="max-width:900px;margin:0 auto;padding:0 4px">
+      <h2 style="margin:0 0 4px">Delete Duplicate Records</h2>
+      <div style="color:var(--gray2);font-size:13px;margin-bottom:18px;line-height:1.6">
+        Finds beneficiaries with the same <strong>name + NGO</strong> combination.
+        In each group, the record with advocacy data (or the oldest if none have it) is kept.
+        All others are permanently deleted from Firebase.
+      </div>
+
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:20px;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="_delDupScan()" ${canScan?'':'disabled style="opacity:.5"'}>
+          🔍 ${s.phase==='scanning'?'Scanning...':'Scan for Duplicates'}
+        </button>
+        <button class="btn btn-primary" onclick="_delDupDelete()" ${canDelete?'':'disabled style="opacity:.5"'}
+          style="${canDelete?'background:var(--red);border-color:var(--red)':''}">
+          🗑️ ${s.phase==='deleting'?'Deleting...':'Delete '+s.toDelete+' Duplicate'+(s.toDelete!==1?'s':'')}
+        </button>
+        <span style="font-size:12px;color:var(--gray2)">${phaseLabel}</span>
+      </div>
+
+      ${s.phase==='error'?`<div style="background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:12px;color:var(--red);font-size:13px;margin-bottom:16px">Error: ${escHtml(s.errorMsg)}</div>`:''}
+
+      ${s.groups.length>0?`
+        <div style="display:flex;gap:12px;margin-bottom:16px">
+          <div class="stat" style="padding:12px;flex:1">
+            <div style="font-size:11px;color:var(--gray2);text-transform:uppercase;letter-spacing:.5px">Duplicate Groups</div>
+            <div style="font-size:28px;font-weight:700;color:var(--red)">${s.groups.length}</div>
+          </div>
+          <div class="stat" style="padding:12px;flex:1">
+            <div style="font-size:11px;color:var(--gray2);text-transform:uppercase;letter-spacing:.5px">Records to Delete</div>
+            <div style="font-size:28px;font-weight:700;color:var(--amber)">${s.toDelete}</div>
+          </div>
+          <div class="stat" style="padding:12px;flex:1">
+            <div style="font-size:11px;color:var(--gray2);text-transform:uppercase;letter-spacing:.5px">Deleted So Far</div>
+            <div style="font-size:28px;font-weight:700;color:var(--green)">${s.deleted}</div>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-head"><div class="card-title">Duplicate Groups — ${s.groups.length} found</div></div>
+          <div style="overflow-x:auto">
+            <table class="tbl" style="width:100%">
+              <thead><tr><th>Beneficiary ID</th><th>Enrolled At</th><th>Decision</th></tr></thead>
+              <tbody>${groupRows}</tbody>
+            </table>
+          </div>
+        </div>`
+      :(s.phase==='scanned'?'<div style="background:#F0FDF4;border:1px solid #86EFAC;border-radius:8px;padding:14px;color:#166534;font-size:13px;margin-bottom:16px">No duplicate records found.</div>':'')}
+
+      ${s.phase==='done'?`<div style="background:#EFF6FF;border:1px solid #93C5FD;border-radius:8px;padding:12px;margin-bottom:16px;font-size:13px;color:var(--navy)">
+        Done. ${s.deleted} record(s) deleted. Database is clean.</div>`:''}
+
+      <div style="border:1px solid var(--gray3);border-radius:8px;padding:12px;background:#FAFAFA;max-height:280px;overflow-y:auto">
+        <div style="font-size:11px;font-weight:600;color:var(--gray2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Activity Log</div>
+        ${logHtml}
+      </div>
+    </div>
+  `;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// End V325 Delete Duplicates tool
 // ═════════════════════════════════════════════════════════════════════════════
 
 </script>
