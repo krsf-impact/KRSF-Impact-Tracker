@@ -5395,6 +5395,15 @@ function _releaseClaim(id) {
   } catch (_) {}
 }
 
+// V324 genId mutex — prevents concurrent genId calls from minting the same ID.
+// Problem: family member enrollment calls genId multiple times in rapid succession.
+// Each call fires the REST fetch simultaneously, all see the same serverMaxN,
+// all mint the same candidate ID. The _claimId mechanism only helps AFTER the
+// first call returns — but the second call's REST fetch is already in-flight.
+// Fix: queue all genId calls behind a promise chain so they run strictly one
+// at a time. Each call sees the updated _pendingIds from the previous call.
+let _genIdMutex = Promise.resolve();
+
 // V316 (2026-05-13) CRITICAL FIX: genId now async + Firebase-authoritative.
 //
 // PRE-V316 BUG: V312 introduced role-scoped listeners. After V312, an FC's
@@ -5416,6 +5425,27 @@ function _releaseClaim(id) {
 // than minting one that may collide. The caller's catch surfaces a clear
 // "could not generate ID" error to the user.
 async function genId(district) {
+  // V324: serialize all genId calls through a mutex so rapid successive calls
+  // (e.g. enrolling a head + 3 family members in quick succession) don't all
+  // fire their REST fetches simultaneously, see the same serverMaxN, and mint
+  // the same ID. Each call waits for the previous one to fully complete
+  // (including _claimId) before starting its own REST fetch.
+  let _resolve;
+  const _myTurn = new Promise(r => { _resolve = r; });
+  const _waitForPrev = _genIdMutex;
+  _genIdMutex = _myTurn;
+  try {
+    await _waitForPrev;
+  } catch(_) { /* previous call failed — still our turn */ }
+
+  try {
+    return await _genIdCore(district);
+  } finally {
+    _resolve(); // release mutex for next caller
+  }
+}
+
+async function _genIdCore(district) {
   // V308.1 (Bug 5 fix): Defensive input validation. The previous code called
   // .includes() on whatever was passed, throwing TypeError on null/undefined
   // and producing a silently bad "KRSF-XX-0001" record on empty / unknown
