@@ -19494,7 +19494,7 @@ function renderAdminDedupIds() {
                       fixing:'Fixing…',done:'Done',error:'Error'}[s.phase]||s.phase;
   const canScan   = ['idle','scanned','done','error','relinked'].includes(s.phase);
   const canFix    = s.phase === 'scanned' && s.overwritten.length > 0;
-  const canRelink = s.phase === 'done' || s.phase === 'relinked';
+  const canRelink = s.phase === 'done' || s.phase === 'relinked' || (s.phase === 'scanned' && (s.affectedIds||[]).length > 0);
 
   // Group victims by which ID they were overwritten at
   const byId = {};
