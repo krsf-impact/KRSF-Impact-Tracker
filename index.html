@@ -2177,7 +2177,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V324';
+const APP_VERSION = 'V325';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // ── Sync state (in-memory) ─────────────────────────────────────────────────
@@ -2372,6 +2372,13 @@ function _ensureCachePrimed() {
 // Replace the entire benef cache with the given array. Called from
 // fbInitialSync after the cloud .once() fetch, so the cloud snapshot
 // becomes authoritative over whatever was primed from localStorage.
+function _invalidateAdvCache() {
+  _advLatestRowsCache = null;
+  _advLatestRowsCacheLen = -1;
+  _allBEnrichedCache = null;
+  _allBEnrichedCacheKey = null;
+}
+
 function _hydrateBenefCache(arr) {
   RecordCache.benef.clear();
   for (const r of arr) { if (r && r.id) RecordCache.benef.set(r.id, r); }
@@ -5920,7 +5927,7 @@ function openDrawer(id) {
         ${hasLiv ? '<span style="background:var(--green2);color:var(--green);font-size:11px;font-weight:700;padding:3px 9px;border-radius:5px;letter-spacing:.02em">✓ Livelihood</span>' : ''}
         ${(b.interventions||[]).includes('Advocacy (Govt. Schemes)') ? '<span style="background:var(--purple2);color:var(--purple);font-size:11px;font-weight:700;padding:3px 9px;border-radius:5px;letter-spacing:.02em">✓ Advocacy</span>' : ''}
       </div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px">${b.interventions.map(i=>`<span style="background:var(--navy3);color:var(--navy);font-size:12px;font-weight:600;padding:4px 10px;border-radius:5px">${escHtml(i)}</span>`).join('')}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">${(b.interventions||[]).map(i=>`<span style="background:var(--navy3);color:var(--navy);font-size:12px;font-weight:600;padding:4px 10px;border-radius:5px">${escHtml(i)}</span>`).join('')}</div>
       <div style="margin-top:8px;font-size:12px;color:var(--gray2)">NGO: ${escHtml(b.ngo)} · Coordinator: ${escHtml(b.coord||'—')}</div>
     </div>
     ${_linkedFamilyHtml}
@@ -9426,7 +9433,7 @@ function _computeNgoStats(partnerName, benefSet, advAll) {
   let livTotalIncomeAdded = 0;
   livCompleted.forEach(b => {
     if (b.endIncome != null && b.baseIncome != null) {
-      livTotalIncomeAdded += (b.endIncome - b.baseIncome);
+      livTotalIncomeAdded += ((b.endIncome||0) - (b.baseIncome||0));
     }
   });
   const livAvgGain = livCompleted.length > 0
@@ -9519,7 +9526,7 @@ function _computeFcStats(fcUserId, fcDisplayName, benefSet, advAll) {
   let livTotalIncomeAdded = 0;
   livCompleted.forEach(b => {
     if (b.endIncome != null && b.baseIncome != null) {
-      livTotalIncomeAdded += (b.endIncome - b.baseIncome);
+      livTotalIncomeAdded += ((b.endIncome||0) - (b.baseIncome||0));
     }
   });
   const livAvgGain = livCompleted.length > 0
@@ -10124,7 +10131,7 @@ function buildPopup(b) {
   const d = delta(b), p = pct(b);
   const avatarColor = getMarkerColor(b);
   const initials = getAvatarInitials(b.name);
-  const primaryInterv = b.interventions[0] || '';
+  const primaryInterv = (b.interventions||[])[0] || '';
   const intervColor = INTERV_COLORS_MAP[primaryInterv] || '#888';
   let deltaHtml = '';
   if (b.endIncome != null) {
@@ -10143,7 +10150,7 @@ function buildPopup(b) {
     </div>
     <div class="map-popup-body">
       <div class="map-popup-row"><span class="map-popup-label">Village</span><span class="map-popup-val">${b.village}${b.taluka?', '+b.taluka:''} ${b.lat?'<span style="color:var(--green);font-size:10px">📍 GPS</span>':''}</span></div>
-      <div class="map-popup-row"><span class="map-popup-label">Intervention</span><span class="map-popup-val" style="color:${intervColor}">${b.interventions.join(', ')}</span></div>
+      <div class="map-popup-row"><span class="map-popup-label">Intervention</span><span class="map-popup-val" style="color:${intervColor}">${(b.interventions||[]).join(', ')}</span></div>
       <div class="map-popup-row"><span class="map-popup-label">NGO</span><span class="map-popup-val">${b.ngo}</span></div>
       <div class="map-popup-row"><span class="map-popup-label">Status</span><span class="map-popup-val">${stageLabel(b.status)}</span></div>
       <div class="map-popup-row"><span class="map-popup-label">Baseline</span><span class="map-popup-val">${fmt(b.baseIncome)}/yr</span></div>
@@ -10223,7 +10230,7 @@ function refreshMapMarkers() {
   let list = filteredAll();
   if (mapFilterStatus) list = list.filter(b => b.status === mapFilterStatus);
   if (mapFilterNgo)    list = list.filter(b => b.ngo === mapFilterNgo);
-  if (intervF)         list = list.filter(b => b.interventions.includes(intervF));
+  if (intervF)         list = list.filter(b => (b.interventions||[]).includes(intervF));
 
   // Jitter coords slightly so overlapping pins spread apart
   const used = {};
@@ -10636,9 +10643,17 @@ function advGetRows() {
 // This ensures that when a status is updated (by logging a newer record for the
 // same scheme), dashboards and tables reflect only the current state — older
 // rows for the same scheme are retained in storage as history but not counted.
+// V325: Cache _advLatestRowsAll — called 6+ times per render with same data.
+let _advLatestRowsCache = null;
+let _advLatestRowsCacheLen = -1;
 function _advLatestRowsAll(allAdv) {
-  const recs = (allAdv || loadAdv()).slice();
-  recs.sort((a,b) => new Date(a.createdAt||0) - new Date(b.createdAt||0));
+  const src = allAdv || loadAdv();
+  // Cache hit: same array length means same data (advocacy rarely changes mid-session)
+  if (_advLatestRowsCache && src.length === _advLatestRowsCacheLen && allAdv) {
+    return _advLatestRowsCache;
+  }
+  const recs = src.slice();
+  recs.sort((a,b) => (a.createdAt||'') < (b.createdAt||'') ? -1 : (a.createdAt||'') > (b.createdAt||'') ? 1 : 0);
   const byKey = {};
   recs.forEach(a => (a.schemeRows || []).forEach(r => {
     if (!r || !r.scheme) return;
@@ -10655,7 +10670,10 @@ function _advLatestRowsAll(allAdv) {
   // Filter out tombstoned rows. Storage keeps them (audit history); views
   // hide them. Deletion bug fix: when the latest write for a (bid, scheme,
   // remarks) key is a tombstone, the entry is treated as deleted.
-  return Object.values(byKey).filter(r => !r._deleted);
+  const result = Object.values(byKey).filter(r => !r._deleted);
+  // Store in cache
+  if (allAdv) { _advLatestRowsCache = result; _advLatestRowsCacheLen = src.length; }
+  return result;
 }
 
 // Latest row per scheme for one beneficiary — used to pre-fill the modal.
@@ -10745,7 +10763,7 @@ function closeAdvModal() {
 function advSearch(q) {
   const res = document.getElementById('adv-search-results');
   if (!q.trim()) { res.style.display='none'; _advSearchIdx = -1; return; }
-  const matches = getData().filter(b => b.name.toLowerCase().includes(q.toLowerCase())||b.id.toLowerCase().includes(q.toLowerCase())).slice(0,8);
+  const matches = getData().filter(b => (b.name||'').toLowerCase().includes(q.toLowerCase())||(b.id||'').toLowerCase().includes(q.toLowerCase())).slice(0,8);
   if (!matches.length) { res.style.display='none'; _advSearchIdx = -1; return; }
   res.innerHTML = matches.map((b, i) => `<div data-idx="${i}" data-bid="${b.id}" onclick="selectAdvBenef('${b.id}')" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--gray3);font-size:13px" onmouseover="this.style.background='var(--gray4)'" onmouseout="this.style.background=this.dataset.hl==='1'?'#EEF4FB':''"><span style="font-weight:500">${b.name}</span> <span style="color:var(--gray2);font-size:11px">${b.id} · ${b.village}</span></div>`).join('');
   res.style.display = 'block';
@@ -11050,9 +11068,31 @@ async function saveAdvocacy() {
 // ── Global filter state ───────────────────────────────────────────────────
 let progFilter = '';
 
+// V325: lightweight read — returns live references from RecordCache (no clone).
+// Only safe for read-only consumers. Never mutate the returned records.
+function _readCacheDirect() {
+  _ensureCachePrimed();
+  return Array.from(RecordCache.benef.values());
+}
+
 function filteredAll() {
-  let d = getData();
-  if (stateFilter) d = d.filter(b => b.district.includes(stateFilter));
+  // V325 perf: use _readCacheDirect() instead of getData() to avoid
+  // cloning ~10K records on every render. Records are read-only here.
+  const u = currentUser();
+  if (!u) return [];
+  const cache = _readCacheDirect();
+  // Role scoping (mirrors getData)
+  let d;
+  if (u.role === 'admin') {
+    d = cache;
+  } else if (u.role === 'ngo') {
+    d = cache.filter(b => b.ngo === u.ngo);
+  } else if (u.role === 'coordinator') {
+    d = cache.filter(b => b.createdBy ? b.createdBy === u.userId : (b.coord && b.coord === u.fullName));
+  } else {
+    d = cache;
+  }
+  if (stateFilter) d = d.filter(b => (b.district||'').includes(stateFilter));
   if (ngoFilter)   d = d.filter(b => b.ngo === ngoFilter);
   // FC filter — used by NGO admin "FC-wise" view in NGO Partners tab. Filters
   // to beneficiaries created by a specific field coordinator (user id match).
@@ -11897,7 +11937,7 @@ function _livBenTabFull(allB) {
   // attached to existing records but removed from admin will still appear
   // for records that use them via the fallback block below.
   const LIV_TYPES = getLivTypes();
-  const ic={}; LIV_TYPES.forEach(i=>ic[i]=allB.filter(b=>b.interventions.includes(i)).length);
+  const ic={}; LIV_TYPES.forEach(i=>ic[i]=allB.filter(b=>(b.interventions||[]).includes(i)).length);
   // Include legacy/custom types that exist in data but aren't in the admin
   // list, so beneficiaries with historical tags remain filterable.
   allB.forEach(b => (b.interventions||[]).forEach(iv => {
@@ -11906,9 +11946,9 @@ function _livBenTabFull(allB) {
     }
   }));
   const LIV_TYPES_DISPLAY = [...LIV_TYPES, ...Object.keys(ic).filter(k => !LIV_TYPES.includes(k))];
-  const base = livInterv ? allB.filter(b=>b.interventions.includes(livInterv)) : allB;
+  const base = livInterv ? allB.filter(b=>(b.interventions||[]).includes(livInterv)) : allB;
   let list = [...base];
-  if (livSearch) list=list.filter(b=>b.name.toLowerCase().includes(livSearch.toLowerCase())||b.id.toLowerCase().includes(livSearch.toLowerCase())||b.village.toLowerCase().includes(livSearch.toLowerCase()));
+  if (livSearch) { const _lq=livSearch.toLowerCase(); list=list.filter(b=>(b.name||'').toLowerCase().includes(_lq)||(b.id||'').toLowerCase().includes(_lq)||(b.village||'').toLowerCase().includes(_lq)); }
   if (livStage)  list=list.filter(b=>b.status===livStage);
 
   const chips = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
@@ -11921,7 +11961,7 @@ function _livBenTabFull(allB) {
     <td><div class="bname">${escHtml(b.name)}</div><div class="bid">${escHtml(b.id)}</div></td>
     <td>${escHtml(b.village)}<br><span style="font-size:11px;color:var(--gray2)">${escHtml(b.district)}</span></td>
     <td style="font-size:12px">${escHtml(b.ngo)}</td>
-    <td>${b.interventions.filter(i=>i!=='Advocacy (Govt. Schemes)').map(i=>intervChip(i)).join('')}</td>
+    <td>${(b.interventions||[]).filter(i=>i!=='Advocacy (Govt. Schemes)').map(i=>intervChip(i)).join('')}</td>
     <td style="font-weight:500">${fmt(b.baseIncome)}</td>
     <td><span class="status-pill ${SC[b.status]||''}"><span class="dot"></span>${stageLabel(b.status)}</span></td>
     <td>${b.endIncome!=null?`<span style="font-weight:600;color:${delta(b)>=0?'var(--green)':'var(--red)'}">₹${Math.abs(delta(b)).toLocaleString('en-IN')} (${delta(b)>=0?'+':''}${pct(b)}%)</span>`:'<span style="color:var(--gray2);font-size:12px">Pending</span>'}</td>
@@ -12068,7 +12108,7 @@ function _advBenTab2(allAdv, allB) {
     ? new Set(allBids.filter(bid => (rowsByBid[bid]||[]).some(rowFilter)))
     : new Set(allBids);
   let list = allB.filter(b=>bidsMatch.has(b.id));
-  if (advSearch2) list=list.filter(b=>b.name.toLowerCase().includes(advSearch2.toLowerCase())||b.id.toLowerCase().includes(advSearch2.toLowerCase()));
+  if (advSearch2) { const _aq=advSearch2.toLowerCase(); list=list.filter(b=>(b.name||'').toLowerCase().includes(_aq)||(b.id||'').toLowerCase().includes(_aq)); }
 
   // ONE ROW PER BENEFICIARY (product decision): previously we flattened to
   // (beneficiary × scheme) pairs — a person tracked for 4 schemes became 4
@@ -12140,8 +12180,8 @@ function renderIntegrated(sub) {
   // Enrich each beneficiary with program membership + impact numbers.
   const bList = allB.map(b => {
     const schemeRows = latestByBid[b.id] || [];
-    const hasLiv = b.interventions.some(i => i !== 'Advocacy (Govt. Schemes)');
-    const hasAdv = schemeRows.length > 0 || b.interventions.includes('Advocacy (Govt. Schemes)');
+    const hasLiv = (b.interventions||[]).some(i => i !== 'Advocacy (Govt. Schemes)');
+    const hasAdv = schemeRows.length > 0 || (b.interventions||[]).includes('Advocacy (Govt. Schemes)');
     const incDelta   = b.endIncome != null ? delta(b) : 0;
     const benefitAmt = schemeRows.filter(r => r.benefitRecd === 'Yes').reduce((s, r) => s + (r.benefitAmt || 0), 0);
     return { ...b, schemeRows, hasLiv, hasAdv, incDelta, benefitAmt };
@@ -12176,9 +12216,9 @@ function renderIntegrated(sub) {
   else if (intSubTab === 'advOnly') list = advOnlyBids;
   // Text search
   if (intSearch2) list = list.filter(b =>
-       b.name.toLowerCase().includes(intSearch2.toLowerCase())
+       (b.name||'').toLowerCase().includes(intSearch2.toLowerCase())
     || b.id.toLowerCase().includes(intSearch2.toLowerCase())
-    || b.village.toLowerCase().includes(intSearch2.toLowerCase()));
+    || (b.village||'').toLowerCase().includes(intSearch2.toLowerCase()));
 
   // Table per Excel spec — 8 columns, same shape regardless of program filter:
   // Sr. No. | Beneficiary | Location | Partner | Program | Income Delta |
@@ -12297,13 +12337,17 @@ function renderAllBeneficiaries() {
   const total = enriched.length;
   const pctOf = n => total ? Math.round(n/total*100) : 0;
 
+  // V325: Update page-count badge once per enrichment (not per page turn)
+  const _pcEl = document.getElementById('page-count');
+  if (_pcEl) _pcEl.textContent = total + ' beneficiaries';
+
   // Apply program filter before search
   let list = enriched;
   if (allBProgFilter === 'livOnly') list = livOnlyList;
   else if (allBProgFilter === 'dual') list = dualList;
   else if (allBProgFilter === 'advOnly') list = advOnlyList;
 
-  if (allBSearch) list=list.filter(b=>b.name.toLowerCase().includes(allBSearch.toLowerCase())||b.id.toLowerCase().includes(allBSearch.toLowerCase())||b.village.toLowerCase().includes(allBSearch.toLowerCase())||b.ngo.toLowerCase().includes(allBSearch.toLowerCase()));
+  if (allBSearch) { const q=allBSearch.toLowerCase(); list=list.filter(b=>(b.name||'').toLowerCase().includes(q)||(b.id||'').toLowerCase().includes(q)||(b.village||'').toLowerCase().includes(q)||(b.ngo||'').toLowerCase().includes(q)); }
 
   // V323 Pagination: clamp current page to valid range after filter changes.
   const totalFiltered = list.length;
@@ -14333,7 +14377,7 @@ function _statesWithBeneficiaries() {
       // district is stored as "DistrictName, StateName" or just "StateName".
       // Match longest-first to avoid "Andhra" colliding with "Andhra Pradesh".
       for (const s of ALL_STATE_NAMES) {
-        if (b.district.includes(s)) { present.add(s); break; }
+        if (b.district && b.district.includes(s)) { present.add(s); break; }
       }
     }
   } catch (_) { /* getData may throw before session; that's fine */ }
@@ -14413,7 +14457,7 @@ function _statesWithBeneficiariesForCurrentFilter() {
     for (const b of data) {
       if (!b || !b.district) continue;
       for (const s of ALL_STATE_NAMES) {
-        if (b.district.includes(s)) { present.add(s); break; }
+        if (b.district && b.district.includes(s)) { present.add(s); break; }
       }
     }
   } catch (_) { /* pre-session calls are fine */ }
@@ -16119,7 +16163,7 @@ function _validateImportRows() {
   const existingKeys = new Set(
     existingRecords
       .filter(b => b.name && b.village && b.ngo)
-      .map(b => `${b.name.trim().toLowerCase()}|${b.village.trim().toLowerCase()}|${b.ngo.trim().toLowerCase()}`)
+      .map(b => `${(b.name||'').trim().toLowerCase()}|${(b.village||'').trim().toLowerCase()}|${(b.ngo||'').trim().toLowerCase()}`)
   );
   // Fix #1: Parallel lookup by mobile number for bulk-import dup detection.
   // Uses cleaned-to-digits phone to survive formatting variations (spaces,
@@ -16504,9 +16548,9 @@ function _validateImportRows() {
       if (existingKeys.has(key)) {
         dupeOf = existingRecords.find(b =>
           b.name && b.village && b.ngo &&
-          b.name.toLowerCase() === name.toLowerCase() &&
-          b.village.toLowerCase() === village.toLowerCase() &&
-          b.ngo.toLowerCase() === ngo.toLowerCase()
+          (b.name||'').toLowerCase() === (name||'').toLowerCase() &&
+          (b.village||'').toLowerCase() === (village||'').toLowerCase() &&
+          (b.ngo||'').toLowerCase() === (ngo||'').toLowerCase()
         );
         warnings.push(`Possible duplicate of ${dupeOf ? dupeOf.id : 'existing record'} — ${name} in ${village} (${ngo})`);
       }
@@ -19215,7 +19259,7 @@ function renderAdminAdvocacyBackfill() {
 // ═════════════════════════════════════════════════════════════════════════════
 
 const _dedupState = {
-  phase:       'idle',  // idle | scanning | scanned | fixing | done | error
+  phase:       'idle',  // idle | scanning | scanned | fixing | done | relinking | relinked | error
   log:         [],
   overwritten: [],      // [{overwrittenAt, name, ngo, coord, auditTs, details, auditEvent}]
   affectedIds: [],      // list of duplicate IDs found (KRSF-GJ-10000, 10001, etc.)
@@ -19223,6 +19267,8 @@ const _dedupState = {
   errorMsg:    '',
   fixed:       0,
   skipped:     0,
+  advRelinked: 0,       // advocacy records successfully relinked
+  advOrphaned: 0,       // advocacy records that couldn't be matched
 };
 
 function _dedupLog(msg) {
@@ -19324,12 +19370,31 @@ async function _dedupScan() {
           continue;
         }
         seenVictims.add(dedup);
+        // Try to parse baseIncome and interventions from the audit summary string
+        // Format: "Enrolled in NGO, baseline ₹8,000, interventions: Crop Production"
+        let parsedIncome = details.baseIncome || null;
+        let parsedInterventions = details.interventions || null;
+        let parsedVillage = details.village || null;
+        let parsedDistrict = details.district || null;
+        const summary = ev.summary || '';
+        if (!parsedIncome) {
+          const incMatch = summary.match(/baseline\s*₹([\d,]+)/);
+          if (incMatch) parsedIncome = parseInt(incMatch[1].replace(/,/g,''), 10);
+        }
+        if (!parsedInterventions) {
+          const intMatch = summary.match(/interventions:\s*(.+)$/);
+          if (intMatch && intMatch[1] !== '—') parsedInterventions = intMatch[1].split(',').map(s=>s.trim()).filter(Boolean);
+        }
         victims.push({
           overwrittenAt: dupId,
           auditTs:       ev.ts    || '',
           name,
           ngo,
           coord:         ev.username || ev.userId || details.coord || '',
+          parsedIncome,
+          parsedInterventions,
+          parsedVillage,
+          parsedDistrict,
           details,
           auditEvent:    ev,
         });
@@ -19379,14 +19444,22 @@ async function _dedupFix() {
 
       const recovered = Object.assign({}, victim.details, {
         id:             newId,
-        name:           victim.name  || victim.details.name  || '',
-        ngo:            victim.ngo   || victim.details.ngo   || '',
-        coord:          victim.coord || victim.details.coord || '',
-        createdAt:      victim.auditTs || new Date().toISOString(),
+        name:           victim.name              || victim.details.name        || '',
+        ngo:            victim.ngo               || victim.details.ngo         || '',
+        coord:          victim.coord             || victim.details.coord       || '',
+        village:        victim.parsedVillage     || victim.details.village     || '',
+        district:       victim.parsedDistrict    || victim.details.district    || '',
+        baseIncome:     victim.parsedIncome      || victim.details.baseIncome  || null,
+        interventions:  victim.parsedInterventions || victim.details.interventions || [],
+        program:        victim.details.program   || (victim.parsedInterventions && victim.parsedInterventions.length ? 'Livelihood' : 'Advocacy'),
+        state:          victim.details.state     || 'Gujarat',
+        status:         victim.details.status    || 'Enrolled',
+        createdAt:      victim.auditTs           || new Date().toISOString(),
         createdBy:      victim.auditEvent.userId || '',
         _recoveredFrom: victim.overwrittenAt,
         _recoveredAt:   new Date().toISOString(),
         _recoveredBy:   (currentUser()||{}).fullName || 'Admin',
+        _needsFieldCompletion: true,  // flag so admin knows FC must complete the record
       });
       delete recovered.id;
 
@@ -19419,8 +19492,9 @@ function renderAdminDedupIds() {
   const s = _dedupState;
   const phaseLabel = {idle:'Ready to scan',scanning:'Scanning…',scanned:'Scan complete',
                       fixing:'Fixing…',done:'Done',error:'Error'}[s.phase]||s.phase;
-  const canScan = ['idle','scanned','done','error'].includes(s.phase);
-  const canFix  = s.phase === 'scanned' && s.overwritten.length > 0;
+  const canScan   = ['idle','scanned','done','error','relinked'].includes(s.phase);
+  const canFix    = s.phase === 'scanned' && s.overwritten.length > 0;
+  const canRelink = s.phase === 'done' || s.phase === 'relinked';
 
   // Group victims by which ID they were overwritten at
   const byId = {};
@@ -19464,6 +19538,10 @@ function renderAdminDedupIds() {
           style="${canFix?'background:var(--green);border-color:var(--green)':''}">
           🔧 ${s.phase==='fixing'?'Fixing…':'Restore All Overwritten Records'}
         </button>
+        <button class="btn btn-primary" onclick="_dedupRelinkAdvocacy()" ${canRelink?'':'disabled style="opacity:.5;cursor:not-allowed"'}
+          style="${canRelink?'background:#7C3AED;border-color:#7C3AED':''}">
+          🔗 ${s.phase==='relinking'?'Relinking…':'Relink Advocacy Records'}
+        </button>
         <span style="font-size:12px;color:var(--gray2);margin-left:4px">${phaseLabel}</span>
       </div>
 
@@ -19503,11 +19581,14 @@ function renderAdminDedupIds() {
           </div>
         </div>`:(s.phase==='scanned'?'<div style="background:#F0FDF4;border:1px solid #86EFAC;border-radius:8px;padding:14px;color:#166534;font-size:13px;margin-bottom:16px">✓ No duplicate IDs found — database is clean.</div>':'')}
 
-      ${s.phase==='done'?`
+      ${(s.phase==='done'||s.phase==='relinked')?`
         <div style="background:#EFF6FF;border:1px solid #93C5FD;border-radius:8px;padding:12px;margin-bottom:16px;font-size:13px;color:var(--navy)">
-          ✓ Fix complete. <strong>${s.fixed}</strong> record(s) restored.
-          ${s.skipped>0?`<strong>${s.skipped}</strong> skipped (see log).`:''}<br>
-          V324 genId fix is active — no new duplicates will occur.
+          ✓ Records restored. <strong>${s.fixed}</strong> beneficiar${s.fixed===1?'y':'ies'} given new IDs.
+          ${s.skipped>0?`<strong>${s.skipped}</strong> skipped (see log). `:''}<br>
+          ${s.phase==='relinked'
+            ? `✓ Advocacy relink done. <strong>${s.advRelinked}</strong> advocacy record(s) relinked.
+               ${s.advOrphaned>0?`<strong>${s.advOrphaned}</strong> could not be matched — use Advocacy Backfill for these.`:''}`
+            : `<strong>Next step:</strong> Click <em>Relink Advocacy Records</em> to reconnect scheme data to the recovered beneficiaries.`}
         </div>`:''}
 
       <div style="border:1px solid var(--gray3);border-radius:8px;padding:12px;background:#FAFAFA;max-height:320px;overflow-y:auto">
@@ -19523,6 +19604,104 @@ function renderAdminDedupIds() {
       </div>
     </div>
   `;
+}
+
+async function _dedupRelinkAdvocacy() {
+  // After recovering overwritten beneficiaries with new IDs, their advocacy
+  // records are orphaned — still pointing to the old duplicate ID (e.g.
+  // KRSF-GJ-10000) via the 'bid' field. This function:
+  //   1. Finds all advocacy records whose bid is one of the affected IDs
+  //      (KRSF-GJ-10000 through 10005 etc.)
+  //   2. Matches each to a recovered beneficiary by exact name match
+  //   3. Updates the bid on each matched advocacy record to the new ID
+  if (!isAdmin()) return;
+  if (!FB || !FB.db) { _dedupState.errorMsg='Firebase unavailable.'; renderAdminDedupIds(); return; }
+
+  _dedupState.phase      = 'relinking';
+  _dedupState.advRelinked = 0;
+  _dedupState.advOrphaned = 0;
+  _dedupLog('\n--- Relinking orphaned advocacy records ---');
+  renderAdminDedupIds();
+
+  try {
+    // Build a map: name (lowercase) → new beneficiary ID
+    // Only include recovered beneficiaries (those with _recoveredFrom set)
+    const allBenefs = getData();
+    const recoveredByName = {};
+    allBenefs.forEach(b => {
+      if (b._recoveredFrom && b.name) {
+        const key = (b.name||'').trim().toLowerCase();
+        // If multiple recovered records share a name (unlikely), last one wins
+        recoveredByName[key] = b.id;
+      }
+    });
+    _dedupLog('Recovered beneficiaries indexed: ' + Object.keys(recoveredByName).length);
+
+    // Get the affected (duplicate) IDs
+    const affectedSet = new Set(_dedupState.affectedIds || []);
+    if (affectedSet.size === 0) {
+      _dedupLog('No affected IDs in state — run Scan first.');
+      _dedupState.phase = 'relinked';
+      renderAdminDedupIds();
+      return;
+    }
+    _dedupLog('Affected IDs to search: ' + [...affectedSet].join(', '));
+
+    // Fetch all advocacy records for each affected bid from Firebase
+    let totalChecked = 0, relinked = 0, orphaned = 0, alreadyOk = 0;
+    for (const dupId of affectedSet) {
+      const snap = await fbRef('advocacy').orderByChild('bid').equalTo(dupId).once('value');
+      const advObj = snap.val() || {};
+      const advKeys = Object.keys(advObj);
+      if (advKeys.length === 0) continue;
+      _dedupLog(`  ${dupId}: ${advKeys.length} advocacy record(s) found`);
+
+      for (const fbKey of advKeys) {
+        const rec = advObj[fbKey];
+        if (!rec) continue;
+        totalChecked++;
+
+        // Try to match by bname
+        const nameKey = (rec.bname || '').trim().toLowerCase();
+        const newBid  = recoveredByName[nameKey];
+
+        if (!newBid) {
+          // No matching recovered beneficiary — this is the LIVE record at
+          // this ID, not a victim. Leave it as-is.
+          alreadyOk++;
+          _dedupLog(`    ✓ ${rec.bname||'(no name)'} — belongs to live record, untouched`);
+          continue;
+        }
+
+        // Update bid to the recovered beneficiary's new ID
+        try {
+          await fbRef('advocacy/' + fbKey).update({ bid: newBid });
+          // Update in RecordCache too
+          const advArr = loadAdv();
+          const idx = advArr.findIndex(a => a.__fbk === fbKey || a.id === fbKey);
+          if (idx >= 0) { advArr[idx].bid = newBid; }
+          _dedupLog(`    ✓ Relinked: ${rec.bname} → ${newBid}`);
+          relinked++;
+        } catch(e) {
+          _dedupLog(`    ✗ Failed to relink ${rec.bname}: ${e.message||e}`);
+          orphaned++;
+        }
+      }
+    }
+
+    _dedupState.advRelinked = relinked;
+    _dedupState.advOrphaned = orphaned;
+    _dedupState.phase       = 'relinked';
+    _dedupLog(`
+Advocacy relink done. ${relinked} relinked, ${alreadyOk} untouched (live records), ${orphaned} failed.`);
+    if (orphaned > 0) _dedupLog('Failed records may need manual relink via the Advocacy Backfill tool.');
+    renderAdminDedupIds();
+
+  } catch(e) {
+    _dedupState.phase    = 'error';
+    _dedupState.errorMsg = 'Advocacy relink failed: ' + (e.message || e);
+    renderAdminDedupIds();
+  }
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
