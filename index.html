@@ -2177,7 +2177,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V322';
+const APP_VERSION = 'V324';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // ── Sync state (in-memory) ─────────────────────────────────────────────────
@@ -19260,15 +19260,20 @@ async function _dedupScan() {
       } else if (ev.details && typeof ev.details === 'object') {
         details = ev.details;
       }
+      // Audit entry fields (from auditLog() function):
+      //   recordLabel = beneficiary name (4th arg to auditLog)
+      //   username    = FC who enrolled (from currentUser().username)
+      //   ngo         = NGO of the FC (from currentUser().ngo)
+      //   summary     = "Enrolled in <NGO>, baseline ₹X, interventions: Y"
       victims.push({
-        auditTs:  ev.ts || '',
-        name:     ev.recordName || details.name || '(unknown)',
-        ngo:      ev.ngo  || details.ngo  || '',
-        coord:    ev.by   || details.coord || '',
+        auditTs:  ev.ts          || '',
+        name:     ev.recordLabel || details.name  || '(unknown)',
+        ngo:      ev.ngo         || details.ngo   || '',
+        coord:    ev.username    || ev.userId      || details.coord || '',
         details,
         auditEvent: ev,
       });
-      _dedupLog('  Victim #' + (i+1) + ': ' + (ev.recordName||'(unknown)') + ' enrolled ' + (ev.ts||'').substring(0,10));
+      _dedupLog('  Victim #' + (i+1) + ': ' + (ev.recordLabel||'(unknown)') + ' by ' + (ev.username||'(unknown FC)') + ' enrolled ' + (ev.ts||'').substring(0,10));
     }
 
     _dedupState.overwritten = victims;
@@ -19310,7 +19315,7 @@ async function _dedupFix() {
         ngo:         victim.ngo   || victim.details.ngo   || '',
         coord:       victim.coord || victim.details.coord || '',
         createdAt:   victim.auditTs || new Date().toISOString(),
-        createdBy:   victim.auditEvent.byUserId || '',
+        createdBy:   victim.auditEvent.userId   || '',
         _recoveredFrom: 'KRSF-GJ-10000',
         _recoveredAt:   new Date().toISOString(),
         _recoveredBy:   (currentUser()||{}).fullName || 'Admin',
