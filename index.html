@@ -19656,6 +19656,15 @@ async function _dedupScan() {
     const victims = [];
     _dedupState.affectedIds = duplicateIds;
 
+    // Build a lookup of which duplicate IDs have already been recovered —
+    // i.e. a live beneficiary record exists with _recoveredFrom = that ID.
+    // This is the definitive signal that the fix was already run for that ID.
+    _dedupLog('Checking which IDs are already fixed…');
+    const allLive = loadData();
+    const alreadyFixedIds = new Set(
+      allLive.filter(b => b._recoveredFrom).map(b => b._recoveredFrom)
+    );
+
     for (const dupId of duplicateIds) {
       const creates = byId[dupId].sort((a,b) => new Date(a.ts||0) - new Date(b.ts||0));
       _dedupLog('\n' + dupId + ': ' + creates.length + ' create event(s)');
@@ -19710,6 +19719,11 @@ async function _dedupScan() {
           parsedDistrict,
           details,
           auditEvent:    ev,
+          // V326: mark if a recovered record already exists in live data
+          alreadyFixed:  alreadyFixedIds.has(dupId),
+          recoveredAs:   alreadyFixedIds.has(dupId)
+            ? (allLive.find(b => b._recoveredFrom === dupId) || {}).id || ''
+            : '',
         });
         _dedupLog('  Victim: ' + name +
                   ' by ' + (ev.username||'unknown FC') +
@@ -19808,35 +19822,46 @@ async function _dedupFix() {
   renderAdminDedupIds();
 }
 
-async function _dedupMarkAllResolved() {
+async function _dedupMarkSelectedResolved() {
   if (!isAdmin()) return;
-  if (_dedupState.phase !== 'scanned') return;
-  if (_dedupState.affectedIds.length === 0) return;
+  const checked = [...document.querySelectorAll('.dedup-id-cb:checked')].map(cb => cb.dataset.id).filter(Boolean);
+  if (checked.length === 0) {
+    alert('No IDs selected. Tick the checkboxes next to the IDs you want to mark as already resolved.');
+    return;
+  }
   if (!confirm(
-    'This will mark all ' + _dedupState.affectedIds.length + ' duplicate ID(s) as already resolved.\n\n' +
-    'Use this when the overwritten records were already fixed manually or by a previous run.\n\n' +
-    'Future scans will skip these IDs. Continue?'
+    'Mark ' + checked.length + ' selected ID(s) as already resolved?\n\n' +
+    checked.join(', ') + '\n\n' +
+    'These will be hidden from all future scans. Use this only for IDs you have already fixed manually. Continue?'
   )) return;
 
   _dedupState.phase = 'fixing';
-  _dedupLog('\nMarking ' + _dedupState.affectedIds.length + ' ID(s) as resolved…');
+  _dedupLog('\nMarking ' + checked.length + ' selected ID(s) as resolved…');
   renderAdminDedupIds();
 
   const by = (currentUser()||{}).fullName || 'Admin';
   const ts = new Date().toISOString();
   try {
     await Promise.all(
-      _dedupState.affectedIds.map(id =>
+      checked.map(id =>
         fbRef('dedup_resolved/' + id.replace(/[.#$\[\]]/g, '_'))
           .set({ resolvedAt: ts, resolvedBy: by, markedManually: true })
       )
     );
-    _dedupState.phase = 'done';
-    _dedupLog('✓ All ' + _dedupState.affectedIds.length + ' ID(s) marked as resolved. Future scans will skip them.');
+    // Remove the resolved victims from state so they're gone immediately
+    _dedupState.overwritten = _dedupState.overwritten.filter(v => !checked.includes(v.overwrittenAt));
+    _dedupState.affectedIds = _dedupState.affectedIds.filter(id => !checked.includes(id));
+    _dedupState.phase = _dedupState.overwritten.length > 0 ? 'scanned' : 'done';
+    _dedupLog('✓ ' + checked.length + ' ID(s) marked as resolved and removed from the list.');
+    if (_dedupState.overwritten.length > 0) {
+      _dedupLog(_dedupState.overwritten.length + ' remaining ID(s) still need attention.');
+    } else {
+      _dedupLog('✓ All duplicate IDs resolved. Database is clean.');
+    }
   } catch(e) {
-    _dedupState.phase = 'error';
+    _dedupState.phase = 'scanned';
     _dedupState.errorMsg = e.message || String(e);
-    _dedupLog('✗ Failed to mark resolved: ' + (e.message || e));
+    _dedupLog('✗ Failed: ' + (e.message || e));
   }
   renderAdminDedupIds();
 }
@@ -19863,13 +19888,21 @@ function renderAdminDedupIds() {
 
   const idSections = Object.keys(byId).sort().map(dupId => {
     const rows = byId[dupId].map((v,i) => `
-      <tr>
+      <tr style="${v.alreadyFixed ? 'opacity:0.6;background:#F9FFF9' : ''}">
+        ${i===0 ? `<td rowspan="${byId[dupId].length}" style="vertical-align:middle;text-align:center;padding:8px 4px">
+          <input type="checkbox" class="dedup-id-cb" data-id="${escHtml(dupId)}"
+            style="width:16px;height:16px;cursor:pointer"
+            ${v.alreadyFixed ? 'checked' : ''}>
+        </td>` : ''}
         <td style="font-size:11px;color:var(--gray2)">${dupId}</td>
         <td><strong>${escHtml(v.name)}</strong></td>
         <td style="font-size:12px">${escHtml(v.ngo)}</td>
         <td style="font-size:12px">${escHtml(v.coord)}</td>
         <td style="font-size:12px;color:var(--gray2)">${(v.auditTs||'').substring(0,10)}</td>
-        <td><span style="background:#FEF3C7;color:#92400E;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">Will get new ID</span></td>
+        <td>${v.alreadyFixed
+          ? `<span style="background:#D1FAE5;color:#065F46;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">✓ Fixed → ${escHtml(v.recoveredAs||'new ID')}</span>`
+          : `<span style="background:#FEF3C7;color:#92400E;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">⚠ Needs Fix</span>`
+        }</td>
       </tr>`).join('');
     return rows;
   }).join('');
@@ -19899,26 +19932,26 @@ function renderAdminDedupIds() {
           style="${canRelink?'background:#7C3AED;border-color:#7C3AED':''}">
           🔗 ${s.phase==='relinking'?'Relinking…':'Relink Advocacy Records'}
         </button>
-        ${canFix ? `<button class="btn" onclick="_dedupMarkAllResolved()"
-          style="background:#F59E0B;border-color:#F59E0B;color:#fff"
-          title="Use this if these IDs were already fixed manually. Marks them as resolved so they won't appear in future scans.">
-          ✓ Already Fixed — Mark All as Resolved
-        </button>` : ''}
         <span style="font-size:12px;color:var(--gray2);margin-left:4px">${phaseLabel}</span>
       </div>
 
       ${s.phase==='error'?`<div style="background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:12px;color:var(--red);font-size:13px;margin-bottom:16px">✗ ${escHtml(s.errorMsg)}</div>`:''}
 
       ${s.affectedIds&&s.affectedIds.length>0?`
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
           <div class="stat" style="padding:14px">
             <div style="color:var(--gray2);font-size:11px;text-transform:uppercase;letter-spacing:.5px">Duplicate IDs Found</div>
             <div style="font-size:26px;font-weight:700;color:var(--red);margin-top:4px">${s.affectedIds.length}</div>
-            <div style="font-size:11px;color:var(--gray2);margin-top:2px">${s.affectedIds.join(', ')}</div>
           </div>
           <div class="stat" style="padding:14px">
-            <div style="color:var(--gray2);font-size:11px;text-transform:uppercase;letter-spacing:.5px">Victims to Restore</div>
-            <div style="font-size:26px;font-weight:700;color:var(--amber);margin-top:4px">${s.overwritten.length}</div>
+            <div style="color:var(--gray2);font-size:11px;text-transform:uppercase;letter-spacing:.5px">✓ Already Fixed</div>
+            <div style="font-size:26px;font-weight:700;color:#059669;margin-top:4px">${(s.overwritten||[]).filter(v=>v.alreadyFixed).length}</div>
+            <div style="font-size:11px;color:var(--gray2);margin-top:2px">Pre-ticked — mark as resolved</div>
+          </div>
+          <div class="stat" style="padding:14px">
+            <div style="color:var(--gray2);font-size:11px;text-transform:uppercase;letter-spacing:.5px">⚠ Needs Fix</div>
+            <div style="font-size:26px;font-weight:700;color:var(--amber);margin-top:4px">${(s.overwritten||[]).filter(v=>!v.alreadyFixed).length}</div>
+            <div style="font-size:11px;color:var(--gray2);margin-top:2px">Unticked — use Restore</div>
           </div>
           <div class="stat" style="padding:14px">
             <div style="color:var(--gray2);font-size:11px;text-transform:uppercase;letter-spacing:.5px">Restored So Far</div>
@@ -19932,9 +19965,21 @@ function renderAdminDedupIds() {
           <div class="card-head">
             <div class="card-title">Overwritten Records — ${s.overwritten.length} victim(s) across ${(s.affectedIds||[]).length} duplicate ID(s)</div>
           </div>
+          <div style="padding:10px 16px;background:#FEF9EC;border-bottom:1px solid var(--gray3);font-size:12px;color:#92400E;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span>☑ Tick IDs that are <strong>already fixed</strong> → <strong>Mark Selected as Resolved</strong> (hides from future scans). Leave new ones unticked → <strong>Restore All Overwritten Records</strong>.</span>
+            <span style="display:flex;gap:6px;margin-left:auto;flex-wrap:wrap">
+              <button class="btn btn-sm" onclick="document.querySelectorAll('.dedup-id-cb').forEach(cb=>cb.checked=true)">Select All</button>
+              <button class="btn btn-sm" onclick="document.querySelectorAll('.dedup-id-cb').forEach(cb=>cb.checked=false)">Clear</button>
+              <button class="btn btn-sm" onclick="_dedupMarkSelectedResolved()"
+                style="background:#F59E0B;border-color:#D97706;color:#fff;font-weight:600">
+                ✓ Mark Selected as Resolved
+              </button>
+            </span>
+          </div>
           <div style="overflow-x:auto">
             <table class="tbl">
               <thead><tr>
+                <th style="width:36px"></th>
                 <th>Was Enrolled At</th><th>Name</th><th>Partner NGO</th>
                 <th>FC</th><th>Date</th><th>Action</th>
               </tr></thead>
