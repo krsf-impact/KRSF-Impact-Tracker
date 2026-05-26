@@ -1,6 +1,46 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V331-LIVE
+  KRSF Beneficiary Impact Tracker  -  V337-LIVE
+  ============================================================================
+  V337-LIVE (2026-05-26 structural bandwidth fix — built on V336):
+    + NGO + coordinator beneficiary listener replaced with one-shot fetch
+      (_v337BenefOneShotFetch). No more on(child_*) for 430 of 431 users.
+      Saves are still reflected immediately via _hydrateBenefCache; reload
+      the page to see records added on another device.
+    + Same one-shot pattern for advocacy (_v337AdvOneShotFetch).
+    + Users listener (fbUsersHandleChild) converted to one-shot fetch. The
+      431-record users collection no longer re-streams on reconnect.
+    + Page Visibility auto-disconnect: when the tab is hidden for 5+ minutes,
+      firebase.database().goOffline() closes the WebSocket. Reopens on
+      visibility return. Saves idle background bandwidth from FCs leaving
+      the app in a background tab.
+    UX TRADEOFFS (deliberate):
+      - FCs/NGOs no longer see "live" edits from other devices. Reload to
+        refresh.
+      - User list is fetched once per session. Admin edits to users require
+        a reload on other devices.
+    EXPECTED OUTCOME: target ~2 GB/day Firebase downloads (~$60/month) vs
+    the 13.29 GB/day baseline (~$400/month).
+  ============================================================================
+  V336-LIVE (2026-05-26 emergency bandwidth cut — 13.29 GB/day → target <2 GB/day):
+    + auditLog() now writes to local in-memory cache ONLY; Firebase audit
+      collection is no longer written, fetched, or listened to.
+    + Removed audit fetch from fbInitialSync (saved ~80 KB per admin boot).
+    + Removed admin live audit listener (saved continuous per-event traffic).
+    + Removed deep audit fetch on Audit Log tab (saved up to ~600 KB per
+      admin tab-open).
+    + Converted partners + config/* listeners from .on('value') to .once('value').
+      Config changes now require a page reload to propagate — acceptable
+      tradeoff vs. re-downloading the whole partners/schemes/livtypes arrays
+      every time any user touches them.
+    + Admin > Audit Log tab now shows an explanatory banner that audit
+      logging is disabled. The in-memory cache still records this session's
+      actions so Recent Updates on the dashboard still shows recent activity
+      for the duration of the current session.
+    NOTE: this is a reversible change. To re-enable audit logging, restore
+    _fbPushAudit body, restore the audit fetch in fbInitialSync, restore the
+    admin audit listener in _attachNonBenefListeners + fbAttachListeners,
+    and restore the deep fetch in renderAdminAuditLog.
   ============================================================================
   V331-LIVE (built on V329, production Firebase preserved):
     + Phone validator tightened to ^[6-9]\d{9}$ (Indian mobile)
@@ -63,7 +103,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>KRSF Beneficiary Impact Tracker (V331-LIVE)</title>
+<title>KRSF Beneficiary Impact Tracker (V337-LIVE)</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <!-- V3: Bulk import libraries. PapaParse handles CSV (BOM, delimiters, quoted
@@ -1157,6 +1197,85 @@ body[data-shell="coord"] #coord-app { display: block; }
   .coord-card-name { font-size: 14px; }
 }
 
+/* ── V332-FC-SCHEMES: scheme tags + bottom-sheet status picker for FCs.
+   Tapping a tag on a beneficiary card opens a slide-up sheet with 4 big
+   status buttons. Reuses _advApplyStatus() for save + audit logging so
+   the NGO desktop view + Firebase stay in sync. */
+.coord-card-schemes { margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
+.coord-scheme-tag {
+  display: inline-flex; align-items: center;
+  font-size: 12px; font-weight: 600;
+  padding: 6px 11px; border-radius: 16px;
+  white-space: normal; word-break: break-word; line-height: 1.25;
+  border: 1px solid transparent; cursor: pointer; user-select: none;
+  transition: transform .08s ease, box-shadow .12s ease;
+}
+.coord-scheme-tag:active { transform: scale(0.96); }
+.coord-scheme-tag:hover  { box-shadow: 0 2px 6px rgba(0,0,0,0.10); }
+.coord-scheme-empty { font-size: 11px; color: var(--gray2); font-style: italic; }
+.coord-date-filter {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  margin-bottom: 10px; padding: 10px 12px;
+  background: #fff; border: 1px solid var(--gray3); border-radius: 10px;
+}
+.coord-date-filter .df-label {
+  font-size: 11px; color: var(--gray2); font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.coord-date-filter input[type=date] {
+  font-size: 13px; padding: 6px 8px;
+  border: 1px solid var(--gray3); border-radius: 6px;
+  font-family: var(--font); min-width: 140px; color: var(--text);
+}
+.coord-date-filter button {
+  font-size: 11px; padding: 6px 10px;
+  border: 1px solid var(--gray3); background: #fff; color: var(--gray);
+  border-radius: 6px; cursor: pointer; font-weight: 600; font-family: var(--font);
+}
+.coord-date-filter button:hover { background: var(--gray4); }
+.coord-pagination {
+  display: flex; justify-content: center; align-items: center;
+  gap: 10px; padding: 14px 0 4px; font-size: 13px; flex-wrap: wrap;
+}
+.coord-pagination button {
+  padding: 8px 16px; border: 1px solid var(--gray3); background: #fff;
+  color: var(--gray); border-radius: 8px; cursor: pointer;
+  font-weight: 600; font-size: 13px; min-width: 84px; font-family: var(--font);
+}
+.coord-pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
+.coord-pagination .page-info { color: var(--gray2); font-weight: 600; }
+.coord-sheet-backdrop {
+  position: fixed; inset: 0; background: rgba(15,23,42,0.45);
+  z-index: 9998; opacity: 0; transition: opacity .18s ease;
+}
+.coord-sheet-backdrop.show { opacity: 1; }
+.coord-sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; background: #fff;
+  border-top-left-radius: 20px; border-top-right-radius: 20px;
+  z-index: 9999; padding: 10px 18px 24px;
+  transform: translateY(100%); transition: transform .22s ease;
+  box-shadow: 0 -6px 24px rgba(0,0,0,0.20); max-height: 82vh; overflow-y: auto;
+}
+.coord-sheet.show { transform: translateY(0); }
+.coord-sheet-handle { width: 40px; height: 4px; background: #D1D5DB; border-radius: 2px; margin: 6px auto 14px; }
+.coord-sheet-title  { font-size: 16px; font-weight: 700; color: var(--text); text-align: center; margin-bottom: 4px; line-height: 1.3; word-break: break-word; }
+.coord-sheet-sub    { font-size: 12px; color: var(--gray2); text-align: center; margin-bottom: 16px; }
+.coord-sheet-options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.coord-sheet-opt {
+  padding: 16px 10px; border-radius: 12px; font-size: 13px; font-weight: 600;
+  text-align: center; cursor: pointer; border: 2px solid transparent;
+  transition: transform .08s ease; line-height: 1.25; font-family: var(--font);
+}
+.coord-sheet-opt:active { transform: scale(0.96); }
+.coord-sheet-opt.active { border-color: rgba(0,0,0,0.30); box-shadow: 0 2px 6px rgba(0,0,0,0.10); }
+.coord-sheet-opt .opt-check { display: block; font-size: 11px; margin-bottom: 2px; opacity: 0.9; }
+.coord-sheet-cancel {
+  width: 100%; padding: 13px; margin-top: 14px;
+  background: #F3F4F6; color: var(--gray); border: none; border-radius: 10px;
+  font-size: 13px; font-weight: 600; cursor: pointer; font-family: var(--font);
+}
+.coord-sheet-cancel:hover { background: #E5E7EB; }
+
 /* V2 #16: Pulse animation for chip grids when submit fails and the user
    has skipped a required chip selection. Brief red-border pulse draws the
    eye to the right area of the form on a small screen. */
@@ -1313,7 +1432,16 @@ body[data-shell="coord"] #coord-app { display: block; }
 
       <div class="coord-search">
         <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
-        <input id="coord-search-input" type="text" placeholder="Search name, ID, village..." oninput="_searchDebounce('coord', this.value, coordRenderList)">
+        <input id="coord-search-input" type="text" placeholder="Search name, ID, village, scheme, status…" oninput="_searchDebounce('coord', this.value, coordRenderList)">
+      </div>
+
+      <!-- V332-FC-SCHEMES: date-wise filter by enrollment date. -->
+      <div class="coord-date-filter">
+        <span class="df-label">Enrolled</span>
+        <input id="coord-date-from" type="date" onchange="coordSetDateRange()" aria-label="From date">
+        <span style="color:var(--gray2);font-size:12px">to</span>
+        <input id="coord-date-to" type="date" onchange="coordSetDateRange()" aria-label="To date">
+        <button type="button" onclick="coordClearDateRange()">Clear</button>
       </div>
 
       <!-- Program-overlap summary cards — All / Livelihood Only / Dual / Advocacy Only.
@@ -1325,6 +1453,13 @@ body[data-shell="coord"] #coord-app { display: block; }
 
       <div class="coord-list" id="coord-list">
         <!-- beneficiary cards populated by coordRenderList() -->
+      </div>
+
+      <!-- V332-FC-SCHEMES: pagination controls (rendered by coordRenderList). -->
+      <div class="coord-pagination" id="coord-pagination" style="display:none">
+        <button type="button" id="coord-pg-prev" onclick="coordPageStep(-1)">&larr; Prev</button>
+        <span class="page-info" id="coord-pg-info"></span>
+        <button type="button" id="coord-pg-next" onclick="coordPageStep(1)">Next &rarr;</button>
       </div>
     </main>
   </div>
@@ -2236,7 +2371,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V331-LIVE';
+const APP_VERSION = 'V337-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // ── Sync state (in-memory) ─────────────────────────────────────────────────
@@ -2559,6 +2694,40 @@ function fbInit() {
   // Online/offline listeners
   window.addEventListener('online',  () => { FB.online = true;  fbUpdatePill(); });
   window.addEventListener('offline', () => { FB.online = false; fbUpdatePill(); });
+  // V337 (2026-05-26) bandwidth fix: Page Visibility auto-disconnect.
+  // When the tab is hidden for 5+ minutes, close the Firebase WebSocket
+  // via firebase.database().goOffline(). A hidden tab still holds an open
+  // WS connection that receives data — across 400+ FCs leaving the app
+  // open in background, that idle traffic adds up. On visibility return
+  // we goOnline() to reconnect. Writes made while offline are queued by
+  // the Firebase SDK and flushed on reconnect.
+  let _v337IdleTimer = null;
+  const V337_IDLE_MS = 5 * 60 * 1000;
+  function _v337GoOfflineIfIdle() {
+    try {
+      if (firebase && firebase.database) firebase.database().goOffline();
+      FB.online = false;
+      fbUpdatePill();
+      console.log('[V337] tab idle 5 min — Firebase connection closed');
+    } catch(e) { console.warn('[V337] goOffline failed:', e); }
+  }
+  function _v337GoOnlineNow() {
+    try {
+      if (firebase && firebase.database) firebase.database().goOnline();
+      FB.online = navigator.onLine !== false;
+      fbUpdatePill();
+      console.log('[V337] tab visible — Firebase connection reopened');
+    } catch(e) { console.warn('[V337] goOnline failed:', e); }
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      if (_v337IdleTimer) clearTimeout(_v337IdleTimer);
+      _v337IdleTimer = setTimeout(_v337GoOfflineIfIdle, V337_IDLE_MS);
+    } else {
+      if (_v337IdleTimer) { clearTimeout(_v337IdleTimer); _v337IdleTimer = null; }
+      if (FB.online === false) _v337GoOnlineNow();
+    }
+  });
   // First load: fetch the entire tracker namespace once, hydrate localStorage,
   // then attach live listeners. We do a single .once() rather than .on() for
   // the initial sync so re-renders don't fire repeatedly during boot.
@@ -2613,7 +2782,7 @@ async function fbInitialSync() {
     ] = await Promise.all([
       fbRef('partners').once('value'),
       fbRef('config').once('value'),
-      fbRef('audit').orderByChild('ts').limitToLast(200).once('value'),
+      Promise.resolve({ val: function(){ return null; } }),  // V336: audit log disabled — no boot fetch
       fbRef('users').once('value'),
     ]);
     // ─ Beneficiaries ──────────────────────────────────────────────────
@@ -2796,6 +2965,9 @@ function fbAttachListeners() {
       _armAdvReplayQuietTimer();  // V317: same cold-empty defence as benef.
     }
   }
+  // V336 (2026-05-26): admin audit listener DISABLED for bandwidth.
+  // Audit log no longer streams from Firebase to any client. The in-memory
+  // cache is still populated by this session's own auditLog() calls.
 }
 
 // V312: helper to detach beneficiary listeners on logout. The non-benef
@@ -2842,7 +3014,12 @@ function fbBenefDetachOnLogout() {
 // V312: extracted from fbAttachListeners so the non-role-dependent
 // listeners can attach once at boot. Pulled out for clarity.
 function _attachNonBenefListeners() {
-  fbRef('partners').on('value', snap => {
+  // V336 (2026-05-26) bandwidth fix: partners + config/* converted from
+  // .on('value') to .once('value'). These nodes change rarely; live listeners
+  // re-downloaded the entire array on every micro-edit and on every reconnect.
+  // Users must reload the page to see partner / livelihood / scheme config
+  // changes made on another device. Acceptable tradeoff vs. the bandwidth cost.
+  fbRef('partners').once('value').then(snap => {
     const arr = Object.values(snap.val() || {});
     const newMap = fbToMap(arr, 'id');
     if (FB.lastPart && fbHash(newMap) === fbHash(FB.lastPart)) return;
@@ -2850,75 +3027,32 @@ function _attachNonBenefListeners() {
     FB.lastPart = newMap;
     try { renderCurrentView(); } catch(_){}
   });
-  // Config (livtypes, schemes)
-  fbRef('config/livtypes').on('value', snap => {
+  fbRef('config/livtypes').once('value').then(snap => {
     const v = snap.val();
     if (Array.isArray(v) && v.length) {
       localStorage.setItem('krsf_liv_types_v1', JSON.stringify(v));
       try { renderCurrentView(); } catch(_){}
     }
   });
-  fbRef('config/schemes').on('value', snap => {
+  fbRef('config/schemes').once('value').then(snap => {
     const v = snap.val();
     if (Array.isArray(v) && v.length) {
       localStorage.setItem('krsf_schemes_v1', JSON.stringify(v));
       try { renderCurrentView(); } catch(_){}
     }
   });
-  // V322: live listener for scheme metadata (default benefit amounts).
-  // Missing node / null / non-object => empty map; this is normal on a
-  // freshly-deployed install where no admin has set defaults yet.
-  fbRef('config/schemes_meta').on('value', snap => {
+  fbRef('config/schemes_meta').once('value').then(snap => {
     const v = snap.val();
     if (v && typeof v === 'object' && !Array.isArray(v)) {
       localStorage.setItem('krsf_schemes_meta_v1', JSON.stringify(v));
       try { renderCurrentView(); } catch(_){}
     } else if (v === null) {
-      // Explicit "no defaults configured" — clear the local mirror so we
-      // don't carry a stale map after the admin clears every entry.
       localStorage.removeItem('krsf_schemes_meta_v1');
     }
   });
-  // Audit log (V308.2 — in-memory cache only) — drives the Recent Updates
-  // card on the dashboard. Without this, audit events written on
-  // Coordinator A's device would never appear in Admin's Recent Updates view.
-  //
-  // V309 (2026-05-05) bandwidth fix: previous code used .on('value') on the
-  // ENTIRE audit collection (7,150+ entries, ~3 MB). Every audit write —
-  // and audit writes happen on every save, delete, login, edit, etc. — fired
-  // the listener on every connected device, re-downloading the full 3 MB
-  // each time. With 30 users × dozens of writes/day, this drove ~3-4 GB/day
-  // of Firebase downloads (27 GB/week observed in May 2026).
-  //
-  // New approach: use limitToLast(50) with child_added events. Each new
-  // audit entry arrives as a single ~500-byte event instead of triggering
-  // a 3 MB collection re-download. We only keep the most recent 50 in the
-  // live cache, which is plenty for the dashboard's "latest 15" view.
-  //
-  // The Admin > Audit Log tab needs older entries — for that, see
-  // _auditFetchExtended() below, which does a one-time deeper fetch only
-  // when the admin actually opens that tab.
-  const auditQ = fbRef('audit').orderByChild('ts').limitToLast(50);
-  auditQ.on('child_added', snap => {
-    const entry = snap.val();
-    if (!entry || !entry.id) return;
-    // Skip if we already have it (initial sync hydrated cache before
-    // listeners attached, so child_added will replay the most-recent 50
-    // on first connect — most will be duplicates).
-    const existing = _auditCache.find(e => e.id === entry.id);
-    if (existing) return;
-    _auditCache = mergeAuditLogs([entry], _auditCache);
-    try { renderCurrentView(); } catch(_){}
-  });
-  auditQ.on('child_changed', snap => {
-    const entry = snap.val();
-    if (!entry || !entry.id) return;
-    const idx = _auditCache.findIndex(e => e.id === entry.id);
-    if (idx >= 0) _auditCache[idx] = entry;
-    else _auditCache = mergeAuditLogs([entry], _auditCache);
-    try { renderCurrentView(); } catch(_){}
-  });
-  // No child_removed handler — audit log is append-only by design.
+  // V336 (2026-05-26): audit listener removed. Audit log is no longer
+  // streamed from Firebase. Recent Updates card now shows only this
+  // session's actions (from _auditCache populated by local auditLog calls).
   // Users — cross-device sync so a user created on Device A can log in on
   // Device B and appears in Admin > User Management. Cloud-authoritative.
   // We DON'T re-render on user changes because user edits don't affect
@@ -3209,24 +3343,64 @@ function _benefScopedQuery() {
   if (!u) return null;  // No user yet — caller should not attach
   if (u.role === 'admin') {
     if (_adminBenefRestMode) {
-      // V328: paginated REST fetch — much faster than streaming 14 000+ child_added
-      // events. Returns null so fbBenefHandleChild does not attach any listener.
-      _adminBenefRestFetch();  // async, non-blocking; sets FB.benefReplayComplete when done
+      _adminBenefRestFetch();
       return null;
     }
-    // REST failed for this session — fall back to listener + shallow banner.
     _adminBenefShallowBanner();
     return fbRef('beneficiaries');
   }
+  // V337 (2026-05-26) structural fix: NGO + coordinator switched to one-shot
+  // fetch — no live listener. Eliminates the dominant V336-era cost: WebSocket
+  // reconnect re-streams across 400+ mobile FCs. The FC sees their existing
+  // records on boot; their own new saves are added to RecordCache via
+  // _hydrateBenefCache (no listener needed); to see records added on other
+  // devices they reload the page.
   if (u.role === 'ngo' && u.ngo) {
-    return fbRef('beneficiaries').orderByChild('ngo').equalTo(u.ngo);
+    _v337BenefOneShotFetch(fbRef('beneficiaries').orderByChild('ngo').equalTo(u.ngo));
+    return null;
   }
   if (u.role === 'coordinator' && u.userId) {
-    return fbRef('beneficiaries').orderByChild('createdBy').equalTo(u.userId);
+    _v337BenefOneShotFetch(fbRef('beneficiaries').orderByChild('createdBy').equalTo(u.userId));
+    return null;
   }
   // Unknown/incomplete role: fall back to full fetch rather than show
   // empty data. Better to over-fetch than break the UI.
   return fbRef('beneficiaries');
+}
+
+// V337: One-shot fetch for beneficiary records. Replaces the live listener
+// for ngo + coordinator roles. Hydrates RecordCache and unblocks saves by
+// flipping benefReplayComplete after the fetch completes. Re-entry guarded
+// so the 3 invocations from fbAttachListeners only fire one fetch.
+async function _v337BenefOneShotFetch(query) {
+  if (_v337BenefOneShotFetch._inFlight) return;
+  _v337BenefOneShotFetch._inFlight = true;
+  try {
+    RecordCache.benef.clear();
+    FB.lastBenef = {};
+    FB.benefReplayComplete = false;
+    const snap = await query.once('value');
+    const val = snap.val() || {};
+    let count = 0;
+    for (const id in val) {
+      const r = val[id];
+      if (r && r.id) {
+        RecordCache.benef.set(r.id, r);
+        FB.lastBenef[r.id] = fbHash(r);
+        count++;
+      }
+    }
+    FB.benefReplayComplete = true;
+    fbUpdatePill();
+    console.log('[V337] benef one-shot fetch:', count, 'records');
+    try { renderCurrentView(); } catch(_){}
+  } catch (e) {
+    console.warn('[V337] benef one-shot fetch failed:', e);
+    FB.benefReplayComplete = true;  // unblock saves anyway
+    fbUpdatePill();
+  } finally {
+    _v337BenefOneShotFetch._inFlight = false;
+  }
 }
 // Track the query handle so we can detach on logout.
 let _benefQueryHandle = null;
@@ -3373,16 +3547,18 @@ function fbAdvHandleChild(eventType) {
   let q;
   if (!u || u.role === 'admin') {
     if (_adminAdvRestMode) {
-      // V328: REST fetch for admin advocacy. Only fire on child_added (called
-      // three times — once per event type); the other two calls return early.
       if (eventType === 'child_added') _adminAdvRestFetch();
       return;
     }
     q = fbRef('advocacy');
   } else if (u.role === 'ngo' && u.ngo) {
-    q = fbRef('advocacy').orderByChild('ngo').equalTo(u.ngo);
+    // V337: NGO advocacy switched to one-shot fetch — no live listener.
+    if (eventType === 'child_added') _v337AdvOneShotFetch(fbRef('advocacy').orderByChild('ngo').equalTo(u.ngo));
+    return;
   } else if (u.role === 'coordinator' && u.userId) {
-    q = fbRef('advocacy').orderByChild('createdBy').equalTo(u.userId);
+    // V337: coordinator advocacy switched to one-shot fetch.
+    if (eventType === 'child_added') _v337AdvOneShotFetch(fbRef('advocacy').orderByChild('createdBy').equalTo(u.userId));
+    return;
   } else {
     q = fbRef('advocacy');
   }
@@ -3411,6 +3587,40 @@ function fbAdvHandleChild(eventType) {
     _advScheduleFlush();
     _armAdvReplayQuietTimer();
   });
+}
+
+// V337: One-shot fetch for advocacy records. Replaces the live listener for
+// ngo + coordinator roles. Same pattern as _v337BenefOneShotFetch.
+async function _v337AdvOneShotFetch(query) {
+  if (_v337AdvOneShotFetch._inFlight) return;
+  _v337AdvOneShotFetch._inFlight = true;
+  try {
+    RecordCache.adv.clear();
+    FB.lastAdv = {};
+    FB.advReplayComplete = false;
+    const snap = await query.once('value');
+    const val = snap.val() || {};
+    let count = 0;
+    for (const fbKey in val) {
+      const raw = val[fbKey];
+      if (!raw) continue;
+      const record = fbStampAdvKey({ ...raw });
+      const key = record.__fbk || fbKey;
+      RecordCache.adv.set(key, record);
+      FB.lastAdv[key] = fbHash(record);
+      count++;
+    }
+    FB.advReplayComplete = true;
+    fbUpdatePill();
+    console.log('[V337] adv one-shot fetch:', count, 'records');
+    try { renderCurrentView(); } catch(_){}
+  } catch (e) {
+    console.warn('[V337] adv one-shot fetch failed:', e);
+    FB.advReplayComplete = true;
+    fbUpdatePill();
+  } finally {
+    _v337AdvOneShotFetch._inFlight = false;
+  }
 }
 
 // V317: advocacy replay-complete quiet timer (symmetric to the beneficiary
@@ -3469,24 +3679,29 @@ const _usersPending = new Map();
 let _usersFlushTimer = null;
 
 function fbUsersHandleChild(eventType) {
-  fbRef('users').on(eventType, snap => {
-    const id = snap.key;
-    if (!id) return;
-    if (eventType === 'child_removed') {
-      if (FB.lastUsers && !(id in FB.lastUsers)) return;  // echo of our delete
-      _usersPending.set(id, { type: 'del' });
-      if (FB.lastUsers) delete FB.lastUsers[id];
-      _usersScheduleFlush();
-      return;
-    }
-    const record = snap.val();
-    if (!record) return;
-    const incomingHash = fbHash(record);
-    if (FB.lastUsers && FB.lastUsers[id] === incomingHash) return;  // echo
-    _usersPending.set(id, { type: 'put', record });
+  // V337 (2026-05-26) bandwidth fix: users listener replaced with a single
+  // one-shot fetch. The users collection (431 records, ~125 KB) rarely
+  // changes; a live listener re-streamed it on every reconnect across all
+  // connected clients. To see newly-added users or role changes, reload.
+  // The 3 call-sites in fbAttachListeners are coalesced via the _inFlight guard.
+  if (eventType !== 'child_added') return;  // only fetch once per session
+  if (fbUsersHandleChild._inFlight || fbUsersHandleChild._done) return;
+  fbUsersHandleChild._inFlight = true;
+  fbRef('users').once('value').then(snap => {
+    const val = snap.val() || {};
     if (!FB.lastUsers) FB.lastUsers = {};
-    FB.lastUsers[id] = incomingHash;
-    _usersScheduleFlush();
+    for (const id in val) {
+      const record = val[id];
+      if (!record) continue;
+      RecordCache.users.set(id, record);
+      FB.lastUsers[id] = fbHash(record);
+    }
+    fbUsersHandleChild._done = true;
+    try { renderCurrentView(); } catch(_){}
+  }).catch(e => {
+    console.warn('[V337] users one-shot fetch failed:', e);
+  }).finally(() => {
+    fbUsersHandleChild._inFlight = false;
   });
 }
 
@@ -5752,20 +5967,33 @@ function _claimId(id) {
   }
 }
 
-// Release a claim once the save has landed in Firebase (or definitively
-// failed). Called from submitEnroll after successful save. Idempotent —
-// clearing an already-cleared claim is a no-op.
-function _releaseClaim(id) {
+// V333 (2026-05-26) — symmetric Firebase release. Pre-V333 this only
+// cleared local state, leaving Firebase id_reservations/<id> behind on
+// save failure. That orphan caused genId() to skip the ID forever (the
+// "burned ID" bug). Now optionally also deletes the Firebase reservation.
+// Call sites that handle SAVE FAILURE pass alsoFirebase=true; call sites
+// that handle SUCCESS or pre-reservation collisions pass false (default).
+function _releaseClaim(id, alsoFirebase = false) {
   _pendingIds.delete(id);
   try {
     const raw = localStorage.getItem(PENDING_IDS_KEY);
-    if (!raw) return;
-    const map = JSON.parse(raw);
-    if (id in map) {
-      delete map[id];
-      localStorage.setItem(PENDING_IDS_KEY, JSON.stringify(map));
+    if (raw) {
+      const map = JSON.parse(raw);
+      if (id in map) {
+        delete map[id];
+        localStorage.setItem(PENDING_IDS_KEY, JSON.stringify(map));
+      }
     }
   } catch (_) {}
+  // V333: clear the Firebase reservation too if requested. Fire-and-
+  // forget — wrapped in try and .catch so this NEVER throws back into
+  // the caller's failure-handling path.
+  if (alsoFirebase && typeof FB !== 'undefined' && FB && FB.db) {
+    try {
+      const safeKey = String(id).replace(/[.#$\[\]]/g, '_');
+      fbRef('id_reservations/' + safeKey).remove().catch(() => {});
+    } catch (_) {}
+  }
 }
 
 // V324 genId mutex — prevents concurrent genId calls from minting the same ID.
@@ -8850,8 +9078,10 @@ async function _submitEnrollInner() {
         b.photoUrl = url;
       } catch (e) {
         _restoreSaveBtn(_saveBtnHandle_create);
-        _releaseClaim(id);
-        return showError(e && e.message ? e.message : 'Photo upload failed. Please try again.', null);
+        _releaseClaim(id, true);
+        const _msg = e && e.message ? e.message : 'Photo upload failed.';
+        alert('\u26A0 BENEFICIARY NOT SAVED\n\n' + _msg + '\n\nThis enrollment did NOT save. Please tap Save again. Your form data is still on this screen.');
+        return showError(_msg + ' — please tap Save again.', null);
       }
     }
     data.push(b);
@@ -8861,8 +9091,10 @@ async function _submitEnrollInner() {
       await saveData(data);
     } catch (e) {
       _restoreSaveBtn(_saveBtnHandle_create);
-      _releaseClaim(id);
-      return showError((e instanceof SaveError) ? e.message : 'Save failed. Please try again.', null);
+      _releaseClaim(id, true);
+      const _msg = (e instanceof SaveError) ? e.message : 'Save failed.';
+      alert('\u26A0 BENEFICIARY NOT SAVED\n\n' + _msg + '\n\nThis enrollment did NOT save. Please tap Save again. Your form data is still on this screen.');
+      return showError(_msg + ' — please tap Save again.', null);
     }
     _restoreSaveBtn(_saveBtnHandle_create);
     // V308.1 (Bug 7 fix): release the in-flight ID claim now that the record
@@ -15285,22 +15517,8 @@ function renderAdminAuditLog() {
   // on every audit write). When admin opens this tab, fetch a deeper slice
   // ONCE per session so the filters and pagination have something to work
   // with. Subsequent renders within the session reuse the cached deeper data.
-  if (!_auditExtendedFetched && FB.db && !FB.initFailed) {
-    _auditExtendedFetched = true;  // set first so we don't double-fire on re-render
-    fbRef('audit').orderByChild('ts').limitToLast(2000).once('value')
-      .then(snap => {
-        const arr = Object.values(snap.val() || {});
-        if (arr.length > 0) {
-          _auditCache = mergeAuditLogs(arr, _auditCache);
-          // Re-render now that deeper history is loaded
-          try { renderAdminAuditLog(); } catch(_){}
-        }
-      })
-      .catch(e => {
-        console.warn('[V309] audit deep fetch failed:', e);
-        _auditExtendedFetched = false;  // allow retry on next visit
-      });
-  }
+  // V336: deep audit fetch DISABLED. Audit log tab now shows only the
+  // current session's in-memory entries.
   const filtered = _filteredAudit();
   const total = filtered.length;
   const pageStart = _auditFilters.page * AUDIT_PAGE;
@@ -15351,6 +15569,9 @@ function renderAdminAuditLog() {
         </div>
       </div>
 
+      <div style="margin:12px 18px;padding:10px 14px;background:#FEF3C7;border:1px solid #FBBF24;border-radius:6px;font-size:12px;color:#92400E;line-height:1.4">
+        <strong>Audit logging is disabled (V336).</strong> To control Firebase bandwidth, audit events are no longer written to or fetched from the cloud. The table below shows only audit entries generated by THIS session on THIS device. Past history is not available here — re-enable in code if needed.
+      </div>
       <div style="padding:12px 18px;border-bottom:1px solid var(--gray3);background:var(--gray4)">
         <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
           <select class="fsel" onchange="_auditFilters.action=this.value;_auditFilters.page=0;renderAdminAuditLog()">
@@ -15726,18 +15947,12 @@ function _auditCacheAppend(entry) {
 // log to console and continue. The user's primary action already succeeded
 // or failed via the saveX path; audit lag is acceptable.
 function _fbPushAudit(entry) {
-  try {
-    if (typeof FB !== 'object' || !FB || !FB.db) {
-      console.warn('[audit] Firebase not ready, audit entry not persisted:', entry.id);
-      return;
-    }
-    // Direct write — child(id).set(entry) creates or overwrites at that key
-    fbRef('audit/' + entry.id).set(entry).catch(e => {
-      console.warn('[audit] Firebase write failed, audit entry lost:', e);
-    });
-  } catch (e) {
-    console.warn('[audit] _fbPushAudit threw:', e);
-  }
+  // V336 (2026-05-26): audit log Firebase writes DISABLED for bandwidth.
+  // The in-memory _auditCache still receives entries via _auditCacheAppend()
+  // in auditLog(), so the current session's actions show in Recent Updates.
+  // Nothing is persisted to Firebase, so the audit collection no longer grows
+  // and no listeners on any device download these events.
+  return;
 }
 
 // Core logger. Called by every mutation site. Now writes to Firebase only.
@@ -16660,6 +16875,104 @@ function _coordUpdateAlertBadge() {
   } catch(_) {}
 }
 
+// ── V332-FC-SCHEMES: state for pagination + date filter. ──────────────────
+let _coordPage = 1;
+const _coordPageSize = 10;
+let _coordDateFrom = '';
+let _coordDateTo   = '';
+
+function coordSetDateRange() {
+  const f = document.getElementById('coord-date-from');
+  const t = document.getElementById('coord-date-to');
+  _coordDateFrom = f ? (f.value || '') : '';
+  _coordDateTo   = t ? (t.value || '') : '';
+  _coordPage = 1;
+  coordRenderList();
+}
+function coordClearDateRange() {
+  _coordDateFrom = ''; _coordDateTo = '';
+  const f = document.getElementById('coord-date-from');
+  const t = document.getElementById('coord-date-to');
+  if (f) f.value = ''; if (t) t.value = '';
+  _coordPage = 1;
+  coordRenderList();
+}
+function coordPageStep(delta) {
+  _coordPage = Math.max(1, _coordPage + delta);
+  coordRenderList();
+  const listEl = document.getElementById('coord-list');
+  if (listEl && listEl.scrollIntoView) listEl.scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+// Bottom-sheet status picker. Reuses _advApplyStatus() which already saves
+// + writes an audit log entry (action='status_change') and triggers a
+// re-render. NGO desktop view picks up the change via Firebase listener.
+function coordOpenStatusSheet(bid, scheme, remarks, currentStatus) {
+  coordCloseStatusSheet();
+  const STATUSES = (typeof ADV_STATUSES !== 'undefined' && ADV_STATUSES.length)
+    ? ADV_STATUSES : ['Need to Apply','Applied','Rejected','Benefits Received'];
+  const COLORS = (typeof _ADV_POP_COLORS !== 'undefined') ? _ADV_POP_COLORS : {
+    'Need to Apply':    {bg:'#FEF3C7', fg:'#B45309'},
+    'Applied':          {bg:'#DBEAFE', fg:'#1E40AF'},
+    'Benefits Received':{bg:'#D1FAE5', fg:'#065F46'},
+    'Rejected':         {bg:'#FEE2E2', fg:'#991B1B'}
+  };
+  const backdrop = document.createElement('div');
+  backdrop.className = 'coord-sheet-backdrop';
+  backdrop.id = '_coord-sheet-backdrop';
+  backdrop.onclick = coordCloseStatusSheet;
+
+  const sheet = document.createElement('div');
+  sheet.className = 'coord-sheet';
+  sheet.id = '_coord-sheet';
+  let bname = '';
+  try {
+    const b = (typeof getData === 'function' ? getData() : []).find(x => x.id === bid);
+    if (b) bname = b.name + ' · ' + b.id;
+  } catch(_) {}
+  const _esc = (typeof escHtml === 'function') ? escHtml :
+              (s => String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])));
+  const _q = s => String(s == null ? '' : s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  const opts = STATUSES.map(s => {
+    const c = COLORS[s] || {bg:'#F3F4F6', fg:'#374151'};
+    const active = (s === currentStatus);
+    return '<div class="coord-sheet-opt' + (active ? ' active' : '') + '" '
+         + 'style="background:' + c.bg + ';color:' + c.fg + '" '
+         + 'onclick="coordApplyStatusFromSheet(\''+_q(bid)+'\',\''+_q(scheme)+'\',\''+_q(remarks||'')+'\',\''+_q(s)+'\')">'
+         + (active ? '<span class="opt-check">✓ current</span>' : '<span class="opt-check">&nbsp;</span>')
+         + _esc(s) + '</div>';
+  }).join('');
+  sheet.innerHTML =
+    '<div class="coord-sheet-handle"></div>' +
+    '<div class="coord-sheet-title">' + _esc(scheme) + '</div>' +
+    (bname ? '<div class="coord-sheet-sub">' + _esc(bname) + '</div>' : '') +
+    '<div class="coord-sheet-options">' + opts + '</div>' +
+    '<button type="button" class="coord-sheet-cancel" onclick="coordCloseStatusSheet()">Cancel</button>';
+  document.body.appendChild(backdrop);
+  document.body.appendChild(sheet);
+  void sheet.offsetWidth;
+  backdrop.classList.add('show');
+  sheet.classList.add('show');
+}
+function coordCloseStatusSheet() {
+  const bk = document.getElementById('_coord-sheet-backdrop');
+  const sh = document.getElementById('_coord-sheet');
+  if (sh) sh.classList.remove('show');
+  if (bk) bk.classList.remove('show');
+  setTimeout(() => {
+    if (bk && bk.parentNode) bk.parentNode.removeChild(bk);
+    if (sh && sh.parentNode) sh.parentNode.removeChild(sh);
+  }, 220);
+}
+async function coordApplyStatusFromSheet(bid, scheme, remarks, newStatus) {
+  coordCloseStatusSheet();
+  if (typeof _advApplyStatus === 'function') {
+    try { await _advApplyStatus(bid, scheme, remarks, newStatus); }
+    catch (e) { console.error('[V332] _advApplyStatus failed:', e); }
+  }
+  if (typeof coordRenderList === 'function') coordRenderList();
+}
+
 function coordRenderList() {
   // Pull search value from the debounce buffer (set by the input's oninput)
   const search = (_searchDebounceVal && _searchDebounceVal.coord) || '';
@@ -16681,13 +16994,38 @@ function coordRenderList() {
   else if (coordProgFilter === 'dual')    list = list.filter(b => progOf[b.id].hasLiv &&  progOf[b.id].hasAdv);
   else if (coordProgFilter === 'advOnly') list = list.filter(b => !progOf[b.id].hasLiv && progOf[b.id].hasAdv);
 
-  // Text search — name, ID, or village
+  // V332-FC-SCHEMES: extended text search — name, ID, village, AND scheme
+  // name / scheme status from the beneficiary's latest advocacy rows. Helps
+  // FCs with hundreds of beneficiaries find a record by typing the scheme
+  // ("Ayushman") or its current status ("Applied" / "Rejected" / etc.).
   if (search) {
     const s = search.toLowerCase();
-    list = list.filter(b =>
-         (b.name||'').toLowerCase().includes(s)
-      || (b.id||'').toLowerCase().includes(s)
-      || (b.village||'').toLowerCase().includes(s));
+    list = list.filter(b => {
+      if ((b.name||'').toLowerCase().includes(s))    return true;
+      if ((b.id||'').toLowerCase().includes(s))      return true;
+      if ((b.village||'').toLowerCase().includes(s)) return true;
+      // Scheme name + status (only checked if the above didn't match)
+      try {
+        const rows = (typeof _advLatestRowsForBeneficiary === 'function')
+          ? (_advLatestRowsForBeneficiary(b.id) || []) : [];
+        for (const r of rows) {
+          if ((r.scheme || '').toLowerCase().includes(s)) return true;
+          const st = (typeof _advNormStatus === 'function') ? (_advNormStatus(r) || '') : '';
+          if (st.toLowerCase().includes(s)) return true;
+        }
+      } catch(_) {}
+      return false;
+    });
+  }
+  // V332-FC-SCHEMES: date-wise filter on enrollment date (YYYY-MM-DD, inclusive).
+  if (_coordDateFrom || _coordDateTo) {
+    list = list.filter(b => {
+      const d = (b.enrollDate || '').slice(0, 10);
+      if (!d) return false;
+      if (_coordDateFrom && d < _coordDateFrom) return false;
+      if (_coordDateTo   && d > _coordDateTo)   return false;
+      return true;
+    });
   }
   // Sort: most recent first (by enrollDate desc), fall back to id
   list.sort((a, b) => (b.enrollDate||'').localeCompare(a.enrollDate||'') || (b.id||'').localeCompare(a.id||''));
@@ -16757,17 +17095,48 @@ function coordRenderList() {
     return;
   }
 
+  // V332-FC-SCHEMES: paginate the filtered list (10 per page).
+  const _totalPages = Math.max(1, Math.ceil(list.length / _coordPageSize));
+  if (_coordPage > _totalPages) _coordPage = _totalPages;
+  if (_coordPage < 1) _coordPage = 1;
+  const _start = (_coordPage - 1) * _coordPageSize;
+  const _pageList = list.slice(_start, _start + _coordPageSize);
+
   // Render cards — pass advByBid so card tags match the summary-strip
   // classifier (a beneficiary with logged advocacy rows should show the
   // Advocacy tag even if the 'Advocacy (Govt. Schemes)' intervention flag
   // isn't set on their interventions array).
-  listEl.innerHTML = list.map(b => coordCardHtml(b, advByBid)).join('');
+  listEl.innerHTML = _pageList.map(b => coordCardHtml(b, advByBid)).join('');
+
+  // V332-FC-SCHEMES: update pagination controls + count bar text.
+  const _pagEl = document.getElementById('coord-pagination');
+  const _pgInfo = document.getElementById('coord-pg-info');
+  const _pgPrev = document.getElementById('coord-pg-prev');
+  const _pgNext = document.getElementById('coord-pg-next');
+  if (_pagEl && _pgInfo && _pgPrev && _pgNext) {
+    if (list.length > _coordPageSize) {
+      _pagEl.style.display = 'flex';
+      _pgInfo.textContent = 'Page ' + _coordPage + ' of ' + _totalPages + ' · ' + list.length + ' total';
+      _pgPrev.disabled = (_coordPage <= 1);
+      _pgNext.disabled = (_coordPage >= _totalPages);
+    } else {
+      _pagEl.style.display = 'none';
+    }
+  }
+  // Refresh the count bar so it reflects the paged slice
+  const _countBar = document.getElementById('coord-count-bar');
+  if (_countBar && list.length > _coordPageSize) {
+    _countBar.textContent = 'Showing ' + _pageList.length + ' of ' + list.length +
+      ' beneficiar' + (list.length === 1 ? 'y' : 'ies') +
+      ' (page ' + _coordPage + ' of ' + _totalPages + ')';
+  }
 }
 
 function coordSetProgFilter(key) {
   // Toggle: tapping the active card clears it (same behaviour as the Admin
   // Integrated view where clicking the active sub-tab deactivates it).
   coordProgFilter = (coordProgFilter === key) ? '' : key;
+  _coordPage = 1; // V332-FC-SCHEMES: reset page on filter change
   coordRenderList();
 }
 
@@ -16817,6 +17186,31 @@ function coordCardHtml(b, advByBid) {
         </div>
       </div>
       ${progPills.length ? `<div class="coord-card-pills">${progPills.join('')}</div>` : ''}
+      ${(function(){
+        // V332-FC-SCHEMES: render the latest scheme rows as clickable tags.
+        // Tapping a tag opens the bottom-sheet status picker. We stop the
+        // click from also opening the drawer.
+        if (!hasAdv) return '';
+        try {
+          var rows = _advLatestRowsForBeneficiary(b.id) || [];
+          if (!rows.length) {
+            return '<div class="coord-card-schemes"><span class="coord-scheme-empty">No schemes logged yet — open record to add</span></div>';
+          }
+          var COL = (typeof _ADV_POP_COLORS !== 'undefined') ? _ADV_POP_COLORS : {};
+          var html = rows.map(function(r){
+            var status = _advNormStatus(r);
+            var c = COL[status] || {bg:'#F3F4F6', fg:'#374151'};
+            var sId = String(b.id).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+            var sSc = String(r.scheme||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+            var sRk = String(r.remarks||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+            return '<span class="coord-scheme-tag" '
+              + 'style="background:' + c.bg + ';color:' + c.fg + ';border-color:' + c.fg + '33" '
+              + 'onclick="event.stopPropagation();coordOpenStatusSheet(\''+sId+'\',\''+sSc+'\',\''+sRk+'\',\''+status+'\')" '
+              + 'title="Tap to change status">' + esc(r.scheme) + '</span>';
+          }).join('');
+          return '<div class="coord-card-schemes">' + html + '</div>';
+        } catch(_) { return ''; }
+      })()}
     </div>
   `;
 }
