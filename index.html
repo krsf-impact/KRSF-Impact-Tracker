@@ -1,6 +1,29 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <!--
   KRSF Beneficiary Impact Tracker  -  V337-LIVE
+  ============================================================================
+  V339-LIVE (2026-05-27 sidebar cleanup -- built on V338):
+    + Four admin nav items hidden from the visible sidebar via the
+      existing data-sidebar-hidden="true" pattern (introduced in V325).
+      The pages still work -- type window.nav('<route>') in the browser
+      console to reach them. Hidden items:
+        - Audit Log                 (admin_audit)
+        - Fix Duplicate IDs         (admin_dedup_ids)
+        - Delete Duplicate Records  (admin_delete_dupes)
+        - Scheme Rename Backfill    (admin_scheme_rename)
+    + APP_VERSION bumped to V339-LIVE.
+  ============================================================================
+  V338-LIVE (2026-05-27 generalized backfill tool -- built on V337):
+    + Replaced the one-shot Cast->Caste Certificate backfill with a generic
+      "Scheme Rename Backfill" admin page. Same scan -> review -> atomic
+      multi-path update flow, but OLD/NEW values are now entered in the UI.
+    + Default seed: 'Income Cirtificate' -> 'Income Certificate' (fixes the
+      legacy misspelling carried in production Firebase data).
+    + Sidebar nav: 'Cast->Caste Backfill' renamed to 'Scheme Rename Backfill'.
+    + Internal admin nav route renamed to match the new page.
+    + Scrubbed leftover V-string labels from user-facing UI (tooltips,
+      banners, title tag). Sidebar version pill still renders APP_VERSION
+      dynamically as the canonical version indicator.
   ============================================================================
   V337-LIVE (2026-05-26 structural bandwidth fix — built on V336):
     + NGO + coordinator beneficiary listener replaced with one-shot fetch
@@ -60,7 +83,7 @@
     + Save guard: 15s timeout on Firebase writes, surfaces as error toast
     + Default text trimming + 120-char cap on beneficiary name
     NOTE: Firebase Database Rules, Auth migration, missing indices, and the
-    'Income Cirtificate' / 'Livellhood' data backfills must be done from the
+    'Income Certificate' / 'Livellhood' data backfills must be done from the
     Firebase Console. See DEPLOYMENT-NOTES-V331.md.
   ============================================================================
   V16 CHANGES (over V15):
@@ -103,7 +126,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>KRSF Beneficiary Impact Tracker (V337-LIVE)</title>
+<title>KRSF Beneficiary Impact Tracker</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <!-- V3: Bulk import libraries. PapaParse handles CSV (BOM, delimiters, quoted
@@ -1534,7 +1557,7 @@ body[data-shell="coord"] #coord-app { display: block; }
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="2" width="10" height="12" rx="1"/><path d="M5.5 5.5h5M5.5 8h5M5.5 10.5h3"/></svg>
       Advocacy Management
     </button>
-    <button data-admin-only class="nav-btn" data-v="admin_audit" onclick="nav('admin_audit')" style="display:none">
+    <button data-admin-only class="nav-btn" data-v="admin_audit" onclick="nav('admin_audit')" style="display:none" data-sidebar-hidden="true">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h7l3 3v9H3z"/><path d="M5.5 7h5M5.5 9.5h5M5.5 12h3"/></svg>
       Audit Log
     </button>
@@ -1558,20 +1581,23 @@ body[data-shell="coord"] #coord-app { display: block; }
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8m0 0l-3-3m3 3l3-3M3 14h10"/></svg>
       Advocacy Backfill
     </button>
-    <button data-admin-only class="nav-btn" data-v="admin_dedup_ids" onclick="nav('admin_dedup_ids')" style="display:none">
+    <button data-admin-only class="nav-btn" data-v="admin_dedup_ids" onclick="nav('admin_dedup_ids')" style="display:none" data-sidebar-hidden="true">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h8M2 12h5"/><circle cx="12" cy="11" r="3"/><path d="M11 11h2M12 10v2"/></svg>
       Fix Duplicate IDs
     </button>
-    <button data-admin-only class="nav-btn" data-v="admin_delete_dupes" onclick="nav('admin_delete_dupes')" style="display:none">
+    <button data-admin-only class="nav-btn" data-v="admin_delete_dupes" onclick="nav('admin_delete_dupes')" style="display:none" data-sidebar-hidden="true">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M5 4V2h6v2M6 7v5M10 7v5"/><rect x="2" y="4" width="12" height="10" rx="1"/></svg>
       Delete Duplicate Records
     </button>
-    <!-- V327-DEV: Cast→Caste Certificate rename backfill. Admin only. One-shot
-         tool to rename every occurrence of "Cast Certificate" to "Caste Certificate"
-         across config/schemes, config/schemes_meta, and all advocacy records. -->
-    <button data-admin-only class="nav-btn" data-v="admin_cast_backfill" onclick="nav('admin_cast_backfill')" style="display:none">
+    <!-- Scheme Rename Backfill. Admin only. Generic one-shot tool to rename
+         every occurrence of any scheme/document label across config/schemes,
+         config/schemes_meta, and all advocacy records. Default seed:
+         'Income Cirtificate' -> 'Income Certificate'.
+         V339: hidden from sidebar via data-sidebar-hidden (use
+         window.nav('admin_scheme_rename') in the console to reach it). -->
+    <button data-admin-only class="nav-btn" data-v="admin_scheme_rename" onclick="nav('admin_scheme_rename')" style="display:none" data-sidebar-hidden="true">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 8h9M8 5l3 3-3 3"/><path d="M13 3v10"/></svg>
-      Cast→Caste Backfill
+      Scheme Rename Backfill
     </button>
   </div>
   <!-- Sidebar footer: who's logged in + clear logout button. Renders dynamically
@@ -2371,7 +2397,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V337-LIVE';
+const APP_VERSION = 'V339-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // ── Sync state (in-memory) ─────────────────────────────────────────────────
@@ -13541,7 +13567,7 @@ function renderAllBeneficiaries() {
       <div class="filters">
         <input id="allb-search-input" class="fsearch" placeholder="Search name, ID, village, NGO..." value="${escHtml(allBSearch)}" oninput="_searchDebounce('allb', this.value, () => { allBSearch = _searchDebounceVal.allb; allBSelected = new Set(); allBCurrentPage = 1; renderAllBeneficiaries(); })">
         ${allBSelected.size>0?`<button class="btn btn-sm" style="color:var(--red);border-color:var(--red)" data-delete-action onclick="deleteSelectedBeneficiaries()">🗑 Delete ${allBSelected.size} selected</button>`:''}
-        ${_canBulkStatusUpdate()?`<button class="btn btn-sm" onclick="openBulkStatusModal()" title="V322: bulk-flip the status of one scheme across many beneficiaries">⚡ Bulk Update Status</button>`:''}
+        ${_canBulkStatusUpdate()?`<button class="btn btn-sm" onclick="openBulkStatusModal()" title="Bulk-flip the status of one scheme across many beneficiaries">⚡ Bulk Update Status</button>`:''}
         ${_canExport()?`<button class="btn btn-sm" onclick="exportBeneficiariesCsv()" title="Download as CSV (opens in Excel)">📥 Export to Excel</button>`:''}
       </div></div>
       ${totalFiltered===0?'<div class="empty">No beneficiaries match.</div>':(() => {
@@ -13735,7 +13761,7 @@ window.openDrawer = function(id) {
 };
 
 // ── Nav ───────────────────────────────────────────────────────────────────
-const _navRoutes_v32={dashboard:renderDashboard,beneficiaries:renderAllBeneficiaries,list:renderLivelihood,ngo:renderNGO,alerts:renderAlerts,map:renderMap,integrated:renderIntegrated,advocacy:renderAdvocacy,admin_partners:renderAdminPartners,admin_users:renderAdminUsers,admin_livelihoods:renderAdminLivelihoods,admin_schemes:renderAdminSchemes,admin_audit:renderAdminAuditLog,admin_import:renderAdminImport,admin_photo_migration:renderAdminPhotoMigration,admin_advocacy_backfill:renderAdminAdvocacyBackfill,admin_dedup_ids:renderAdminDedupIds,admin_delete_dupes:renderAdminDeleteDupes,admin_cast_backfill:renderAdminCastBackfill};
+const _navRoutes_v32={dashboard:renderDashboard,beneficiaries:renderAllBeneficiaries,list:renderLivelihood,ngo:renderNGO,alerts:renderAlerts,map:renderMap,integrated:renderIntegrated,advocacy:renderAdvocacy,admin_partners:renderAdminPartners,admin_users:renderAdminUsers,admin_livelihoods:renderAdminLivelihoods,admin_schemes:renderAdminSchemes,admin_audit:renderAdminAuditLog,admin_import:renderAdminImport,admin_photo_migration:renderAdminPhotoMigration,admin_advocacy_backfill:renderAdminAdvocacyBackfill,admin_dedup_ids:renderAdminDedupIds,admin_delete_dupes:renderAdminDeleteDupes,admin_scheme_rename:renderAdminSchemeRename};
 window.nav=function(v){
   // Guard admin routes — non-admins get bounced to dashboard
   if (v.startsWith('admin_') && !isAdmin()) { v = 'dashboard'; }
@@ -14645,7 +14671,7 @@ function renderAdminSchemes() {
       <div class="card-head">
         <div class="card-title">Government Schemes <span style="font-size:12px;font-weight:400;color:var(--gray2)">${schemes.length} total</span></div>
         <div class="filters">
-          <button class="btn btn-sm btn-primary" onclick="openBulkStatusModal()" title="Bulk-update scheme status for many beneficiaries at once (V322)">⚡ Bulk Update Status</button>
+          <button class="btn btn-sm btn-primary" onclick="openBulkStatusModal()" title="Bulk-update scheme status for many beneficiaries at once">⚡ Bulk Update Status</button>
         </div>
       </div>
       <div style="padding:14px 16px;border-bottom:1px solid var(--gray3);background:#FAFAFA">
@@ -14653,7 +14679,7 @@ function renderAdminSchemes() {
           <input id="new-scheme" placeholder="e.g., Palak Mata Pita Yojana" style="flex:1;padding:8px 11px;border:1px solid var(--gray3);border-radius:7px;font-size:13px;font-family:var(--font)" onkeydown="if(event.key==='Enter')adminAddScheme()">
           <button class="btn btn-primary btn-sm" onclick="adminAddScheme()">+ Add Scheme</button>
         </div>
-        <div style="font-size:11px;color:var(--gray2);margin-top:6px;line-height:1.5">New schemes appear in the enrollment scheme panel, the + Log Advocacy modal dropdown, and the Advocacy tab's filter chips. Use ↑ ↓ ⤒ Top to reorder — the order here controls where each scheme appears across the app. Removing a scheme keeps existing advocacy records intact. <b>V322:</b> set a <b>Default Amount</b> per scheme — when an FC flips a scheme row to "Benefits Received", this amount auto-fills. Blank = FC enters manually (as before).</div>
+        <div style="font-size:11px;color:var(--gray2);margin-top:6px;line-height:1.5">New schemes appear in the enrollment scheme panel, the + Log Advocacy modal dropdown, and the Advocacy tab's filter chips. Use ↑ ↓ ⤒ Top to reorder — the order here controls where each scheme appears across the app. Removing a scheme keeps existing advocacy records intact. Set a <b>Default Amount</b> per scheme — when an FC flips a scheme row to "Benefits Received", this amount auto-fills. Blank = FC enters manually (as before).</div>
       </div>
       ${schemes.length===0?'<div class="empty">No schemes configured. Add one above.</div>':`<table class="tbl"><thead><tr><th style="width:52px;text-align:center">Sr. No.</th><th>Scheme</th><th style="text-align:center">Type</th><th style="text-align:center">Default Amount (₹)</th><th style="text-align:center">Amount Field</th><th style="text-align:center">Used by (scheme rows)</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table>`}
     </div>`;
@@ -15570,7 +15596,7 @@ function renderAdminAuditLog() {
       </div>
 
       <div style="margin:12px 18px;padding:10px 14px;background:#FEF3C7;border:1px solid #FBBF24;border-radius:6px;font-size:12px;color:#92400E;line-height:1.4">
-        <strong>Audit logging is disabled (V336).</strong> To control Firebase bandwidth, audit events are no longer written to or fetched from the cloud. The table below shows only audit entries generated by THIS session on THIS device. Past history is not available here — re-enable in code if needed.
+        <strong>Audit logging is disabled.</strong> To control Firebase bandwidth, audit events are no longer written to or fetched from the cloud. The table below shows only audit entries generated by THIS session on THIS device. Past history is not available here — re-enable in code if needed.
       </div>
       <div style="padding:12px 18px;border-bottom:1px solid var(--gray3);background:var(--gray4)">
         <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
@@ -21729,248 +21755,271 @@ function renderAdminDeleteDupes() {
 // ═════════════════════════════════════════════════════════════════════════════
 
 // ═════════════════════════════════════════════════════════════════════════════
-// V327-DEV: "Cast Certificate" → "Caste Certificate" Backfill Tool
-// Admin-only. One-shot. Scan → review → write.
-// Patches three Firebase paths in one atomic multi-path update:
+// Scheme Rename Backfill Tool (generalized from the V327 Cast->Caste tool)
+// Admin-only. Scan -> review -> write.
+// Renames any OLD scheme/document label to any NEW label across:
 //   krsf_tracker/config/schemes
 //   krsf_tracker/config/schemes_meta
 //   krsf_tracker/advocacy/* (schemeRows only)
+// Default seed: 'Income Cirtificate' -> 'Income Certificate'.
 // ═════════════════════════════════════════════════════════════════════════════
 
-const _castBackfill = {
-  OLD: 'Cast Certificate',
-  NEW: 'Caste Certificate',
-  // state
-  scanning: false,
-  running:  false,
-  scanned:  false,
-  scanResult: null,   // { schemes, schemeIdxs, meta, hasMetaKey, affected, totalRowCount }
-  log: [],
-  writeLog: [],
+const _schemeRename = {
+  OLD: 'Income Cirtificate',   // user-editable in the UI
+  NEW: 'Income Certificate',   // user-editable in the UI
+  scanning:   false,
+  running:    false,
+  scanned:    false,
+  scanResult: null,
+  log:        [],
+  writeLog:   [],
 };
 
-function _castLog(msg, cls) {
-  _castBackfill.log.push({ msg, cls });
-  renderAdminCastBackfill();
+// Called from the OLD/NEW input fields. Trims and stores the values; invalidates
+// any prior scan so the user must Scan again before Run is enabled.
+function _schemeRenameSetOld(v) {
+  _schemeRename.OLD = (v || '').trim();
+  _schemeRename.scanned    = false;
+  _schemeRename.scanResult = null;
+  renderAdminSchemeRename();
 }
-function _castWriteLog(msg, cls) {
-  _castBackfill.writeLog.push({ msg, cls });
-  renderAdminCastBackfill();
+function _schemeRenameSetNew(v) {
+  _schemeRename.NEW = (v || '').trim();
+  _schemeRename.scanned    = false;
+  _schemeRename.scanResult = null;
+  renderAdminSchemeRename();
 }
 
-async function _castRunScan() {
-  if (_castBackfill.scanning) return;
-  _castBackfill.scanning = true;
-  _castBackfill.scanned  = false;
-  _castBackfill.scanResult = null;
-  _castBackfill.log = [];
-  _castBackfill.writeLog = [];
-  renderAdminCastBackfill();
+async function _schemeRenameRunScan() {
+  if (_schemeRename.scanning) return;
+  if (!_schemeRename.OLD || !_schemeRename.NEW) {
+    toast('Enter both OLD and NEW values first.', 'warn');
+    return;
+  }
+  if (_schemeRename.OLD === _schemeRename.NEW) {
+    toast('OLD and NEW must be different.', 'warn');
+    return;
+  }
+  _schemeRename.scanning   = true;
+  _schemeRename.scanned    = false;
+  _schemeRename.scanResult = null;
+  _schemeRename.log        = [];
+  _schemeRename.writeLog   = [];
+  renderAdminSchemeRename();
 
-  const OLD = _castBackfill.OLD;
-  const push = (msg, cls) => { _castBackfill.log.push({ msg, cls }); renderAdminCastBackfill(); };
+  const OLD  = _schemeRename.OLD;
+  const push = (msg, cls) => { _schemeRename.log.push({ msg, cls }); renderAdminSchemeRename(); };
 
-  push('── Scan started ──────────────────────────────────', 'dim');
+  push('-- Scan started ------------------------------------', 'dim');
   push(`Searching for: "${OLD}"`, 'info');
 
   try {
-    // 1. config/schemes
-    push('› Reading config/schemes…', 'dim');
+    push('> Reading config/schemes...', 'dim');
     const schemesSnap = await fbRef('config/schemes').once('value');
-    const schemes = schemesSnap.val() || [];
-    const schemeIdxs = [];
+    const schemes     = schemesSnap.val() || [];
+    const schemeIdxs  = [];
     schemes.forEach((s, i) => { if (s === OLD) schemeIdxs.push(i); });
-    push(`  Schemes list: ${schemeIdxs.length} occurrence(s) found`, schemeIdxs.length ? 'warn' : 'ok');
+    push(`  Schemes list: ${schemeIdxs.length} occurrence(s) found`,
+         schemeIdxs.length ? 'warn' : 'ok');
 
-    // 2. config/schemes_meta
-    push('› Reading config/schemes_meta…', 'dim');
-    const metaSnap = await fbRef('config/schemes_meta').once('value');
-    const meta = metaSnap.val() || {};
+    push('> Reading config/schemes_meta...', 'dim');
+    const metaSnap   = await fbRef('config/schemes_meta').once('value');
+    const meta       = metaSnap.val() || {};
     const hasMetaKey = Object.prototype.hasOwnProperty.call(meta, OLD);
-    push(`  schemes_meta key: ${hasMetaKey ? 'FOUND — will migrate' : 'not present'}`, hasMetaKey ? 'warn' : 'ok');
+    push(`  schemes_meta key: ${hasMetaKey ? 'FOUND -- will migrate' : 'not present'}`,
+         hasMetaKey ? 'warn' : 'ok');
 
-    // 3. advocacy records
-    push('› Reading advocacy records (may take a moment)…', 'dim');
+    push('> Reading advocacy records (may take a moment)...', 'dim');
     const advSnap = await fbRef('advocacy').once('value');
     const advData = advSnap.val() || {};
-    const fbKeys = Object.keys(advData);
+    const fbKeys  = Object.keys(advData);
     push(`  Total advocacy records: ${fbKeys.length}`, 'info');
 
-    const affected = [];
-    let totalRowCount = 0;
+    const affected      = [];
+    let   totalRowCount = 0;
     fbKeys.forEach(fbKey => {
       const rec = advData[fbKey];
       if (!rec || !Array.isArray(rec.schemeRows)) return;
       const matchRows = rec.schemeRows.filter(r => r.scheme === OLD);
       if (matchRows.length > 0) {
-        affected.push({ fbKey, rec, rowCount: matchRows.length, bid: rec.bid || '—', bname: rec.bname || rec.name || '—' });
+        affected.push({
+          fbKey, rec,
+          rowCount: matchRows.length,
+          bid:      rec.bid   || '--',
+          bname:    rec.bname || rec.name || '--'
+        });
         totalRowCount += matchRows.length;
       }
     });
 
-    push(`  Advocacy records affected: ${affected.length}`, affected.length ? 'warn' : 'ok');
-    push(`  Total scheme rows to rename: ${totalRowCount}`, totalRowCount ? 'warn' : 'ok');
-    push('── Scan complete ─────────────────────────────────', 'dim');
+    push(`  Advocacy records affected: ${affected.length}`,
+         affected.length ? 'warn' : 'ok');
+    push(`  Total scheme rows to rename: ${totalRowCount}`,
+         totalRowCount ? 'warn' : 'ok');
+    push('-- Scan complete -----------------------------------', 'dim');
 
-    _castBackfill.scanResult = { schemes, schemeIdxs, meta, hasMetaKey, affected, totalRowCount };
-    _castBackfill.scanned  = true;
-    _castBackfill.scanning = false;
-    renderAdminCastBackfill();
+    _schemeRename.scanResult = { schemes, schemeIdxs, meta, hasMetaKey, affected, totalRowCount };
+    _schemeRename.scanned    = true;
+    _schemeRename.scanning   = false;
+    renderAdminSchemeRename();
 
-  } catch(e) {
-    push(`❌ Scan failed: ${e.message}`, 'err');
-    _castBackfill.scanning = false;
-    renderAdminCastBackfill();
+  } catch (e) {
+    push(`X Scan failed: ${e.message}`, 'err');
+    _schemeRename.scanning = false;
+    renderAdminSchemeRename();
   }
 }
 
-async function _castRunBackfill() {
-  if (!_castBackfill.scanned || !_castBackfill.scanResult) return;
-  const { schemes, schemeIdxs, meta, hasMetaKey, affected } = _castBackfill.scanResult;
-  const OLD = _castBackfill.OLD;
-  const NEW = _castBackfill.NEW;
+async function _schemeRenameRunBackfill() {
+  if (!_schemeRename.scanned || !_schemeRename.scanResult) return;
+  const { schemes, schemeIdxs, meta, hasMetaKey, affected } = _schemeRename.scanResult;
+  const OLD = _schemeRename.OLD;
+  const NEW = _schemeRename.NEW;
 
   const totalChanges = schemeIdxs.length + (hasMetaKey ? 1 : 0) + affected.length;
-  if (totalChanges === 0) { toast('Nothing to update — no occurrences found.', 'info'); return; }
+  if (totalChanges === 0) {
+    toast('Nothing to update -- no occurrences found.', 'info');
+    return;
+  }
 
   const msg =
-    `Rename "${OLD}" → "${NEW}"?\n\n` +
-    `• ${schemeIdxs.length} entry in schemes list\n` +
-    `• ${hasMetaKey ? 1 : 0} entry in schemes_meta\n` +
-    `• ${affected.length} advocacy record(s)\n\n` +
+    `Rename "${OLD}" -> "${NEW}"?\n\n` +
+    `- ${schemeIdxs.length} entry in schemes list\n` +
+    `- ${hasMetaKey ? 1 : 0} entry in schemes_meta\n` +
+    `- ${affected.length} advocacy record(s)\n\n` +
     `This cannot be automatically undone.`;
   if (!confirm(msg)) return;
 
-  _castBackfill.running = true;
-  _castBackfill.writeLog = [];
-  renderAdminCastBackfill();
+  _schemeRename.running  = true;
+  _schemeRename.writeLog = [];
+  renderAdminSchemeRename();
 
-  const push = (msg, cls) => { _castBackfill.writeLog.push({ msg, cls }); renderAdminCastBackfill(); };
+  const push = (msg, cls) => { _schemeRename.writeLog.push({ msg, cls }); renderAdminSchemeRename(); };
 
-  push('── Backfill started ──────────────────────────────', 'dim');
+  push('-- Backfill started --------------------------------', 'dim');
 
   try {
     const updates = {};
 
-    // 1. schemes array
     if (schemeIdxs.length > 0) {
       const updated = [...schemes];
       schemeIdxs.forEach(i => { updated[i] = NEW; });
       updates[`${FB_NAMESPACE}/config/schemes`] = updated;
-      push(`› config/schemes: renaming index(es) ${schemeIdxs.join(', ')}`, 'info');
+      push(`> config/schemes: renaming index(es) ${schemeIdxs.join(', ')}`, 'info');
     } else {
-      push('› config/schemes: no change needed', 'ok');
+      push('> config/schemes: no change needed', 'ok');
     }
 
-    // 2. schemes_meta key
     if (hasMetaKey) {
       const updatedMeta = Object.assign({}, meta);
       updatedMeta[NEW] = updatedMeta[OLD];
       delete updatedMeta[OLD];
       updates[`${FB_NAMESPACE}/config/schemes_meta`] = updatedMeta;
-      push(`› config/schemes_meta: migrated key`, 'info');
+      push(`> config/schemes_meta: migrated key`, 'info');
     } else {
-      push('› config/schemes_meta: no change needed', 'ok');
+      push('> config/schemes_meta: no change needed', 'ok');
     }
 
-    // 3. advocacy records
-    // V331 FIX (P0.S0.3): re-read each record fresh from Firebase inside the
-    // loop and write ONLY the schemeRows subtree. The old code snapshotted
-    // whole records at Scan time and rewrote them at Confirm time, silently
-    // clobbering any FC edit (remarks, status, amount) that landed between
-    // Scan and Confirm.
+    // V331 pattern preserved: re-read each record fresh from Firebase inside
+    // the loop and write ONLY the schemeRows subtree, to avoid clobbering
+    // any FC edit (remarks, status, amount) that landed between Scan and
+    // Confirm.
     if (affected.length > 0) {
-      push(`› Patching ${affected.length} advocacy record(s) (with re-read inside loop)…`, 'info');
+      push(`> Patching ${affected.length} advocacy record(s) (with re-read inside loop)...`, 'info');
       let conflicts = 0;
       for (const { fbKey } of affected) {
         try {
-          const snap = await FB.db.ref(`${FB_NAMESPACE}/advocacy/${fbKey}`).once('value');
+          const snap  = await FB.db.ref(`${FB_NAMESPACE}/advocacy/${fbKey}`).once('value');
           const fresh = snap.val();
           if (!fresh || !fresh.schemeRows) continue;
           const newRows = JSON.parse(JSON.stringify(fresh.schemeRows));
           let touched = false;
           newRows.forEach(r => { if (r.scheme === OLD) { r.scheme = NEW; touched = true; } });
           if (touched) {
-            // Write ONLY schemeRows — leave remarks/status/amount/audit untouched.
             updates[`${FB_NAMESPACE}/advocacy/${fbKey}/schemeRows`] = newRows;
           }
         } catch (e) {
           conflicts++;
-          push(`  ⚠ Could not re-read ${fbKey}: ${e.message || e}`, 'warn');
+          push(`  ! Could not re-read ${fbKey}: ${e.message || e}`, 'warn');
         }
       }
       const okCount = affected.length - conflicts;
-      push(`  ${okCount} record(s) queued${conflicts ? ' (' + conflicts + ' skipped due to re-read errors)' : ''}`, conflicts ? 'warn' : 'ok');
+      push(`  ${okCount} record(s) queued${conflicts ? ' (' + conflicts + ' skipped due to re-read errors)' : ''}`,
+           conflicts ? 'warn' : 'ok');
     } else {
-      push('› advocacy records: no changes needed', 'ok');
+      push('> advocacy records: no changes needed', 'ok');
     }
 
-    push(`› Sending atomic multi-path update (${Object.keys(updates).length} path(s))…`, 'info');
+    push(`> Sending atomic multi-path update (${Object.keys(updates).length} path(s))...`, 'info');
     await FB.db.ref().update(updates);
 
-    push('── Backfill complete ─────────────────────────────', 'ok');
-    push(`✅ Done. ${Object.keys(updates).length} Firebase node(s) updated.`, 'ok');
+    push('-- Backfill complete -------------------------------', 'ok');
+    push(`OK Done. ${Object.keys(updates).length} Firebase node(s) updated.`, 'ok');
     push('   Re-scan to confirm 0 occurrences remain.', 'dim');
 
-    // Audit log
     auditLog('update', 'scheme', NEW, NEW,
-      `Cast→Caste backfill: renamed "${OLD}" → "${NEW}" across ${affected.length} advocacy record(s)`,
+      `Scheme rename backfill: renamed "${OLD}" -> "${NEW}" across ${affected.length} advocacy record(s)`,
       { name: [OLD, NEW] });
 
-    toast(`Backfill complete — "${NEW}" updated across ${affected.length} records.`, 'success', 5000);
+    toast(`Backfill complete -- "${NEW}" updated across ${affected.length} records.`, 'success', 5000);
 
-    // Invalidate scan so button can't double-fire
-    _castBackfill.scanResult = null;
-    _castBackfill.scanned    = false;
-    _castBackfill.running    = false;
-    renderAdminCastBackfill();
+    _schemeRename.scanResult = null;
+    _schemeRename.scanned    = false;
+    _schemeRename.running    = false;
+    renderAdminSchemeRename();
 
-  } catch(e) {
-    push(`❌ Backfill failed: ${e.message}`, 'err');
-    push('   No partial writes — multi-path updates are atomic.', 'warn');
-    _castBackfill.running = false;
-    renderAdminCastBackfill();
+  } catch (e) {
+    push(`X Backfill failed: ${e.message}`, 'err');
+    push('   No partial writes -- multi-path updates are atomic.', 'warn');
+    _schemeRename.running = false;
+    renderAdminSchemeRename();
   }
 }
 
-function renderAdminCastBackfill() {
+function renderAdminSchemeRename() {
   if (!isAdmin()) {
     document.getElementById('content').innerHTML = '<div class="empty">Admin only.</div>';
     return;
   }
 
-  const s = _castBackfill;
-  const canScan    = !s.scanning && !s.running;
-  const canBackfill = s.scanned && !s.running && s.scanResult &&
-    (s.scanResult.schemeIdxs.length > 0 || s.scanResult.hasMetaKey || s.scanResult.affected.length > 0);
+  const s            = _schemeRename;
+  const canScan      = !s.scanning && !s.running && !!s.OLD && !!s.NEW && s.OLD !== s.NEW;
+  const canBackfill  = s.scanned && !s.running && s.scanResult &&
+                       (s.scanResult.schemeIdxs.length > 0 ||
+                        s.scanResult.hasMetaKey ||
+                        s.scanResult.affected.length > 0);
 
-  // Scan log HTML
   const scanLogHtml = s.log.length === 0
     ? '<div style="color:var(--gray2);font-size:12px">No activity yet. Click Scan to begin.</div>'
     : s.log.map(l => {
-        const color = l.cls === 'err' ? '#FCA5A5' : l.cls === 'warn' ? '#FDE68A' : l.cls === 'ok' ? '#6EE7B7' : l.cls === 'info' ? '#93C5FD' : '#6B7280';
+        const color = l.cls === 'err'  ? '#FCA5A5'
+                    : l.cls === 'warn' ? '#FDE68A'
+                    : l.cls === 'ok'   ? '#6EE7B7'
+                    : l.cls === 'info' ? '#93C5FD'
+                    : '#6B7280';
         return `<div style="font-family:Consolas,monospace;font-size:11px;color:${color};padding:2px 0;line-height:1.6">${escHtml(l.msg)}</div>`;
       }).join('');
 
-  // Write log HTML
   const writeLogHtml = s.writeLog.length === 0 ? '' :
     `<div style="margin-top:14px">
       <div style="font-size:11px;font-weight:600;color:var(--gray2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Write Log</div>
       <div style="background:#111827;border-radius:8px;padding:12px 14px;max-height:220px;overflow-y:auto">
         ${s.writeLog.map(l => {
-          const color = l.cls === 'err' ? '#FCA5A5' : l.cls === 'warn' ? '#FDE68A' : l.cls === 'ok' ? '#6EE7B7' : l.cls === 'info' ? '#93C5FD' : '#6B7280';
+          const color = l.cls === 'err'  ? '#FCA5A5'
+                      : l.cls === 'warn' ? '#FDE68A'
+                      : l.cls === 'ok'   ? '#6EE7B7'
+                      : l.cls === 'info' ? '#93C5FD'
+                      : '#6B7280';
           return `<div style="font-family:Consolas,monospace;font-size:11px;color:${color};padding:2px 0;line-height:1.6">${escHtml(l.msg)}</div>`;
         }).join('')}
       </div>
     </div>`;
 
-  // Affected records table (shown after scan)
   let affectedTable = '';
   if (s.scanned && s.scanResult) {
     const { schemeIdxs, hasMetaKey, affected, totalRowCount } = s.scanResult;
     const nothing = schemeIdxs.length === 0 && !hasMetaKey && affected.length === 0;
 
-    // Stat boxes
     const statBox = (val, label, highlight) =>
       `<div style="background:${highlight?'#FFFBEB':'#F9FAFB'};border:1px solid ${highlight?'#FDE68A':'var(--gray3)'};border-radius:8px;padding:12px 14px;text-align:center">
         <div style="font-size:22px;font-weight:700;color:var(--navy)">${val}</div>
@@ -21979,8 +22028,8 @@ function renderAdminCastBackfill() {
 
     const statsHtml = `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:14px 0">
       ${statBox(schemeIdxs.length, 'Scheme list entries', schemeIdxs.length > 0)}
-      ${statBox(affected.length, 'Advocacy records', affected.length > 0)}
-      ${statBox(totalRowCount, 'Scheme rows to rename', totalRowCount > 0)}
+      ${statBox(affected.length,   'Advocacy records',     affected.length > 0)}
+      ${statBox(totalRowCount,     'Scheme rows to rename',totalRowCount > 0)}
     </div>`;
 
     let tableHtml = '';
@@ -21993,7 +22042,7 @@ function renderAdminCastBackfill() {
           <td style="text-align:center">${a.rowCount}</td>
         </tr>`).join('');
       const more = affected.length > 50
-        ? `<tr><td colspan="4" style="color:var(--gray2);font-style:italic;font-size:12px">… and ${affected.length - 50} more</td></tr>`
+        ? `<tr><td colspan="4" style="color:var(--gray2);font-style:italic;font-size:12px">... and ${affected.length - 50} more</td></tr>`
         : '';
       tableHtml = `
         <div style="font-size:12px;color:var(--gray2);margin-bottom:6px">
@@ -22012,10 +22061,10 @@ function renderAdminCastBackfill() {
 
     const noticeHtml = nothing
       ? `<div style="background:#EFF6FF;border:1px solid #93C5FD;border-radius:8px;padding:12px;color:var(--navy);font-size:13px;margin-top:10px">
-           ℹ No occurrences of <strong>"Cast Certificate"</strong> found. The backfill may have already been run, or the scheme uses a different spelling in this database.
+           i No occurrences of <strong>"${escHtml(s.OLD)}"</strong> found. The backfill may have already been run, or the scheme uses a different spelling in this database.
          </div>`
       : `<div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:12px;color:#78350F;font-size:13px;margin-top:10px">
-           ⚠ Scan found occurrences. Review above, then click <strong>Run Backfill</strong> to write the changes.
+           ! Scan found occurrences. Review above, then click <strong>Run Backfill</strong> to write the changes.
          </div>`;
 
     affectedTable = statsHtml + tableHtml + noticeHtml;
@@ -22023,19 +22072,39 @@ function renderAdminCastBackfill() {
 
   document.getElementById('content').innerHTML = _adminSecurityBanner() + `
     <div style="max-width:860px;margin:0 auto;padding:0 4px">
-      <h2 style="margin:0 0 4px">Cast → Caste Certificate Backfill</h2>
+      <h2 style="margin:0 0 4px">Scheme Rename Backfill</h2>
       <div style="color:var(--gray2);font-size:13px;margin-bottom:18px;line-height:1.55">
-        One-shot tool to rename <strong>"Cast Certificate"</strong> → <strong>"Caste Certificate"</strong> across the scheme list,
-        scheme metadata, and all advocacy records. <strong>Scan first</strong> (no writes), review the report,
-        then click Run Backfill. The write uses an atomic Firebase multi-path update — no partial writes possible.
+        Generic tool to rename any scheme or document label across the scheme list, scheme metadata,
+        and all advocacy records. Enter the OLD and NEW values below, click <strong>Scan</strong> (no writes),
+        review the report, then click Run Backfill. The write uses an atomic Firebase multi-path update --
+        no partial writes possible.
       </div>
 
       <div class="card" style="margin-bottom:14px">
-        <div class="card-head"><div class="card-title">Step 1 — Scan (dry run, no writes)</div></div>
+        <div class="card-head"><div class="card-title">Step 0 -- Enter OLD and NEW values</div></div>
+        <div style="padding:14px 16px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div>
+              <label style="display:block;font-size:11px;font-weight:600;color:var(--gray2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">OLD label (exact match, case-sensitive)</label>
+              <input type="text" class="finp" id="srn-old" value="${escHtml(s.OLD)}" oninput="_schemeRenameSetOld(this.value)" placeholder="e.g. Income Cirtificate" style="width:100%">
+            </div>
+            <div>
+              <label style="display:block;font-size:11px;font-weight:600;color:var(--gray2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">NEW label</label>
+              <input type="text" class="finp" id="srn-new" value="${escHtml(s.NEW)}" oninput="_schemeRenameSetNew(this.value)" placeholder="e.g. Income Certificate" style="width:100%">
+            </div>
+          </div>
+          <div style="font-size:12px;color:var(--gray2);margin-top:8px;line-height:1.5">
+            Default seed: <strong>"Income Cirtificate"</strong> -> <strong>"Income Certificate"</strong>. Changing either field invalidates the prior scan; click Scan again before Run.
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-head"><div class="card-title">Step 1 -- Scan (dry run, no writes)</div></div>
         <div style="padding:14px 16px">
           <div style="display:flex;gap:8px;margin-bottom:12px">
-            <button class="btn btn-primary" onclick="_castRunScan()" ${canScan ? '' : 'disabled style="opacity:.5;cursor:not-allowed"'}>
-              ${s.scanning ? '⏳ Scanning…' : '🔍 Scan Firebase'}
+            <button class="btn btn-primary" onclick="_schemeRenameRunScan()" ${canScan ? '' : 'disabled style="opacity:.5;cursor:not-allowed"'}>
+              ${s.scanning ? 'Scanning...' : 'Scan Firebase'}
             </button>
           </div>
           <div style="background:#111827;border-radius:8px;padding:12px 14px;max-height:220px;overflow-y:auto">
@@ -22046,17 +22115,17 @@ function renderAdminCastBackfill() {
       </div>
 
       <div class="card">
-        <div class="card-head"><div class="card-title">Step 2 — Run Backfill (writes to Firebase)</div></div>
+        <div class="card-head"><div class="card-title">Step 2 -- Run Backfill (writes to Firebase)</div></div>
         <div style="padding:14px 16px">
           <div style="background:#FFFBEB;border-left:3px solid #F59E0B;border-radius:0 6px 6px 0;padding:9px 12px;font-size:12.5px;color:#78350F;margin-bottom:12px">
-            ⚠ Run Scan first and review the affected records. Keep a Firebase console backup before running the backfill.
+            ! Run Scan first and review the affected records. Keep a Firebase console backup before running the backfill.
           </div>
           <div style="display:flex;gap:8px">
-            <button class="btn" style="background:#EF4444;color:#fff" onclick="_castRunBackfill()" ${canBackfill ? '' : 'disabled style="opacity:.4;cursor:not-allowed"'}>
-              ${s.running ? '⏳ Running…' : '✏️ Run Backfill'}
+            <button class="btn" style="background:#EF4444;color:#fff" onclick="_schemeRenameRunBackfill()" ${canBackfill ? '' : 'disabled style="opacity:.4;cursor:not-allowed"'}>
+              ${s.running ? 'Running...' : 'Run Backfill'}
             </button>
-            <button class="btn btn-sm" onclick="_castRunScan()" ${canScan ? '' : 'disabled style="opacity:.4;cursor:not-allowed"'}>
-              ↺ Re-scan
+            <button class="btn btn-sm" onclick="_schemeRenameRunScan()" ${canScan ? '' : 'disabled style="opacity:.4;cursor:not-allowed"'}>
+              Re-scan
             </button>
           </div>
           ${writeLogHtml}
@@ -22067,7 +22136,7 @@ function renderAdminCastBackfill() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// End V327-DEV Cast→Caste Backfill tool
+// End Scheme Rename Backfill tool
 // ═════════════════════════════════════════════════════════════════════════════
 
 </script>
