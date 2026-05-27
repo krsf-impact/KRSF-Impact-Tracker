@@ -1,6 +1,37 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V337-LIVE
+  KRSF Beneficiary Impact Tracker  -  V344-LIVE
+  ============================================================================
+  V344-LIVE (2026-05-29 F1 lockdown + V343 features -- built on V339):
+    + ANONYMOUS FIREBASE AUTH (F1): every browser signs in to Firebase
+      via signInAnonymously() on boot. The custom passwordHash app-level
+      auth still runs on top — Anonymous just gives the browser a Firebase
+      ID token so the locked rules accept the request. fbInitialSync()
+      awaits FB.authReady before any reads.
+    + LOCKED DATABASE RULES (F1): ".read" and ".write" become "auth != null"
+      instead of the public time-bound condition. Unauthenticated REST
+      scrapers can no longer pull data.
+    + FC PANTRY (V343 features): localStorage cache for the FC's slice,
+      keyed by userId + APP_VERSION, 30-day TTL. FC home shows count card
+      + "View my records" button — no auto-fetch on login.
+    + NGO INCREMENTAL SYNC (V343 features): on each page reload, NGO
+      hydrates from pantry instantly, then fires a tiny delta query
+      orderByChild('_lastEditedAt').startAt(highWater) — ~10 KB instead
+      of ~5 MB on every reload.
+    + VERSION AUTO-RELOAD (V343 features): every client reads
+      /krsf_tracker/_minVersion on boot. Newer clients claim it, older
+      clients reload (cachebusted). sessionStorage guards against loops.
+    + APP_VERSION bumped to V344-LIVE.
+    REQUIRED FIREBASE CONSOLE STEPS BEFORE DEPLOY:
+      1. Authentication → Sign-in method → enable Anonymous sign-in
+      2. (After V344 is live for ~30 min) Realtime Database → Rules →
+         paste firebase-rules-V344-F1.json (with "auth != null")
+      Without step 1, the app cannot sign in. Without step 2, scrapers
+      can still read. Doing 2 BEFORE deploying V344 breaks live clients.
+    EXPECTED OUTCOME: scraper traffic eliminated; FC bandwidth approaches
+    zero per session after first load; NGO bandwidth scales with delta
+    size, not total record count. Of the original 14.71 GB/day, expect
+    1-3 GB/day after V344 + F1 settles in.
   ============================================================================
   V339-LIVE (2026-05-27 sidebar cleanup -- built on V338):
     + Four admin nav items hidden from the visible sidebar via the
@@ -142,6 +173,11 @@
      auth still uses localStorage (see V16 changelog). -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<!-- F1 (V344-LIVE): Firebase Auth SDK for Anonymous sign-in. Required for
+     the locked database rules (auth != null). Custom passwordHash app-level
+     auth still runs on top — Anonymous just gives the browser a Firebase
+     token so the rules can verify the request came from a real client. -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <!-- V310-S3: Firebase Storage SDK for photo migration. Loaded alongside
      database; FB.storage is initialised in fbInit() the same way FB.db is. -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
@@ -2397,7 +2433,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V339-LIVE';
+const APP_VERSION = 'V344-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // ── Sync state (in-memory) ─────────────────────────────────────────────────
@@ -2599,10 +2635,211 @@ function _invalidateAdvCache() {
   _allBEnrichedCacheKey = null;
 }
 
+// ─── V344: FC pantry + NGO incremental sync + version auto-reload ─────────
+const _PANTRY_KEY = 'krsf_benef_pantry_v1';
+const _PANTRY_TTL_MS = 30 * 24 * 60 * 60 * 1000;  // 30 days
+let _fcListExpanded = false;
+let _ngoIncrementalSync_inFlight = false;
+
+function _pantryWrite(userId, records) {
+  try {
+    localStorage.setItem(_PANTRY_KEY, JSON.stringify({
+      userId: userId,
+      version: APP_VERSION,
+      ts: Date.now(),
+      records: Array.isArray(records) ? records : []
+    }));
+  } catch (e) { console.warn('[V344] pantry write failed:', e); }
+}
+function _pantryRead(userId) {
+  try {
+    const raw = localStorage.getItem(_PANTRY_KEY);
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    if (!o || o.userId !== userId || o.version !== APP_VERSION) return null;
+    if (!Array.isArray(o.records)) return null;
+    const stale = (Date.now() - (o.ts || 0)) > _PANTRY_TTL_MS;
+    return { stale: stale, records: o.records };
+  } catch (e) { return null; }
+}
+function _pantryClear() {
+  try { localStorage.removeItem(_PANTRY_KEY); } catch (e) {}
+}
+
+function _fcShallowCount(userId) {
+  const cached = _pantryRead(userId);
+  if (cached && Array.isArray(cached.records)) {
+    FB.fcCount = cached.records.length;
+  } else {
+    FB.fcCount = null;
+  }
+  try { if (typeof coordRenderList === 'function') coordRenderList(); } catch(_){}
+  return FB.fcCount;
+}
+
+async function _ngoIncrementalSync() {
+  if (_ngoIncrementalSync_inFlight) return;
+  const u = (typeof currentUser === 'function') ? currentUser() : null;
+  if (!u || u.role !== 'ngo' || !u.ngo) return;
+  if (!FB.db || RecordCache.benef.size === 0) return;
+  _ngoIncrementalSync_inFlight = true;
+  try {
+    let highWater = 0;
+    for (const r of RecordCache.benef.values()) {
+      const t = (r && typeof r._lastEditedAt === 'number') ? r._lastEditedAt : 0;
+      if (t > highWater) highWater = t;
+    }
+    if (highWater === 0) return;
+    const snap = await fbRef('beneficiaries')
+      .orderByChild('_lastEditedAt')
+      .startAt(highWater + 1)
+      .once('value');
+    const val = snap.val() || {};
+    let added = 0;
+    for (const id in val) {
+      const r = val[id];
+      if (!r || !r.id) continue;
+      if (r.ngo !== u.ngo) continue;
+      RecordCache.benef.set(r.id, r);
+      if (!FB.lastBenef) FB.lastBenef = {};
+      FB.lastBenef[r.id] = fbHash(r);
+      added++;
+    }
+    if (added > 0) {
+      try { _pantryWrite(u.userId, Array.from(RecordCache.benef.values())); } catch(_){}
+      FB.fcCount = RecordCache.benef.size;
+      try { renderCurrentView(); } catch(_){}
+    }
+    console.log('[V344] NGO incremental sync:', added, 'new/changed records');
+  } catch (e) {
+    console.warn('[V344] NGO incremental sync failed:', e);
+  } finally {
+    _ngoIncrementalSync_inFlight = false;
+  }
+}
+
+function _v343ParseVer(v) {
+  const m = String(v || '').match(/V(\d+)/);
+  return m ? parseInt(m[1], 10) : 0;
+}
+
+async function _v343VersionCheck() {
+  try {
+    if (!FB.db) return;
+    const ref = fbRef('_minVersion');
+    const snap = await ref.once('value');
+    const minVer = snap.val();
+    const myNum = _v343ParseVer(APP_VERSION);
+    const minNum = _v343ParseVer(minVer);
+    if (myNum === 0) return;
+    if (myNum > minNum) {
+      ref.set(APP_VERSION).catch(function(e){ console.warn('[V344] min-version write failed:', e); });
+      return;
+    }
+    if (myNum < minNum) {
+      var reloadKey = '_v343_reload_for';
+      if (sessionStorage.getItem(reloadKey) === minVer) {
+        console.warn('[V344] already reloaded for', minVer, '— cache may be stuck');
+        return;
+      }
+      sessionStorage.setItem(reloadKey, minVer);
+      try { if (typeof toast === 'function') toast('New version available — reloading.', 'info', 3000); } catch(_){}
+      setTimeout(function() {
+        try {
+          var sep = location.href.indexOf('?') === -1 ? '?' : '&';
+          location.href = location.href.replace(/[?&]_cb=\d+/, '') + sep + '_cb=' + Date.now();
+        } catch(_) { try { location.reload(); } catch(_){} }
+      }, 1500);
+    }
+  } catch (e) {
+    console.warn('[V344] version check failed:', e);
+  }
+}
+
+function _coordRenderSummaryV341() {
+  const stripEl = document.getElementById('coord-summary-strip');
+  if (stripEl) stripEl.innerHTML = '';
+  const countBar = document.getElementById('coord-count-bar');
+  if (countBar) countBar.textContent = '';
+  const pagEl = document.getElementById('coord-pagination');
+  if (pagEl) pagEl.style.display = 'none';
+  const listEl = document.getElementById('coord-list');
+  if (!listEl) return;
+  const count = (typeof FB.fcCount === 'number') ? FB.fcCount : null;
+  const countTxt = (count === null) ? '—' : count.toLocaleString('en-IN');
+  const label = (count === 1) ? 'beneficiary enrolled by you' : 'beneficiaries enrolled by you';
+  listEl.innerHTML =
+    '<div style="background:var(--navy4,#F3F6FB);border:1px solid var(--navy3,#D5DEEC);' +
+    'border-radius:10px;padding:24px 16px;margin:16px;text-align:center;">' +
+      '<div style="font-size:36px;font-weight:700;color:var(--navy,#1B3A6B);line-height:1.1;">' +
+        countTxt +
+      '</div>' +
+      '<div style="font-size:13px;color:var(--gray2,#6B7280);margin-top:6px;">' +
+        label +
+      '</div>' +
+      '<button onclick="_fcViewRecordsV341()" ' +
+        'style="margin-top:18px;background:var(--navy,#1B3A6B);color:#fff;border:none;' +
+        'padding:10px 22px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;">' +
+        'View my records' +
+      '</button>' +
+      '<div style="margin-top:10px;font-size:11px;color:var(--gray3,#9CA3AF);">' +
+        'Records load on demand to save bandwidth' +
+      '</div>' +
+    '</div>';
+}
+
+window._fcViewRecordsV341 = async function() {
+  const u = (typeof currentUser === 'function') ? currentUser() : null;
+  if (!u) return;
+  const listEl = document.getElementById('coord-list');
+  if (listEl) listEl.innerHTML =
+    '<div style="padding:32px 16px;text-align:center;color:var(--gray2,#6B7280);font-size:13px;">' +
+    'Loading your records…</div>';
+  const cached = _pantryRead(u.userId);
+  if (cached && !cached.stale) {
+    RecordCache.benef.clear();
+    if (!FB.lastBenef) FB.lastBenef = {};
+    for (const r of cached.records) {
+      if (r && r.id) {
+        RecordCache.benef.set(r.id, r);
+        FB.lastBenef[r.id] = fbHash(r);
+      }
+    }
+    FB.benefReplayComplete = true;
+    FB.fcCount = RecordCache.benef.size;
+    _fcListExpanded = true;
+    try { coordRenderList(); } catch(_){}
+    console.log('[V344] expanded list from pantry:', RecordCache.benef.size, 'records');
+    return;
+  }
+  await _v337BenefOneShotFetch(
+    fbRef('beneficiaries').orderByChild('createdBy').equalTo(u.userId),
+    { force: true }
+  );
+  FB.fcCount = RecordCache.benef.size;
+  _fcListExpanded = true;
+  try { coordRenderList(); } catch(_){}
+};
+
+window._fcCollapseListV341 = function() {
+  _fcListExpanded = false;
+  try { coordRenderList(); } catch(_){}
+};
+
+window._fcRefreshRecordsV341 = async function() {
+  _pantryClear();
+  _fcListExpanded = false;
+  await _fcViewRecordsV341();
+};
+
 function _hydrateBenefCache(arr) {
   RecordCache.benef.clear();
   for (const r of arr) { if (r && r.id) RecordCache.benef.set(r.id, r); }
-  RecordCache.primed = true;  // skip lazy prime — cloud just filled the cache
+  RecordCache.primed = true;
+  try {
+    const u = (typeof currentUser === 'function') ? currentUser() : null;
+    if (u && u.userId) _pantryWrite(u.userId, Array.from(RecordCache.benef.values()));
+  } catch (e) { /* best effort */ }
 }
 function _hydrateAdvCache(arr) {
   RecordCache.adv.clear();
@@ -2701,6 +2938,30 @@ function fbInit() {
   try {
     FB.app = firebase.initializeApp(FB_CONFIG);
     FB.db  = firebase.database();
+    // F1 (V344): kick off anonymous Firebase sign-in. fbInitialSync()
+    // awaits FB.authReady before any reads. Locked rules (auth != null)
+    // accept the request because the Firebase SDK includes the anonymous
+    // ID token automatically on every request.
+    try {
+      if (firebase.auth) {
+        FB.authReady = firebase.auth().signInAnonymously()
+          .then(function(cred) {
+            FB.authUser = cred && cred.user;
+            console.log('[F1] anonymous auth ready, uid:', FB.authUser && FB.authUser.uid);
+            return cred;
+          })
+          .catch(function(e) {
+            console.error('[F1] anonymous auth failed:', e);
+            throw e;
+          });
+      } else {
+        console.warn('[F1] firebase-auth-compat not loaded — locked DB rules will reject reads');
+        FB.authReady = Promise.reject(new Error('firebase-auth-compat not loaded'));
+      }
+    } catch (e) {
+      console.error('[F1] anonymous auth init failed:', e);
+      FB.authReady = Promise.reject(e);
+    }
     // V310-S3: Storage handle for photo migration. Best-effort — if the
     // Storage SDK didn't load (offline boot, CDN block) we leave FB.storage
     // undefined and the migration UI will surface a clear error. Database
@@ -2764,6 +3025,19 @@ function fbRef(path) { return FB.db.ref(`${FB_NAMESPACE}/${path}`); }
 
 async function fbInitialSync() {
   if (!FB.db) return;
+  // F1 (V344): wait for anonymous auth before any Firebase reads. Locked
+  // rules (auth != null) will reject everything until this Promise resolves.
+  if (FB.authReady) {
+    try { await FB.authReady; }
+    catch (e) {
+      console.error('[F1] cannot proceed — anonymous auth failed:', e);
+      FB.initFailed = true;
+      fbUpdatePill();
+      return;
+    }
+  }
+  // V344: kick off version check in background — stale tabs auto-reload.
+  try { _v343VersionCheck(); } catch(_){}
   // V16.0.5: CLOUD IS AUTHORITATIVE FOR LOCAL STATE. Offline work flows
   // through the sync queue only.
   //
@@ -3035,6 +3309,10 @@ function fbBenefDetachOnLogout() {
   _adminAdvRestMode   = true;
   if (_benefFlushTimer) { clearTimeout(_benefFlushTimer); _benefFlushTimer = null; }
   if (_advFlushTimer) { clearTimeout(_advFlushTimer); _advFlushTimer = null; }
+  // V344: clear pantry and collapse the list view for the next user.
+  try { _pantryClear(); } catch(_){}
+  _fcListExpanded = false;
+  FB.fcCount = undefined;
 }
 
 // V312: extracted from fbAttachListeners so the non-role-dependent
@@ -3386,7 +3664,10 @@ function _benefScopedQuery() {
     return null;
   }
   if (u.role === 'coordinator' && u.userId) {
-    _v337BenefOneShotFetch(fbRef('beneficiaries').orderByChild('createdBy').equalTo(u.userId));
+    // V344: FC no longer auto-fetches records on login. Read the count
+    // from the pantry; records load on demand via _fcViewRecordsV341().
+    _fcShallowCount(u.userId);
+    FB.benefReplayComplete = true;
     return null;
   }
   // Unknown/incomplete role: fall back to full fetch rather than show
@@ -3398,10 +3679,33 @@ function _benefScopedQuery() {
 // for ngo + coordinator roles. Hydrates RecordCache and unblocks saves by
 // flipping benefReplayComplete after the fetch completes. Re-entry guarded
 // so the 3 invocations from fbAttachListeners only fire one fetch.
-async function _v337BenefOneShotFetch(query) {
+async function _v337BenefOneShotFetch(query, opts) {
+  opts = opts || {};
   if (_v337BenefOneShotFetch._inFlight) return;
   _v337BenefOneShotFetch._inFlight = true;
   try {
+    const u = (typeof currentUser === 'function') ? currentUser() : null;
+    if (u && u.userId && !opts.force) {
+      const cached = _pantryRead(u.userId);
+      if (cached && !cached.stale) {
+        RecordCache.benef.clear();
+        FB.lastBenef = {};
+        for (const r of cached.records) {
+          if (r && r.id) {
+            RecordCache.benef.set(r.id, r);
+            FB.lastBenef[r.id] = fbHash(r);
+          }
+        }
+        FB.benefReplayComplete = true;
+        fbUpdatePill();
+        console.log('[V344] benef from pantry:', RecordCache.benef.size, 'records');
+        if (u.role === 'ngo') {
+          _ngoIncrementalSync();
+        }
+        try { renderCurrentView(); } catch(_){}
+        return;
+      }
+    }
     RecordCache.benef.clear();
     FB.lastBenef = {};
     FB.benefReplayComplete = false;
@@ -3419,10 +3723,13 @@ async function _v337BenefOneShotFetch(query) {
     FB.benefReplayComplete = true;
     fbUpdatePill();
     console.log('[V337] benef one-shot fetch:', count, 'records');
+    if (u && u.userId) {
+      try { _pantryWrite(u.userId, Array.from(RecordCache.benef.values())); } catch(_){}
+    }
     try { renderCurrentView(); } catch(_){}
   } catch (e) {
     console.warn('[V337] benef one-shot fetch failed:', e);
-    FB.benefReplayComplete = true;  // unblock saves anyway
+    FB.benefReplayComplete = true;
     fbUpdatePill();
   } finally {
     _v337BenefOneShotFetch._inFlight = false;
@@ -17000,6 +17307,15 @@ async function coordApplyStatusFromSheet(bid, scheme, remarks, newStatus) {
 }
 
 function coordRenderList() {
+  // V344: For coordinator role, default to summary view (count + button).
+  // Records only render when _fcListExpanded is true.
+  try {
+    const _u341 = (typeof currentUser === 'function') ? currentUser() : null;
+    if (_u341 && _u341.role === 'coordinator' && !_fcListExpanded) {
+      _coordRenderSummaryV341();
+      return;
+    }
+  } catch(_){}
   // Pull search value from the debounce buffer (set by the input's oninput)
   const search = (_searchDebounceVal && _searchDebounceVal.coord) || '';
   // Use getData() not filteredAll() — coord shell has no topbar filters,
@@ -17104,6 +17420,26 @@ function coordRenderList() {
   // Empty states
   const listEl = document.getElementById('coord-list');
   if (!listEl) return;
+  // V344: tiny control row above the list — "Hide list" only.
+  try {
+    const _u344b = (typeof currentUser === 'function') ? currentUser() : null;
+    if (_u344b && _u344b.role === 'coordinator' && _fcListExpanded) {
+      const _ctrlId = '_v344-list-ctrl';
+      let _ctrl = document.getElementById(_ctrlId);
+      if (!_ctrl) {
+        _ctrl = document.createElement('div');
+        _ctrl.id = _ctrlId;
+        _ctrl.style.cssText = 'display:flex;justify-content:space-between;align-items:center;'
+          + 'padding:8px 14px;margin:0 12px 8px;background:var(--navy4,#F3F6FB);'
+          + 'border:1px solid var(--navy3,#D5DEEC);border-radius:8px;font-size:12px;';
+        _ctrl.innerHTML =
+          '<span style="color:var(--gray2,#6B7280);">Showing your records</span>'
+          + '<a href="javascript:void(0)" onclick="_fcCollapseListV341()" '
+          +   'style="color:var(--navy,#1B3A6B);text-decoration:underline;">Hide list</a>';
+        listEl.parentNode.insertBefore(_ctrl, listEl);
+      }
+    }
+  } catch(_){}
   if (list.length === 0) {
     if (all.length === 0) {
       listEl.innerHTML = `<div class="coord-empty">
