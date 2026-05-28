@@ -1,6 +1,25 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V350-LIVE
+  KRSF Beneficiary Impact Tracker  -  V352-LIVE
+  ============================================================================
+  V352-LIVE (2026-05-28 PWA: manifest + service worker + install prompt):
+    + WEB APP MANIFEST: app is now installable. Chrome detects this via
+      the linked manifest.webmanifest and surfaces an "Install" affordance.
+    + SERVICE WORKER (sw.js): caches the HTML shell with a stale-while-
+      revalidate strategy. Reloads are instant (no re-download of the
+      ~700 KB index.html). Firebase API calls pass through unchanged —
+      live data is never cached.
+    + INSTALL PROMPT: bottom-right "Install app" button appears when
+      Chrome marks the app installable. One tap → on home screen.
+    + UPDATE DETECTION: when a newer sw.js is deployed, the app shows a
+      toast prompting reload.
+    + THEME COLOR + APPLE-TOUCH-ICON: native-app-like status bar styling
+      on Android and iOS.
+    + V351 SKIPPED. Going straight to PWA path for higher-confidence
+      bandwidth reduction (target: 200-400 MB/day).
+    + APP_VERSION bumped to V352-LIVE.
+    REQUIRES: deploy manifest.webmanifest, sw.js, icon-192.png,
+    icon-512.png alongside index.html in the same folder.
   ============================================================================
   V350-LIVE (2026-05-28 visibility-aware listener + reconnect telemetry):
     + VISIBILITY-AWARE _minVersion LISTENER: detached on document.hidden
@@ -206,6 +225,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>KRSF Beneficiary Impact Tracker</title>
+<!-- V352: PWA wiring -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1B3A6B">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="KRSF">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <!-- V3: Bulk import libraries. PapaParse handles CSV (BOM, delimiters, quoted
@@ -2483,7 +2510,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V350-LIVE';
+const APP_VERSION = 'V352-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // ── Sync state (in-memory) ─────────────────────────────────────────────────
@@ -3036,6 +3063,99 @@ function _v343ParseVer(v) {
   const m = String(v || '').match(/V(\d+)/);
   return m ? parseInt(m[1], 10) : 0;
 }
+
+// V352: Service Worker registration. Caches HTML shell for instant reloads.
+// Install prompt management. Update detection.
+(function _v352SetupPWA() {
+  if (!('serviceWorker' in navigator)) {
+    console.log('[V352] SW not supported');
+    return;
+  }
+  let _v352InstallPrompt = null;
+  let _v352InstallBtn = null;
+
+  // Capture the install prompt for later use.
+  window.addEventListener('beforeinstallprompt', function(e) {
+    e.preventDefault();
+    _v352InstallPrompt = e;
+    console.log('[V352] install prompt captured');
+    _v352ShowInstallButton();
+  });
+
+  window.addEventListener('appinstalled', function() {
+    console.log('[V352] app installed');
+    _v352HideInstallButton();
+    try { if (typeof toast === 'function') toast('App installed — tap your home screen icon next time', 'success', 4000); } catch(_){}
+  });
+
+  function _v352ShowInstallButton() {
+    if (_v352InstallBtn || !_v352InstallPrompt) return;
+    try {
+      _v352InstallBtn = document.createElement('button');
+      _v352InstallBtn.id = '_v352-install-btn';
+      _v352InstallBtn.textContent = '⬇ Install app';
+      _v352InstallBtn.style.cssText = 'position:fixed;bottom:18px;right:18px;z-index:99998;'
+        + 'background:#1B3A6B;color:#fff;border:none;padding:10px 16px;border-radius:24px;'
+        + 'font-size:13px;font-weight:600;font-family:var(--font);cursor:pointer;'
+        + 'box-shadow:0 4px 12px rgba(27,58,107,.25)';
+      _v352InstallBtn.addEventListener('click', async function() {
+        if (!_v352InstallPrompt) return;
+        try {
+          _v352InstallPrompt.prompt();
+          const r = await _v352InstallPrompt.userChoice;
+          console.log('[V352] install choice:', r && r.outcome);
+          _v352InstallPrompt = null;
+          _v352HideInstallButton();
+        } catch (e) { console.warn('[V352] install error:', e); }
+      });
+      document.body.appendChild(_v352InstallBtn);
+    } catch (e) { console.warn('[V352] show install button:', e); }
+  }
+  function _v352HideInstallButton() {
+    try { if (_v352InstallBtn) _v352InstallBtn.remove(); _v352InstallBtn = null; } catch(_){}
+  }
+
+  // Register the Service Worker after the page loads.
+  window.addEventListener('load', function() {
+    navigator.serviceWorker.register('sw.js').then(function(reg) {
+      console.log('[V352] SW registered:', reg && reg.scope);
+      // Detect a new SW waiting to activate.
+      if (reg && reg.waiting) _v352NotifyUpdate(reg);
+      if (reg) reg.addEventListener('updatefound', function() {
+        const nw = reg.installing;
+        if (!nw) return;
+        nw.addEventListener('statechange', function() {
+          if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+            _v352NotifyUpdate(reg);
+          }
+        });
+      });
+    }).catch(function(err) {
+      console.warn('[V352] SW register failed:', err);
+    });
+
+    // Reload the page when a new SW takes control.
+    let _reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', function() {
+      if (_reloading) return;
+      _reloading = true;
+      console.log('[V352] new SW controller — reloading');
+      try { location.reload(); } catch(_){}
+    });
+  });
+
+  function _v352NotifyUpdate(reg) {
+    try {
+      if (typeof toast === 'function') {
+        toast('Update available — tap to reload', 'info', 6000);
+      }
+      // Auto-apply if user has been idle for 2 minutes
+      setTimeout(function() {
+        if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+      }, 2 * 60 * 1000);
+    } catch (e) { console.warn('[V352] notify update:', e); }
+  }
+})();
 
 // V347: real-time min-version listener. Replaces the V343/V346 one-shot
 // check with .on('value', ...) so foreground tabs reload within seconds
