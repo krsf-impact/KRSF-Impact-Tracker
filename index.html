@@ -1,31 +1,37 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V346-LIVE
+  KRSF Beneficiary Impact Tracker  -  V347-LIVE
   ============================================================================
-  V346-LIVE (2026-05-29 advocacy pantry + admin/NGO adv sync):
-    + ADVOCACY PANTRY (V346): same IndexedDB-backed pattern as beneficiaries.
-      _v337AdvOneShotFetch (NGO + coord) and _adminAdvRestFetch (admin)
-      now check the advocacy pantry first. Pantry hit = ~10 KB delta
-      query; cache miss = full fetch + pantry write.
-    + ADVOCACY INCREMENTAL SYNC (V346): orderByChild('_lastEditedAt')
-      .startAt(highWater) for both NGO (with ngo scope filter) and admin
-      (no scope filter). Picks up edits across all coordinators without
-      re-downloading the full collection.
-    + WRITE-THROUGH (V346): _hydrateAdvCache writes to the advocacy pantry
-      after every save, so the next session's pantry hit reflects the
-      latest local saves immediately.
-    + BENEFICIARIES PANTRY (V345): unchanged.
-    + ANONYMOUS AUTH + LOCKED RULES (V344/F1): unchanged.
-    + V343 features (FC pantry, NGO benef incremental sync, version
-      auto-reload): unchanged.
-    + APP_VERSION bumped to V346-LIVE.
+  V347-LIVE (2026-05-30 listener + tombstones + FC persist + users pantry):
+    + REAL-TIME MIN-VERSION LISTENER: replaces one-shot check with
+      fbRef('_minVersion').on('value', ...). Background and foreground
+      tabs auto-reload within seconds when a new APP_VERSION is published.
+      FCs on phones get the update without manual refresh.
+    + TOMBSTONE DELETES: fbSyncCollection writes /tombstones/<coll>/<id>
+      atomically with every delete. Incremental syncs (NGO + admin, both
+      benef and adv) query tombstones since highWater and remove matching
+      records from RecordCache + pantry. Fixes the resurrection bug.
+    + FC PANTRY PERSISTS ACROSS LOGOUT: fbBenefDetachOnLogout skips
+      _pantryClear for coordinator role. Single-device FCs don't need
+      logout-time eviction. Saves ~150 KB per re-login.
+    + USERS COLLECTION PANTRIED: fbUsersHandleChild now checks a
+      global users-pantry-v1 IndexedDB key. 30-day TTL, version-tagged.
+      Saves ~100 KB per login.
+    + V346 features (advocacy pantry, NGO/admin adv incremental sync):
+      unchanged.
+    + V345 features (beneficiaries pantry, FB.auth fix): unchanged.
+    + V344 features (Anonymous auth + locked rules): unchanged.
+    + V343 features (FC pantry, NGO benef sync, auto-reload mechanism):
+      unchanged.
+    + APP_VERSION bumped to V347-LIVE.
     REQUIRED FIREBASE RULES UPDATE:
-      "advocacy": { ".indexOn": ["createdBy", "ngo", "bid", "_lastEditedAt"] }
-    Without _lastEditedAt indexed on advocacy, the incremental query
-    degrades to a full collection scan and the bandwidth saving is lost.
-    EXPECTED OUTCOME: admin reloads drop from ~17 MB (V345) to ~50 KB
-    after first session. NGO reloads similarly. Daily total should fall
-    to ~50-200 MB once everyone is on V346.
+      "tombstones": { "beneficiaries": {".indexOn": "ts"},
+                      "advocacy":      {".indexOn": "ts"} }
+    Without indexed tombstones, the per-collection tombstone queries
+    degrade to a full scan.
+    EXPECTED OUTCOME: FCs on phones auto-update silently. Deleted
+    records stay deleted. Per-session bandwidth for warm pantries
+    drops further (~50 KB on session 2+ instead of ~150 KB).
   ============================================================================
   V339-LIVE (2026-05-27 sidebar cleanup -- built on V338):
     + Four admin nav items hidden from the visible sidebar via the
@@ -167,8 +173,7 @@
      auth still uses localStorage (see V16 changelog). -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
-<!-- V346 (F1): Firebase Auth SDK for Anonymous sign-in. Required for the
-     locked database rules (auth != null). -->
+<!-- V347 (F1): Firebase Auth SDK for Anonymous sign-in. -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <!-- V310-S3: Firebase Storage SDK for photo migration. Loaded alongside
      database; FB.storage is initialised in fbInit() the same way FB.db is. -->
@@ -2425,7 +2430,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V346-LIVE';
+const APP_VERSION = 'V347-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // ── Sync state (in-memory) ─────────────────────────────────────────────────
@@ -2627,7 +2632,7 @@ function _invalidateAdvCache() {
   _allBEnrichedCacheKey = null;
 }
 
-// ─── V346: IndexedDB pantry + benef/adv NGO/admin incremental sync ─────────
+// ─── V347: IndexedDB pantry + benef/adv NGO/admin incremental sync + tombstones + users pantry + real-time version listener ─────────
 const _IDB_NAME = 'krsf_pantry_v1';
 const _IDB_STORE = 'pantry';
 const _PANTRY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -2652,7 +2657,6 @@ function _idbOpen() {
   });
   return _idbPromise;
 }
-
 async function _idbGet(key) {
   try {
     const db = await _idbOpen();
@@ -2662,9 +2666,8 @@ async function _idbGet(key) {
       req.onsuccess = function() { resolve(req.result); };
       req.onerror   = function() { reject(req.error); };
     });
-  } catch (e) { console.warn('[V346] idbGet failed:', e); return null; }
+  } catch (e) { console.warn('[V347] idbGet failed:', e); return null; }
 }
-
 async function _idbSet(key, value) {
   try {
     const db = await _idbOpen();
@@ -2674,9 +2677,8 @@ async function _idbSet(key, value) {
       req.onsuccess = function() { resolve(); };
       req.onerror   = function() { reject(req.error); };
     });
-  } catch (e) { console.warn('[V346] idbSet failed:', e); }
+  } catch (e) { console.warn('[V347] idbSet failed:', e); }
 }
-
 async function _idbDelete(key) {
   try {
     const db = await _idbOpen();
@@ -2686,55 +2688,65 @@ async function _idbDelete(key) {
       req.onsuccess = function() { resolve(); };
       req.onerror   = function() { reject(req.error); };
     });
-  } catch (e) { console.warn('[V346] idbDelete failed:', e); }
+  } catch (e) { console.warn('[V347] idbDelete failed:', e); }
 }
 
-// ─── Beneficiary pantry helpers ─────────────────────────────────────────────
 function _pantryKey(userId) { return 'benef-pantry-' + userId; }
-
-async function _pantryWrite(userId, records) {
+async function _pantryWrite(userId, records, lastSyncTs) {
   if (!userId) return;
   await _idbSet(_pantryKey(userId), {
     userId: userId, version: APP_VERSION, ts: Date.now(),
+    lastSyncTs: (typeof lastSyncTs === 'number') ? lastSyncTs : Date.now(),
     records: Array.isArray(records) ? records : []
   });
 }
-
 async function _pantryRead(userId) {
   if (!userId) return null;
   const o = await _idbGet(_pantryKey(userId));
   if (!o || o.userId !== userId || o.version !== APP_VERSION) return null;
   if (!Array.isArray(o.records)) return null;
   const stale = (Date.now() - (o.ts || 0)) > _PANTRY_TTL_MS;
-  return { stale: stale, records: o.records };
+  return { stale: stale, records: o.records, lastSyncTs: o.lastSyncTs || 0 };
 }
-
 async function _pantryClear(userId) {
   if (userId) await _idbDelete(_pantryKey(userId));
 }
 
-// ─── Advocacy pantry helpers (V346) ─────────────────────────────────────────
 function _advPantryKey(userId) { return 'adv-pantry-' + userId; }
-
-async function _advPantryWrite(userId, records) {
+async function _advPantryWrite(userId, records, lastSyncTs) {
   if (!userId) return;
   await _idbSet(_advPantryKey(userId), {
     userId: userId, version: APP_VERSION, ts: Date.now(),
+    lastSyncTs: (typeof lastSyncTs === 'number') ? lastSyncTs : Date.now(),
     records: Array.isArray(records) ? records : []
   });
 }
-
 async function _advPantryRead(userId) {
   if (!userId) return null;
   const o = await _idbGet(_advPantryKey(userId));
   if (!o || o.userId !== userId || o.version !== APP_VERSION) return null;
   if (!Array.isArray(o.records)) return null;
   const stale = (Date.now() - (o.ts || 0)) > _PANTRY_TTL_MS;
-  return { stale: stale, records: o.records };
+  return { stale: stale, records: o.records, lastSyncTs: o.lastSyncTs || 0 };
 }
-
 async function _advPantryClear(userId) {
   if (userId) await _idbDelete(_advPantryKey(userId));
+}
+
+// V347: global users pantry (not per-user — users collection is shared).
+const _USERS_PANTRY_KEY = 'users-pantry-global';
+async function _usersPantryWrite(users) {
+  await _idbSet(_USERS_PANTRY_KEY, {
+    version: APP_VERSION, ts: Date.now(),
+    users: Array.isArray(users) ? users : []
+  });
+}
+async function _usersPantryRead() {
+  const o = await _idbGet(_USERS_PANTRY_KEY);
+  if (!o || o.version !== APP_VERSION) return null;
+  if (!Array.isArray(o.users)) return null;
+  const stale = (Date.now() - (o.ts || 0)) > _PANTRY_TTL_MS;
+  return { stale: stale, users: o.users };
 }
 
 async function _fcShallowCount(userId) {
@@ -2744,7 +2756,20 @@ async function _fcShallowCount(userId) {
   return FB.fcCount;
 }
 
-// ─── Beneficiary incremental sync ───────────────────────────────────────────
+// V347: query tombstones for a collection since the high water timestamp.
+// Returns an array of ids that were tombstoned. Caller removes from cache.
+async function _v347FetchTombstones(coll, sinceTs) {
+  try {
+    const snap = await fbRef('tombstones/' + coll).orderByChild('ts').startAt(sinceTs + 1).once('value');
+    const val = snap.val() || {};
+    return Object.keys(val);
+  } catch (e) {
+    console.warn('[V347] tombstone fetch failed for', coll, ':', e);
+    return [];
+  }
+}
+
+// V347: NGO benef incremental sync — now also removes tombstoned records.
 async function _ngoIncrementalSync() {
   if (_ngoIncrementalSync_inFlight) return;
   const u = (typeof currentUser === 'function') ? currentUser() : null;
@@ -2770,13 +2795,23 @@ async function _ngoIncrementalSync() {
       FB.lastBenef[r.id] = fbHash(r);
       added++;
     }
-    if (added > 0) {
+    // V347: remove tombstoned records
+    const tombs = await _v347FetchTombstones('beneficiaries', highWater);
+    let removed = 0;
+    for (const id of tombs) {
+      if (RecordCache.benef.has(id)) {
+        RecordCache.benef.delete(id);
+        if (FB.lastBenef) delete FB.lastBenef[id];
+        removed++;
+      }
+    }
+    if (added > 0 || removed > 0) {
       try { await _pantryWrite(u.userId, Array.from(RecordCache.benef.values())); } catch(_){}
       FB.fcCount = RecordCache.benef.size;
       try { renderCurrentView(); } catch(_){}
     }
-    console.log('[V346] NGO benef incremental sync:', added, 'new/changed records');
-  } catch (e) { console.warn('[V346] NGO benef incremental sync failed:', e);
+    console.log('[V347] NGO benef sync: +' + added + ' / -' + removed);
+  } catch (e) { console.warn('[V347] NGO benef sync failed:', e);
   } finally { _ngoIncrementalSync_inFlight = false; }
 }
 
@@ -2804,16 +2839,24 @@ async function _adminIncrementalSync() {
       FB.lastBenef[r.id] = fbHash(r);
       added++;
     }
-    if (added > 0) {
+    const tombs = await _v347FetchTombstones('beneficiaries', highWater);
+    let removed = 0;
+    for (const id of tombs) {
+      if (RecordCache.benef.has(id)) {
+        RecordCache.benef.delete(id);
+        if (FB.lastBenef) delete FB.lastBenef[id];
+        removed++;
+      }
+    }
+    if (added > 0 || removed > 0) {
       try { await _pantryWrite(u.userId, Array.from(RecordCache.benef.values())); } catch(_){}
       try { renderCurrentView(); } catch(_){}
     }
-    console.log('[V346] admin benef incremental sync:', added, 'new/changed records');
-  } catch (e) { console.warn('[V346] admin benef incremental sync failed:', e);
+    console.log('[V347] admin benef sync: +' + added + ' / -' + removed);
+  } catch (e) { console.warn('[V347] admin benef sync failed:', e);
   } finally { _adminIncrementalSync_inFlight = false; }
 }
 
-// ─── Advocacy incremental sync (V346) ───────────────────────────────────────
 async function _advNgoIncrementalSync() {
   if (_advNgoIncrementalSync_inFlight) return;
   const u = (typeof currentUser === 'function') ? currentUser() : null;
@@ -2841,12 +2884,21 @@ async function _advNgoIncrementalSync() {
       FB.lastAdv[key] = fbHash(record);
       added++;
     }
-    if (added > 0) {
+    const tombs = await _v347FetchTombstones('advocacy', highWater);
+    let removed = 0;
+    for (const fbKey of tombs) {
+      if (RecordCache.adv.has(fbKey)) {
+        RecordCache.adv.delete(fbKey);
+        if (FB.lastAdv) delete FB.lastAdv[fbKey];
+        removed++;
+      }
+    }
+    if (added > 0 || removed > 0) {
       try { await _advPantryWrite(u.userId, Array.from(RecordCache.adv.values())); } catch(_){}
       try { renderCurrentView(); } catch(_){}
     }
-    console.log('[V346] NGO adv incremental sync:', added, 'new/changed records');
-  } catch (e) { console.warn('[V346] NGO adv incremental sync failed:', e);
+    console.log('[V347] NGO adv sync: +' + added + ' / -' + removed);
+  } catch (e) { console.warn('[V347] NGO adv sync failed:', e);
   } finally { _advNgoIncrementalSync_inFlight = false; }
 }
 
@@ -2876,12 +2928,21 @@ async function _advAdminIncrementalSync() {
       FB.lastAdv[key] = fbHash(record);
       added++;
     }
-    if (added > 0) {
+    const tombs = await _v347FetchTombstones('advocacy', highWater);
+    let removed = 0;
+    for (const fbKey of tombs) {
+      if (RecordCache.adv.has(fbKey)) {
+        RecordCache.adv.delete(fbKey);
+        if (FB.lastAdv) delete FB.lastAdv[fbKey];
+        removed++;
+      }
+    }
+    if (added > 0 || removed > 0) {
       try { await _advPantryWrite(u.userId, Array.from(RecordCache.adv.values())); } catch(_){}
       try { renderCurrentView(); } catch(_){}
     }
-    console.log('[V346] admin adv incremental sync:', added, 'new/changed records');
-  } catch (e) { console.warn('[V346] admin adv incremental sync failed:', e);
+    console.log('[V347] admin adv sync: +' + added + ' / -' + removed);
+  } catch (e) { console.warn('[V347] admin adv sync failed:', e);
   } finally { _advAdminIncrementalSync_inFlight = false; }
 }
 
@@ -2890,35 +2951,41 @@ function _v343ParseVer(v) {
   return m ? parseInt(m[1], 10) : 0;
 }
 
-async function _v343VersionCheck() {
-  try {
-    if (!FB.db) return;
-    const ref = fbRef('_minVersion');
-    const snap = await ref.once('value');
-    const minVer = snap.val();
-    const myNum = _v343ParseVer(APP_VERSION);
-    const minNum = _v343ParseVer(minVer);
-    if (myNum === 0) return;
-    if (myNum > minNum) {
-      ref.set(APP_VERSION).catch(function(e){ console.warn('[V346] min-version write failed:', e); });
-      return;
-    }
-    if (myNum < minNum) {
-      var reloadKey = '_v343_reload_for';
-      if (sessionStorage.getItem(reloadKey) === minVer) {
-        console.warn('[V346] already reloaded for', minVer, '— cache may be stuck');
+// V347: real-time min-version listener. Replaces the V343/V346 one-shot
+// check with .on('value', ...) so foreground tabs reload within seconds
+// of a new version being published.
+let _v347VersionListenerAttached = false;
+function _v343VersionCheck() {
+  if (_v347VersionListenerAttached) return;
+  if (!FB.db) return;
+  _v347VersionListenerAttached = true;
+  fbRef('_minVersion').on('value', function(snap) {
+    try {
+      const minVer = snap.val();
+      const myNum = _v343ParseVer(APP_VERSION);
+      const minNum = _v343ParseVer(minVer);
+      if (myNum === 0) return;
+      if (myNum > minNum) {
+        fbRef('_minVersion').set(APP_VERSION).catch(function(e){ console.warn('[V347] min-version write failed:', e); });
         return;
       }
-      sessionStorage.setItem(reloadKey, minVer);
-      try { if (typeof toast === 'function') toast('New version available — reloading.', 'info', 3000); } catch(_){}
-      setTimeout(function() {
-        try {
-          var sep = location.href.indexOf('?') === -1 ? '?' : '&';
-          location.href = location.href.replace(/[?&]_cb=\d+/, '') + sep + '_cb=' + Date.now();
-        } catch(_) { try { location.reload(); } catch(_){} }
-      }, 1500);
-    }
-  } catch (e) { console.warn('[V346] version check failed:', e); }
+      if (myNum < minNum) {
+        var reloadKey = '_v343_reload_for';
+        if (sessionStorage.getItem(reloadKey) === minVer) {
+          console.warn('[V347] already reloaded for', minVer, '— cache may be stuck');
+          return;
+        }
+        sessionStorage.setItem(reloadKey, minVer);
+        try { if (typeof toast === 'function') toast('New version available — reloading.', 'info', 3000); } catch(_){}
+        setTimeout(function() {
+          try {
+            var sep = location.href.indexOf('?') === -1 ? '?' : '&';
+            location.href = location.href.replace(/[?&]_cb=\d+/, '') + sep + '_cb=' + Date.now();
+          } catch(_) { try { location.reload(); } catch(_){} }
+        }, 1500);
+      }
+    } catch (e) { console.warn('[V347] version check error:', e); }
+  });
 }
 
 function _coordRenderSummaryV341() {
@@ -2962,7 +3029,7 @@ window._fcViewRecordsV341 = async function() {
     FB.fcCount = RecordCache.benef.size;
     _fcListExpanded = true;
     try { coordRenderList(); } catch(_){}
-    console.log('[V346] expanded list from pantry:', RecordCache.benef.size, 'records');
+    console.log('[V347] expanded list from pantry:', RecordCache.benef.size, 'records');
     return;
   }
   await _v337BenefOneShotFetch(fbRef('beneficiaries').orderByChild('createdBy').equalTo(u.userId), { force: true });
@@ -3001,7 +3068,7 @@ function _hydrateAdvCache(arr) {
     if (k) RecordCache.adv.set(k, r);
   }
   RecordCache.primed = true;
-  // V346: write-through to advocacy pantry (fire-and-forget async).
+  // V347: write-through to advocacy pantry (fire-and-forget async).
   try {
     const u = (typeof currentUser === 'function') ? currentUser() : null;
     if (u && u.userId) _advPantryWrite(u.userId, Array.from(RecordCache.adv.values()));
@@ -3091,7 +3158,7 @@ function fbInit() {
   try {
     FB.app = firebase.initializeApp(FB_CONFIG);
     FB.db  = firebase.database();
-    // V346 (F1 + V345 bug fix): expose firebase.auth() on FB.auth.
+    // V347 (F1 + V345 bug fix): expose firebase.auth() on FB.auth.
     try {
       if (firebase.auth) {
         FB.auth = firebase.auth();
@@ -3173,7 +3240,7 @@ function fbRef(path) { return FB.db.ref(`${FB_NAMESPACE}/${path}`); }
 
 async function fbInitialSync() {
   if (!FB.db) return;
-  // V346 (F1): wait for anonymous auth before any Firebase reads.
+  // V347 (F1): wait for anonymous auth before any Firebase reads.
   if (FB.authReady) {
     try { await FB.authReady; }
     catch (e) {
@@ -3183,7 +3250,7 @@ async function fbInitialSync() {
       return;
     }
   }
-  // V346: kick off version check in background — stale tabs auto-reload.
+  // V347: attach real-time version listener — propagates new versions instantly.
   try { _v343VersionCheck(); } catch(_){}
   // V16.0.5: CLOUD IS AUTHORITATIVE FOR LOCAL STATE. Offline work flows
   // through the sync queue only.
@@ -3456,10 +3523,11 @@ function fbBenefDetachOnLogout() {
   _adminAdvRestMode   = true;
   if (_benefFlushTimer) { clearTimeout(_benefFlushTimer); _benefFlushTimer = null; }
   if (_advFlushTimer) { clearTimeout(_advFlushTimer); _advFlushTimer = null; }
-  // V346: clear both benef + adv pantries on logout (fire-and-forget async).
+  // V347: skip pantry clear for coordinator role (single-device FCs).
+  // For NGO + admin (potentially shared devices), clear pantries on logout.
   try {
     const _uLogout = (typeof currentUser === 'function') ? currentUser() : null;
-    if (_uLogout && _uLogout.userId) {
+    if (_uLogout && _uLogout.userId && _uLogout.role !== 'coordinator') {
       _pantryClear(_uLogout.userId);
       _advPantryClear(_uLogout.userId);
     }
@@ -3616,12 +3684,10 @@ async function _adminBenefRestFetch() {
   if (_adminBenefRestFetch._inFlight) return;
   _adminBenefRestFetch._inFlight = true;
   const BATCH = 500;
-  // V346: stash user for pantry write at end of try.
-  const _u346b = (typeof currentUser === 'function') ? currentUser() : null;
+  const _u347b = (typeof currentUser === 'function') ? currentUser() : null;
   try {
-    // V346: pantry check — skip the multi-MB REST pull if fresh cache exists.
-    if (_u346b && _u346b.userId) {
-      const cached = await _pantryRead(_u346b.userId);
+    if (_u347b && _u347b.userId) {
+      const cached = await _pantryRead(_u347b.userId);
       if (cached && !cached.stale) {
         RecordCache.benef.clear();
         FB.lastBenef = {};
@@ -3630,7 +3696,7 @@ async function _adminBenefRestFetch() {
         }
         FB.benefReplayComplete = true;
         fbUpdatePill();
-        console.log('[V346] admin benef from pantry:', RecordCache.benef.size, 'records');
+        console.log('[V347] admin benef from pantry:', RecordCache.benef.size, 'records');
         _adminIncrementalSync();
         try { renderCurrentView(); } catch(_){}
         return;
@@ -3704,9 +3770,8 @@ async function _adminBenefRestFetch() {
     FB.benefReplayComplete = true;
     _banner(total, true);
     fbUpdatePill();
-    // V346: persist to pantry for next session's pantry hit.
-    if (_u346b && _u346b.userId) {
-      try { await _pantryWrite(_u346b.userId, Array.from(RecordCache.benef.values())); } catch(_){}
+    if (_u347b && _u347b.userId) {
+      try { await _pantryWrite(_u347b.userId, Array.from(RecordCache.benef.values())); } catch(_){}
     }
   } catch (e) {
     console.warn('[V328] benef REST failed — falling back to realtime listener:', e);
@@ -3730,12 +3795,10 @@ async function _adminAdvRestFetch() {
   if (_adminAdvRestFetch._inFlight) return;
   _adminAdvRestFetch._inFlight = true;
   const BATCH = 500;
-  // V346: stash user for pantry write at end of try.
-  const _u346a = (typeof currentUser === 'function') ? currentUser() : null;
+  const _u347a = (typeof currentUser === 'function') ? currentUser() : null;
   try {
-    // V346: pantry check — skip the multi-MB REST pull if fresh adv cache exists.
-    if (_u346a && _u346a.userId) {
-      const cached = await _advPantryRead(_u346a.userId);
+    if (_u347a && _u347a.userId) {
+      const cached = await _advPantryRead(_u347a.userId);
       if (cached && !cached.stale) {
         RecordCache.adv.clear();
         FB.lastAdv = {};
@@ -3745,7 +3808,7 @@ async function _adminAdvRestFetch() {
         }
         FB.advReplayComplete = true;
         fbUpdatePill();
-        console.log('[V346] admin adv from pantry:', RecordCache.adv.size, 'records');
+        console.log('[V347] admin adv from pantry:', RecordCache.adv.size, 'records');
         _advAdminIncrementalSync();
         try { renderCurrentView(); } catch(_){}
         return;
@@ -3798,9 +3861,8 @@ async function _adminAdvRestFetch() {
 
     FB.advReplayComplete = true;
     fbUpdatePill();
-    // V346: persist advocacy to pantry for next session's pantry hit.
-    if (_u346a && _u346a.userId) {
-      try { await _advPantryWrite(_u346a.userId, Array.from(RecordCache.adv.values())); } catch(_){}
+    if (_u347a && _u347a.userId) {
+      try { await _advPantryWrite(_u347a.userId, Array.from(RecordCache.adv.values())); } catch(_){}
     }
   } catch (e) {
     console.warn('[V328] adv REST failed — falling back to realtime listener:', e);
@@ -3864,7 +3926,6 @@ function _benefScopedQuery() {
     return null;
   }
   if (u.role === 'coordinator' && u.userId) {
-    // V346: FC no longer auto-fetches records on login.
     _fcShallowCount(u.userId);
     FB.benefReplayComplete = true;
     return null;
@@ -3894,7 +3955,7 @@ async function _v337BenefOneShotFetch(query, opts) {
         }
         FB.benefReplayComplete = true;
         fbUpdatePill();
-        console.log('[V346] benef from pantry:', RecordCache.benef.size, 'records');
+        console.log('[V347] benef from pantry:', RecordCache.benef.size, 'records');
         if (u.role === 'ngo') _ngoIncrementalSync();
         try { renderCurrentView(); } catch(_){}
         return;
@@ -4131,7 +4192,7 @@ async function _v337AdvOneShotFetch(query, opts) {
         }
         FB.advReplayComplete = true;
         fbUpdatePill();
-        console.log('[V346] adv from pantry:', RecordCache.adv.size, 'records');
+        console.log('[V347] adv from pantry:', RecordCache.adv.size, 'records');
         if (u.role === 'ngo') _advNgoIncrementalSync();
         try { renderCurrentView(); } catch(_){}
         return;
@@ -4232,21 +4293,42 @@ function fbUsersHandleChild(eventType) {
   if (eventType !== 'child_added') return;  // only fetch once per session
   if (fbUsersHandleChild._inFlight || fbUsersHandleChild._done) return;
   fbUsersHandleChild._inFlight = true;
-  fbRef('users').once('value').then(snap => {
-    const val = snap.val() || {};
-    if (!FB.lastUsers) FB.lastUsers = {};
-    for (const id in val) {
-      const record = val[id];
-      if (!record) continue;
-      RecordCache.users.set(id, record);
-      FB.lastUsers[id] = fbHash(record);
+  // V347: check users pantry first (global, version-tagged, 30-day TTL).
+  _usersPantryRead().then(function(cached) {
+    if (cached && !cached.stale && cached.users.length > 0) {
+      if (!FB.lastUsers) FB.lastUsers = {};
+      for (const record of cached.users) {
+        if (!record || !record.id) continue;
+        RecordCache.users.set(record.id, record);
+        FB.lastUsers[record.id] = fbHash(record);
+      }
+      fbUsersHandleChild._done = true;
+      fbUsersHandleChild._inFlight = false;
+      console.log('[V347] users from pantry:', cached.users.length, 'users');
+      try { renderCurrentView(); } catch(_){}
+      return;
     }
-    fbUsersHandleChild._done = true;
-    try { renderCurrentView(); } catch(_){}
-  }).catch(e => {
-    console.warn('[V337] users one-shot fetch failed:', e);
-  }).finally(() => {
-    fbUsersHandleChild._inFlight = false;
+    // No pantry — fetch fresh and write pantry.
+    fbRef('users').once('value').then(function(snap) {
+      const val = snap.val() || {};
+      if (!FB.lastUsers) FB.lastUsers = {};
+      const users = [];
+      for (const id in val) {
+        const record = val[id];
+        if (!record) continue;
+        RecordCache.users.set(id, record);
+        FB.lastUsers[id] = fbHash(record);
+        users.push(record);
+      }
+      fbUsersHandleChild._done = true;
+      try { _usersPantryWrite(users); } catch(_){}
+      console.log('[V347] users fresh fetch:', users.length, 'users');
+      try { renderCurrentView(); } catch(_){}
+    }).catch(function(e) {
+      console.warn('[V337] users one-shot fetch failed:', e);
+    }).finally(function() {
+      fbUsersHandleChild._inFlight = false;
+    });
   });
 }
 
@@ -4508,7 +4590,13 @@ async function fbSyncCollection(coll, newArr, idField, lastMapRef) {
   // Build multi-path update
   const updates = {};
   for (const w of diff.writes) updates[`${FB_NAMESPACE}/${coll}/${w.id}`] = w.value;
-  for (const d of diff.deletes) updates[`${FB_NAMESPACE}/${coll}/${d}`] = null;
+  for (const d of diff.deletes) {
+    updates[`${FB_NAMESPACE}/${coll}/${d}`] = null;
+    // V347: tombstone the delete so incremental syncs propagate it.
+    if (coll === 'beneficiaries' || coll === 'advocacy') {
+      updates[`${FB_NAMESPACE}/tombstones/${coll}/${d}`] = { ts: Date.now() };
+    }
+  }
   // V310-S2: stash the previous lastMap so we can roll back on write failure.
   // Without rollback, FB[lastMapRef] would advertise a write that didn't
   // actually happen, the listener echo would suppress incoming corrections,
@@ -17519,7 +17607,7 @@ async function coordApplyStatusFromSheet(bid, scheme, remarks, newStatus) {
 }
 
 function coordRenderList() {
-  // V346: For coordinator role, default to summary view.
+  // V347: coordinator default = summary view.
   try {
     const _u341 = (typeof currentUser === 'function') ? currentUser() : null;
     if (_u341 && _u341.role === 'coordinator' && !_fcListExpanded) {
@@ -17631,11 +17719,11 @@ function coordRenderList() {
   // Empty states
   const listEl = document.getElementById('coord-list');
   if (!listEl) return;
-  // V346: tiny control row above the list — "Hide list" only.
+  // V347: tiny control row above the list — "Hide list" only.
   try {
-    const _u346c = (typeof currentUser === 'function') ? currentUser() : null;
-    if (_u346c && _u346c.role === 'coordinator' && _fcListExpanded) {
-      const _ctrlId = '_v346-list-ctrl';
+    const _u347c = (typeof currentUser === 'function') ? currentUser() : null;
+    if (_u347c && _u347c.role === 'coordinator' && _fcListExpanded) {
+      const _ctrlId = '_v347-list-ctrl';
       let _ctrl = document.getElementById(_ctrlId);
       if (!_ctrl) {
         _ctrl = document.createElement('div');
