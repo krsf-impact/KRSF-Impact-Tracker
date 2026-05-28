@@ -2,6 +2,20 @@
 <!--
   KRSF Beneficiary Impact Tracker  -  V347-LIVE
   ============================================================================
+  V348-LIVE (2026-05-30 partners + config pantry — boot-fetch elimination):
+    + PARTNERS PANTRY: global IndexedDB cache (key partners-pantry-global),
+      30-day TTL, version-tagged. Skips Firebase partners fetch on warm
+      reload.
+    + CONFIG PANTRY: same pattern. Caches the full config object
+      (livtypes, schemes). Skips Firebase config fetch on warm reload.
+    + FBINITIALSYNC PANTRY-AWARE: the Promise.all now wraps each of
+      partners / config / users fetches with a pantry check. If pantry
+      is fresh, returns a snap-shaped object built from cache and
+      Firebase is not touched. Saves ~115 KB per warm reload.
+    + APP_VERSION bumped to V348-LIVE.
+    EXPECTED OUTCOME: warm FC reload drops from ~30 KB (V347) to
+    ~15 KB. Just the auth handshake + WebSocket overhead remain.
+  ============================================================================
   V347-LIVE (2026-05-30 listener + tombstones + FC persist + users pantry):
     + REAL-TIME MIN-VERSION LISTENER: replaces one-shot check with
       fbRef('_minVersion').on('value', ...). Background and foreground
@@ -2430,7 +2444,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V347-LIVE';
+const APP_VERSION = 'V348-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // ── Sync state (in-memory) ─────────────────────────────────────────────────
@@ -2747,6 +2761,39 @@ async function _usersPantryRead() {
   if (!Array.isArray(o.users)) return null;
   const stale = (Date.now() - (o.ts || 0)) > _PANTRY_TTL_MS;
   return { stale: stale, users: o.users };
+}
+
+// V348: partners pantry (global, 30-day TTL).
+const _PARTNERS_PANTRY_KEY = 'partners-pantry-global';
+async function _partnersPantryWrite(records) {
+  await _idbSet(_PARTNERS_PANTRY_KEY, {
+    version: APP_VERSION, ts: Date.now(),
+    records: Array.isArray(records) ? records : []
+  });
+}
+async function _partnersPantryRead() {
+  const o = await _idbGet(_PARTNERS_PANTRY_KEY);
+  if (!o || o.version !== APP_VERSION) return null;
+  if (!Array.isArray(o.records)) return null;
+  const stale = (Date.now() - (o.ts || 0)) > _PANTRY_TTL_MS;
+  return { stale: stale, records: o.records };
+}
+
+// V348: config pantry (global, 30-day TTL). Stores the full config object
+// (livtypes + schemes) since fbInitialSync fetches the whole namespace.
+const _CONFIG_PANTRY_KEY = 'config-pantry-global';
+async function _configPantryWrite(config) {
+  await _idbSet(_CONFIG_PANTRY_KEY, {
+    version: APP_VERSION, ts: Date.now(),
+    config: config || {}
+  });
+}
+async function _configPantryRead() {
+  const o = await _idbGet(_CONFIG_PANTRY_KEY);
+  if (!o || o.version !== APP_VERSION) return null;
+  if (!o.config || typeof o.config !== 'object') return null;
+  const stale = (Date.now() - (o.ts || 0)) > _PANTRY_TTL_MS;
+  return { stale: stale, config: o.config };
 }
 
 async function _fcShallowCount(userId) {
@@ -3291,13 +3338,51 @@ async function fbInitialSync() {
     // on first event (see line 2686-2687 for benef, equivalent for adv).
     // Echo suppression still works: writes update FB.lastBenef[id] BEFORE
     // the write, listener sees matching hash, skips.
+    // V348: pantry-aware boot fetches — skip Firebase if cache is fresh.
+    // Each helper returns a snap-shaped object so the downstream hydration
+    // code (which calls .val()) works unchanged.
+    async function _v348FetchPart() {
+      const cached = await _partnersPantryRead();
+      if (cached && !cached.stale) {
+        console.log('[V348] partners from pantry:', cached.records.length);
+        return { val: function() { const obj = {}; for (const r of cached.records) if (r && r.id) obj[r.id] = r; return obj; } };
+      }
+      const snap = await fbRef('partners').once('value');
+      const arr = Object.values(snap.val() || {});
+      try { await _partnersPantryWrite(arr); } catch(_){}
+      console.log('[V348] partners fresh fetch:', arr.length);
+      return snap;
+    }
+    async function _v348FetchCfg() {
+      const cached = await _configPantryRead();
+      if (cached && !cached.stale) {
+        console.log('[V348] config from pantry');
+        return { val: function() { return cached.config; } };
+      }
+      const snap = await fbRef('config').once('value');
+      try { await _configPantryWrite(snap.val() || {}); } catch(_){}
+      console.log('[V348] config fresh fetch');
+      return snap;
+    }
+    async function _v348FetchUsers() {
+      const cached = await _usersPantryRead();
+      if (cached && !cached.stale && cached.users.length > 0) {
+        console.log('[V348] users from pantry (boot):', cached.users.length);
+        return { val: function() { const obj = {}; for (const r of cached.users) if (r && r.id) obj[r.id] = r; return obj; } };
+      }
+      const snap = await fbRef('users').once('value');
+      const arr = Object.values(snap.val() || {});
+      if (arr.length > 0) { try { await _usersPantryWrite(arr); } catch(_){} }
+      console.log('[V348] users fresh fetch (boot):', arr.length);
+      return snap;
+    }
     const [
       partSnap, cfgSnap, auditSnap, usersSnap
     ] = await Promise.all([
-      fbRef('partners').once('value'),
-      fbRef('config').once('value'),
+      _v348FetchPart(),
+      _v348FetchCfg(),
       Promise.resolve({ val: function(){ return null; } }),  // V336: audit log disabled — no boot fetch
-      fbRef('users').once('value'),
+      _v348FetchUsers(),
     ]);
     // ─ Beneficiaries ──────────────────────────────────────────────────
     // Hydration deferred to child_added listener (see V311 note above).
