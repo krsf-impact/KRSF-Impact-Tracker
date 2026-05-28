@@ -1,6 +1,23 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V349-LIVE
+  KRSF Beneficiary Impact Tracker  -  V350-LIVE
+  ============================================================================
+  V350-LIVE (2026-05-28 visibility-aware listener + reconnect telemetry):
+    + VISIBILITY-AWARE _minVersion LISTENER: detached on document.hidden
+      (phone screen off, tab backgrounded, app switched away), re-attached
+      on visible. Stops the reconnect-resync storm that was causing
+      mobile FCs to consume 10-20 MB per session even with zero
+      enrollments. Each WebSocket reconnect triggered by phone sleep was
+      forcing a full slice resync; with the listener detached, the SDK
+      can release the subscription cleanly while the tab is hidden.
+    + RECONNECT TELEMETRY: tracks WebSocket disconnect/reconnect events
+      via firebase.database().ref('.info/connected'). Counter increments
+      on every transition from connected=false to connected=true (after
+      the initial connect). Flushed to bandwidth_audit.reconnects with
+      the existing 5-min cadence.
+    + DASHBOARD: new "Reconnects" column on Bandwidth Usage page so
+      admin can correlate bandwidth spikes to network instability.
+    + APP_VERSION bumped to V350-LIVE.
   ============================================================================
   V349-LIVE (2026-05-28 bandwidth tracking + admin dashboard):
     + BANDWIDTH TRACKER MODULE: wraps window.fetch and monkey-patches
@@ -2466,7 +2483,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V349-LIVE';
+const APP_VERSION = 'V350-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // ── Sync state (in-memory) ─────────────────────────────────────────────────
@@ -3057,6 +3074,62 @@ function _v343VersionCheck() {
   });
 }
 
+// V350: visibility-aware _minVersion listener management. Mobile FCs were
+// burning bandwidth because every phone-sleep / phone-wake cycle triggered
+// a WebSocket reconnect, and on reconnect the SDK re-syncs all attached
+// listeners. Detaching the listener while hidden stops this cycle cold.
+let _v350VisibilityAttached = false;
+function _v350SetupVisibility() {
+  if (_v350VisibilityAttached) return;
+  if (typeof document === 'undefined' || !document.addEventListener) return;
+  _v350VisibilityAttached = true;
+  document.addEventListener('visibilitychange', function() {
+    try {
+      if (!FB.db) return;
+      if (document.hidden) {
+        // Detach the live listener and reset the guard so re-attach works.
+        try { fbRef('_minVersion').off('value'); } catch(_) {}
+        _v347VersionListenerAttached = false;
+        console.log('[V350] tab hidden — _minVersion listener detached');
+      } else {
+        // Re-attach. _v343VersionCheck has its own idempotent guard.
+        _v343VersionCheck();
+        console.log('[V350] tab visible — _minVersion listener re-attached');
+      }
+    } catch (e) { console.warn('[V350 vis]', e && e.message ? e.message : e); }
+  });
+}
+
+// V350: reconnect telemetry. Firebase exposes connection state via the
+// special .info/connected path. We count every false -> true transition
+// (after the first connect) as a reconnect event.
+let _v350ReconnectTrackerAttached = false;
+function _v350SetupReconnectTracker() {
+  if (_v350ReconnectTrackerAttached) return;
+  if (!FB.db || typeof FB.db.ref !== 'function') return;
+  _v350ReconnectTrackerAttached = true;
+  try {
+    if (window._bwTracker && typeof window._bwTracker.reconnects !== 'number') {
+      window._bwTracker.reconnects = 0;
+    }
+    let _wasConnected = null;
+    FB.db.ref('.info/connected').on('value', function(snap) {
+      const v = !!snap.val();
+      if (_wasConnected === null) {
+        _wasConnected = v;
+        console.log('[V350] initial connection state:', v);
+        return;
+      }
+      if (!_wasConnected && v) {
+        // false -> true transition: a reconnect happened.
+        if (window._bwTracker) window._bwTracker.reconnects += 1;
+        console.log('[V350] reconnect #' + (window._bwTracker ? window._bwTracker.reconnects : '?'));
+      }
+      _wasConnected = v;
+    });
+  } catch (e) { console.warn('[V350 rt]', e && e.message ? e.message : e); }
+}
+
 function _coordRenderSummaryV341() {
   const stripEl = document.getElementById('coord-summary-strip');
   if (stripEl) stripEl.innerHTML = '';
@@ -3321,6 +3394,9 @@ async function fbInitialSync() {
   }
   // V347: attach real-time version listener — propagates new versions instantly.
   try { _v343VersionCheck(); } catch(_){}
+  // V350: visibility-aware listener management + reconnect telemetry.
+  try { _v350SetupVisibility(); } catch(_){}
+  try { _v350SetupReconnectTracker(); } catch(_){}
   // V16.0.5: CLOUD IS AUTHORITATIVE FOR LOCAL STATE. Offline work flows
   // through the sync queue only.
   //
@@ -16324,6 +16400,7 @@ function _filteredAudit() {
         bytes: (prev.bytes || 0) + delta,
         sessions: (prev.sessions || 0) + sessionInc,
         enrollments: (prev.enrollments || 0) + _bw.enrollments,
+        reconnects: (prev.reconnects || 0) + (_bw.reconnects || 0),
         lastUpdate: Date.now()
       });
       _bw.lastFlush = _bw.sessionBytes;
@@ -16381,6 +16458,7 @@ async function renderAdminBandwidth() {
         + '<td style="padding:8px 10px;font-size:13px;text-align:right;' + colorStyle + '">' + _fmtBytes(r.bytes||0) + '</td>'
         + '<td style="padding:8px 10px;font-size:12px;text-align:right">' + (r.sessions || 0) + '</td>'
         + '<td style="padding:8px 10px;font-size:12px;text-align:right">' + (r.enrollments || 0) + '</td>'
+        + '<td style="padding:8px 10px;font-size:12px;text-align:right;color:' + ((r.reconnects||0) > 20 ? '#7F1D1D' : '#1F2937') + '">' + (r.reconnects || 0) + '</td>'
         + '</tr>';
     }).join('');
 
@@ -16404,8 +16482,9 @@ async function renderAdminBandwidth() {
     html += '<th style="padding:10px;font-size:11px;font-weight:600;color:var(--gray2);text-align:right">Downloaded</th>';
     html += '<th style="padding:10px;font-size:11px;font-weight:600;color:var(--gray2);text-align:right">Sessions</th>';
     html += '<th style="padding:10px;font-size:11px;font-weight:600;color:var(--gray2);text-align:right">Enrollments</th>';
+    html += '<th style="padding:10px;font-size:11px;font-weight:600;color:var(--gray2);text-align:right">Reconnects</th>';
     html += '</tr></thead><tbody>';
-    html += rows.length === 0 ? '<tr><td colspan="5" style="padding:30px;text-align:center;color:var(--gray2)">No data for this date.</td></tr>' : tableRows;
+    html += rows.length === 0 ? '<tr><td colspan="6" style="padding:30px;text-align:center;color:var(--gray2)">No data for this date.</td></tr>' : tableRows;
     html += '</tbody></table></div>';
     html += '<p style="font-size:11px;color:var(--gray2);margin-top:12px">V349 measurement: REST fetch + SDK once() bytes. Updates every 5 minutes per user. Live listener (.on) traffic not yet captured.</p>';
     html += '<div style="margin-top:8px"><button onclick="window._bwFlush && window._bwFlush(true)" style="background:#1B3A6B;color:#fff;border:none;padding:6px 14px;border-radius:4px;font-size:12px;cursor:pointer">Flush my counter now</button></div>';
