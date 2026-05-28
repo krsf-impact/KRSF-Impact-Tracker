@@ -1,6 +1,23 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V347-LIVE
+  KRSF Beneficiary Impact Tracker  -  V349-LIVE
+  ============================================================================
+  V349-LIVE (2026-05-28 bandwidth tracking + admin dashboard):
+    + BANDWIDTH TRACKER MODULE: wraps window.fetch and monkey-patches
+      firebase.database.Query.prototype.once to count bytes received from
+      Firebase. Maintains window._bwTracker { sessionBytes, enrollments }.
+      Every 5 minutes (and on beforeunload), writes a summary to
+      /krsf_tracker/bandwidth_audit/<date>/<userId>.
+    + ADMIN DASHBOARD: new admin-only page at "Bandwidth Usage". Date
+      picker (last 30 days), summary cards (total MB / active users /
+      date), sortable per-user table with role + sessions + enrollments.
+      Top user highlighted in red, top-3 in amber.
+    + NO LISTENER CHANGES. V348 architecture preserved. V349 is a
+      diagnostic ship — gives us per-user data so V350 can target the
+      real bandwidth driver with evidence.
+    + APP_VERSION bumped to V349-LIVE.
+    REQUIRED RULES UPDATE: see firebase-rules-V349.json for the new
+    bandwidth_audit index.
   ============================================================================
   V348-LIVE (2026-05-30 partners + config pantry — boot-fetch elimination):
     + PARTNERS PANTRY: global IndexedDB cache (key partners-pantry-global),
@@ -1613,6 +1630,11 @@ body[data-shell="coord"] #coord-app { display: block; }
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8m-3-3l3 3 3-3M3 11v3h10v-3"/></svg>
       Import Data
     </button>
+    <!-- V349: Bandwidth usage dashboard. Admin only. -->
+    <button data-admin-only class="nav-btn" data-v="admin_bandwidth" onclick="nav('admin_bandwidth')" style="display:none">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 13h12M4 10v3M7 6v7M10 3v10M13 8v5"/></svg>
+      Bandwidth Usage
+    </button>
     <!-- V310-S3: Photo migration entry point. Admin only. One-shot tool to
          move existing base64 photos to Firebase Storage. -->
     <button data-admin-only class="nav-btn" data-v="admin_photo_migration" onclick="nav('admin_photo_migration')" style="display:none" data-sidebar-hidden="true">
@@ -2444,7 +2466,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V348-LIVE';
+const APP_VERSION = 'V349-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // ── Sync state (in-memory) ─────────────────────────────────────────────────
@@ -14453,7 +14475,7 @@ window.openDrawer = function(id) {
 };
 
 // ── Nav ───────────────────────────────────────────────────────────────────
-const _navRoutes_v32={dashboard:renderDashboard,beneficiaries:renderAllBeneficiaries,list:renderLivelihood,ngo:renderNGO,alerts:renderAlerts,map:renderMap,integrated:renderIntegrated,advocacy:renderAdvocacy,admin_partners:renderAdminPartners,admin_users:renderAdminUsers,admin_livelihoods:renderAdminLivelihoods,admin_schemes:renderAdminSchemes,admin_audit:renderAdminAuditLog,admin_import:renderAdminImport,admin_photo_migration:renderAdminPhotoMigration,admin_advocacy_backfill:renderAdminAdvocacyBackfill,admin_dedup_ids:renderAdminDedupIds,admin_delete_dupes:renderAdminDeleteDupes,admin_scheme_rename:renderAdminSchemeRename};
+const _navRoutes_v32={dashboard:renderDashboard,beneficiaries:renderAllBeneficiaries,list:renderLivelihood,ngo:renderNGO,alerts:renderAlerts,map:renderMap,integrated:renderIntegrated,advocacy:renderAdvocacy,admin_partners:renderAdminPartners,admin_users:renderAdminUsers,admin_livelihoods:renderAdminLivelihoods,admin_schemes:renderAdminSchemes,admin_audit:renderAdminAuditLog,admin_import:renderAdminImport,admin_photo_migration:renderAdminPhotoMigration,admin_advocacy_backfill:renderAdminAdvocacyBackfill,admin_dedup_ids:renderAdminDedupIds,admin_delete_dupes:renderAdminDeleteDupes,admin_scheme_rename:renderAdminSchemeRename,admin_bandwidth:renderAdminBandwidth};
 window.nav=function(v){
   // Guard admin routes — non-admins get bounced to dashboard
   if (v.startsWith('admin_') && !isAdmin()) { v = 'dashboard'; }
@@ -14486,7 +14508,7 @@ window.nav=function(v){
   const mobKey=mobMap[v];
   document.querySelectorAll('.mob-nav-item').forEach(b=>b.classList.remove('active'));
   if (mobKey) { const mb=document.getElementById('mob-nav-'+mobKey); if(mb)mb.classList.add('active'); }
-  const titles={dashboard:'Dashboard',beneficiaries:'All Beneficiaries',list:'Livelihood',ngo:'NGO Partners',alerts:'Alerts & Flags',map:'Field Map',integrated:'Integrated View',advocacy:'Advocacy',admin_partners:'Partner Management',admin_users:'User Management',admin_livelihoods:'Livelihood Management',admin_schemes:'Advocacy Management',admin_audit:'Audit Log'};
+  const titles={dashboard:'Dashboard',beneficiaries:'All Beneficiaries',list:'Livelihood',ngo:'NGO Partners',alerts:'Alerts & Flags',map:'Field Map',integrated:'Integrated View',advocacy:'Advocacy',admin_partners:'Partner Management',admin_users:'User Management',admin_livelihoods:'Livelihood Management',admin_schemes:'Advocacy Management',admin_audit:'Audit Log',admin_bandwidth:'Bandwidth Usage'};
   // For NGO logins the "ngo" page shows their team (FCs), not partners — retitle.
   const _navUser = (typeof currentUser === 'function') ? currentUser() : null;
   if (v === 'ngo' && _navUser && _navUser.role === 'ngo') titles.ngo = 'Team Report';
@@ -16222,6 +16244,181 @@ function _filteredAudit() {
     }
     return true;
   });
+}
+
+// V349: Bandwidth tracker. Counts bytes from REST (window.fetch) and from
+// Firebase SDK reads (Query.prototype.once). Writes a per-user daily
+// summary to /bandwidth_audit/<date>/<userId> every 5 minutes.
+(function _bwInit() {
+  if (window._bwTracker) return;  // idempotent
+  const _bw = {
+    sessionBytes: 0,
+    sessionStart: Date.now(),
+    enrollments: 0,
+    lastFlush: 0,
+    sessionLogged: false
+  };
+  window._bwTracker = _bw;
+  window._bwTrack = function(n) { if (typeof n === 'number' && n > 0) _bw.sessionBytes += n; };
+  window._bwEnrollment = function() { _bw.enrollments += 1; };
+
+  // 1) Wrap fetch — captures admin paginated REST + auth fetches
+  try {
+    const _origFetch = window.fetch;
+    window.fetch = function() {
+      return _origFetch.apply(this, arguments).then(function(resp) {
+        try {
+          const cloned = resp.clone();
+          cloned.text().then(function(t) { _bw.sessionBytes += (t ? t.length : 0); }).catch(function(){});
+        } catch(_) {}
+        return resp;
+      });
+    };
+  } catch(_) {}
+
+  // 2) Patch firebase.database.Query.prototype.once — captures SDK reads
+  try {
+    if (window.firebase && firebase.database) {
+      const _Q = firebase.database.Query.prototype;
+      const _origOnce = _Q.once;
+      _Q.once = function() {
+        const ret = _origOnce.apply(this, arguments);
+        if (ret && typeof ret.then === 'function') {
+          return ret.then(function(snap) {
+            try {
+              const v = snap && snap.val ? snap.val() : null;
+              if (v != null) { _bw.sessionBytes += JSON.stringify(v).length; }
+            } catch(_) {}
+            return snap;
+          });
+        }
+        return ret;
+      };
+    }
+  } catch(_) {}
+
+  function _dateStr() {
+    const d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  }
+
+  async function _flush(force) {
+    try {
+      if (typeof currentUser !== 'function') return;
+      const u = currentUser();
+      if (!u || !u.userId) return;
+      if (typeof fbRef !== 'function') return;
+      const delta = _bw.sessionBytes - _bw.lastFlush;
+      if (!force && delta < 2048) return;  // skip flushes under 2 KB unless forced
+
+      const date = _dateStr();
+      const ref = fbRef('bandwidth_audit/' + date + '/' + u.userId);
+      const snap = await ref.once('value');
+      const prev = snap.val() || {};
+      const sessionInc = _bw.sessionLogged ? 0 : 1;
+      _bw.sessionLogged = true;
+      await ref.update({
+        userId: u.userId,
+        fullName: u.fullName || u.username || '',
+        role: u.role || '',
+        bytes: (prev.bytes || 0) + delta,
+        sessions: (prev.sessions || 0) + sessionInc,
+        enrollments: (prev.enrollments || 0) + _bw.enrollments,
+        lastUpdate: Date.now()
+      });
+      _bw.lastFlush = _bw.sessionBytes;
+      _bw.enrollments = 0;
+    } catch (e) {
+      console.warn('[V349 bw flush]', e && e.message ? e.message : e);
+    }
+  }
+
+  window._bwFlush = _flush;
+  setInterval(function(){ _flush(false); }, 5 * 60 * 1000);
+  window.addEventListener('beforeunload', function(){ _flush(true); });
+})();
+
+// V349: Admin bandwidth dashboard.
+async function renderAdminBandwidth() {
+  if (!isAdmin()) {
+    document.getElementById('content').innerHTML = '<div class="empty">Admin access required.</div>';
+    return;
+  }
+  const today = new Date();
+  const todayStr = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
+  const selectedDate = window._bwSelectedDate || todayStr;
+
+  const dateOpts = [];
+  for (let i = 0; i < 30; i++) {
+    const d = new Date(today.getTime() - i * 86400000);
+    dateOpts.push(d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'));
+  }
+
+  function _fmtBytes(n) {
+    if (!n) return '0 B';
+    if (n < 1024) return n + ' B';
+    if (n < 1024*1024) return (n/1024).toFixed(1) + ' KB';
+    if (n < 1024*1024*1024) return (n/1024/1024).toFixed(2) + ' MB';
+    return (n/1024/1024/1024).toFixed(2) + ' GB';
+  }
+
+  const content = document.getElementById('content');
+  content.innerHTML = '<div class="ds"><div class="ds-title">Loading bandwidth data...</div></div>';
+
+  try {
+    const snap = await fbRef('bandwidth_audit/' + selectedDate).once('value');
+    const data = snap.val() || {};
+    const rows = Object.values(data).sort(function(a,b){ return (b.bytes||0) - (a.bytes||0); });
+    const totalBytes = rows.reduce(function(s,r){ return s + (r.bytes||0); }, 0);
+    const activeUsers = rows.length;
+
+    const tableRows = rows.map(function(r, i) {
+      const bgStyle = i === 0 ? 'background:#FEE2E2' : (i < 3 ? 'background:#FEF3C7' : '');
+      const colorStyle = i === 0 ? 'color:#7F1D1D;font-weight:600' : (i < 3 ? 'color:#78350F;font-weight:500' : '');
+      return '<tr style="' + bgStyle + '">'
+        + '<td style="padding:8px 10px;font-size:13px">' + (r.fullName || r.userId || '—') + '</td>'
+        + '<td style="padding:8px 10px;font-size:12px;color:var(--gray2)">' + (r.role || '—') + '</td>'
+        + '<td style="padding:8px 10px;font-size:13px;text-align:right;' + colorStyle + '">' + _fmtBytes(r.bytes||0) + '</td>'
+        + '<td style="padding:8px 10px;font-size:12px;text-align:right">' + (r.sessions || 0) + '</td>'
+        + '<td style="padding:8px 10px;font-size:12px;text-align:right">' + (r.enrollments || 0) + '</td>'
+        + '</tr>';
+    }).join('');
+
+    let html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:12px">';
+    html += '<h2 style="margin:0;font-size:18px">Bandwidth Usage</h2>';
+    html += '<select id="bw-date-picker" style="padding:8px 12px;border-radius:6px;border:1px solid var(--gray3);font-size:13px">';
+    for (const d of dateOpts) {
+      html += '<option value="' + d + '"' + (d===selectedDate ? ' selected' : '') + '>' + d + '</option>';
+    }
+    html += '</select></div>';
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px">';
+    html += '<div style="background:#F3F4F6;padding:14px;border-radius:8px"><div style="font-size:11px;color:var(--gray2);margin-bottom:4px">Total</div><div style="font-size:20px;font-weight:600">' + _fmtBytes(totalBytes) + '</div></div>';
+    html += '<div style="background:#F3F4F6;padding:14px;border-radius:8px"><div style="font-size:11px;color:var(--gray2);margin-bottom:4px">Active users</div><div style="font-size:20px;font-weight:600">' + activeUsers + '</div></div>';
+    html += '<div style="background:#F3F4F6;padding:14px;border-radius:8px"><div style="font-size:11px;color:var(--gray2);margin-bottom:4px">Date</div><div style="font-size:20px;font-weight:600">' + selectedDate + '</div></div>';
+    html += '</div>';
+    html += '<div style="background:#fff;border:1px solid var(--gray3);border-radius:8px;overflow:hidden">';
+    html += '<table style="width:100%;border-collapse:collapse">';
+    html += '<thead><tr style="background:#FAFAFA;border-bottom:1px solid var(--gray3)">';
+    html += '<th style="padding:10px;font-size:11px;font-weight:600;color:var(--gray2);text-align:left">User</th>';
+    html += '<th style="padding:10px;font-size:11px;font-weight:600;color:var(--gray2);text-align:left">Role</th>';
+    html += '<th style="padding:10px;font-size:11px;font-weight:600;color:var(--gray2);text-align:right">Downloaded</th>';
+    html += '<th style="padding:10px;font-size:11px;font-weight:600;color:var(--gray2);text-align:right">Sessions</th>';
+    html += '<th style="padding:10px;font-size:11px;font-weight:600;color:var(--gray2);text-align:right">Enrollments</th>';
+    html += '</tr></thead><tbody>';
+    html += rows.length === 0 ? '<tr><td colspan="5" style="padding:30px;text-align:center;color:var(--gray2)">No data for this date.</td></tr>' : tableRows;
+    html += '</tbody></table></div>';
+    html += '<p style="font-size:11px;color:var(--gray2);margin-top:12px">V349 measurement: REST fetch + SDK once() bytes. Updates every 5 minutes per user. Live listener (.on) traffic not yet captured.</p>';
+    html += '<div style="margin-top:8px"><button onclick="window._bwFlush && window._bwFlush(true)" style="background:#1B3A6B;color:#fff;border:none;padding:6px 14px;border-radius:4px;font-size:12px;cursor:pointer">Flush my counter now</button></div>';
+
+    content.innerHTML = html;
+    const picker = document.getElementById('bw-date-picker');
+    if (picker) picker.addEventListener('change', function() {
+      window._bwSelectedDate = this.value;
+      renderAdminBandwidth();
+    });
+  } catch (e) {
+    content.innerHTML = '<div class="empty">Error loading: ' + (e && e.message ? e.message : e) + '</div>';
+  }
 }
 
 function renderAdminAuditLog() {
