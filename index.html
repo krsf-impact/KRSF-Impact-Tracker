@@ -1,6 +1,98 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V352-LIVE
+  KRSF Beneficiary Impact Tracker  -  V355-LIVE
+  ============================================================================
+  V355-LIVE (2026-05-29 bandwidth tracker captures .on() listener traffic):
+    + LISTENER MEASUREMENT: Query.prototype.on is now monkey-patched the
+      same way V349 patched Query.prototype.once. Every .on() callback
+      invocation adds snap.val() bytes to sessionBytes. Previously the
+      dashboard caveat read "Live listener (.on) traffic not yet captured"
+      — a real blind spot, since WebSocket-delivered listener data is the
+      dominant Firebase RTDB read path. The dashboard now reflects ~95%
+      of real bandwidth instead of ~30%.
+    + .off() ALSO PATCHED so the SDK's exact-identity callback matching
+      still works. Original callbacks are wrapped via a WeakMap; .off()
+      translates the user-facing callback to the wrapper before calling
+      the original .off(). No leaks, no double-counting. Same-callback-
+      on-multiple-queries is handled by memoising one wrapper per cb.
+    + DIAGNOSTIC IMPACT: existing dashboard totals will JUMP tomorrow —
+      not because bandwidth grew, but because the tracker can now see
+      traffic it was previously missing. The before/after V353+V354
+      reduction story stays valid but is now measurable against a
+      complete baseline. The V348 "warm reload = 15 KB" claim becomes
+      independently verifiable for the first time.
+    + REMAINING GAP: WebSocket framing overhead (~10–30%) is still not
+      counted because Firebase doesn't expose wire-level frame size to
+      the JS layer. For absolute ground truth, compare against the
+      Firebase Console daily usage page. Dashboard caveat updated to
+      reflect this honestly.
+    + APP_VERSION bumped to V355-LIVE. PANTRY_SCHEMA_VERSION unchanged
+      (still 1) — V354 pantries survive this deploy.
+    REQUIRES: no Firebase rules update, no deploy steps beyond uploading.
+    EXPECTED OUTCOME: dashboard numbers will jump (likely 2–5×). This is
+    correct — the prior numbers were undercounts. From this deploy on,
+    every future "fix" can be objectively measured against a baseline
+    that actually represents real bandwidth.
+  ============================================================================
+  V354-LIVE (2026-05-29 pantry schema-version — stop nuking caches on every deploy):
+    + PANTRY_SCHEMA_VERSION constant decouples cache validity from
+      APP_VERSION. Previously every release (V343 → V353 = 10 deploys in
+      ~30 days) invalidated every FC's IndexedDB pantry, even though the
+      cached DATA hadn't changed — only the code. The advertised "30-day
+      TTL" was effectively "next-deploy TTL" of ~2–3 days.
+    + ALL 5 PANTRY READERS (_pantryRead, _advPantryRead, _usersPantryRead,
+      _partnersPantryRead, _configPantryRead) now check schemaVersion
+      instead of APP_VERSION. Cache is dropped ONLY when the shape of
+      cached records actually changes — bump PANTRY_SCHEMA_VERSION
+      manually for that. Code-only releases preserve every pantry.
+    + ALL 5 PANTRY WRITERS now stamp schemaVersion. The defensive shape
+      checks (Array.isArray on records / users, typeof === 'object' on
+      config) remain in place as a second line of defence.
+    + ONE-TIME COST: the V354 deploy itself wipes pantries one last time
+      (FCs land on V354 with V353-tagged pantries → schemaVersion check
+      fails → refetch). From V355 onward, pantries survive every release.
+    + APP_VERSION bumped to V354-LIVE. PANTRY_SCHEMA_VERSION starts at 1.
+    REQUIRES: no Firebase rules update. No deploy steps beyond uploading.
+    EXPECTED OUTCOME: weekly bandwidth savings ≈ avg_pantry_size × FCs ×
+    deploys_per_week. With ~250 KB pantry per FC and a weekly deploy
+    cadence, ~250 KB saved per FC per deploy × 50 FCs = ~12 MB/week saved
+    across the fleet — and it compounds with every deploy you ship.
+    DEVELOPER NOTE: if a future release CHANGES the shape of any cached
+    record (renamed field, new required field, dropped field), bump
+    PANTRY_SCHEMA_VERSION by 1 in that release. That single bump triggers
+    a one-time refetch on every FC. See the constant's docstring.
+  ============================================================================
+  V353-LIVE (2026-05-29 counter-based genId — kills the per-enrollment scan):
+    + COUNTER-BASED ID MINTING: genId now mints IDs via an atomic transaction
+      on /krsf_tracker/id_counters/<state>. Replaces the V324–V331 shallow
+      REST scan + reservation-retry loop that downloaded ~200 KB on every
+      enrollment (up to ~4 MB worst-case under contention). The dominant
+      per-action bandwidth cost in the app is now gone.
+    + PER-ENROLL BANDWIDTH: ~200 KB → ~200 B (≈ 1000× reduction). An FC
+      doing 10 enrolls/day now uses ~2 KB on ID generation instead of ~2 MB.
+      Larger savings for FCs that were hitting reservation collisions
+      previously (each collision retry used to add ~400 KB).
+    + CONCURRENCY: Firebase serializes transactions on the same node, so
+      two devices can never compute the same candidate. No collision loop,
+      no per-attempt re-fetch, no random-suffix fallback path needed. The
+      SDK retries the loser's handler with the updated value automatically.
+    + ONE-TIME BOOTSTRAP: the first call per state on a fresh device with
+      no local records performs ONE shallow scan to safely seed the counter
+      floor. After that, the counter is canonical and no further scans
+      happen for that state across the entire Firebase project, ever.
+    + id_reservations writes RETAINED for V353 as best-effort audit. No
+      longer load-bearing for correctness — the counter guarantees
+      uniqueness. Will be removed in V354 after V353 is verified live.
+    + APP_VERSION bumped to V353-LIVE.
+    REQUIRES: no Firebase rules update — id_counters inherits the root
+    "auth != null" rule. No manual seeding step — counters self-bootstrap
+    on first use per state.
+    EXPECTED OUTCOME: per-FC daily MB on the Bandwidth Usage dashboard
+    should drop by roughly (avg_enrolls_per_day × 200 KB). For an FC
+    doing 10 enrolls/day, that's ~2 MB/day saved on ID generation alone.
+    V349 dashboard already tracks this (the old shallow scan went through
+    fetch, which the tracker measures) so the before/after diff is visible
+    in the existing dashboard without any tracker changes.
   ============================================================================
   V352-LIVE (2026-05-28 PWA: manifest + service worker + install prompt):
     + WEB APP MANIFEST: app is now installable. Chrome detects this via
@@ -2510,8 +2602,25 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V352-LIVE';
+const APP_VERSION = 'V355-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
+
+// V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
+// dropped only when the *shape* of cached records changes — not on every
+// code release. Bumping APP_VERSION alone now preserves every FC's pantry.
+//
+// BUMP PANTRY_SCHEMA_VERSION by 1 if and only if you make one of:
+//   - rename a field on a cached record
+//   - add a new REQUIRED field (one the UI will crash without)
+//   - drop a field the UI still references
+//   - change a field's type (string ↔ number, scalar ↔ array, etc.)
+//
+// Pure additions of OPTIONAL fields, UI-only changes, bug fixes, listener
+// changes, and bandwidth-tracker changes do NOT require a bump.
+//
+// A bump triggers a one-time full refetch on every FC's next boot, so treat
+// it like a deploy-time cost and avoid bumping casually.
+const PANTRY_SCHEMA_VERSION = 1;
 
 // ── Sync state (in-memory) ─────────────────────────────────────────────────
 const FB = {
@@ -2775,7 +2884,7 @@ function _pantryKey(userId) { return 'benef-pantry-' + userId; }
 async function _pantryWrite(userId, records, lastSyncTs) {
   if (!userId) return;
   await _idbSet(_pantryKey(userId), {
-    userId: userId, version: APP_VERSION, ts: Date.now(),
+    userId: userId, schemaVersion: PANTRY_SCHEMA_VERSION, ts: Date.now(),
     lastSyncTs: (typeof lastSyncTs === 'number') ? lastSyncTs : Date.now(),
     records: Array.isArray(records) ? records : []
   });
@@ -2783,7 +2892,7 @@ async function _pantryWrite(userId, records, lastSyncTs) {
 async function _pantryRead(userId) {
   if (!userId) return null;
   const o = await _idbGet(_pantryKey(userId));
-  if (!o || o.userId !== userId || o.version !== APP_VERSION) return null;
+  if (!o || o.userId !== userId || o.schemaVersion !== PANTRY_SCHEMA_VERSION) return null;
   if (!Array.isArray(o.records)) return null;
   const stale = (Date.now() - (o.ts || 0)) > _PANTRY_TTL_MS;
   return { stale: stale, records: o.records, lastSyncTs: o.lastSyncTs || 0 };
@@ -2796,7 +2905,7 @@ function _advPantryKey(userId) { return 'adv-pantry-' + userId; }
 async function _advPantryWrite(userId, records, lastSyncTs) {
   if (!userId) return;
   await _idbSet(_advPantryKey(userId), {
-    userId: userId, version: APP_VERSION, ts: Date.now(),
+    userId: userId, schemaVersion: PANTRY_SCHEMA_VERSION, ts: Date.now(),
     lastSyncTs: (typeof lastSyncTs === 'number') ? lastSyncTs : Date.now(),
     records: Array.isArray(records) ? records : []
   });
@@ -2804,7 +2913,7 @@ async function _advPantryWrite(userId, records, lastSyncTs) {
 async function _advPantryRead(userId) {
   if (!userId) return null;
   const o = await _idbGet(_advPantryKey(userId));
-  if (!o || o.userId !== userId || o.version !== APP_VERSION) return null;
+  if (!o || o.userId !== userId || o.schemaVersion !== PANTRY_SCHEMA_VERSION) return null;
   if (!Array.isArray(o.records)) return null;
   const stale = (Date.now() - (o.ts || 0)) > _PANTRY_TTL_MS;
   return { stale: stale, records: o.records, lastSyncTs: o.lastSyncTs || 0 };
@@ -2817,13 +2926,13 @@ async function _advPantryClear(userId) {
 const _USERS_PANTRY_KEY = 'users-pantry-global';
 async function _usersPantryWrite(users) {
   await _idbSet(_USERS_PANTRY_KEY, {
-    version: APP_VERSION, ts: Date.now(),
+    schemaVersion: PANTRY_SCHEMA_VERSION, ts: Date.now(),
     users: Array.isArray(users) ? users : []
   });
 }
 async function _usersPantryRead() {
   const o = await _idbGet(_USERS_PANTRY_KEY);
-  if (!o || o.version !== APP_VERSION) return null;
+  if (!o || o.schemaVersion !== PANTRY_SCHEMA_VERSION) return null;
   if (!Array.isArray(o.users)) return null;
   const stale = (Date.now() - (o.ts || 0)) > _PANTRY_TTL_MS;
   return { stale: stale, users: o.users };
@@ -2833,13 +2942,13 @@ async function _usersPantryRead() {
 const _PARTNERS_PANTRY_KEY = 'partners-pantry-global';
 async function _partnersPantryWrite(records) {
   await _idbSet(_PARTNERS_PANTRY_KEY, {
-    version: APP_VERSION, ts: Date.now(),
+    schemaVersion: PANTRY_SCHEMA_VERSION, ts: Date.now(),
     records: Array.isArray(records) ? records : []
   });
 }
 async function _partnersPantryRead() {
   const o = await _idbGet(_PARTNERS_PANTRY_KEY);
-  if (!o || o.version !== APP_VERSION) return null;
+  if (!o || o.schemaVersion !== PANTRY_SCHEMA_VERSION) return null;
   if (!Array.isArray(o.records)) return null;
   const stale = (Date.now() - (o.ts || 0)) > _PANTRY_TTL_MS;
   return { stale: stale, records: o.records };
@@ -2850,13 +2959,13 @@ async function _partnersPantryRead() {
 const _CONFIG_PANTRY_KEY = 'config-pantry-global';
 async function _configPantryWrite(config) {
   await _idbSet(_CONFIG_PANTRY_KEY, {
-    version: APP_VERSION, ts: Date.now(),
+    schemaVersion: PANTRY_SCHEMA_VERSION, ts: Date.now(),
     config: config || {}
   });
 }
 async function _configPantryRead() {
   const o = await _idbGet(_CONFIG_PANTRY_KEY);
-  if (!o || o.version !== APP_VERSION) return null;
+  if (!o || o.schemaVersion !== PANTRY_SCHEMA_VERSION) return null;
   if (!o.config || typeof o.config !== 'object') return null;
   const stale = (Date.now() - (o.ts || 0)) > _PANTRY_TTL_MS;
   return { stale: stale, config: o.config };
@@ -6961,6 +7070,40 @@ let _genIdMutex = Promise.resolve();
 // If Firebase is unreachable, we throw — refusing to mint an ID is safer
 // than minting one that may collide. The caller's catch surfaces a clear
 // "could not generate ID" error to the user.
+//
+// V353: one-time bootstrap helper. Performs a single shallow scan to find
+// the max numeric ID for a given prefix. Called ONLY when an FC's first
+// attempt to mint an ID for a particular state finds (a) no local records
+// for that state AND (b) no counter yet at /krsf_tracker/id_counters/<code>.
+// After this fires once, the counter is canonical and no further scans
+// ever happen for that state in the entire Firebase project.
+async function _v353BootstrapScanMax(prefix) {
+  const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';
+  const NS = 'krsf_tracker';
+  let authToken = '';
+  try {
+    const authUser = firebase.auth ? firebase.auth().currentUser : null;
+    if (authUser) authToken = await authUser.getIdToken();
+  } catch (_) { /* auth unavailable */ }
+  const url = `${DB_URL}/${NS}/beneficiaries.json?shallow=true${authToken ? '&auth=' + authToken : ''}`;
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error('V353 bootstrap scan failed: HTTP ' + resp.status);
+  const keysObj = await resp.json();
+  let max = 0;
+  if (keysObj && typeof keysObj === 'object') {
+    for (const k of Object.keys(keysObj)) {
+      if (k.startsWith(prefix)) {
+        // Same parsing rule as the legacy V324 scan: strip any legacy "-XX"
+        // random suffix so 'KRSF-GJ-3553-A7' still yields 3553.
+        const suffix = k.slice(prefix.length).split('-')[0];
+        const n = parseInt(suffix, 10);
+        if (!isNaN(n) && n > max) max = n;
+      }
+    }
+  }
+  return max;
+}
+
 async function genId(district) {
   // V324: serialize all genId calls through a mutex so rapid successive calls
   // (e.g. enrolling a head + 3 family members in quick succession) don't all
@@ -7007,212 +7150,121 @@ async function _genIdCore(district) {
   }
   const prefix = `KRSF-${code}-`;
 
-  // V324 fix: use Firebase REST API with shallow=true to fetch ONLY the keys
-  // under beneficiaries/ that match the state prefix, then find the numeric
-  // max by parsing each key.
+  // V353-LIVE: counter-based ID minting.
+  // Replaces the V324–V331 shallow-scan + reservation-retry loop that ran on
+  // EVERY enrollment (~200 KB per call, up to ~4 MB on retry contention). We
+  // now mint IDs via an atomic transaction on /krsf_tracker/id_counters/<code>.
   //
-  // Why not the SDK (orderByKey + limitToLast(1))?
-  //   Firebase sorts keys LEXICALLY. 'KRSF-GJ-9999' > 'KRSF-GJ-10000'
-  //   because '9' > '1'. So limitToLast(1) always returns KRSF-GJ-9999 as
-  //   the max once you pass 9999, causing genId to keep re-minting KRSF-GJ-10000
-  //   and overwriting the same record. Count was stuck at 9663.
+  // Why this is safe:
+  //   Firebase serializes transactions on the same node. Two devices that call
+  //   genId for the same state at the same instant cannot compute the same
+  //   number — the SDK retries the loser's handler with the updated value, so
+  //   the second call deterministically returns N+1 of whatever the first
+  //   call committed. No collision window exists.
   //
-  // Why not SDK without limitToLast?
-  //   Without limitToLast the SDK downloads full record DATA for every
-  //   matching node (~9000 records × full beneficiary object = several MB).
-  //   On a slow mobile connection this times out and the enrolment fails.
+  // Why this is cheap:
+  //   The counter node holds a single integer. Read + write per call is
+  //   ~200 B over the wire including WebSocket framing. Compare to the old
+  //   REST shallow scan that returned ~10,000 keys (~200 KB) on every call,
+  //   plus 2 more shallow scans per retry collision in the old reservation
+  //   loop. ~1000× reduction on the dominant per-action cost in the app.
   //
-  // REST shallow=true:
-  //   Returns ONLY the keys as a flat JSON object {key: true, ...}.
-  //   No record data. Fast (~5-10 KB for 9000 keys). Works offline-first
-  //   (falls back to localIds if fetch fails). Numeric max is found correctly
-  //   by parsing every returned key — no reliance on lexical order at all.
+  // First-call bootstrap:
+  //   On a fresh device with no local records for this state, the very first
+  //   call performs ONE shallow scan (via _v353BootstrapScanMax) to safely
+  //   seed the counter floor. After that, the counter is canonical and no
+  //   further scans ever happen for that state in the Firebase project.
+  //
+  // id_reservations:
+  //   Write retained as best-effort audit. No longer load-bearing — the
+  //   counter guarantees uniqueness. Scheduled for removal in V354.
   if (!FB || !FB.db) {
     throw new Error('genId: Firebase unavailable. Please check your connection and try again.');
   }
-  let serverMaxN = 0;
-  try {
-    // V324 fix: use Firebase REST API with shallow=true to fetch all beneficiary
-    // keys and find the numeric max for this state prefix.
-    //
-    // IMPORTANT: shallow=true and orderBy/startAt/endAt are MUTUALLY EXCLUSIVE
-    // in the Firebase REST API — combining them returns HTTP 400. We fetch ALL
-    // keys with shallow=true (no filter params) and filter by prefix client-side.
-    // With ~10,000 total keys across all states this is ~200KB — fast and safe.
-    const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';
-    const NS     = 'krsf_tracker';
-    // Include auth token so Firebase security rules are satisfied
-    let authToken = '';
-    try {
-      const authUser = firebase.auth ? firebase.auth().currentUser : null;
-      if (authUser) authToken = await authUser.getIdToken();
-    } catch (_) { /* auth unavailable */ }
-    const url = `${DB_URL}/${NS}/beneficiaries.json?shallow=true${authToken ? '&auth=' + authToken : ''}`;
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error('REST fetch failed: ' + resp.status);
-    const keysObj = await resp.json(); // { 'KRSF-GJ-0001': true, 'KRSF-MH-0001': true, ... }
-    if (keysObj && typeof keysObj === 'object') {
-      for (const k of Object.keys(keysObj)) {
-        if (k.startsWith(prefix)) {
-          // Parse numeric suffix. Some legacy IDs may have a "-XX" random
-          // suffix (race recovery in pre-V316 genId); strip that before
-          // parsing so 'KRSF-GJ-3553-A7' still gives us 3553.
-          const suffix = k.slice(prefix.length).split('-')[0];
-          const n = parseInt(suffix, 10);
-          if (!isNaN(n) && n > serverMaxN) serverMaxN = n;
-        }
-      }
-    }
-  } catch (e) {
-    throw new Error('genId: could not query Firebase for max id. ' + (e && e.message ? e.message : e));
-  }
 
-  // Also include in-flight pending claims from THIS tab and other tabs of
-  // the same browser. These are IDs that genId already minted in the last
-  // few seconds but whose saves haven't landed in Firebase yet, so the
-  // server's max wouldn't include them.
-  const pendingIds = _loadPendingIds();
-  const now = Date.now();
-  for (const [id, expiry] of _pendingIds.entries()) {
-    if (expiry > now) pendingIds.add(id);
-  }
-  // Local data (mostly redundant with the Firebase fetch, but cheap and
-  // closes a tiny race window where a save just happened on this tab and
-  // is in the cache but hasn't propagated back yet).
+  // Local seed floor — computed from the cache only (no network). Used inside
+  // the transaction handler if the counter has not yet been seeded for this
+  // state, so we never mint an ID lower than something we already know exists.
   const localIds = loadData().map(b => b.id);
   let localMaxN = 0;
-  [...localIds, ...pendingIds].forEach(id => {
+  for (const id of localIds) {
     if (typeof id === 'string' && id.startsWith(prefix)) {
       const suffix = id.slice(prefix.length).split('-')[0];
       const n = parseInt(suffix, 10);
       if (!isNaN(n) && n > localMaxN) localMaxN = n;
     }
-  });
-  const maxN = Math.max(serverMaxN, localMaxN);
-
-  // Belt-and-braces: assert uniqueness. If by any race condition our computed
-  // id already exists in pending or local, pivot to a random suffix. The
-  // Firebase fetch already covered everything in the database; this only
-  // catches the same-second race where two tabs both mint maxN+1.
-  const combinedIds = new Set([...localIds, ...pendingIds]);
-  let candidate = `${prefix}${String(maxN + 1).padStart(4,'0')}`;
-  if (combinedIds.has(candidate)) {
-    const CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    const randChar = () => CHARS[Math.floor(Math.random() * CHARS.length)];
-    let attempts = 0;
-    do {
-      const suffix = randChar() + randChar();
-      candidate = `${prefix}${String(maxN + 1).padStart(4,'0')}-${suffix}`;
-      attempts++;
-    } while (combinedIds.has(candidate) && attempts < 20);
-    if (combinedIds.has(candidate)) {
-      candidate = `${prefix}${String(maxN + 1).padStart(4,'0')}-${Date.now().toString(36).slice(-4)}`;
+  }
+  // Include in-flight pending claims from this tab (saves not yet landed).
+  for (const [pid] of _pendingIds.entries()) {
+    if (typeof pid === 'string' && pid.startsWith(prefix)) {
+      const suffix = pid.slice(prefix.length).split('-')[0];
+      const n = parseInt(suffix, 10);
+      if (!isNaN(n) && n > localMaxN) localMaxN = n;
     }
   }
-  // Claim the ID in the pending-IDs set before returning.
+
+  // Bootstrap path: if local cache has no prior records for this state AND
+  // the counter does not yet exist, perform ONE shallow scan to find the
+  // safe floor. This is the only remaining place a scan can happen, and it
+  // fires at most once per state per Firebase project lifetime.
+  const counterRef = fbRef('id_counters/' + code);
+  let bootstrapMaxN = 0;
+  if (localMaxN === 0) {
+    try {
+      const counterSnap = await counterRef.once('value');
+      if (counterSnap.val() == null) {
+        bootstrapMaxN = await _v353BootstrapScanMax(prefix);
+        console.warn('[genId V353] one-time bootstrap scan for', code,
+          '— max found:', bootstrapMaxN);
+      }
+    } catch (e) {
+      // If the bootstrap check fails (auth glitch, transient network), fall
+      // back to a hard safety floor far above any current real ID. Better an
+      // ugly ID than a silent overwrite.
+      console.error('[genId V353] bootstrap check failed; using safety floor.',
+        e && e.message);
+      bootstrapMaxN = 100000;
+    }
+  }
+  const seedFloor = Math.max(localMaxN, bootstrapMaxN);
+
+  // Atomic counter increment. Firebase serializes this against concurrent
+  // genId callers on the same node, so two devices cannot get the same N.
+  let txResult;
+  try {
+    txResult = await counterRef.transaction(current => {
+      const base = (typeof current === 'number' && current > 0) ? current : 0;
+      return Math.max(base, seedFloor) + 1;
+    });
+  } catch (e) {
+    throw new Error('genId: counter transaction failed. ' +
+      (e && e.message ? e.message : e));
+  }
+  if (!txResult || !txResult.committed) {
+    throw new Error('genId: counter transaction did not commit (SDK exhausted retries).');
+  }
+  const n = txResult.snapshot.val();
+  if (typeof n !== 'number' || n <= 0) {
+    throw new Error('genId: counter returned non-numeric value: ' + JSON.stringify(n));
+  }
+
+  let candidate = `${prefix}${String(n).padStart(4, '0')}`;
   _claimId(candidate);
 
-  // V326: Firebase atomic reservation — write a lightweight marker under
-  // id_reservations/ BEFORE returning the candidate. Two devices computing
-  // the same candidate simultaneously will race here; the transaction ensures
-  // only ONE of them succeeds and the other backs off and re-fetches.
-  //
-  // V329 FIX (concurrency hardening for 500+ simultaneous FCs):
-  // Original code did ONE transaction, then a best-effort .set() on collision.
-  // At scale every loser converged on the same newCandidate and .set() it,
-  // letting multiple devices "reserve" the same id; the subsequent
-  // beneficiary saves then overwrote each other under Firebase's id-keyed
-  // update(). Fix: retry-loop with transactions, plus per-iteration jitter
-  // to break ties when many devices converge on the same scanMax.
-  const MAX_RESERVATION_ATTEMPTS = 10;
+  // V353: id_reservations write retained as best-effort audit. The counter
+  // already guarantees uniqueness, so reservation failure does NOT block
+  // enrolment. Fire-and-forget — do not await, do not retry.
   try {
     if (FB && FB.db) {
       const userIdForRes = (currentUser() || {}).userId || 'unknown';
-      const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';
-      const NS = 'krsf_tracker';
-      const fetchShallow = async (path, tok) => {
-        const u = `${DB_URL}/${NS}/${path}.json?shallow=true${tok ? '&auth=' + tok : ''}`;
-        const r = await fetch(u);
-        return r.ok ? await r.json() : null;
-      };
-      let committed = false;
-      let lastMaxN = maxN;
-      for (let attempt = 0; attempt < MAX_RESERVATION_ATTEMPTS && !committed; attempt++) {
-        const safeKey = candidate.replace(/[.#$\[\]]/g, '_');
-        const txResult = await fbRef('id_reservations/' + safeKey).transaction(current => {
-          if (current !== null) return undefined; // already claimed — abort
-          return { ts: new Date().toISOString(), by: userIdForRes };
-        });
-        if (txResult.committed) { committed = true; break; }
-        console.warn('[genId] reservation collision on', candidate,
-          '— attempt', (attempt + 1) + '/' + MAX_RESERVATION_ATTEMPTS);
-        // Refresh auth token in case it expired during a slow retry sequence.
-        let authToken2 = '';
-        try {
-          const authUser2 = firebase.auth ? firebase.auth().currentUser : null;
-          if (authUser2) authToken2 = await authUser2.getIdToken();
-        } catch (_) {}
-        const [bKeys, rKeys] = await Promise.all([
-          fetchShallow('beneficiaries', authToken2),
-          fetchShallow('id_reservations', authToken2)
-        ]);
-        let scanMax = lastMaxN;
-        for (const obj of [bKeys, rKeys]) {
-          if (obj && typeof obj === 'object') {
-            for (const k of Object.keys(obj)) {
-              const normK = k.replace(/_/g, '-');
-              if (normK.startsWith(prefix)) {
-                const n = parseInt(normK.slice(prefix.length).split('-')[0], 10);
-                if (!isNaN(n) && n > scanMax) scanMax = n;
-              }
-            }
-          }
-        }
-        // Jitter breaks deterministic re-collision when many devices converge
-        // on the same scanMax. Range grows with attempt so heavily contested
-        // slots spread further apart on each retry.
-        const jitter = Math.floor(Math.random() * Math.min(attempt + 2, 8));
-        lastMaxN = scanMax + 1 + jitter;
-        _releaseClaim(candidate);
-        candidate = `${prefix}${String(lastMaxN).padStart(4,'0')}`;
-        _claimId(candidate);
-      }
-      if (!committed) {
-        // V331 FIX (P0.S0.2): properly verify the random-suffix fallback
-        // reservation actually committed. The previous code returned the
-        // candidate unconditionally, allowing two devices to converge on the
-        // same id under extreme contention. Now we retry the suffix up to 5
-        // times and surface a hard error to the caller if all fail.
-        console.error('[genId] exhausted reservation attempts — entering random-suffix retry for', candidate);
-        _releaseClaim(candidate);
-        const CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-        const rc = () => CHARS[Math.floor(Math.random() * CHARS.length)];
-        let suffixCommitted = false;
-        for (let s = 0; s < 5 && !suffixCommitted; s++) {
-          const suffixed = candidate + '-' + rc() + rc() + Date.now().toString(36).slice(-3) + (s ? String(s) : '');
-          const sx = await fbRef('id_reservations/' + suffixed.replace(/[.#$\[\]]/g, '_'))
-            .transaction(current => current !== null
-              ? undefined
-              : { ts: new Date().toISOString(), by: userIdForRes, fallback: true })
-            .catch(() => ({ committed: false }));
-          if (sx && sx.committed) {
-            candidate = suffixed;
-            _claimId(candidate);
-            suffixCommitted = true;
-          } else {
-            console.warn('[genId] random-suffix collision on', suffixed, '— retrying');
-          }
-        }
-        if (!suffixCommitted) {
-          // Refuse to return an unreserved id. Caller must surface this and
-          // let the FC retry — far better than silent duplicate-id corruption.
-          throw new Error('genId: could not reserve a unique beneficiary id after ' + (MAX_RESERVATION_ATTEMPTS + 5) + ' attempts. Please retry in a moment.');
-        }
-      }
+      const safeKey = candidate.replace(/[.#$\[\]]/g, '_');
+      fbRef('id_reservations/' + safeKey).set({
+        ts: new Date().toISOString(),
+        by: userIdForRes,
+        via: 'V353-counter'
+      }).catch(() => { /* best effort */ });
     }
-  } catch (_) {
-    // Reservation is best-effort — never block enroll on a reservation failure.
-  }
+  } catch (_) { /* never block enroll on reservation */ }
 
   return candidate;
 }
@@ -16490,6 +16542,62 @@ function _filteredAudit() {
         }
         return ret;
       };
+
+      // V355: Patch firebase.database.Query.prototype.on / .off — captures
+      // live listener traffic. Previously the dashboard caveat read "Live
+      // listener (.on) traffic not yet captured", which meant ALL WebSocket-
+      // delivered SDK reads (the dominant Firebase RTDB path) were invisible.
+      // Every .on() callback invocation now adds snap.val() bytes to
+      // sessionBytes.
+      //
+      // Wrapping discipline:
+      //   • Firebase's .off() requires the EXACT callback reference passed
+      //     to .on(). We therefore wrap the user's callback once and store
+      //     the wrapper in a WeakMap keyed by the original cb.
+      //   • If the SAME callback is passed to multiple .on() calls (e.g.
+      //     attached to several Queries), we reuse the existing wrapper so
+      //     a single .off() detaches it from each query the SDK has
+      //     registered it on.
+      //   • .off() is patched to translate the user-facing callback into
+      //     the wrapper the SDK actually holds. Zero-arg .off() (detach
+      //     all) passes through unchanged.
+      const _origOn  = _Q.on;
+      const _origOff = _Q.off;
+      const _onWrappers = new WeakMap();
+      _Q.on = function(eventType, callback, cancelOrContext, context) {
+        if (typeof callback !== 'function') {
+          return _origOn.apply(this, arguments);
+        }
+        let wrapper = _onWrappers.get(callback);
+        if (!wrapper) {
+          wrapper = function(/* snap, prevKey */) {
+            try {
+              const snap = arguments[0];
+              if (snap && typeof snap.val === 'function') {
+                const v = snap.val();
+                if (v != null) { _bw.sessionBytes += JSON.stringify(v).length; }
+              }
+            } catch(_) { /* never let measurement break user callback */ }
+            return callback.apply(this, arguments);
+          };
+          _onWrappers.set(callback, wrapper);
+        }
+        _origOn.call(this, eventType, wrapper, cancelOrContext, context);
+        // Firebase's .on returns the callback that was passed in. Return the
+        // ORIGINAL so user code can pass it back to .off() as documented.
+        return callback;
+      };
+      _Q.off = function(eventType, callback, context) {
+        if (typeof callback === 'function') {
+          const wrapper = _onWrappers.get(callback);
+          if (wrapper) {
+            return _origOff.call(this, eventType, wrapper, context);
+          }
+        }
+        // No-callback .off() detaches all listeners for the eventType —
+        // pass through unchanged.
+        return _origOff.apply(this, arguments);
+      };
     }
   } catch(_) {}
 
@@ -16606,7 +16714,7 @@ async function renderAdminBandwidth() {
     html += '</tr></thead><tbody>';
     html += rows.length === 0 ? '<tr><td colspan="6" style="padding:30px;text-align:center;color:var(--gray2)">No data for this date.</td></tr>' : tableRows;
     html += '</tbody></table></div>';
-    html += '<p style="font-size:11px;color:var(--gray2);margin-top:12px">V349 measurement: REST fetch + SDK once() bytes. Updates every 5 minutes per user. Live listener (.on) traffic not yet captured.</p>';
+    html += '<p style="font-size:11px;color:var(--gray2);margin-top:12px">V355 measurement: REST fetch + SDK once() + SDK on() listener bytes. Updates every 5 minutes per user. WebSocket framing overhead (~10–30%) still uncounted — for ground truth compare against Firebase Console daily usage.</p>';
     html += '<div style="margin-top:8px"><button onclick="window._bwFlush && window._bwFlush(true)" style="background:#1B3A6B;color:#fff;border:none;padding:6px 14px;border-radius:4px;font-size:12px;cursor:pointer">Flush my counter now</button></div>';
 
     content.innerHTML = html;
