@@ -1,6 +1,41 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V355-LIVE
+  KRSF Beneficiary Impact Tracker  -  V356-LIVE
+  ============================================================================
+  V356-LIVE (2026-05-29 FC scheme/status filter + bulk-import counter + per-channel byte breakdown):
+    + FC SCHEME + STATUS FILTER on the coordinator beneficiary list. Two
+      dropdowns inserted between the existing search box and date filter
+      in the coord shell. Pure in-memory filter against loadAdv() — ZERO
+      new Firebase calls, no new listeners, no new pantries. Colour codes
+      sourced from the canonical _ADV_POP_COLORS map so status pills in
+      the filter UI match those inside the beneficiary drawer.
+        - Scheme dropdown populated from distinct scheme names present in
+          the FC's own advocacy data (loadAdv() — already cached).
+        - Status dropdown: Need to Apply / Applied / Benefits Received /
+          Rejected (uses _advNormStatus so legacy 'Approved' maps to
+          'Benefits Received', matching the rest of the app).
+        - Filter logic: AND when both set; SOME match across the
+          beneficiary's latest advocacy rows; tombstoned (_deleted) rows
+          excluded.
+        - Reset to "All" on every login (no persistence — per spec).
+        - Count bar correctly shows "Showing N of M" when any filter
+          (search, program, date, scheme, status) is active.
+    + BULK-IMPORT ENROLLMENT COUNTER wired into confirmBulkImport so
+      admin bulk uploads also increment window._bwEnrollment. Closes the
+      half-fix from V355 which only covered the submitEnroll path.
+    + PER-CHANNEL BYTE BREAKDOWN in the bandwidth tracker. _bw.byChannel
+      now splits sessionBytes into { fetch, once, on } so we can finally
+      tell WHICH path is bleeding. Flushed to /bandwidth_audit as new
+      bytesFetch / bytesOnce / bytesOn fields alongside the existing
+      total `bytes` field — backwards compatible (existing dashboard
+      reading keeps working). Pinpoints whether a heavy session is REST
+      writes, one-shot reads, or live listener resync.
+    + APP_VERSION bumped to V356-LIVE. PANTRY_SCHEMA_VERSION unchanged
+      (still 1).
+    REQUIRES: no Firebase rules update, no deploy steps beyond uploading.
+    EXPECTED OUTCOME: FCs gain a useful filter for daily fieldwork. Admin
+    bulk imports now reflect in dashboard enrollment counts. Diagnostic
+    surface to pinpoint per-session-cost driver for login-storm hypothesis.
   ============================================================================
   V355-LIVE (2026-05-29 bandwidth tracker captures .on() listener traffic):
     + LISTENER MEASUREMENT: Query.prototype.on is now monkey-patched the
@@ -1664,6 +1699,27 @@ body[data-shell="coord"] #coord-app { display: block; }
         <input id="coord-search-input" type="text" placeholder="Search name, ID, village, scheme, status…" oninput="_searchDebounce('coord', this.value, coordRenderList)">
       </div>
 
+      <!-- V356: scheme + status filter for FC list. Pure in-memory against
+           loadAdv() — zero new Firebase calls. Status colours sourced from
+           _ADV_POP_COLORS for consistency with the rest of the app. Resets
+           to "All" on every login (no localStorage persistence). -->
+      <div class="coord-scheme-filter" style="display:flex;gap:8px;padding:0 4px;margin-top:8px">
+        <select id="coord-scheme-filter" onchange="coordSetSchemeFilter(this.value)"
+                aria-label="Filter by scheme"
+                style="flex:1;min-width:0;height:44px;font-size:14px;border:1px solid #E5E7EB;border-radius:6px;padding:0 10px;background:#fff;color:var(--gray2);font-family:var(--font)">
+          <option value="">Scheme — All</option>
+        </select>
+        <select id="coord-status-filter" onchange="coordSetStatusFilter(this.value)"
+                aria-label="Filter by status"
+                style="flex:1;min-width:0;height:44px;font-size:14px;border:1px solid #E5E7EB;border-radius:6px;padding:0 10px;background:#fff;color:var(--gray2);font-family:var(--font)">
+          <option value="">Status — All</option>
+          <option value="Need to Apply">Need to Apply</option>
+          <option value="Applied">Applied</option>
+          <option value="Benefits Received">Benefits Received</option>
+          <option value="Rejected">Rejected</option>
+        </select>
+      </div>
+
       <!-- V332-FC-SCHEMES: date-wise filter by enrollment date. -->
       <div class="coord-date-filter">
         <span class="df-label">Enrolled</span>
@@ -2608,7 +2664,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V355-LIVE';
+const APP_VERSION = 'V356-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -16520,7 +16576,13 @@ function _filteredAudit() {
     sessionStart: Date.now(),
     enrollments: 0,
     lastFlush: 0,
-    sessionLogged: false
+    sessionLogged: false,
+    // V356: per-channel byte breakdown so we can tell WHICH read path is
+    // bleeding — REST writes (fetch), one-shot reads (once), or live
+    // listener resync (on). sessionBytes remains the sum and stays
+    // backwards-compatible with the existing dashboard.
+    byChannel: { fetch: 0, once: 0, on: 0 },
+    byChannelLastFlush: { fetch: 0, once: 0, on: 0 }
   };
   window._bwTracker = _bw;
   window._bwTrack = function(n) { if (typeof n === 'number' && n > 0) _bw.sessionBytes += n; };
@@ -16533,7 +16595,11 @@ function _filteredAudit() {
       return _origFetch.apply(this, arguments).then(function(resp) {
         try {
           const cloned = resp.clone();
-          cloned.text().then(function(t) { _bw.sessionBytes += (t ? t.length : 0); }).catch(function(){});
+          cloned.text().then(function(t) {
+            const n = t ? t.length : 0;
+            _bw.sessionBytes += n;
+            _bw.byChannel.fetch += n;  // V356: per-channel breakdown
+          }).catch(function(){});
         } catch(_) {}
         return resp;
       });
@@ -16551,7 +16617,11 @@ function _filteredAudit() {
           return ret.then(function(snap) {
             try {
               const v = snap && snap.val ? snap.val() : null;
-              if (v != null) { _bw.sessionBytes += JSON.stringify(v).length; }
+              if (v != null) {
+                const n = JSON.stringify(v).length;
+                _bw.sessionBytes += n;
+                _bw.byChannel.once += n;  // V356: per-channel breakdown
+              }
             } catch(_) {}
             return snap;
           });
@@ -16591,7 +16661,11 @@ function _filteredAudit() {
               const snap = arguments[0];
               if (snap && typeof snap.val === 'function') {
                 const v = snap.val();
-                if (v != null) { _bw.sessionBytes += JSON.stringify(v).length; }
+                if (v != null) {
+                  const n = JSON.stringify(v).length;
+                  _bw.sessionBytes += n;
+                  _bw.byChannel.on += n;  // V356: per-channel breakdown
+                }
               }
             } catch(_) { /* never let measurement break user callback */ }
             return callback.apply(this, arguments);
@@ -16637,17 +16711,31 @@ function _filteredAudit() {
       const prev = snap.val() || {};
       const sessionInc = _bw.sessionLogged ? 0 : 1;
       _bw.sessionLogged = true;
+      // V356: per-channel deltas alongside the existing total `bytes` field.
+      // Backwards compatible — existing dashboard reading bytes still works;
+      // new bytesFetch / bytesOnce / bytesOn surface which path is bleeding.
+      const deltaFetch = _bw.byChannel.fetch - _bw.byChannelLastFlush.fetch;
+      const deltaOnce  = _bw.byChannel.once  - _bw.byChannelLastFlush.once;
+      const deltaOn    = _bw.byChannel.on    - _bw.byChannelLastFlush.on;
       await ref.update({
         userId: u.userId,
         fullName: u.fullName || u.username || '',
         role: u.role || '',
         bytes: (prev.bytes || 0) + delta,
+        bytesFetch: (prev.bytesFetch || 0) + deltaFetch,
+        bytesOnce:  (prev.bytesOnce  || 0) + deltaOnce,
+        bytesOn:    (prev.bytesOn    || 0) + deltaOn,
         sessions: (prev.sessions || 0) + sessionInc,
         enrollments: (prev.enrollments || 0) + _bw.enrollments,
         reconnects: (prev.reconnects || 0) + (_bw.reconnects || 0),
         lastUpdate: Date.now()
       });
       _bw.lastFlush = _bw.sessionBytes;
+      _bw.byChannelLastFlush = {
+        fetch: _bw.byChannel.fetch,
+        once:  _bw.byChannel.once,
+        on:    _bw.byChannel.on
+      };
       _bw.enrollments = 0;
     } catch (e) {
       console.warn('[V349 bw flush]', e && e.message ? e.message : e);
@@ -18051,6 +18139,77 @@ function mountManagerApp() {
 // '' = all programs, 'livOnly' = livelihood only, 'dual' = both, 'advOnly' = advocacy only.
 let coordProgFilter = '';
 
+// V356: scheme + status filters for the FC list. Reset to '' (All) on every
+// login per spec — no localStorage persistence. Mutated by the setters below.
+let _coordSchemeFilter = '';
+let _coordStatusFilter = '';
+// Memoised signature of the scheme-set to avoid re-populating the dropdown on
+// every coordRenderList() call (which fires on every search keystroke).
+let _v356SchemeSetSig = null;
+
+function coordSetSchemeFilter(val) {
+  _coordSchemeFilter = val || '';
+  _v356StyleFilterSelect('coord-scheme-filter', !!_coordSchemeFilter, null);
+  coordRenderList();
+}
+function coordSetStatusFilter(val) {
+  _coordStatusFilter = val || '';
+  _v356StyleFilterSelect('coord-status-filter', !!_coordStatusFilter, _coordStatusFilter);
+  coordRenderList();
+}
+
+// V356: when a filter is active, paint the <select> with the corresponding
+// colour from _ADV_POP_COLORS so status pills in the filter UI match those
+// inside the drawer. When inactive, neutral. This is the single point of
+// colour coupling — if _ADV_POP_COLORS changes, the filter updates with it.
+function _v356StyleFilterSelect(elId, active, statusVal) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  if (!active) {
+    el.style.background = '#fff';
+    el.style.color = 'var(--gray2)';
+    el.style.borderColor = '#E5E7EB';
+    el.style.fontWeight = '400';
+    return;
+  }
+  if (statusVal && typeof _ADV_POP_COLORS === 'object' && _ADV_POP_COLORS[statusVal]) {
+    const c = _ADV_POP_COLORS[statusVal];
+    el.style.background = c.bg;
+    el.style.color = c.fg;
+    el.style.borderColor = c.fg + '55';
+  } else {
+    // Scheme filter active (no status colour applies) — neutral active state.
+    el.style.background = '#EEF2FF';
+    el.style.color = '#3730A3';
+    el.style.borderColor = '#C7D2FE';
+  }
+  el.style.fontWeight = '600';
+}
+
+// V356: populate the Scheme filter dropdown from the distinct scheme names
+// present in the FC's own advocacy data (loadAdv()). Schemes the FC has
+// never used don't appear — keeps the dropdown short and relevant per-FC.
+// Memoised on a signature so the dropdown doesn't churn on every render.
+function _v356PopulateSchemeFilter() {
+  const el = document.getElementById('coord-scheme-filter');
+  if (!el) return;
+  const advAll = (typeof loadAdv === 'function') ? loadAdv() : [];
+  const schemeSet = new Set();
+  for (const a of advAll) {
+    for (const r of (a.schemeRows || [])) {
+      if (r && !r._deleted && r.scheme) schemeSet.add(r.scheme);
+    }
+  }
+  const schemes = Array.from(schemeSet).sort((a, b) => a.localeCompare(b));
+  const sig = schemes.join('|');
+  if (sig === _v356SchemeSetSig) return;
+  _v356SchemeSetSig = sig;
+  const prev = el.value;
+  el.innerHTML = '<option value="">Scheme — All</option>' +
+    schemes.map(s => `<option value="${String(s).replace(/"/g, '&quot;')}">${String(s).replace(/</g,'&lt;')}</option>`).join('');
+  if (prev && schemes.includes(prev)) el.value = prev;
+}
+
 // Classify a beneficiary's program membership — same logic Admin/NGO use in
 // renderIntegrated(). Advocacy presence is determined by either having an
 // Advocacy intervention flag or having any advocacy record logged against them.
@@ -18273,6 +18432,33 @@ function coordRenderList() {
       return true;
     });
   }
+  // V356: scheme + status filter. Pure in-memory against loadAdv() (already
+  // cached). Beneficiary matches if any of their latest, non-tombstoned
+  // advocacy rows match the selected scheme AND status. AND when both set.
+  if (_coordSchemeFilter || _coordStatusFilter) {
+    const wantScheme = _coordSchemeFilter;
+    const wantStatus = _coordStatusFilter;
+    list = list.filter(b => {
+      try {
+        const rows = (typeof _advLatestRowsForBeneficiary === 'function')
+          ? (_advLatestRowsForBeneficiary(b.id) || []) : [];
+        return rows.some(r => {
+          if (!r || r._deleted) return false;
+          if (wantScheme && (r.scheme || '') !== wantScheme) return false;
+          if (wantStatus) {
+            const st = (typeof _advNormStatus === 'function')
+              ? (_advNormStatus(r) || '') : (r.status || '');
+            if (st !== wantStatus) return false;
+          }
+          return true;
+        });
+      } catch(_) { return false; }
+    });
+  }
+  // V356: keep scheme dropdown in sync with the FC's current advocacy data.
+  // Memoised on signature inside the function — only mutates DOM when the
+  // set of schemes actually changes.
+  try { _v356PopulateSchemeFilter(); } catch(_) {}
   // Sort: most recent first (by enrollDate desc), fall back to id
   list.sort((a, b) => (b.enrollDate||'').localeCompare(a.enrollDate||'') || (b.id||'').localeCompare(a.id||''));
 
@@ -18315,7 +18501,11 @@ function coordRenderList() {
   if (countBar) {
     const total = all.length;
     const shown = list.length;
-    const anyFilter = coordProgFilter || search;
+    // V356: include scheme, status, AND date filters in "any filter" check —
+    // previously date filter alone didn't trigger the "Showing N of M" pattern.
+    const anyFilter = coordProgFilter || search ||
+                      _coordSchemeFilter || _coordStatusFilter ||
+                      _coordDateFrom || _coordDateTo;
     countBar.textContent = anyFilter
       ? `Showing ${shown} of ${total} beneficiar${total===1?'y':'ies'}`
       : `${total} beneficiar${total===1?'y':'ies'} enrolled`;
@@ -19732,6 +19922,11 @@ async function confirmBulkImport() {
     // is in the running data array (which is saveData()'d at the top of the
     // next iteration via the V16.0.3 anti-collision pattern).
     _releaseClaim(id);
+    // V356: increment the V349 enrollment counter for bulk-import rows.
+    // Completes the V355 fix which only covered the submitEnroll path.
+    // Counts every row that reaches this point (i.e. successfully made it
+    // into the data array — same threshold V355 uses for single-row enrolls).
+    try { if (typeof window._bwEnrollment === 'function') window._bwEnrollment(); } catch(_){}
     partnerCounts[p.ngo] = (partnerCounts[p.ngo] || 0) + 1;
 
     // If Advocacy is in interventions AND the row had scheme rows, create an
