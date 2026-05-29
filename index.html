@@ -26,6 +26,12 @@
       the JS layer. For absolute ground truth, compare against the
       Firebase Console daily usage page. Dashboard caveat updated to
       reflect this honestly.
+    + BUGFIX: V349 enrollment counter was never incremented (window.
+      _bwEnrollment defined but never called). Every "enrollments: 0" on
+      the dashboard was wrong whenever the true number was non-zero —
+      Payalben Mori showed 0 on 2026-05-28 while actually completing 113
+      enrolments. submitEnroll's success branch now calls _bwEnrollment.
+      Bulk import path remains uninstrumented (admin-only) — V356.
     + APP_VERSION bumped to V355-LIVE. PANTRY_SCHEMA_VERSION unchanged
       (still 1) — V354 pantries survive this deploy.
     REQUIRES: no Firebase rules update, no deploy steps beyond uploading.
@@ -10090,6 +10096,16 @@ async function _submitEnrollInner() {
     // there to prevent the same ID being minted twice during the gap between
     // genId() and saveData() — that gap is now closed for this record.
     _releaseClaim(id);
+    // V355 BUGFIX: increment the V349 enrollment counter. This call was
+    // missing from the codebase entirely — _bwEnrollment was defined in
+    // _bwInit at line ~16511 but never invoked, so every "enrollments: 0"
+    // on the Bandwidth Usage dashboard was wrong whenever the true number
+    // wasn't zero. Field reports confirmed (e.g. Payalben Mori: dashboard
+    // showed 0, actual count 113). Counts both regular enrollments AND
+    // family-member adds (both flow through this branch). Bulk import path
+    // at line ~19623 remains uninstrumented for V355 — admin-only path,
+    // will be wired in V356.
+    try { if (typeof window._bwEnrollment === 'function') window._bwEnrollment(); } catch(_){}
     // Audit log: differentiate family-member adds from regular enrollments so
     // an admin scanning the audit trail can see at a glance how a record came
     // into the system.
