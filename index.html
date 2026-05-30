@@ -1,6 +1,27 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V359-LIVE
+  KRSF Beneficiary Impact Tracker  -  V360-LIVE
+  ============================================================================
+  V360-LIVE (2026-05-30 FC list UI polish — visual hierarchy + date filter single-row):
+    + REFRESH BUTTON SPACING: V359 refresh button no longer overlaps the
+      "All Beneficiaries" summary card below it. Added 14px bottom margin.
+    + DATE FILTER NOW SINGLE-ROW on all screen sizes. Reduced date input
+      min-width from 140px → 0 (flex:1 so they shrink to fit). Added a
+      calendar emoji 📅 prefix to the label so FCs see at a glance that
+      it's a date filter, not just "ENROLLED" text.
+    + VISUAL DIFFERENTIATION between filter sections:
+      - Search box: light gray background (#F9FAFB) instead of pure white,
+        so it visually anchors as the search affordance.
+      - Scheme + Status row: light lavender background (#F5F3FF) wrapper
+        with rounded corners, grouping the two filter dropdowns.
+      - Date filter: light amber background (#FEF9C3) with amber border,
+        clearly distinct from the other filter regions.
+      - Refresh button: existing indigo styling unchanged.
+      Each section is now distinguishable without reading the labels.
+    + APP_VERSION bumped to V360-LIVE. NO LOGIC CHANGES. Pure UI polish.
+    REQUIRES: no Firebase rules update. Zero bandwidth impact.
+    EXPECTED OUTCOME: FCs find filters faster; admin gets fewer "where
+    is the date filter?" support questions.
   ============================================================================
   V359-LIVE (2026-05-30 three-layer pantry freshness — refresh button + auto 4am + admin push):
     + LAYER 1 — FC REFRESH BUTTON on the coordinator beneficiary list.
@@ -1408,8 +1429,8 @@ body[data-shell="coord"] #coord-app { display: block; }
 .coord-search {
   display: flex;
   align-items: center;
-  background: #fff;
-  border: 1px solid var(--gray3);
+  background: #F9FAFB;              /* V360: slight grey tint, anchors as search affordance */
+  border: 1px solid #D1D5DB;         /* V360: stronger border for contrast */
   border-radius: 10px;
   padding: 0 12px;
   margin-bottom: 12px;
@@ -1582,25 +1603,38 @@ body[data-shell="coord"] #coord-app { display: block; }
 .coord-scheme-tag:hover  { box-shadow: 0 2px 6px rgba(0,0,0,0.10); }
 .coord-scheme-empty { font-size: 11px; color: var(--gray2); font-style: italic; }
 .coord-date-filter {
-  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  display: flex; gap: 6px; align-items: center; flex-wrap: nowrap;   /* V360: nowrap → single row */
   margin-bottom: 10px; padding: 10px 12px;
-  background: #fff; border: 1px solid var(--gray3); border-radius: 10px;
+  background: #FEF9C3;                                                /* V360: light amber so it's distinct */
+  border: 1px solid #FCD34D;                                          /* V360: amber border */
+  border-radius: 10px;
 }
 .coord-date-filter .df-label {
-  font-size: 11px; color: var(--gray2); font-weight: 700;
+  font-size: 11px; color: #92400E;                                    /* V360: dark amber for contrast */
+  font-weight: 700;
   text-transform: uppercase; letter-spacing: 0.04em;
+  flex-shrink: 0;                                                     /* V360: don't shrink the label */
+  white-space: nowrap;
 }
 .coord-date-filter input[type=date] {
   font-size: 13px; padding: 6px 8px;
-  border: 1px solid var(--gray3); border-radius: 6px;
-  font-family: var(--font); min-width: 140px; color: var(--text);
+  border: 1px solid #FCD34D; border-radius: 6px;                      /* V360: amber border */
+  background: #fff;                                                   /* white field on amber wrapper */
+  font-family: var(--font); min-width: 0;                             /* V360: was 140px → allow shrink */
+  flex: 1 1 0; min-width: 90px;                                       /* V360: equal-width fill, 90px floor */
+  color: var(--text);
+}
+.coord-date-filter > span {                                           /* V360: the " to " separator */
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .coord-date-filter button {
   font-size: 11px; padding: 6px 10px;
-  border: 1px solid var(--gray3); background: #fff; color: var(--gray);
+  border: 1px solid #FCD34D; background: #fff; color: #92400E;        /* V360: matching amber theme */
   border-radius: 6px; cursor: pointer; font-weight: 600; font-family: var(--font);
+  flex-shrink: 0;
 }
-.coord-date-filter button:hover { background: var(--gray4); }
+.coord-date-filter button:hover { background: #FEF3C7; }
 .coord-pagination {
   display: flex; justify-content: center; align-items: center;
   gap: 10px; padding: 14px 0 4px; font-size: 13px; flex-wrap: wrap;
@@ -1806,17 +1840,19 @@ body[data-shell="coord"] #coord-app { display: block; }
       <!-- V356: scheme + status filter for FC list. Pure in-memory against
            loadAdv() — zero new Firebase calls. Status colours sourced from
            _ADV_POP_COLORS for consistency with the rest of the app. Resets
-           to "All" on every login (no localStorage persistence). -->
-      <div class="coord-scheme-filter" style="display:flex;gap:8px;padding:0 4px;margin-top:8px">
+           to "All" on every login (no localStorage persistence).
+           V360: wrapped in light lavender container for visual separation
+           from the search box and date filter. -->
+      <div class="coord-scheme-filter" style="display:flex;gap:8px;padding:10px 12px;margin-bottom:10px;background:#F5F3FF;border:1px solid #C7D2FE;border-radius:10px">
         <select id="coord-scheme-filter" onchange="coordSetSchemeFilter(this.value)"
                 aria-label="Filter by scheme"
-                style="flex:1;min-width:0;height:44px;font-size:14px;border:1px solid #E5E7EB;border-radius:6px;padding:0 10px;background:#fff;color:var(--gray2);font-family:var(--font)">
-          <option value="">Scheme — All</option>
+                style="flex:1;min-width:0;height:40px;font-size:14px;border:1px solid #C7D2FE;border-radius:6px;padding:0 10px;background:#fff;color:#3730A3;font-family:var(--font);font-weight:500">
+          <option value="">🔖 Scheme — All</option>
         </select>
         <select id="coord-status-filter" onchange="coordSetStatusFilter(this.value)"
                 aria-label="Filter by status"
-                style="flex:1;min-width:0;height:44px;font-size:14px;border:1px solid #E5E7EB;border-radius:6px;padding:0 10px;background:#fff;color:var(--gray2);font-family:var(--font)">
-          <option value="">Status — All</option>
+                style="flex:1;min-width:0;height:40px;font-size:14px;border:1px solid #C7D2FE;border-radius:6px;padding:0 10px;background:#fff;color:#3730A3;font-family:var(--font);font-weight:500">
+          <option value="">✓ Status — All</option>
           <option value="Need to Apply">Need to Apply</option>
           <option value="Applied">Applied</option>
           <option value="Benefits Received">Benefits Received</option>
@@ -1824,19 +1860,21 @@ body[data-shell="coord"] #coord-app { display: block; }
         </select>
       </div>
 
-      <!-- V332-FC-SCHEMES: date-wise filter by enrollment date. -->
+      <!-- V332-FC-SCHEMES: date-wise filter by enrollment date.
+           V360: 📅 emoji prefix + single-row layout + amber theme. -->
       <div class="coord-date-filter">
-        <span class="df-label">Enrolled</span>
+        <span class="df-label">📅 Enrolled</span>
         <input id="coord-date-from" type="date" onchange="coordSetDateRange()" aria-label="From date">
-        <span style="color:var(--gray2);font-size:12px">to</span>
+        <span style="color:#92400E;font-size:12px;font-weight:600">to</span>
         <input id="coord-date-to" type="date" onchange="coordSetDateRange()" aria-label="To date">
         <button type="button" onclick="coordClearDateRange()">Clear</button>
       </div>
 
       <!-- V359: FC manual refresh button. Capped at 1 tap per IST calendar
            day (counter in localStorage). Runs smart-check first — usually
-           costs ~50 bytes; only fetches full records if pantry is behind. -->
-      <div style="padding:0 4px;margin-top:8px">
+           costs ~50 bytes; only fetches full records if pantry is behind.
+           V360: 14px bottom margin so it doesn't overlap the summary cards. -->
+      <div style="padding:0 4px;margin-top:8px;margin-bottom:14px">
         <button type="button" id="v359-refresh-btn"
                 onclick="_v359FcManualRefresh()"
                 aria-label="Refresh data from server"
@@ -2780,7 +2818,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V359-LIVE';
+const APP_VERSION = 'V360-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
