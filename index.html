@@ -1,6 +1,38 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V357-LIVE
+  KRSF Beneficiary Impact Tracker  -  V358-LIVE
+  ============================================================================
+  V358-LIVE (2026-05-29 disable dedup tools + restore audit log — POST-INCIDENT):
+    + INCIDENT: on 2026-05-28 between 15:13 and 17:32 an external operation
+      deleted 209 beneficiary records belonging to Anilbhai Bhagora. The
+      records were restored from a pre-deletion snapshot via a one-shot
+      multipath PATCH on 2026-05-29 (recovery payload: 165 KB; zero
+      downstream bandwidth impact). V358 closes the gaps that allowed the
+      incident to occur AND go untraced.
+    + HARD-DISABLE _delDupDelete() (Delete-Duplicate-Records admin tool).
+      Function now alerts + returns at entry, regardless of caller. Cannot
+      be triggered via UI (button was already hidden), DevTools, or script.
+      Use case is genuinely gone — name+NGO is not a safe duplicate key in
+      this domain (real beneficiaries share names).
+    + HARD-DISABLE _dedupFix() (Fix-Duplicate-IDs admin tool). Same guard
+      pattern. Function writes new records on duplicate IDs — a workflow
+      that V353's counter-based genId structurally prevents going forward,
+      so the tool is obsolete.
+    + RESTORE _fbPushAudit() — audit log entries are once again persisted
+      to Firebase. V336 had disabled persistence for bandwidth (each write
+      replayed via .on() listeners to every connected admin). V358 keeps
+      the writes but does NOT re-add the listener — admin reads audit via
+      .once() on the audit tab. Net effect: ~3 MB/day extra UPLOAD (free
+      on Firebase egress billing), zero added download.
+    + INCIDENT FORENSICS PRESERVED: the 209 restored records carry
+      _recoveredAt, _recoveryNote, _lastEditedBy='u-admin-recovery' fields
+      so future audits can trace which records were touched during recovery.
+    + APP_VERSION bumped to V358-LIVE. PANTRY_SCHEMA_VERSION unchanged.
+    REQUIRES: no Firebase rules update. No new Firebase paths. No new
+    downloads. Same upload pattern as V357.
+    EXPECTED OUTCOME: every action by every user is once again traceable.
+    The two known-dangerous admin tools are inert. The system is in a
+    safer state than at any point since V336.
   ============================================================================
   V357-LIVE (2026-05-29 admin tab-render cache + manual refresh — Lite Mode):
     + TAB-RENDER CACHE: navigation between admin top-level views (Dashboard,
@@ -2703,7 +2735,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V357-LIVE';
+const APP_VERSION = 'V358-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -17441,12 +17473,27 @@ function _auditCacheAppend(entry) {
 // log to console and continue. The user's primary action already succeeded
 // or failed via the saveX path; audit lag is acceptable.
 function _fbPushAudit(entry) {
-  // V336 (2026-05-26): audit log Firebase writes DISABLED for bandwidth.
-  // The in-memory _auditCache still receives entries via _auditCacheAppend()
-  // in auditLog(), so the current session's actions show in Recent Updates.
-  // Nothing is persisted to Firebase, so the audit collection no longer grows
-  // and no listeners on any device download these events.
-  return;
+  // V358 (2026-05-29): RE-ENABLED after 2026-05-28 incident.
+  // V336 disabled this for bandwidth, accepting the trade-off of losing the
+  // audit trail. On 2026-05-28 a bulk deletion took out 209 of Anil's records
+  // and we had ZERO trail to identify who did it — that price was too high.
+  //
+  // V358 restores the write but does NOT re-add the .on() listener that
+  // V336 was actually trying to mute (listeners on /audit/ multiplied each
+  // write by the number of connected admins → 5 MB write × N devices).
+  // Without listeners, writes cost ~3 MB/day upload (free on Firebase egress
+  // billing) and zero download. Admin's audit tab fetches via .once() on view.
+  //
+  // Best-effort: silent failure so a broken audit write never blocks the
+  // user's primary action. Matches the original pre-V336 contract.
+  try {
+    if (!FB || !FB.db || !entry || !entry.id) return;
+    fbRef('audit/' + entry.id).set(entry).catch(function(e) {
+      console.warn('[V358 audit] write failed for', entry.id, e && e.message);
+    });
+  } catch (e) {
+    console.warn('[V358 audit] _fbPushAudit threw:', e && e.message);
+  }
 }
 
 // Core logger. Called by every mutation site. Now writes to Firebase only.
@@ -22738,6 +22785,21 @@ async function _dedupScan() {
 }
 
 async function _dedupFix() {
+  // V358 HARD-DISABLE (post-2026-05-28 incident).
+  // The Fix-Duplicate-IDs tool writes new beneficiary records with fresh IDs
+  // when it detects ID collisions. V353's counter-based genId structurally
+  // prevents ID collisions going forward (atomic transaction on a per-state
+  // counter), making this tool's premise obsolete. Disabled to remove an
+  // unnecessary write surface that could be triggered accidentally.
+  try {
+    alert('Fix-Duplicate-IDs tool is DISABLED (V358).\n\n' +
+          'V353 introduced a counter-based ID minting system that makes ' +
+          'duplicate IDs structurally impossible going forward. Any historic ' +
+          'duplicates should be triaged manually rather than auto-recovered.');
+  } catch(_) {}
+  console.warn('[V358] _dedupFix() refused to run — tool disabled, V353 counter makes it obsolete.');
+  return;
+  // ----- legacy body retained for reference, unreachable below -----
   if (!isAdmin()) return;
   if (_dedupState.phase !== 'scanned') return;
   if (_dedupState.overwritten.length === 0) return;
@@ -23214,6 +23276,23 @@ async function _delDupScan() {
 }
 
 async function _delDupDelete() {
+  // V358 HARD-DISABLE (post-2026-05-28 incident).
+  // The Delete-Duplicate-Records tool grouped beneficiaries by (name + NGO),
+  // a key that is NOT unique in this domain (real beneficiaries routinely
+  // share names within the same NGO). Running this against the production
+  // tree on 2026-05-28 deleted 209 of Anilbhai Bhagora's legitimate records.
+  // The tool is structurally unsafe; refuse to run regardless of caller.
+  try {
+    alert('Delete-Duplicate-Records tool is DISABLED (V358).\n\n' +
+          'This tool grouped records by name+NGO, which is not a unique key — ' +
+          'real beneficiaries can share names. It deleted 209 legitimate records ' +
+          'on 28 May 2026. See V358 changelog for details.\n\n' +
+          'Use the per-beneficiary Delete button on the drawer for individual ' +
+          'deletions, which writes audit entries and is reversible from backup.');
+  } catch(_) {}
+  console.warn('[V358] _delDupDelete() refused to run — tool disabled post-incident.');
+  return;
+  // ----- legacy body retained for reference, unreachable below -----
   if (!isAdmin()) return;
   if (_delDupState.phase !== 'scanned') return;
   if (_delDupState.toDelete === 0) return;
