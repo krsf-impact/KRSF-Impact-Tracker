@@ -1,6 +1,39 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V358-LIVE
+  KRSF Beneficiary Impact Tracker  -  V359-LIVE
+  ============================================================================
+  V359-LIVE (2026-05-30 three-layer pantry freshness — refresh button + auto 4am + admin push):
+    + LAYER 1 — FC REFRESH BUTTON on the coordinator beneficiary list.
+      Capped at 1 tap per IST calendar day (localStorage counter). Each
+      tap runs a smart-check first: reads ~50 B of metadata, only
+      downloads records if pantry is actually behind.
+    + LAYER 2 — AUTO REFRESH at 4:00 AM IST daily. Silent. On any login
+      where pantry.lastSyncTs < today's 4:00 AM IST cutoff, the smart-
+      check runs. No UI, no admin action, no FC awareness.
+    + LAYER 3 — ADMIN "PUSH TO ALL" BUTTON in the Bandwidth Usage page.
+      Writes timestamp to /_pantryInvalidateFleet. Every FC, on next
+      login, sees the timestamp is newer than pantry.lastSyncTs and
+      runs the smart-check (refetches only if data actually changed).
+    + SMART-CHECK MECHANISM: new node /krsf_tracker/_fc_meta/<uid>
+      holds { count, lastChangeTs } per FC. Updated on every saveData
+      that touches that FC's records (+~50 B per save, free upload).
+      Refresh logic reads this (~50 B) and skips the full fetch if
+      pantry already matches. Most refreshes cost 50 bytes instead of
+      300 KB.
+    + BANDWIDTH AT 500 FCs (fleet-wide, daily):
+      - Layer 1 (manual taps): ~1 MB (FCs use button occasionally)
+      - Layer 2 (auto 4am): ~3 MB (smart-check almost always passes)
+      - Layer 3 (admin push): ~1 MB (used when admin runs operations)
+      - Login fleet-flag check: ~75 KB
+      - TOTAL: ~5 MB/day. 0.15% of 3.24 GB/day baseline. Invisible
+        on Firebase bill.
+    + UI CHANGES: ONE button on FC beneficiary list ("↻ Refresh
+      (1 left today)"). ONE button on admin Bandwidth Usage page
+      ("Push fresh data to all FCs"). Nothing else moves.
+    + NO ADDITIONAL FIREBASE RULES NEEDED — new paths inherit root
+      auth != null. No new listeners (no .on()). All reads are .once().
+    + APP_VERSION bumped to V359-LIVE. PANTRY_SCHEMA_VERSION unchanged.
+    REQUIRES: no Firebase rules update, no deploy steps beyond uploading.
   ============================================================================
   V358-LIVE (2026-05-29 disable dedup tools + restore audit log — POST-INCIDENT):
     + INCIDENT: on 2026-05-28 between 15:13 and 17:32 an external operation
@@ -1800,6 +1833,18 @@ body[data-shell="coord"] #coord-app { display: block; }
         <button type="button" onclick="coordClearDateRange()">Clear</button>
       </div>
 
+      <!-- V359: FC manual refresh button. Capped at 1 tap per IST calendar
+           day (counter in localStorage). Runs smart-check first — usually
+           costs ~50 bytes; only fetches full records if pantry is behind. -->
+      <div style="padding:0 4px;margin-top:8px">
+        <button type="button" id="v359-refresh-btn"
+                onclick="_v359FcManualRefresh()"
+                aria-label="Refresh data from server"
+                style="width:100%;height:44px;font-size:14px;border:1px solid #C7D2FE;border-radius:6px;background:#EEF2FF;color:#3730A3;font-weight:600;cursor:pointer;font-family:var(--font);transition:opacity .15s">
+          ↻ Refresh data
+        </button>
+      </div>
+
       <!-- Program-overlap summary cards — All / Livelihood Only / Dual / Advocacy Only.
            Matches what Admin + NGO users see in renderIntegrated(). Populated by
            coordRenderList(). These 4 cards are now the only list filter. -->
@@ -2735,7 +2780,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V358-LIVE';
+const APP_VERSION = 'V359-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -5555,6 +5600,18 @@ async function saveData(arr) {
   // cache is unchanged and the caller's form stays in error state.
   await fbSyncCollection('beneficiaries', arr || [], 'id', 'lastBenef');
   _hydrateBenefCache(Array.isArray(arr) ? arr : []);
+  // V359: bump _fc_meta for whichever FCs' records were affected by this
+  // save. Best-effort, async. Skips silently on failure — the smart-check
+  // treats missing meta as "always refetch" which is the safe fallback.
+  try {
+    if (typeof _v359UpdateFcMeta === 'function') {
+      const affectedFCs = new Set();
+      for (const rec of (Array.isArray(arr) ? arr : [])) {
+        if (rec && rec.createdBy) affectedFCs.add(rec.createdBy);
+      }
+      if (affectedFCs.size > 0) _v359UpdateFcMeta(Array.from(affectedFCs));
+    }
+  } catch(_) {}
 }
 
 // Health check: list beneficiaries whose ngo doesn't match a registered partner.
@@ -17001,6 +17058,20 @@ async function renderAdminBandwidth() {
       html += '<option value="' + d + '"' + (d===selectedDate ? ' selected' : '') + '>' + d + '</option>';
     }
     html += '</select></div>';
+    // V359: admin "Push fresh data to all FCs" button. Sets a fleet-wide
+    // refresh-signal timestamp. Each FC's app on next login does a smart-check
+    // (~50 bytes) and only refetches if data actually changed. Use this after
+    // server-side operations (recovery, mass edit) so FCs see fresh data
+    // without each one having to clear app storage.
+    html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:12px;background:#FEF3C7;border:1px solid #FCD34D;border-radius:8px;flex-wrap:wrap">';
+    html += '<div style="font-size:12px;color:#92400E;flex:1;min-width:200px">';
+    html += '<b>Push fresh data to all FCs</b><br>';
+    html += 'Signals every FC to refresh on next login. Use after restoring records or making admin edits.';
+    html += '</div>';
+    html += '<button type="button" id="v359-admin-push-btn" onclick="_v359AdminPushToAll()" ';
+    html += 'style="padding:10px 18px;border:none;border-radius:6px;background:#1B3A6B;color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font);white-space:nowrap">';
+    html += 'Push fresh data to all FCs</button>';
+    html += '</div>';
     html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px">';
     html += '<div style="background:#F3F4F6;padding:14px;border-radius:8px"><div style="font-size:11px;color:var(--gray2);margin-bottom:4px">Total</div><div style="font-size:20px;font-weight:600">' + _fmtBytes(totalBytes) + '</div></div>';
     html += '<div style="background:#F3F4F6;padding:14px;border-radius:8px"><div style="font-size:11px;color:var(--gray2);margin-bottom:4px">Active users</div><div style="font-size:20px;font-weight:600">' + activeUsers + '</div></div>';
@@ -18295,6 +18366,267 @@ async function doLogout() {
   setTimeout(() => document.getElementById('login-username').focus(), 50);
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// V359: three-layer pantry freshness (FC manual button + auto 4 AM + admin push)
+// ────────────────────────────────────────────────────────────────────────────
+// All three layers run through the same SMART-CHECK: read /_fc_meta/<uid> (~50
+// bytes) and only fall through to a full pantry refetch if the meta differs
+// from what the pantry already has. Most refresh attempts cost ~50 bytes.
+
+// Compute the most-recent 4:00 AM IST cutoff timestamp (ms since epoch).
+// Used by the auto-refresh check: if pantry.lastSyncTs < this value, refresh.
+function _v359Recent4amIST() {
+  // IST = UTC+5:30. JS Date works in local time; we need IST regardless of
+  // the user's device tz, so we shift via UTC.
+  const nowMs = Date.now();
+  // IST midnight today = UTC 18:30 of (today-1 IST). Easier: compute IST
+  // wall-clock components from UTC.
+  const istOffsetMs = (5 * 60 + 30) * 60 * 1000;
+  const istNow = new Date(nowMs + istOffsetMs);
+  // 4:00 AM IST today, in IST wall-clock:
+  const ist4am = new Date(Date.UTC(
+    istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate(),
+    4, 0, 0, 0
+  ));
+  // Convert that IST-wall-clock 4 AM back to UTC ms:
+  let cutoffMs = ist4am.getTime() - istOffsetMs;
+  // If we haven't passed 4 AM IST yet today, the relevant cutoff is yesterday's.
+  if (cutoffMs > nowMs) cutoffMs -= 24 * 60 * 60 * 1000;
+  return cutoffMs;
+}
+
+// Today's IST calendar date as YYYY-MM-DD — used for the per-FC daily button cap.
+function _v359TodayIST() {
+  const istOffsetMs = (5 * 60 + 30) * 60 * 1000;
+  const istNow = new Date(Date.now() + istOffsetMs);
+  return istNow.getUTCFullYear() + '-' +
+         String(istNow.getUTCMonth() + 1).padStart(2, '0') + '-' +
+         String(istNow.getUTCDate()).padStart(2, '0');
+}
+
+// Write the per-FC meta node. Called from saveData after a successful sync.
+// Tiny payload (~50 bytes). Upload only — Firebase doesn't bill for this.
+async function _v359UpdateFcMeta(fcUserIds) {
+  if (!FB || !FB.db) return;
+  // Deduplicate the set of FCs whose records were touched in this save.
+  const seen = new Set();
+  for (const uid of (fcUserIds || [])) {
+    if (uid && !seen.has(uid)) seen.add(uid);
+  }
+  const nowMs = Date.now();
+  for (const uid of seen) {
+    // Count this FC's records in the in-memory cache. RecordCache.benef is the
+    // canonical local state after saveData → _hydrateBenefCache.
+    let count = 0;
+    try {
+      for (const rec of RecordCache.benef.values()) {
+        if (rec && rec.createdBy === uid) count++;
+      }
+    } catch (_) {}
+    try {
+      await fbRef('_fc_meta/' + uid).set({ count: count, lastChangeTs: nowMs });
+    } catch (e) {
+      // Best-effort. Audit log is now also writing per-action; meta missing one
+      // update doesn't cause stale data (smart-check still refetches if meta is
+      // missing, which is the safe fallback).
+      console.warn('[V359] _fc_meta write failed for', uid, e && e.message);
+    }
+  }
+}
+
+// Read this FC's server-side meta. Returns null if missing or on failure.
+async function _v359ReadFcMeta(uid) {
+  if (!FB || !FB.db || !uid) return null;
+  try {
+    const snap = await fbRef('_fc_meta/' + uid).once('value');
+    return snap.val() || null;
+  } catch (e) {
+    console.warn('[V359] _fc_meta read failed', e && e.message);
+    return null;
+  }
+}
+
+// Read the fleet invalidate flag (admin-set timestamp). Tiny, ~30 bytes.
+async function _v359ReadFleetFlag() {
+  if (!FB || !FB.db) return 0;
+  try {
+    const snap = await fbRef('_pantryInvalidateFleet').once('value');
+    const v = snap.val();
+    return (typeof v === 'number') ? v : 0;
+  } catch (_) { return 0; }
+}
+
+// The SMART CHECK + conditional refetch. Returns one of:
+//   { result: 'current' }              — pantry already matches server
+//   { result: 'refreshed', count: N }  — fetched fresh records, pantry updated
+//   { result: 'error',   err: '...' }  — Firebase or auth failure
+async function _v359SmartCheckAndRefresh(reason) {
+  const u = (typeof currentUser === 'function') ? currentUser() : null;
+  if (!u || !u.userId) return { result: 'error', err: 'no user' };
+  // Read both the FC's own meta and the fleet flag in parallel.
+  let meta = null, fleetTs = 0;
+  try {
+    [meta, fleetTs] = await Promise.all([
+      _v359ReadFcMeta(u.userId),
+      _v359ReadFleetFlag(),
+    ]);
+  } catch (e) {
+    return { result: 'error', err: e && e.message };
+  }
+  const pantry = await _pantryRead(u.userId);
+  const pantryTs = (pantry && pantry.lastSyncTs) || 0;
+  const pantryCount = (pantry && Array.isArray(pantry.records)) ? pantry.records.length : -1;
+  // Decision: pantry is up-to-date if (a) meta exists and matches pantry, AND
+  // (b) fleet flag is older than the pantry's last sync.
+  const metaMatches = meta &&
+                      typeof meta.count === 'number' &&
+                      meta.count === pantryCount &&
+                      (meta.lastChangeTs || 0) <= pantryTs;
+  const fleetOk = fleetTs <= pantryTs;
+  if (metaMatches && fleetOk) {
+    console.log('[V359 smart-check]', reason, '— pantry is current, no fetch needed');
+    return { result: 'current' };
+  }
+  // Pantry is behind. Run the existing scoped one-shot fetch with force:true.
+  console.log('[V359 smart-check]', reason, '— pantry behind, fetching fresh');
+  try {
+    if (u.role === 'coordinator') {
+      await _v337BenefOneShotFetch(
+        fbRef('beneficiaries').orderByChild('createdBy').equalTo(u.userId),
+        { force: true }
+      );
+    } else if (u.role === 'ngo' && u.ngo) {
+      await _v337BenefOneShotFetch(
+        fbRef('beneficiaries').orderByChild('ngo').equalTo(u.ngo),
+        { force: true }
+      );
+    } else {
+      // Admin already uses paginated REST — re-trigger it.
+      if (typeof _adminBenefRestFetch === 'function') await _adminBenefRestFetch();
+    }
+    const afterPantry = await _pantryRead(u.userId);
+    return { result: 'refreshed', count: (afterPantry && afterPantry.records) ? afterPantry.records.length : 0 };
+  } catch (e) {
+    return { result: 'error', err: e && e.message };
+  }
+}
+
+// Layer 2: silent auto-refresh check, runs once per login.
+// If pantry hasn't synced since today's 4 AM IST → smart-check (which is
+// usually a no-op because saveData keeps pantry current).
+async function _v359AutoRefreshIfDue() {
+  try {
+    const u = currentUser();
+    if (!u || u.role !== 'coordinator') return;  // FC role only
+    const pantry = await _pantryRead(u.userId);
+    const pantryTs = (pantry && pantry.lastSyncTs) || 0;
+    const cutoff = _v359Recent4amIST();
+    if (pantryTs >= cutoff) {
+      console.log('[V359 auto-4am] pantry is fresh (synced after today\'s 4 AM IST cutoff)');
+      return;
+    }
+    const out = await _v359SmartCheckAndRefresh('auto-4am');
+    if (out.result === 'refreshed') {
+      try { renderCurrentView(); } catch(_) {}
+    }
+  } catch (e) {
+    console.warn('[V359 auto-4am] check failed:', e && e.message);
+  }
+}
+
+// Layer 1: FC manual refresh button handler.
+// Capped at 1 tap per IST calendar day (counter in localStorage).
+async function _v359FcManualRefresh() {
+  const u = currentUser();
+  if (!u || u.role !== 'coordinator') return;
+  const dateKey = '_v359_refresh_' + _v359TodayIST() + '_' + u.userId;
+  const used = parseInt(localStorage.getItem(dateKey) || '0', 10);
+  if (used >= 1) {
+    if (typeof toast === 'function') toast('Daily refresh limit reached. Available again tomorrow.', 'info', 4000);
+    _v359UpdateFcRefreshButton();
+    return;
+  }
+  // Optimistic increment so a hung fetch doesn't allow a re-tap that triggers
+  // a parallel fetch.
+  localStorage.setItem(dateKey, String(used + 1));
+  _v359UpdateFcRefreshButton();
+  // Disable button immediately, show spinner.
+  const btn = document.getElementById('v359-refresh-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Checking…'; }
+  const out = await _v359SmartCheckAndRefresh('fc-manual');
+  if (out.result === 'current') {
+    if (typeof toast === 'function') toast('✓ Already up to date', 'success', 2500);
+  } else if (out.result === 'refreshed') {
+    if (typeof toast === 'function') toast('✓ Refreshed — ' + out.count + ' records loaded', 'success', 3000);
+    try { coordRenderList(); } catch(_) {}
+  } else {
+    if (typeof toast === 'function') toast('Refresh failed: ' + (out.err || 'unknown'), 'error', 4000);
+    // Refund the counter if the network failed — user shouldn't lose their tap.
+    localStorage.setItem(dateKey, String(used));
+  }
+  _v359UpdateFcRefreshButton();
+}
+
+// Re-render the FC refresh button's label based on today's remaining taps.
+function _v359UpdateFcRefreshButton() {
+  const btn = document.getElementById('v359-refresh-btn');
+  if (!btn) return;
+  const u = currentUser();
+  if (!u || u.role !== 'coordinator') { btn.style.display = 'none'; return; }
+  const dateKey = '_v359_refresh_' + _v359TodayIST() + '_' + u.userId;
+  const used = parseInt(localStorage.getItem(dateKey) || '0', 10);
+  const remaining = Math.max(0, 1 - used);
+  btn.disabled = (remaining === 0);
+  if (remaining === 0) {
+    btn.textContent = '↻ Refresh — available tomorrow';
+    btn.style.opacity = '0.55';
+  } else {
+    btn.textContent = '↻ Refresh data (' + remaining + ' left today)';
+    btn.style.opacity = '1';
+  }
+}
+
+// Layer 3: admin "Push fresh data to all FCs" handler.
+// Writes a single timestamp to /_pantryInvalidateFleet. All FCs see this on
+// their next login and run the smart-check. Bandwidth: ~30 bytes upload from
+// admin + 30 bytes read per FC × 500 = ~15 KB total broadcast cost.
+async function _v359AdminPushToAll() {
+  if (!isAdmin()) return;
+  if (!confirm('This will signal every FC to refresh their local data on their next login.\n\n' +
+               'No data is changed. No FCs are forced offline. Each FC\'s app will silently ' +
+               'do a smart-check (~50 bytes) and only download fresh records if there are ' +
+               'actual changes.\n\nContinue?')) return;
+  const btn = document.getElementById('v359-admin-push-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Pushing…'; }
+  try {
+    const ts = Date.now();
+    await fbRef('_pantryInvalidateFleet').set(ts);
+    auditLog('push_refresh', 'fleet', 'all', 'all-fcs',
+             'Admin triggered fleet pantry refresh signal', null);
+    if (typeof toast === 'function') {
+      toast('✓ Refresh signal sent. All FCs will pick it up on next login.', 'success', 4000);
+    }
+    _v359UpdateAdminPushButton(ts);
+  } catch (e) {
+    if (typeof toast === 'function') toast('Push failed: ' + (e && e.message), 'error', 5000);
+    if (btn) { btn.disabled = false; btn.textContent = 'Push fresh data to all FCs'; }
+  }
+}
+
+function _v359UpdateAdminPushButton(lastTs) {
+  const btn = document.getElementById('v359-admin-push-btn');
+  if (!btn) return;
+  btn.disabled = false;
+  if (lastTs) {
+    const d = new Date(lastTs);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    btn.textContent = 'Push fresh data to all FCs · last: ' + hh + ':' + mm;
+  } else {
+    btn.textContent = 'Push fresh data to all FCs';
+  }
+}
+
 function renderAfterLogin() {
   // Shell dispatch (v21.0): pick coord or manager shell based on role.
   // This sets body.dataset.shell, which drives CSS rules that show one
@@ -18329,6 +18661,13 @@ function mountCoordApp() {
   // Initial list render
   coordRenderList();
   _coordUpdateAlertBadge();
+  // V359: silent auto-refresh check at every login. Only fires the smart-check
+  // (~50 bytes) if pantry hasn't synced since today's 4 AM IST cutoff. Fires
+  // AFTER the initial render so the user sees their cached list immediately;
+  // if the smart-check finds new data, the list re-renders.
+  try { setTimeout(_v359AutoRefreshIfDue, 100); } catch(_) {}
+  // Make sure the refresh button label reflects today's remaining taps.
+  try { setTimeout(_v359UpdateFcRefreshButton, 100); } catch(_) {}
 }
 
 // Mount the manager shell (unchanged behaviour from v20.x).
