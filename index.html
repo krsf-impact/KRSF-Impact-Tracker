@@ -1,6 +1,63 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V362-LIVE
+  KRSF Beneficiary Impact Tracker  -  V364-LIVE
+  ============================================================================
+  V364-LIVE (2026-05-30 NGO breakdown table in viewer):
+    + NGO BREAKDOWN added to summary computation + viewer Dashboard tab.
+      One row per NGO with three columns: Total / Today / Yesterday
+      (enrollment counts). Sorted by Total desc, matching admin's existing
+      "NGO Partners ranked by total impact" table layout.
+    + Per-NGO daily counts come from beneficiary enrollDate, bucketed by
+      IST calendar day so "Today" = today 00:00 to 23:59 IST regardless of
+      the viewer's device timezone.
+    + Computed in all three writer paths so distributed architecture works:
+      - Admin saves: includes ngoBreakdown in global + per-NGO summaries
+      - NGO user saves: includes ngoBreakdown for their NGO
+      - FC saves: includes one ngoBreakdown row for their NGO (their slice)
+      Viewer aggregation in _v363AggregateFcSlices sums per-NGO totals
+      across all FC slices for global-scope viewers.
+    + DISPLAYED on the Dashboard tab below "Top 5 FCs" — top 10 NGOs by
+      total. Mobile-friendly compact table with the same KRSF colour
+      palette as the admin app.
+    + BANDWIDTH: zero added Firebase reads. Summary payload grows by
+      ~50 bytes per NGO in the list (≤ 1 KB total for ~15 NGOs).
+    + APP_VERSION bumped to V364-LIVE.
+    REQUIRES: no Firebase rules update, no schema change. Same upload
+    pattern as V363.
+  ============================================================================
+  V363-LIVE (2026-05-30 distributed summary writes + instant viewer open):
+    + ADMIN-INDEPENDENT VIEWER: removed V362's hard dependency on admin's
+      app being open. Now each role writes its OWN summary slice on save:
+      - FC saves a record → writes /_summary/fc/<uid> (their own slice)
+      - NGO user saves    → writes /_summary/ngo/<ngoName> (full NGO summary)
+      - Admin saves       → writes /_summary/global + all /_summary/ngo/*
+      Viewer aggregates per-FC slices when the pre-aggregated summary is
+      missing or older than 15 minutes. Net effect: viewer reflects fresh
+      data within seconds of ANY save by ANY user, no admin required.
+    + INSTANT VIEWER OPEN: viewer's last-fetched summary is cached in
+      localStorage. On mountViewerApp, cached numbers render in <50ms
+      (zero network). Fresh fetch happens in the background; display
+      updates silently when the fresh data arrives. No more 1-2 second
+      loading spinner on every viewer open.
+    + AUTO-WRITE ON ADMIN BOOT: when admin's app finishes its initial
+      data load, summary writes automatically. Removes the "Summary not
+      available yet" message on first viewer login after deploy.
+    + DISTRIBUTED AGGREGATION at viewer:
+      - First tries pre-aggregated summary (admin-written, fast)
+      - Falls back to summing /_summary/fc/* slices (~100 KB)
+      - "Fresh enough" threshold: 15 min for pre-aggregated, always
+        prefers fresher of the two
+      For NGO-scoped viewers: same logic against /_summary/ngo/<X> +
+      filtered /_summary/fc/* where ngo===X.
+    + BANDWIDTH at 500 FCs:
+      - Per FC save: ~300 B upload (one slice write, free)
+      - Per viewer refresh (warm cache hit): 0 KB (cached display)
+      - Per viewer refresh (cache miss, pre-aggregated): ~5 KB
+      - Per viewer refresh (fallback aggregation): ~100 KB
+      - Fleet daily impact: ~10-30 MB worst case = 0.3-1% of baseline
+    + APP_VERSION bumped to V363-LIVE.
+    REQUIRES: no Firebase rules update. New /_summary/fc/<uid> path
+    inherits root auth != null. Viewer remains read-only.
   ============================================================================
   V362-LIVE (2026-05-30 mobile viewer role — lightweight summary-only access):
     + NEW ROLE 'viewer' — read-only mobile-first user that NEVER downloads
@@ -2886,7 +2943,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V362-LIVE';
+const APP_VERSION = 'V364-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -4469,6 +4526,16 @@ async function _adminBenefRestFetch() {
     if (_u347b && _u347b.userId) {
       try { await _pantryWrite(_u347b.userId, Array.from(RecordCache.benef.values())); } catch(_){}
     }
+    // V363: auto-write summary right after admin's data load completes.
+    // Removes the "Summary not available yet" message viewers see on first
+    // login after a fresh deploy. Triggers the same role-aware writer as
+    // saves do, but immediate (no debounce). Best-effort.
+    try {
+      if (typeof _v362QueueSummaryWrite === 'function') {
+        // Slight delay so RecordCache is fully primed before reading
+        setTimeout(_v362QueueSummaryWrite, 500);
+      }
+    } catch(_) {}
   } catch (e) {
     console.warn('[V328] benef REST failed — falling back to realtime listener:', e);
     _adminBenefRestMode = false;
@@ -6123,6 +6190,18 @@ async function saveUsers(arr) {
   // can never overwrite each other.
   await fbSyncCollection('users', arr || [], 'id', 'lastUsers');
   _hydrateUsersCache(Array.isArray(arr) ? arr : []);
+  // V362 BUGFIX: also update the users pantry. Without this, a newly created
+  // user (e.g., the V362 viewer account) is invisible to login on next reload
+  // because fbUsersHandleChild reads the stale pantry first and skips the
+  // Firebase fetch. Symptom: "Username or password is incorrect" even though
+  // both are right. Fix: keep the pantry in lockstep with in-memory cache.
+  try {
+    if (typeof _usersPantryWrite === 'function') {
+      _usersPantryWrite(Array.from(RecordCache.users.values()));
+    }
+  } catch (e) {
+    console.warn('[V362 users-pantry sync] failed:', e && e.message);
+  }
 }
 
 function loadSession() {
@@ -19081,6 +19160,36 @@ function _v362ComputeOneSummary(records, advRecords, ngoScope) {
   } catch(_) {}
   const topFCs = fcEntries.map(([uid, n]) => ({ name: userMap[uid] || uid, count: n }));
 
+  // V364: per-NGO breakdown — total / today / yesterday enrollment counts.
+  // "Today" and "yesterday" use IST calendar day for consistency regardless
+  // of where the viewer's phone is.
+  const _v364IstDay = function(dateStr) {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return '';
+    const istOffsetMs = (5 * 60 + 30) * 60 * 1000;
+    const ist = new Date(d.getTime() + istOffsetMs);
+    return ist.getUTCFullYear() + '-' +
+           String(ist.getUTCMonth() + 1).padStart(2, '0') + '-' +
+           String(ist.getUTCDate()).padStart(2, '0');
+  };
+  const _v364TodayIst = _v364IstDay(new Date().toISOString());
+  const _v364YesterdayIst = (function() {
+    const istOffsetMs = (5 * 60 + 30) * 60 * 1000;
+    const d = new Date(Date.now() + istOffsetMs - 86400000);
+    return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
+  })();
+  const ngoMap = {};
+  for (const b of recs) {
+    if (!b || !b.ngo) continue;
+    if (!ngoMap[b.ngo]) ngoMap[b.ngo] = { name: b.ngo, total: 0, today: 0, yesterday: 0 };
+    ngoMap[b.ngo].total++;
+    const day = _v364IstDay(b.enrollDate);
+    if (day === _v364TodayIst) ngoMap[b.ngo].today++;
+    else if (day === _v364YesterdayIst) ngoMap[b.ngo].yesterday++;
+  }
+  const ngoBreakdown = Object.values(ngoMap).sort((a, b) => b.total - a.total);
+
   return {
     meta: { computedAt: Date.now(), scope: ngoScope || 'global', recordsInScope: recs.length },
     dashboard: {
@@ -19116,46 +19225,262 @@ function _v362ComputeOneSummary(records, advRecords, ngoScope) {
       totalImpact: totalIncome + totalAmt,
     },
     progress: last12,
+    // V364: per-NGO Total / Today / Yesterday enrollment breakdown
+    ngoBreakdown: ngoBreakdown,
   };
 }
 
-// Write all summaries (global + per-NGO) to Firebase. Called by the debouncer.
+// V363: helper — safe-key an NGO name for Firebase paths (no . # $ [ ] /)
+function _v363SafeKey(s) {
+  return String(s || '').replace(/[.#$\[\]/]/g, '_');
+}
+
+// V363: compute one FC's slice (just their own records). Used by FC role
+// when they save — their saveData writes this slice to /_summary/fc/<uid>.
+function _v363ComputeFcSlice(records, advAll, user) {
+  const recs = (records || []).filter(b => b && b.createdBy === user.userId);
+  const adv  = (advAll || []).filter(a => a && a.createdBy === user.userId);
+
+  const livRecs = recs.filter(b => (b.interventions||[]).some(i => i && i !== 'Advocacy (Govt. Schemes)'));
+  const advBidSet = new Set();
+  for (const a of adv) { if (a && a.bid) advBidSet.add(a.bid); }
+  const advRecsCount = recs.filter(b => advBidSet.has(b.id)).length;
+  let totalIncome = 0;
+  for (const b of recs) {
+    if (b.endIncome != null && b.baseIncome != null) {
+      const d = (Number(b.endIncome)||0) - (Number(b.baseIncome)||0);
+      if (d > 0) totalIncome += d;
+    }
+  }
+  // Advocacy row aggregation
+  let allRows = [];
+  try {
+    allRows = (typeof _advLatestRowsAll === 'function')
+      ? _advLatestRowsAll(adv)
+      : adv.flatMap(a => (a.schemeRows||[]).map(r => Object.assign({__bid:a.bid}, r)));
+  } catch(_) {}
+  // Filter to this FC's bids only
+  const bidSet = new Set(recs.map(b => b.id));
+  allRows = allRows.filter(r => bidSet.has(r.__bid));
+  let needApply=0, applied=0, rejected=0, received=0, totalAmt=0;
+  for (const r of allRows) {
+    if (r._deleted) continue;
+    const s = (typeof _advNormStatus === 'function') ? _advNormStatus(r) : (r.status || 'Need to Apply');
+    if (s === 'Need to Apply') needApply++;
+    else if (s === 'Applied') applied++;
+    else if (s === 'Rejected') rejected++;
+    else if (s === 'Benefits Received') { received++; totalAmt += (Number(r.benefitAmt)||0); }
+  }
+  // Integrated for this FC
+  const livOnly = recs.filter(b => (b.interventions||[]).some(i => i && i !== 'Advocacy (Govt. Schemes)') && !advBidSet.has(b.id)).length;
+  const dual    = recs.filter(b => (b.interventions||[]).some(i => i && i !== 'Advocacy (Govt. Schemes)') &&  advBidSet.has(b.id)).length;
+  const advOnly = recs.filter(b => !(b.interventions||[]).some(i => i && i !== 'Advocacy (Govt. Schemes)') && advBidSet.has(b.id)).length;
+  // Distinct geo
+  const statesSet = new Set(), distSet = new Set();
+  for (const b of recs) {
+    const parts = (b.district||'').split(',');
+    if (parts.length >= 2) statesSet.add(parts[parts.length-1].trim());
+    if (parts.length >= 1 && parts[0]) distSet.add((parts[0]||'').trim());
+  }
+  // Weekly progress for this FC
+  function _wk(dateStr) {
+    if (!dateStr) return null;
+    const d = new Date(dateStr); if (isNaN(d.getTime())) return null;
+    const day = d.getUTCDay();
+    const diff = (day === 0 ? -6 : 1 - day);
+    const monday = new Date(d.getTime() + diff*86400000);
+    return monday.toISOString().slice(0,10);
+  }
+  const wk = {};
+  for (const b of recs) {
+    const w = _wk(b.enrollDate); if (!w) continue;
+    if (!wk[w]) wk[w] = { week:w, enrolled:0, applied:0, received:0, rejected:0 };
+    wk[w].enrolled++;
+  }
+  for (const a of adv) {
+    const ts = a.updatedAt || a.createdAt;
+    const w = _wk(ts); if (!w) continue;
+    if (!wk[w]) wk[w] = { week:w, enrolled:0, applied:0, received:0, rejected:0 };
+    for (const r of (a.schemeRows||[])) {
+      if (r._deleted) continue;
+      const s = (typeof _advNormStatus === 'function') ? _advNormStatus(r) : (r.status || '');
+      if (s === 'Applied') wk[w].applied++;
+      else if (s === 'Benefits Received') wk[w].received++;
+      else if (s === 'Rejected') wk[w].rejected++;
+    }
+  }
+  const progress = Object.values(wk).sort((a,b) => a.week<b.week?-1:1).slice(-12);
+
+  // V364: NGO breakdown for FC slice — just the FC's NGO (one row typically)
+  // with today/yesterday counts so the viewer's aggregation can sum them.
+  const _v364IstDayFc = function(dateStr) {
+    if (!dateStr) return '';
+    const d = new Date(dateStr); if (isNaN(d.getTime())) return '';
+    const ist = new Date(d.getTime() + ((5 * 60 + 30) * 60 * 1000));
+    return ist.getUTCFullYear() + '-' + String(ist.getUTCMonth() + 1).padStart(2,'0') + '-' + String(ist.getUTCDate()).padStart(2,'0');
+  };
+  const _v364TodayIstFc = _v364IstDayFc(new Date().toISOString());
+  const _v364YesterdayIstFc = (function() {
+    const d = new Date(Date.now() + ((5 * 60 + 30) * 60 * 1000) - 86400000);
+    return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2,'0') + '-' + String(d.getUTCDate()).padStart(2,'0');
+  })();
+  const fcNgoMap = {};
+  for (const b of recs) {
+    if (!b || !b.ngo) continue;
+    if (!fcNgoMap[b.ngo]) fcNgoMap[b.ngo] = { name: b.ngo, total: 0, today: 0, yesterday: 0 };
+    fcNgoMap[b.ngo].total++;
+    const day = _v364IstDayFc(b.enrollDate);
+    if (day === _v364TodayIstFc) fcNgoMap[b.ngo].today++;
+    else if (day === _v364YesterdayIstFc) fcNgoMap[b.ngo].yesterday++;
+  }
+  const ngoBreakdown = Object.values(fcNgoMap);
+
+  return {
+    meta: { computedAt: Date.now(), fcUid: user.userId, fcName: user.fullName || user.username || user.userId, ngo: user.ngo || null },
+    count: recs.length,
+    livelihoodCount: livRecs.length,
+    advocacyCount: advRecsCount,
+    totalIncomeAdded: totalIncome,
+    totalSchemeBenefits: totalAmt,
+    advCounts: { needApply, applied, rejected, received, totalAmount: totalAmt, totalBeneficiaries: advBidSet.size },
+    integrated: { livOnly, dual, advOnly },
+    states: Array.from(statesSet),
+    districts: Array.from(distSet),
+    progress,
+    // V364: this FC's contribution to NGO breakdown (typically one row).
+    ngoBreakdown: ngoBreakdown,
+  };
+}
+
+// V363: aggregate per-FC slices into a single viewer-shaped summary object.
+// Used by the viewer when the pre-aggregated /_summary/global (or
+// /_summary/ngo/<X>) is missing or older than 15 min.
+function _v363AggregateFcSlices(sliceMap, ngoFilter) {
+  // sliceMap = { uid: sliceObject, ... }
+  const out = {
+    meta: { computedAt: 0, scope: ngoFilter ? ('ngo:'+ngoFilter) : 'global-aggregated', sourceFcs: 0 },
+    dashboard: { total:0, states:0, districts:0, totalIncomeAdded:0, totalSchemeBenefits:0, totalImpact:0, livelihoodCount:0, advocacyCount:0, topFCs:[] },
+    livelihood: { total:0, totalIncomeAdded:0, withEndline:0, pending:0 },
+    advocacy:   { totalBeneficiaries:0, needApply:0, applied:0, rejected:0, received:0, totalAmount:0 },
+    integrated: { total:0, livOnly:0, dual:0, advOnly:0, totalImpact:0 },
+    progress:   [],
+  };
+  const stateSet = new Set(), distSet = new Set();
+  const wkMap = {};
+  const fcList = [];
+  // V364: aggregate per-NGO Total/Today/Yesterday across all FC slices.
+  const ngoMap = {};
+  for (const uid in sliceMap) {
+    const sl = sliceMap[uid];
+    if (!sl || !sl.meta) continue;
+    if (ngoFilter && sl.meta.ngo !== ngoFilter) continue;  // filter for NGO scope
+    out.meta.sourceFcs++;
+    // V364: merge NGO breakdown rows from this FC's slice
+    for (const row of (sl.ngoBreakdown || [])) {
+      if (!row || !row.name) continue;
+      if (!ngoMap[row.name]) ngoMap[row.name] = { name: row.name, total: 0, today: 0, yesterday: 0 };
+      ngoMap[row.name].total     += row.total     || 0;
+      ngoMap[row.name].today     += row.today     || 0;
+      ngoMap[row.name].yesterday += row.yesterday || 0;
+    }
+    if (sl.meta.computedAt > out.meta.computedAt) out.meta.computedAt = sl.meta.computedAt;
+    out.dashboard.total              += sl.count || 0;
+    out.dashboard.livelihoodCount    += sl.livelihoodCount || 0;
+    out.dashboard.advocacyCount      += sl.advocacyCount || 0;
+    out.dashboard.totalIncomeAdded   += sl.totalIncomeAdded || 0;
+    out.dashboard.totalSchemeBenefits+= sl.totalSchemeBenefits || 0;
+    out.livelihood.total             += sl.livelihoodCount || 0;
+    out.livelihood.totalIncomeAdded  += sl.totalIncomeAdded || 0;
+    out.advocacy.totalBeneficiaries  += (sl.advCounts && sl.advCounts.totalBeneficiaries) || 0;
+    out.advocacy.needApply           += (sl.advCounts && sl.advCounts.needApply) || 0;
+    out.advocacy.applied             += (sl.advCounts && sl.advCounts.applied) || 0;
+    out.advocacy.rejected            += (sl.advCounts && sl.advCounts.rejected) || 0;
+    out.advocacy.received            += (sl.advCounts && sl.advCounts.received) || 0;
+    out.advocacy.totalAmount         += (sl.advCounts && sl.advCounts.totalAmount) || 0;
+    out.integrated.livOnly           += (sl.integrated && sl.integrated.livOnly) || 0;
+    out.integrated.dual              += (sl.integrated && sl.integrated.dual) || 0;
+    out.integrated.advOnly           += (sl.integrated && sl.integrated.advOnly) || 0;
+    out.integrated.total             += sl.count || 0;
+    for (const s of (sl.states || [])) stateSet.add(s);
+    for (const d of (sl.districts || [])) distSet.add(d);
+    for (const wk of (sl.progress || [])) {
+      if (!wkMap[wk.week]) wkMap[wk.week] = { week:wk.week, enrolled:0, applied:0, received:0, rejected:0 };
+      wkMap[wk.week].enrolled += wk.enrolled || 0;
+      wkMap[wk.week].applied  += wk.applied  || 0;
+      wkMap[wk.week].received += wk.received || 0;
+      wkMap[wk.week].rejected += wk.rejected || 0;
+    }
+    fcList.push({ name: sl.meta.fcName || uid, count: sl.count || 0 });
+  }
+  out.dashboard.states           = stateSet.size;
+  out.dashboard.districts        = distSet.size;
+  out.dashboard.totalImpact      = out.dashboard.totalIncomeAdded + out.dashboard.totalSchemeBenefits;
+  out.integrated.totalImpact     = out.dashboard.totalImpact;
+  out.livelihood.pending         = Math.max(0, out.livelihood.total - out.livelihood.withEndline);
+  out.dashboard.topFCs           = fcList.sort((a,b) => b.count - a.count).slice(0, 5);
+  out.progress = Object.values(wkMap).sort((a,b) => a.week<b.week?-1:1).slice(-12);
+  // V364: include the merged NGO breakdown, sorted by Total desc.
+  out.ngoBreakdown = Object.values(ngoMap).sort((a, b) => b.total - a.total);
+  return out;
+}
+
+// V363: role-aware summary writer. Replaces V362's admin-only writer.
+// Each role writes the scope it has data for.
 async function _v362WriteAllSummaries() {
   if (!FB || !FB.db) return;
-  // Admin/NGO/coordinator each have their own slice of data in memory. Only
-  // ADMIN sees the whole tree — so only admin's app is qualified to compute
-  // the global + per-NGO summaries. For coordinator/ngo, skip (their save
-  // will still trigger summary writer from admin's app on next admin save,
-  // or admin can manually recompute).
-  try {
-    const u = (typeof currentUser === 'function') ? currentUser() : null;
-    if (!u || u.role !== 'admin') return;
-  } catch(_) { return; }
+  let u;
+  try { u = (typeof currentUser === 'function') ? currentUser() : null; } catch(_) { u = null; }
+  if (!u) return;
 
   let records, adv;
   try {
     records = (typeof loadData === 'function') ? loadData() : [];
     adv     = (typeof loadAdv  === 'function') ? loadAdv()  : [];
   } catch(_) { return; }
-  if (!Array.isArray(records) || records.length === 0) return;
 
-  // Build the multipath update: global + each distinct NGO.
-  const ngoSet = new Set();
-  for (const b of records) { if (b && b.ngo) ngoSet.add(b.ngo); }
-  const update = {};
-  try {
-    update['_summary/global'] = _v362ComputeOneSummary(records, adv, null);
-    for (const ngoName of ngoSet) {
-      // safe-key the NGO name for Firebase path (no . # $ [ ])
-      const safeKey = ngoName.replace(/[.#$\[\]/]/g, '_');
-      update['_summary/ngo/' + safeKey] = _v362ComputeOneSummary(records, adv, ngoName);
+  // -------- COORDINATOR: write just their own slice --------
+  if (u.role === 'coordinator' && u.userId) {
+    if (!Array.isArray(records) || records.length === 0) return;
+    try {
+      const slice = _v363ComputeFcSlice(records, adv, u);
+      await fbRef('_summary/fc/' + u.userId).set(slice);
+      console.log('[V363] FC slice written for ' + u.userId + ' (' + slice.count + ' records)');
+    } catch (e) {
+      console.warn('[V363] FC slice write failed:', e && e.message);
     }
-    // Single multipath PATCH: efficient, atomic.
-    await fbRef('').update(update);
-    console.log('[V362] Wrote ' + Object.keys(update).length + ' summary nodes ('
-      + Math.round(JSON.stringify(update).length/1024) + ' KB)');
-  } catch (e) {
-    console.warn('[V362] summary write failed:', e && e.message);
+    return;
+  }
+
+  // -------- NGO: write just their NGO's summary --------
+  if (u.role === 'ngo' && u.ngo) {
+    if (!Array.isArray(records) || records.length === 0) return;
+    try {
+      const summary = _v362ComputeOneSummary(records, adv, u.ngo);
+      await fbRef('_summary/ngo/' + _v363SafeKey(u.ngo)).set(summary);
+      console.log('[V363] NGO summary written for ' + u.ngo);
+    } catch (e) {
+      console.warn('[V363] NGO summary write failed:', e && e.message);
+    }
+    return;
+  }
+
+  // -------- ADMIN: write global + all per-NGO summaries --------
+  if (u.role === 'admin') {
+    if (!Array.isArray(records) || records.length === 0) return;
+    const ngoSet = new Set();
+    for (const b of records) { if (b && b.ngo) ngoSet.add(b.ngo); }
+    const update = {};
+    try {
+      update['_summary/global'] = _v362ComputeOneSummary(records, adv, null);
+      for (const ngoName of ngoSet) {
+        update['_summary/ngo/' + _v363SafeKey(ngoName)] = _v362ComputeOneSummary(records, adv, ngoName);
+      }
+      await fbRef('').update(update);
+      console.log('[V363] Admin wrote ' + Object.keys(update).length + ' summary nodes ('
+        + Math.round(JSON.stringify(update).length/1024) + ' KB)');
+    } catch (e) {
+      console.warn('[V363] admin summary write failed:', e && e.message);
+    }
   }
 }
 
@@ -19179,28 +19504,60 @@ let _v362ViewerLastRefresh = 0;
 let _v362ViewerData = null;  // { meta, dashboard, livelihood, advocacy, integrated, progress }
 
 function _v362ReadAssignedSummary() {
-  // Reads the viewer's assigned summary slice. Returns aggregated object.
-  // If assignedNgos is empty/null → reads /_summary/global only.
-  // If assignedNgos is populated → reads each /_summary/ngo/<name>, merges.
+  // V363: distributed-aware read. Tries pre-aggregated /_summary/global or
+  // /_summary/ngo/<X> first; falls back to aggregating /_summary/fc/*
+  // slices if pre-aggregated is missing or older than 15 min. Net effect:
+  // viewer is admin-independent — fresh as soon as any FC saves.
   return new Promise(async function(resolve) {
     const u = currentUser();
     if (!u) return resolve(null);
-    let assigned = Array.isArray(u.assignedNgos) ? u.assignedNgos.filter(Boolean) : [];
+    const assigned = Array.isArray(u.assignedNgos) ? u.assignedNgos.filter(Boolean) : [];
+    const FRESH_WINDOW_MS = 15 * 60 * 1000;  // 15 min — pre-aggregated is "fresh"
+    const now = Date.now();
     try {
+      // ---- GLOBAL SCOPE ----
       if (assigned.length === 0) {
+        // Try pre-aggregated first
         const snap = await fbRef('_summary/global').once('value');
-        return resolve(snap.val() || null);
+        const pre = snap.val();
+        if (pre && pre.meta && (now - (pre.meta.computedAt || 0)) < FRESH_WINDOW_MS) {
+          return resolve(pre);
+        }
+        // Fall back: aggregate all FC slices
+        console.log('[V363 viewer] global pre-aggregated stale or missing — aggregating FC slices');
+        const fcSnap = await fbRef('_summary/fc').once('value');
+        const sliceMap = fcSnap.val() || {};
+        const agg = _v363AggregateFcSlices(sliceMap, null);
+        // If pre-aggregated exists but stale, take whichever has the most data
+        // (avoids "0 records" if FC slices haven't been populated yet)
+        if (pre && pre.dashboard && pre.dashboard.total > agg.dashboard.total) {
+          return resolve(pre);
+        }
+        return resolve(agg);
       }
-      // Multi-NGO: fetch each, merge.
+      // ---- NGO SCOPE ----
       const fetches = assigned.map(function(ngo) {
-        const safeKey = ngo.replace(/[.#$\[\]/]/g, '_');
-        return fbRef('_summary/ngo/' + safeKey).once('value').then(function(s){ return { ngo: ngo, data: s.val() }; });
+        return fbRef('_summary/ngo/' + _v363SafeKey(ngo)).once('value').then(function(s){
+          return { ngo: ngo, data: s.val() };
+        });
       });
       const results = await Promise.all(fetches);
-      const merged = _v362MergeSummaries(results);
-      return resolve(merged);
+      // Are any pre-aggregated NGO summaries fresh enough?
+      const anyFresh = results.some(r => r.data && r.data.meta && (now - (r.data.meta.computedAt || 0)) < FRESH_WINDOW_MS);
+      if (anyFresh) {
+        return resolve(_v362MergeSummaries(results));
+      }
+      // Fall back: aggregate FC slices filtered by assigned NGOs
+      console.log('[V363 viewer] NGO pre-aggregated stale — aggregating FC slices for ' + assigned.join(','));
+      const fcSnap = await fbRef('_summary/fc').once('value');
+      const sliceMap = fcSnap.val() || {};
+      // Aggregate per NGO, then merge results
+      const aggs = assigned.map(function(ngo) {
+        return { ngo: ngo, data: _v363AggregateFcSlices(sliceMap, ngo) };
+      });
+      return resolve(_v362MergeSummaries(aggs));
     } catch (e) {
-      console.warn('[V362 viewer] read failed:', e && e.message);
+      console.warn('[V363 viewer] read failed:', e && e.message);
       resolve(null);
     }
   });
@@ -19219,11 +19576,21 @@ function _v362MergeSummaries(results) {
   const stateSet = new Set();
   const distSet = new Set();
   const weekMap = {};
+  // V364: also merge NGO breakdown across the assigned NGOs
+  const ngoMap = {};
   for (const item of results) {
     const d = item && item.data;
     if (!d || !d.dashboard) continue;
     out.meta.ngos.push(item.ngo);
     if (d.meta && d.meta.computedAt > out.meta.computedAt) out.meta.computedAt = d.meta.computedAt;
+    // V364: roll up this NGO's breakdown row
+    for (const row of (d.ngoBreakdown || [])) {
+      if (!row || !row.name) continue;
+      if (!ngoMap[row.name]) ngoMap[row.name] = { name: row.name, total: 0, today: 0, yesterday: 0 };
+      ngoMap[row.name].total     += row.total     || 0;
+      ngoMap[row.name].today     += row.today     || 0;
+      ngoMap[row.name].yesterday += row.yesterday || 0;
+    }
     out.dashboard.total              += d.dashboard.total || 0;
     out.dashboard.totalIncomeAdded   += d.dashboard.totalIncomeAdded || 0;
     out.dashboard.totalSchemeBenefits+= d.dashboard.totalSchemeBenefits || 0;
@@ -19255,6 +19622,8 @@ function _v362MergeSummaries(results) {
     }
   }
   out.progress = Object.values(weekMap).sort(function(a,b){ return a.week<b.week?-1:1; }).slice(-12);
+  // V364: include merged NGO breakdown sorted by Total desc
+  out.ngoBreakdown = Object.values(ngoMap).sort(function(a, b) { return b.total - a.total; });
   return out;
 }
 
@@ -19281,9 +19650,35 @@ async function _v362ViewerRefresh() {
   _v362ViewerLastRefresh = now;
   const btn = document.getElementById('v362-refresh-btn');
   if (btn) { btn.disabled = true; btn.textContent = '⟳ Loading…'; }
-  _v362ViewerData = await _v362ReadAssignedSummary();
+  const fresh = await _v362ReadAssignedSummary();
+  if (fresh) {
+    _v362ViewerData = fresh;
+    // V363: persist to localStorage so the NEXT viewer open is instant.
+    try {
+      const u = currentUser() || {};
+      const cacheKey = '_v363ViewerCache_' + (u.userId || 'anon');
+      localStorage.setItem(cacheKey, JSON.stringify({ savedAt: Date.now(), data: fresh }));
+    } catch(_) {}
+  }
   if (btn) { btn.disabled = false; btn.textContent = '↻ Refresh'; }
   _v362RenderViewerTab(_v362ViewerActiveTab);
+}
+
+// V363: read the viewer's last-fetched summary from localStorage (instant,
+// no network). Returns null if cache miss or older than 24h (too stale to
+// show, force a fresh fetch).
+function _v363LoadViewerCache() {
+  try {
+    const u = currentUser() || {};
+    const cacheKey = '_v363ViewerCache_' + (u.userId || 'anon');
+    const raw = localStorage.getItem(cacheKey);
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    if (!obj || !obj.data || !obj.savedAt) return null;
+    // 24h sanity cap — don't show ancient cached data
+    if (Date.now() - obj.savedAt > 24 * 3600 * 1000) return null;
+    return obj.data;
+  } catch(_) { return null; }
 }
 
 function mountViewerApp() {
@@ -19331,7 +19726,14 @@ function mountViewerApp() {
       }).join('')
     + '</div>'
     + '<style>@keyframes _v361Spin { to { transform: rotate(360deg); } }</style>';
-  // Initial load
+  // V363: try local cache FIRST — renders instantly with no network wait.
+  // Then refresh in background to update if anything changed.
+  const cached = _v363LoadViewerCache();
+  if (cached) {
+    _v362ViewerData = cached;
+    _v362RenderViewerTab(_v362ViewerActiveTab);
+  }
+  // Initial fresh load (always — even with cache hit, we refresh in background)
   _v362ViewerLastRefresh = 0;
   _v362ViewerRefresh();
 }
@@ -19414,6 +19816,29 @@ function _v362BuildTabDashboard(d) {
         + '</div>';
     });
     html += '</div>';
+  }
+  // V364: NGO breakdown table — Total / Today / Yesterday enrollment per NGO.
+  // Shows top 10 by Total. Mobile-friendly compact table.
+  const ngoRows = Array.isArray(d.ngoBreakdown) ? d.ngoBreakdown.slice(0, 10) : [];
+  if (ngoRows.length > 0) {
+    html += '<div style="background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:16px;margin-bottom:12px">';
+    html += '<div style="font-size:11px;color:#6B7280;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;margin-bottom:10px">NGO Partners · today vs yesterday</div>';
+    html += '<table style="width:100%;font-size:12px;border-collapse:collapse">';
+    html += '<thead><tr style="color:#6B7280;font-weight:600">'
+      + '<th style="text-align:left;padding:6px 4px">NGO</th>'
+      + '<th style="text-align:right;padding:6px 4px">Total</th>'
+      + '<th style="text-align:right;padding:6px 4px;color:#065F46">Today</th>'
+      + '<th style="text-align:right;padding:6px 4px;color:#1D4ED8">Yesterday</th>'
+      + '</tr></thead><tbody>';
+    ngoRows.forEach(function(r, i) {
+      html += '<tr style="border-top:1px solid #F3F4F6">'
+        + '<td style="padding:7px 4px;font-weight:600">' + (r.name || '').substring(0, 24) + '</td>'
+        + '<td style="text-align:right;padding:7px 4px;font-weight:600;color:#1B3A6B">' + _v362Num(r.total) + '</td>'
+        + '<td style="text-align:right;padding:7px 4px;color:#065F46;font-weight:'+((r.today||0)>0?'700':'400')+'">' + _v362Num(r.today) + '</td>'
+        + '<td style="text-align:right;padding:7px 4px;color:#1D4ED8">' + _v362Num(r.yesterday) + '</td>'
+        + '</tr>';
+    });
+    html += '</tbody></table></div>';
   }
   return html;
 }
