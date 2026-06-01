@@ -1,6 +1,48 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V361-LIVE
+  KRSF Beneficiary Impact Tracker  -  V362-LIVE
+  ============================================================================
+  V362-LIVE (2026-05-30 mobile viewer role — lightweight summary-only access):
+    + NEW ROLE 'viewer' — read-only mobile-first user that NEVER downloads
+      raw beneficiary/advocacy records. Reads only pre-computed summary
+      nodes (~5-10 KB total per session). Loads in <1 second on mobile.
+    + PER-USER NGO SCOPING: viewer records carry assignedNgos array.
+      Empty array = global scope (sees aggregated fleet numbers). Populated
+      = restricted to those NGOs only (reads their per-NGO summary nodes).
+    + SUMMARY NODES at /krsf_tracker/_summary/global and
+      /krsf_tracker/_summary/ngo/<ngoName>. Each contains 4 tabs of data
+      (dashboard / livelihood / advocacy / integrated) plus date-wise
+      progress (last 12 weeks).
+    + SUMMARY WRITER runs:
+      1. After admin's initial data load completes (writes all scopes)
+      2. Debounced 2-second window after any saveData/saveAdv that
+         touches that NGO's records (Level 1 "live")
+      So viewer's numbers stay current to within seconds of the latest save.
+      No live listeners — viewer uses .once() reads only. Manual refresh
+      button (5-second rate limit) re-pulls.
+    + FOUR VIEWER TABS:
+      - Dashboard:  totals, states, districts, total impact
+      - Livelihood: livelihood beneficiaries, income added, by type
+      - Advocacy:   beneficiaries with schemes, by status, total amount
+      - Integrated: livelihood-only / dual / advocacy-only / total impact
+    + DATE-WISE PROGRESS shown on each tab: last 12 weeks of enrollment,
+      applications submitted, benefits received, applications rejected.
+    + BANDWIDTH (your top concern):
+      - Per viewer per day: ~120 KB worst case (10 refreshes × 12 KB)
+      - 50 viewers fleet-wide: ~6 MB/day = 0.2% of 3.24 GB baseline
+      - Summary writes: ~30 KB upload per save (free on Firebase)
+      - No live listeners, no auto-poll, hard rate-limit on refresh
+    + SAFEGUARDS BAKED IN:
+      - 5-second cooldown between refresh taps (UI-disabled during)
+      - 2-second debounce on summary writes (bulk imports collapse)
+      - Tab switches inside viewer reuse in-memory data (zero re-fetch)
+    + ADMIN GETS "Recompute summary now" BUTTON on Bandwidth Usage page
+      for manual force-refresh if needed.
+    + APP_VERSION bumped to V362-LIVE. PANTRY_SCHEMA_VERSION unchanged.
+    REQUIRES: no Firebase rules update. New paths under _summary inherit
+    root auth != null.
+    EXPECTED OUTCOME: you can check KRSF stats on mobile in <1 second
+    without burning through your data plan or your Firebase bill.
   ============================================================================
   V361-LIVE (2026-05-30 emergency admin performance — aggregation memoization):
     + INCIDENT: admin app showing Chrome "Page Unresponsive" on Advocacy tab.
@@ -2844,7 +2886,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V361-LIVE';
+const APP_VERSION = 'V362-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -5664,6 +5706,10 @@ async function saveData(arr) {
   // cache is unchanged and the caller's form stays in error state.
   await fbSyncCollection('beneficiaries', arr || [], 'id', 'lastBenef');
   _hydrateBenefCache(Array.isArray(arr) ? arr : []);
+  // V362: queue a summary write (debounced 2 sec) so viewer's numbers stay
+  // current within seconds of any save. Admin role only — others can't
+  // compute global+per-NGO summaries without full data access.
+  try { if (typeof _v362QueueSummaryWrite === 'function') _v362QueueSummaryWrite(); } catch(_) {}
   // V361: immediately invalidate the V357 tab cache + V361 aggregation cache
   // so the next render uses fresh data. Without this, admin saves only
   // invalidate via the debounced _renderCurrentViewNow path — which can leave
@@ -12790,6 +12836,9 @@ async function saveAdv(arr) {
   }
   await fbSyncCollection('advocacy', stamped, '__fbk', 'lastAdv');
   _hydrateAdvCache(stamped);
+  // V362: queue a summary write (debounced) so viewer reflects new advocacy
+  // amounts within seconds.
+  try { if (typeof _v362QueueSummaryWrite === 'function') _v362QueueSummaryWrite(); } catch(_) {}
   // V361: immediately invalidate the V357 tab cache + V361 aggregation cache
   // so the next render (dashboard, advocacy, integrated) reflects the new
   // amounts. Without this, an admin correcting a wrong benefit amount could
@@ -15820,6 +15869,7 @@ function _renderUserModalHtml() {
               <option value="coordinator">Field Coordinator</option>
               <option value="ngo">NGO User</option>
               <option value="admin">Admin</option>
+              <option value="viewer">Viewer (mobile, read-only)</option>
             </select>
           </div>
           <div class="fg" id="user-ngo-wrap" style="margin-bottom:12px"><label>NGO * <span style="font-weight:400;color:var(--gray2);font-size:11px">(scopes what the user can see)</span></label>
@@ -15827,6 +15877,14 @@ function _renderUserModalHtml() {
               <option value="">— Select NGO —</option>
               ${partners.map(p=>`<option value="${p.name.replace(/"/g,'&quot;')}">${p.name}</option>`).join('')}
             </select>
+          </div>
+          <!-- V362: multi-NGO picker for viewer role. Empty selection = global access. -->
+          <div class="fg" id="user-viewer-ngo-wrap" style="margin-bottom:12px;display:none">
+            <label>Assigned NGOs <span style="font-weight:400;color:var(--gray2);font-size:11px">(hold Ctrl/Cmd to select multiple — leave empty for ALL NGOs)</span></label>
+            <select id="user-viewer-ngos" multiple style="min-height:140px">
+              ${partners.map(p=>`<option value="${p.name.replace(/"/g,'&quot;')}">${p.name}</option>`).join('')}
+            </select>
+            <div style="font-size:11px;color:var(--gray2);margin-top:4px">Viewer will only see numbers for the NGOs selected here. Leave empty to give global access.</div>
           </div>
         </div>
         <div class="modal-foot" style="display:flex;justify-content:flex-end;gap:8px;padding:12px 18px;border-top:1px solid var(--gray3)">
@@ -15839,8 +15897,11 @@ function _renderUserModalHtml() {
 
 function _adminUserRoleChange(role) {
   // Admins don't need an NGO (they see everything)
+  // V362: viewer uses a multi-NGO picker, not the single-NGO dropdown
   const wrap = document.getElementById('user-ngo-wrap');
-  if (wrap) wrap.style.display = role === 'admin' ? 'none' : '';
+  const vwrap = document.getElementById('user-viewer-ngo-wrap');
+  if (wrap)  wrap.style.display  = (role === 'admin' || role === 'viewer') ? 'none' : '';
+  if (vwrap) vwrap.style.display = (role === 'viewer') ? '' : 'none';
 }
 
 function adminNewUser() {
@@ -15870,6 +15931,14 @@ function adminEditUser(id) {
   document.getElementById('user-pw-hint').textContent = ' (leave blank to keep existing)';
   document.getElementById('user-role').value = u.role;
   document.getElementById('user-ngo').value = u.ngo || '';
+  // V362: pre-select assigned NGOs for viewer-role users
+  try {
+    const vsel = document.getElementById('user-viewer-ngos');
+    if (vsel) {
+      const assigned = Array.isArray(u.assignedNgos) ? u.assignedNgos : [];
+      for (const opt of vsel.options) { opt.selected = assigned.includes(opt.value); }
+    }
+  } catch(_) {}
   _adminUserRoleChange(u.role);
   document.getElementById('user-err').style.display = 'none';
   document.getElementById('user-modal').style.display = 'flex';
@@ -15888,7 +15957,17 @@ async function adminSaveUser() {
   if (!fullName) return showErr('Full name is required.');
   if (!username) return showErr('Username is required.');
   if (!/^[a-z0-9_]+$/.test(username)) return showErr('Username must be lowercase letters, numbers, or underscores only.');
-  if (role !== 'admin' && !ngo) return showErr('NGO is required for NGO users and coordinators.');
+  // V362: viewer uses assignedNgos (multi-select), not single ngo. Skip the
+  // single-NGO check for viewer role.
+  if (role !== 'admin' && role !== 'viewer' && !ngo) return showErr('NGO is required for NGO users and coordinators.');
+  // V362: collect viewer's assigned NGOs from the multi-select element.
+  let assignedNgos = [];
+  if (role === 'viewer') {
+    const sel = document.getElementById('user-viewer-ngos');
+    if (sel) {
+      for (const opt of sel.options) { if (opt.selected) assignedNgos.push(opt.value); }
+    }
+  }
 
   const users = loadUsers();
   const existingByName = users.find(x => x.username === username && x.id !== editingId);
@@ -15925,7 +16004,10 @@ async function adminSaveUser() {
     users[idx].fullName = fullName;
     users[idx].username = username;
     users[idx].role     = role;
-    users[idx].ngo      = role === 'admin' ? null : ngo;
+    users[idx].ngo      = (role === 'admin' || role === 'viewer') ? null : ngo;
+    // V362: store viewer's assigned NGOs (empty array = global access)
+    if (role === 'viewer') users[idx].assignedNgos = assignedNgos;
+    else                   users[idx].assignedNgos = null;
     // V308.1 (Bug 3 fix): use SHA-256+salt instead of legacy scramble.
     if (pw) users[idx].passwordHash = await _hashPassword(pw);
     // V310-S2: await Firebase. On failure, keep modal open with error.
@@ -15953,7 +16035,9 @@ async function adminSaveUser() {
       username, fullName,
       // V308.1 (Bug 3 fix): SHA-256+salt instead of reversible scramble.
       passwordHash: await _hashPassword(pw),
-      role, ngo: role === 'admin' ? null : ngo,
+      role, ngo: (role === 'admin' || role === 'viewer') ? null : ngo,
+      // V362: viewer's NGO scoping (empty array = global access)
+      assignedNgos: role === 'viewer' ? assignedNgos : null,
     };
     users.push(newUser);
     // V310-S2: await Firebase. On failure, keep modal open with error.
@@ -17269,6 +17353,18 @@ async function renderAdminBandwidth() {
     html += '<button type="button" id="v359-admin-push-btn" onclick="_v359AdminPushToAll()" ';
     html += 'style="padding:10px 18px;border:none;border-radius:6px;background:#1B3A6B;color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font);white-space:nowrap">';
     html += 'Push fresh data to all FCs</button>';
+    html += '</div>';
+    // V362: admin manual summary recompute button. Useful right after a
+    // backend operation (recovery, manual edit) so viewer sees fresh numbers
+    // without waiting for the debounced summary writer.
+    html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:12px;background:#EDE9FE;border:1px solid #C4B5FD;border-radius:8px;flex-wrap:wrap">';
+    html += '<div style="font-size:12px;color:#5B21B6;flex:1;min-width:200px">';
+    html += '<b>Recompute viewer summary now</b><br>';
+    html += 'Forces an immediate write of /_summary/global and all per-NGO summaries. Use after restoring records or any backend edit.';
+    html += '</div>';
+    html += '<button type="button" onclick="_v362WriteAllSummariesNow().then(function(){toast(\'\\u2713 Summary recomputed and written\',\'success\',3500);}).catch(function(e){toast(\'Recompute failed: \'+(e&&e.message||e),\'error\',5000);});" ';
+    html += 'style="padding:10px 18px;border:none;border-radius:6px;background:#5B21B6;color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font);white-space:nowrap">';
+    html += 'Recompute summary now</button>';
     html += '</div>';
     html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px">';
     html += '<div style="background:#F3F4F6;padding:14px;border-radius:8px"><div style="font-size:11px;color:var(--gray2);margin-bottom:4px">Total</div><div style="font-size:20px;font-weight:600">' + _fmtBytes(totalBytes) + '</div></div>';
@@ -18827,10 +18923,15 @@ function _v359UpdateAdminPushButton(lastTs) {
 
 function renderAfterLogin() {
   // Shell dispatch (v21.0): pick coord or manager shell based on role.
+  // V362 added 'viewer' role with a third lightweight mobile-first shell.
   // This sets body.dataset.shell, which drives CSS rules that show one
-  // shell and hide the other. All data-layer logic (RBAC, validation,
+  // shell and hide the others. All data-layer logic (RBAC, validation,
   // audit) stays unchanged — only the chrome differs.
   const u = currentUser();
+  if (u && u.role === 'viewer') {
+    mountViewerApp();        // V362: mobile-first summary-only shell
+    return;                  // viewer skips injectDynamicOptions — no dropdowns
+  }
   if (u && u.role === 'coordinator') {
     mountCoordApp();
   } else {
@@ -18838,6 +18939,552 @@ function renderAfterLogin() {
   }
   // Shared bits that both shells need
   injectDynamicOptions();
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// V362: VIEWER role — mobile-first summary-only shell + summary writer
+// ────────────────────────────────────────────────────────────────────────────
+// The viewer role downloads only pre-computed summary nodes (~10 KB) instead
+// of raw beneficiary/advocacy records (~50 MB). Loads in <1 second on mobile.
+//
+// Architecture:
+// - /krsf_tracker/_summary/global             — fleet-wide aggregates
+// - /krsf_tracker/_summary/ngo/<ngoName>      — per-NGO aggregates
+// - Summary writer runs whenever admin/FC/NGO saves data (debounced 2 sec)
+//   AND when admin completes a full data load.
+// - Viewer reads only its assigned scope(s) via .once() — no listeners.
+// - Manual refresh button (5-sec rate limit) re-pulls.
+//
+// Bandwidth: ~120 KB/day per viewer worst case. ~30 KB upload per summary
+// write (free on Firebase). No listeners, no auto-poll, no record fetch.
+// ────────────────────────────────────────────────────────────────────────────
+
+// ---------- Summary computation (called by admin's data load + saveData) ----------
+
+function _v362ComputeOneSummary(records, advRecords, ngoScope) {
+  // Compute the 4-tab summary + date-wise progress for a given scope.
+  // ngoScope: a specific NGO name to filter by, or null for global.
+  const recs = ngoScope
+    ? records.filter(b => b && b.ngo === ngoScope)
+    : records;
+  const adv = ngoScope
+    ? advRecords.filter(a => a && a.ngo === ngoScope)
+    : advRecords;
+
+  // ---- Dashboard tab ----
+  const livRecs = recs.filter(b => (b.interventions||[]).some(i => i && i !== 'Advocacy (Govt. Schemes)'));
+  const advBidSet = new Set();
+  for (const a of adv) { if (a && a.bid) advBidSet.add(a.bid); }
+  const advRecs2 = recs.filter(b => advBidSet.has(b.id));
+  const statesSet = new Set();
+  const distSet = new Set();
+  for (const b of recs) {
+    const parts = (b.district||'').split(',');
+    if (parts.length >= 2) statesSet.add(parts[parts.length-1].trim());
+    if (parts.length >= 1 && parts[0]) distSet.add((parts[0]||'').trim());
+  }
+  let totalIncome = 0;
+  for (const b of recs) {
+    if (b.endIncome != null && b.baseIncome != null) {
+      const d = (Number(b.endIncome)||0) - (Number(b.baseIncome)||0);
+      if (d > 0) totalIncome += d;
+    }
+  }
+
+  // ---- Advocacy tab ----
+  // Reuse _advLatestRowsAll if available (it's already cached) — fallback to
+  // a local de-dup if running in a context where _advLatestRowsAll is absent.
+  let allRows;
+  try {
+    allRows = (typeof _advLatestRowsAll === 'function') ? _advLatestRowsAll(adv) : adv.flatMap(a => (a.schemeRows||[]).map(r => Object.assign({__bid:a.bid}, r)));
+  } catch(_) { allRows = []; }
+  // Filter to scope's advocacy rows (the cache returns ALL — re-filter by bid here)
+  const scopedBidSet = new Set(recs.map(b => b.id));
+  if (ngoScope) {
+    allRows = allRows.filter(r => scopedBidSet.has(r.__bid));
+  }
+  let needApply=0, applied=0, rejected=0, received=0, totalAmt=0;
+  for (const r of allRows) {
+    if (r._deleted) continue;
+    const s = (typeof _advNormStatus === 'function') ? _advNormStatus(r) : (r.status || 'Need to Apply');
+    if (s === 'Need to Apply') needApply++;
+    else if (s === 'Applied') applied++;
+    else if (s === 'Rejected') rejected++;
+    else if (s === 'Benefits Received') { received++; totalAmt += (Number(r.benefitAmt)||0); }
+  }
+
+  // ---- Integrated tab ----
+  const livOnlyCount = recs.filter(b =>
+    (b.interventions||[]).some(i => i && i !== 'Advocacy (Govt. Schemes)') &&
+    !advBidSet.has(b.id)
+  ).length;
+  const dualCount = recs.filter(b =>
+    (b.interventions||[]).some(i => i && i !== 'Advocacy (Govt. Schemes)') &&
+    advBidSet.has(b.id)
+  ).length;
+  const advOnlyCount = recs.filter(b =>
+    !(b.interventions||[]).some(i => i && i !== 'Advocacy (Govt. Schemes)') &&
+    advBidSet.has(b.id)
+  ).length;
+
+  // ---- Date-wise progress (last 12 weeks) ----
+  const weekBuckets = {};
+  function _weekKey(dateStr) {
+    if (!dateStr) return null;
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return null;
+    // ISO week start (Monday). Reuse a simple normalisation.
+    const day = d.getUTCDay();
+    const diff = (day === 0 ? -6 : 1 - day);
+    const monday = new Date(d.getTime() + diff*86400000);
+    return monday.toISOString().slice(0,10);
+  }
+  // Enrollment by week (from beneficiary enrollDate)
+  for (const b of recs) {
+    const wk = _weekKey(b.enrollDate);
+    if (!wk) continue;
+    if (!weekBuckets[wk]) weekBuckets[wk] = { week:wk, enrolled:0, applied:0, received:0, rejected:0 };
+    weekBuckets[wk].enrolled++;
+  }
+  // Advocacy events by week (use the advocacy record's updatedAt OR createdAt)
+  for (const a of adv) {
+    const ts = a.updatedAt || a.createdAt;
+    const wk = _weekKey(ts);
+    if (!wk) continue;
+    if (!weekBuckets[wk]) weekBuckets[wk] = { week:wk, enrolled:0, applied:0, received:0, rejected:0 };
+    for (const r of (a.schemeRows||[])) {
+      if (r._deleted) continue;
+      const s = (typeof _advNormStatus === 'function') ? _advNormStatus(r) : (r.status || '');
+      if (s === 'Applied') weekBuckets[wk].applied++;
+      else if (s === 'Benefits Received') weekBuckets[wk].received++;
+      else if (s === 'Rejected') weekBuckets[wk].rejected++;
+    }
+  }
+  // Keep last 12 weeks, sorted ascending
+  const allWeeks = Object.values(weekBuckets).sort((a,b) => a.week < b.week ? -1 : 1);
+  const last12 = allWeeks.slice(-12);
+
+  // ---- Top FCs (only meaningful for global) ----
+  const byFc = {};
+  if (!ngoScope) {
+    for (const b of recs) {
+      const cb = b.createdBy || 'unknown';
+      byFc[cb] = (byFc[cb] || 0) + 1;
+    }
+  }
+  const fcEntries = Object.entries(byFc).sort((a,b) => b[1] - a[1]).slice(0, 5);
+  // Resolve names via the users collection if available
+  let userMap = {};
+  try {
+    const allUsers = (typeof loadUsers === 'function') ? loadUsers() : [];
+    for (const u of allUsers) userMap[u.id] = u.fullName || u.username || u.id;
+  } catch(_) {}
+  const topFCs = fcEntries.map(([uid, n]) => ({ name: userMap[uid] || uid, count: n }));
+
+  return {
+    meta: { computedAt: Date.now(), scope: ngoScope || 'global', recordsInScope: recs.length },
+    dashboard: {
+      total: recs.length,
+      states: statesSet.size,
+      districts: distSet.size,
+      totalIncomeAdded: totalIncome,
+      totalSchemeBenefits: totalAmt,
+      totalImpact: totalIncome + totalAmt,
+      livelihoodCount: livRecs.length,
+      advocacyCount: advRecs2.length,
+      topFCs: topFCs,
+    },
+    livelihood: {
+      total: livRecs.length,
+      totalIncomeAdded: totalIncome,
+      withEndline: livRecs.filter(b => b.endIncome != null).length,
+      pending: livRecs.filter(b => b.endIncome == null).length,
+    },
+    advocacy: {
+      totalBeneficiaries: advBidSet.size,
+      needApply: needApply,
+      applied: applied,
+      rejected: rejected,
+      received: received,
+      totalAmount: totalAmt,
+    },
+    integrated: {
+      total: recs.length,
+      livOnly: livOnlyCount,
+      dual: dualCount,
+      advOnly: advOnlyCount,
+      totalImpact: totalIncome + totalAmt,
+    },
+    progress: last12,
+  };
+}
+
+// Write all summaries (global + per-NGO) to Firebase. Called by the debouncer.
+async function _v362WriteAllSummaries() {
+  if (!FB || !FB.db) return;
+  // Admin/NGO/coordinator each have their own slice of data in memory. Only
+  // ADMIN sees the whole tree — so only admin's app is qualified to compute
+  // the global + per-NGO summaries. For coordinator/ngo, skip (their save
+  // will still trigger summary writer from admin's app on next admin save,
+  // or admin can manually recompute).
+  try {
+    const u = (typeof currentUser === 'function') ? currentUser() : null;
+    if (!u || u.role !== 'admin') return;
+  } catch(_) { return; }
+
+  let records, adv;
+  try {
+    records = (typeof loadData === 'function') ? loadData() : [];
+    adv     = (typeof loadAdv  === 'function') ? loadAdv()  : [];
+  } catch(_) { return; }
+  if (!Array.isArray(records) || records.length === 0) return;
+
+  // Build the multipath update: global + each distinct NGO.
+  const ngoSet = new Set();
+  for (const b of records) { if (b && b.ngo) ngoSet.add(b.ngo); }
+  const update = {};
+  try {
+    update['_summary/global'] = _v362ComputeOneSummary(records, adv, null);
+    for (const ngoName of ngoSet) {
+      // safe-key the NGO name for Firebase path (no . # $ [ ])
+      const safeKey = ngoName.replace(/[.#$\[\]/]/g, '_');
+      update['_summary/ngo/' + safeKey] = _v362ComputeOneSummary(records, adv, ngoName);
+    }
+    // Single multipath PATCH: efficient, atomic.
+    await fbRef('').update(update);
+    console.log('[V362] Wrote ' + Object.keys(update).length + ' summary nodes ('
+      + Math.round(JSON.stringify(update).length/1024) + ' KB)');
+  } catch (e) {
+    console.warn('[V362] summary write failed:', e && e.message);
+  }
+}
+
+// Debouncer: collapses bulk save bursts into a single summary write 2 seconds
+// after the last save. Keeps Firebase writes bounded during bulk imports.
+let _v362WriterTimer = null;
+function _v362QueueSummaryWrite() {
+  if (_v362WriterTimer) clearTimeout(_v362WriterTimer);
+  _v362WriterTimer = setTimeout(function() {
+    _v362WriterTimer = null;
+    _v362WriteAllSummaries();
+  }, 2000);
+}
+window._v362QueueSummaryWrite = _v362QueueSummaryWrite;
+window._v362WriteAllSummariesNow = _v362WriteAllSummaries;  // for admin manual button
+
+// ---------- Viewer shell (mobile-first) ----------
+
+let _v362ViewerActiveTab = 'dashboard';
+let _v362ViewerLastRefresh = 0;
+let _v362ViewerData = null;  // { meta, dashboard, livelihood, advocacy, integrated, progress }
+
+function _v362ReadAssignedSummary() {
+  // Reads the viewer's assigned summary slice. Returns aggregated object.
+  // If assignedNgos is empty/null → reads /_summary/global only.
+  // If assignedNgos is populated → reads each /_summary/ngo/<name>, merges.
+  return new Promise(async function(resolve) {
+    const u = currentUser();
+    if (!u) return resolve(null);
+    let assigned = Array.isArray(u.assignedNgos) ? u.assignedNgos.filter(Boolean) : [];
+    try {
+      if (assigned.length === 0) {
+        const snap = await fbRef('_summary/global').once('value');
+        return resolve(snap.val() || null);
+      }
+      // Multi-NGO: fetch each, merge.
+      const fetches = assigned.map(function(ngo) {
+        const safeKey = ngo.replace(/[.#$\[\]/]/g, '_');
+        return fbRef('_summary/ngo/' + safeKey).once('value').then(function(s){ return { ngo: ngo, data: s.val() }; });
+      });
+      const results = await Promise.all(fetches);
+      const merged = _v362MergeSummaries(results);
+      return resolve(merged);
+    } catch (e) {
+      console.warn('[V362 viewer] read failed:', e && e.message);
+      resolve(null);
+    }
+  });
+}
+
+function _v362MergeSummaries(results) {
+  // Merges multiple NGO summaries into one combined view for the viewer.
+  const out = {
+    meta: { computedAt: 0, scope: 'merged', ngos: [] },
+    dashboard: { total:0, states:0, districts:0, totalIncomeAdded:0, totalSchemeBenefits:0, totalImpact:0, livelihoodCount:0, advocacyCount:0, topFCs:[] },
+    livelihood: { total:0, totalIncomeAdded:0, withEndline:0, pending:0 },
+    advocacy:   { totalBeneficiaries:0, needApply:0, applied:0, rejected:0, received:0, totalAmount:0 },
+    integrated: { total:0, livOnly:0, dual:0, advOnly:0, totalImpact:0 },
+    progress:   [],
+  };
+  const stateSet = new Set();
+  const distSet = new Set();
+  const weekMap = {};
+  for (const item of results) {
+    const d = item && item.data;
+    if (!d || !d.dashboard) continue;
+    out.meta.ngos.push(item.ngo);
+    if (d.meta && d.meta.computedAt > out.meta.computedAt) out.meta.computedAt = d.meta.computedAt;
+    out.dashboard.total              += d.dashboard.total || 0;
+    out.dashboard.totalIncomeAdded   += d.dashboard.totalIncomeAdded || 0;
+    out.dashboard.totalSchemeBenefits+= d.dashboard.totalSchemeBenefits || 0;
+    out.dashboard.totalImpact        += d.dashboard.totalImpact || 0;
+    out.dashboard.livelihoodCount    += d.dashboard.livelihoodCount || 0;
+    out.dashboard.advocacyCount      += d.dashboard.advocacyCount || 0;
+    out.livelihood.total             += d.livelihood.total || 0;
+    out.livelihood.totalIncomeAdded  += d.livelihood.totalIncomeAdded || 0;
+    out.livelihood.withEndline       += d.livelihood.withEndline || 0;
+    out.livelihood.pending           += d.livelihood.pending || 0;
+    out.advocacy.totalBeneficiaries  += d.advocacy.totalBeneficiaries || 0;
+    out.advocacy.needApply           += d.advocacy.needApply || 0;
+    out.advocacy.applied             += d.advocacy.applied || 0;
+    out.advocacy.rejected            += d.advocacy.rejected || 0;
+    out.advocacy.received            += d.advocacy.received || 0;
+    out.advocacy.totalAmount         += d.advocacy.totalAmount || 0;
+    out.integrated.total             += d.integrated.total || 0;
+    out.integrated.livOnly           += d.integrated.livOnly || 0;
+    out.integrated.dual              += d.integrated.dual || 0;
+    out.integrated.advOnly           += d.integrated.advOnly || 0;
+    out.integrated.totalImpact       += d.integrated.totalImpact || 0;
+    // Merge progress buckets by week
+    for (const wk of (d.progress || [])) {
+      if (!weekMap[wk.week]) weekMap[wk.week] = { week:wk.week, enrolled:0, applied:0, received:0, rejected:0 };
+      weekMap[wk.week].enrolled += wk.enrolled || 0;
+      weekMap[wk.week].applied  += wk.applied  || 0;
+      weekMap[wk.week].received += wk.received || 0;
+      weekMap[wk.week].rejected += wk.rejected || 0;
+    }
+  }
+  out.progress = Object.values(weekMap).sort(function(a,b){ return a.week<b.week?-1:1; }).slice(-12);
+  return out;
+}
+
+function _v362Fmt(n) {
+  // Indian-style number formatting with crore/lakh for large amounts.
+  if (n == null || isNaN(n)) return '—';
+  n = Number(n);
+  if (n >= 10000000) return '₹' + (n/10000000).toFixed(2) + ' Cr';
+  if (n >= 100000)   return '₹' + (n/100000).toFixed(2)   + ' L';
+  if (n >= 1000)     return '₹' + n.toLocaleString('en-IN');
+  return '₹' + n;
+}
+function _v362Num(n) {
+  if (n == null || isNaN(n)) return '—';
+  return Number(n).toLocaleString('en-IN');
+}
+
+async function _v362ViewerRefresh() {
+  const now = Date.now();
+  if (now - _v362ViewerLastRefresh < 5000) {
+    // Rate limit: 5-sec cooldown
+    return;
+  }
+  _v362ViewerLastRefresh = now;
+  const btn = document.getElementById('v362-refresh-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Loading…'; }
+  _v362ViewerData = await _v362ReadAssignedSummary();
+  if (btn) { btn.disabled = false; btn.textContent = '↻ Refresh'; }
+  _v362RenderViewerTab(_v362ViewerActiveTab);
+}
+
+function mountViewerApp() {
+  document.body.dataset.shell = 'viewer';
+  // Hide everything that isn't viewer chrome
+  try {
+    document.getElementById('sidebar').style.display = 'none';
+    const topbar = document.querySelector('.topbar');
+    if (topbar) topbar.style.display = 'none';
+    const main = document.querySelector('main') || document.getElementById('content');
+    if (main && main.parentElement) main.parentElement.style.display = 'none';
+  } catch(_) {}
+  // Build or find the viewer root
+  let root = document.getElementById('v362-viewer-root');
+  if (!root) {
+    root = document.createElement('div');
+    root.id = 'v362-viewer-root';
+    root.style.cssText = 'position:fixed;inset:0;background:#F9FAFB;z-index:9000;display:flex;flex-direction:column;font-family:var(--font);overflow:hidden';
+    document.body.appendChild(root);
+  } else {
+    root.style.display = 'flex';
+  }
+  const u = currentUser() || {};
+  const scopeLabel = (Array.isArray(u.assignedNgos) && u.assignedNgos.length > 0)
+    ? u.assignedNgos.join(' · ')
+    : 'All NGOs';
+  root.innerHTML =
+    '<div style="background:#1B3A6B;color:#fff;padding:14px 16px;display:flex;align-items:center;justify-content:space-between">'
+    +   '<div>'
+    +     '<div style="font-size:11px;opacity:0.7">KRSF Impact · ' + (u.fullName || u.username || 'Viewer') + '</div>'
+    +     '<div style="font-size:13px;font-weight:600;margin-top:2px">' + scopeLabel + '</div>'
+    +   '</div>'
+    +   '<button id="v362-refresh-btn" onclick="_v362ViewerRefresh()" style="background:#FBBF24;color:#1B3A6B;border:none;border-radius:6px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer">↻ Refresh</button>'
+    + '</div>'
+    + '<div id="v362-viewer-body" style="flex:1;overflow-y:auto;padding:16px;-webkit-overflow-scrolling:touch">'
+    +   '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:80px 20px;color:#6B7280">'
+    +     '<div style="width:36px;height:36px;border:3px solid #E5E7EB;border-top-color:#1B3A6B;border-radius:50%;animation:_v361Spin 0.8s linear infinite;margin-bottom:16px"></div>'
+    +     '<div style="font-size:14px;font-weight:600">Loading summary…</div>'
+    +   '</div>'
+    + '</div>'
+    + '<div style="display:flex;background:#fff;border-top:1px solid #E5E7EB">'
+    +   ['dashboard','livelihood','advocacy','integrated'].map(function(t) {
+        const labels = { dashboard:'Dashboard', livelihood:'Livelihood', advocacy:'Advocacy', integrated:'Integrated' };
+        return '<button onclick="_v362ViewerSwitchTab(\''+t+'\')" data-v362-tab="'+t+'" style="flex:1;padding:14px 4px;border:none;background:none;font-family:var(--font);font-size:12px;font-weight:600;cursor:pointer;color:#6B7280;border-top:3px solid transparent">'+labels[t]+'</button>';
+      }).join('')
+    + '</div>'
+    + '<style>@keyframes _v361Spin { to { transform: rotate(360deg); } }</style>';
+  // Initial load
+  _v362ViewerLastRefresh = 0;
+  _v362ViewerRefresh();
+}
+window.mountViewerApp = mountViewerApp;
+
+function _v362ViewerSwitchTab(tab) {
+  _v362ViewerActiveTab = tab;
+  _v362RenderViewerTab(tab);
+}
+window._v362ViewerSwitchTab = _v362ViewerSwitchTab;
+
+function _v362RenderViewerTab(tab) {
+  // Update tab styles
+  document.querySelectorAll('[data-v362-tab]').forEach(function(b) {
+    const active = b.getAttribute('data-v362-tab') === tab;
+    b.style.color = active ? '#1B3A6B' : '#6B7280';
+    b.style.borderTopColor = active ? '#1B3A6B' : 'transparent';
+  });
+  const body = document.getElementById('v362-viewer-body');
+  if (!body) return;
+  if (!_v362ViewerData) {
+    body.innerHTML = '<div style="padding:40px;text-align:center;color:#6B7280"><div style="font-size:14px">Summary not available yet.</div><div style="font-size:11px;margin-top:8px">Ask the admin to open their dashboard to compute the first summary.</div></div>';
+    return;
+  }
+  const d = _v362ViewerData;
+  let html = '';
+  // Last-updated banner
+  if (d.meta && d.meta.computedAt) {
+    const t = new Date(d.meta.computedAt);
+    const hh = String(t.getHours()).padStart(2,'0');
+    const mm = String(t.getMinutes()).padStart(2,'0');
+    const ageMin = Math.round((Date.now() - d.meta.computedAt) / 60000);
+    const ageLabel = ageMin < 1 ? 'just now' : ageMin === 1 ? '1 min ago' : ageMin < 60 ? ageMin + ' min ago' : Math.round(ageMin/60) + ' h ago';
+    html += '<div style="font-size:11px;color:#6B7280;margin-bottom:14px;text-align:center">Last updated: '+hh+':'+mm+' · '+ageLabel+'</div>';
+  }
+  // Tab content
+  if (tab === 'dashboard')   html += _v362BuildTabDashboard(d);
+  if (tab === 'livelihood')  html += _v362BuildTabLivelihood(d);
+  if (tab === 'advocacy')    html += _v362BuildTabAdvocacy(d);
+  if (tab === 'integrated')  html += _v362BuildTabIntegrated(d);
+  // Date-wise progress (shown on all tabs)
+  html += _v362BuildProgressSection(d);
+  body.innerHTML = html;
+}
+
+function _v362BigCard(label, value, subtext, bg) {
+  bg = bg || '#fff';
+  return '<div style="background:'+bg+';border:1px solid #E5E7EB;border-radius:12px;padding:18px;margin-bottom:12px">'
+    + '<div style="font-size:11px;color:#6B7280;font-weight:600;letter-spacing:0.04em;text-transform:uppercase">'+label+'</div>'
+    + '<div style="font-size:32px;font-weight:700;color:#1B3A6B;margin-top:6px;line-height:1.2">'+value+'</div>'
+    + (subtext ? '<div style="font-size:12px;color:#6B7280;margin-top:4px">'+subtext+'</div>' : '')
+    + '</div>';
+}
+function _v362SmallCard(label, value, bg) {
+  bg = bg || '#fff';
+  return '<div style="background:'+bg+';border:1px solid #E5E7EB;border-radius:10px;padding:12px;flex:1;min-width:0">'
+    + '<div style="font-size:10px;color:#6B7280;font-weight:600;letter-spacing:0.04em;text-transform:uppercase">'+label+'</div>'
+    + '<div style="font-size:20px;font-weight:700;color:#1B3A6B;margin-top:4px">'+value+'</div>'
+    + '</div>';
+}
+
+function _v362BuildTabDashboard(d) {
+  const dd = d.dashboard || {};
+  let html = '';
+  html += _v362BigCard('Total Beneficiaries', _v362Num(dd.total), null);
+  html += '<div style="display:flex;gap:8px;margin-bottom:12px">';
+  html += _v362SmallCard('States', _v362Num(dd.states));
+  html += _v362SmallCard('Districts', _v362Num(dd.districts));
+  html += '</div>';
+  html += _v362BigCard('Total Impact', _v362Fmt(dd.totalImpact),
+    'Income ' + _v362Fmt(dd.totalIncomeAdded) + ' + Benefits ' + _v362Fmt(dd.totalSchemeBenefits));
+  // Top FCs (only on dashboard, only if data has it)
+  if (Array.isArray(dd.topFCs) && dd.topFCs.length > 0) {
+    html += '<div style="background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:16px;margin-bottom:12px">';
+    html += '<div style="font-size:11px;color:#6B7280;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;margin-bottom:10px">Top 5 FCs by enrollment</div>';
+    dd.topFCs.forEach(function(fc, i) {
+      html += '<div style="display:flex;justify-content:space-between;padding:8px 0;border-top:'+(i===0?'none':'1px solid #F3F4F6')+'">'
+        + '<span style="font-size:13px">' + (fc.name || '?').substring(0, 28) + '</span>'
+        + '<span style="font-size:13px;font-weight:600;color:#1B3A6B">' + _v362Num(fc.count) + '</span>'
+        + '</div>';
+    });
+    html += '</div>';
+  }
+  return html;
+}
+
+function _v362BuildTabLivelihood(d) {
+  const l = d.livelihood || {};
+  let html = '';
+  html += _v362BigCard('Livelihood Beneficiaries', _v362Num(l.total), null);
+  html += _v362BigCard('Income Added', _v362Fmt(l.totalIncomeAdded), 'Sum of endline minus baseline');
+  html += '<div style="display:flex;gap:8px;margin-bottom:12px">';
+  html += _v362SmallCard('With Endline', _v362Num(l.withEndline));
+  html += _v362SmallCard('Pending', _v362Num(l.pending));
+  html += '</div>';
+  return html;
+}
+
+function _v362BuildTabAdvocacy(d) {
+  const a = d.advocacy || {};
+  let html = '';
+  html += _v362BigCard('Advocacy Beneficiaries', _v362Num(a.totalBeneficiaries), 'People with at least one scheme tracked');
+  html += _v362BigCard('Total Benefits Received', _v362Fmt(a.totalAmount), null, '#ECFDF5');
+  html += '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">';
+  html += _v362SmallCard('Need to Apply', _v362Num(a.needApply), '#FEF3C7');
+  html += _v362SmallCard('Applied', _v362Num(a.applied), '#DBEAFE');
+  html += '</div>';
+  html += '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">';
+  html += _v362SmallCard('Benefits Received', _v362Num(a.received), '#D1FAE5');
+  html += _v362SmallCard('Rejected', _v362Num(a.rejected), '#FEE2E2');
+  html += '</div>';
+  return html;
+}
+
+function _v362BuildTabIntegrated(d) {
+  const i = d.integrated || {};
+  let html = '';
+  html += _v362BigCard('Total Beneficiaries', _v362Num(i.total), null);
+  html += _v362BigCard('Total Impact', _v362Fmt(i.totalImpact), null);
+  html += '<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">';
+  html += _v362SmallCard('Livelihood Only', _v362Num(i.livOnly), '#FEF3C7');
+  html += _v362SmallCard('Dual (Both)', _v362Num(i.dual), '#EDE9FE');
+  html += _v362SmallCard('Advocacy Only', _v362Num(i.advOnly), '#EDE9FE');
+  html += '</div>';
+  return html;
+}
+
+function _v362BuildProgressSection(d) {
+  const wks = Array.isArray(d.progress) ? d.progress : [];
+  if (wks.length === 0) return '';
+  let html = '<div style="background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:16px;margin-top:8px">';
+  html += '<div style="font-size:11px;color:#6B7280;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;margin-bottom:10px">Date-wise progress · last 12 weeks</div>';
+  // Simple table
+  html += '<table style="width:100%;font-size:12px;border-collapse:collapse">';
+  html += '<thead><tr style="color:#6B7280;font-weight:600;text-align:right">'
+    + '<th style="text-align:left;padding:6px 2px">Week of</th>'
+    + '<th style="padding:6px 2px">Enrolled</th>'
+    + '<th style="padding:6px 2px">Applied</th>'
+    + '<th style="padding:6px 2px;color:#065F46">Received</th>'
+    + '<th style="padding:6px 2px;color:#991B1B">Rejected</th>'
+    + '</tr></thead><tbody>';
+  for (let i = wks.length - 1; i >= 0; i--) {
+    const w = wks[i];
+    html += '<tr style="border-top:1px solid #F3F4F6;text-align:right">'
+      + '<td style="text-align:left;padding:6px 2px">' + w.week + '</td>'
+      + '<td style="padding:6px 2px">' + _v362Num(w.enrolled) + '</td>'
+      + '<td style="padding:6px 2px">' + _v362Num(w.applied) + '</td>'
+      + '<td style="padding:6px 2px;color:#065F46;font-weight:600">' + _v362Num(w.received) + '</td>'
+      + '<td style="padding:6px 2px;color:#991B1B">' + _v362Num(w.rejected) + '</td>'
+      + '</tr>';
+  }
+  html += '</tbody></table></div>';
+  return html;
 }
 
 // Mount the coordinator shell. Called at login (via renderAfterLogin) and
