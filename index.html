@@ -1,6 +1,26 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V364-LIVE
+  KRSF Beneficiary Impact Tracker  -  V365-LIVE
+  ============================================================================
+  V365-LIVE (2026-05-30 periodic auto-recompute summary + viewer read timeout):
+    + ADMIN PERIODIC AUTO-WRITE: setInterval at admin shell mount calls
+      _v362WriteAllSummaries every 5 minutes while admin app is open. No
+      manual click needed. Guarantees viewer's "Last updated" timestamp
+      never exceeds 5 min as long as admin app is running in any tab.
+    + Cleared on logout / page unload so a closed tab doesn't leave a
+      zombie timer (it wouldn't fire anyway, but tidy).
+    + 10-SECOND TIMEOUT on viewer's Firebase reads. Previously the read
+      could hang indefinitely on a flaky mobile connection, leaving the
+      refresh button stuck on "Loading…". Now the read aborts after 10s,
+      button resets, and the viewer shows whatever cached data it has.
+    + NO UI CHANGES on FC or viewer. The periodic recompute is silent.
+      Admin sees an unobtrusive '[V365 auto-recompute]' console log every
+      5 minutes — for verification.
+    + BANDWIDTH: ~30 KB upload per recompute × 12/hour = ~360 KB/hour
+      while admin app is open. Roughly 9 MB/day per active admin session.
+      Upload only — free on Firebase.
+    + APP_VERSION bumped to V365-LIVE.
+    REQUIRES: no Firebase rules update, no schema change.
   ============================================================================
   V364-LIVE (2026-05-30 NGO breakdown table in viewer):
     + NGO BREAKDOWN added to summary computation + viewer Dashboard tab.
@@ -2943,7 +2963,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V364-LIVE';
+const APP_VERSION = 'V365-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -19650,7 +19670,20 @@ async function _v362ViewerRefresh() {
   _v362ViewerLastRefresh = now;
   const btn = document.getElementById('v362-refresh-btn');
   if (btn) { btn.disabled = true; btn.textContent = '⟳ Loading…'; }
-  const fresh = await _v362ReadAssignedSummary();
+  // V365: 10-sec timeout race so the refresh button can't get stuck on
+  // "Loading…" if the Firebase WebSocket hangs on a flaky mobile network.
+  let fresh = null;
+  try {
+    fresh = await Promise.race([
+      _v362ReadAssignedSummary(),
+      new Promise(function(_, reject) {
+        setTimeout(function() { reject(new Error('timeout')); }, 10000);
+      })
+    ]);
+  } catch (e) {
+    console.warn('[V365 viewer] read failed:', e && e.message);
+    fresh = null;
+  }
   if (fresh) {
     _v362ViewerData = fresh;
     // V363: persist to localStorage so the NEXT viewer open is instant.
@@ -19660,6 +19693,7 @@ async function _v362ViewerRefresh() {
       localStorage.setItem(cacheKey, JSON.stringify({ savedAt: Date.now(), data: fresh }));
     } catch(_) {}
   }
+  // V365: button always resets — even on timeout or error.
   if (btn) { btn.disabled = false; btn.textContent = '↻ Refresh'; }
   _v362RenderViewerTab(_v362ViewerActiveTab);
 }
@@ -19954,7 +19988,44 @@ function mountManagerApp() {
   } else {
     renderDashboard();
   }
+  // V365: kick off the periodic summary auto-recompute for admin role.
+  // Guarantees viewer's "Last updated" timestamp stays under 5 min as long
+  // as the admin app is open in any tab.
+  try { if (typeof _v365StartPeriodicRecompute === 'function') _v365StartPeriodicRecompute(); } catch(_) {}
 }
+
+// V365: periodic auto-recompute timer for admin's app. Started in
+// mountManagerApp (admin role only), cleared on logout / pagehide.
+let _v365RecomputeTimer = null;
+function _v365StartPeriodicRecompute() {
+  const u = (typeof currentUser === 'function') ? currentUser() : null;
+  if (!u || u.role !== 'admin') return;
+  if (_v365RecomputeTimer) return;  // already started, don't double-up
+  // Fire every 5 minutes. Each tick calls the same writer as saves do.
+  _v365RecomputeTimer = setInterval(function() {
+    try {
+      if (typeof _v362WriteAllSummariesNow === 'function') {
+        console.log('[V365 auto-recompute] running scheduled summary write');
+        _v362WriteAllSummariesNow();
+      }
+    } catch (e) {
+      console.warn('[V365 auto-recompute] failed:', e && e.message);
+    }
+  }, 5 * 60 * 1000);
+  console.log('[V365] periodic auto-recompute armed (5 min)');
+}
+function _v365StopPeriodicRecompute() {
+  if (_v365RecomputeTimer) {
+    clearInterval(_v365RecomputeTimer);
+    _v365RecomputeTimer = null;
+    console.log('[V365] periodic auto-recompute stopped');
+  }
+}
+// Tidy: stop the timer if the user logs out or the tab is unloaded.
+try {
+  window.addEventListener('pagehide', _v365StopPeriodicRecompute);
+  window.addEventListener('beforeunload', _v365StopPeriodicRecompute);
+} catch(_) {}
 
 // ── Coordinator shell render ──────────────────────────────────────────────
 // State for the coord shell's list view. The 4 program-overlap summary cards
