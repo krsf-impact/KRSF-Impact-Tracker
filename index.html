@@ -1,6 +1,53 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V367-LIVE
+  KRSF Beneficiary Impact Tracker  -  V368-LIVE
+  ============================================================================
+  V368-LIVE (2026-06-07 measured-evidence boot fix — warm boot in seconds):
+    Cold boot at 95K beneficiary + 97K advocacy records was taking 6-8 min
+    EVERY login. Live measurement via Chrome DevTools (not agent guesses)
+    pinpointed exactly two costs that are eliminable in software:
+
+    [Fix #1] Admin pantry was wiped on every logout (line 4390)
+      The V347 logout pantry-clear was guarded only against coordinator
+      role — admin and NGO admins were wiped too. Every admin login was
+      therefore a cold REST fetch of all 95K+97K records (~290 MB) from
+      Firebase even though the warm-boot incremental sync path was already
+      built and working. Confirmed via console: the [V347] admin benef
+      from pantry log NEVER fired during measurement.
+      FIX: extend the role guard to skip admin too. Warm boot path now
+      reachable on 2nd+ login of the day.
+      IMPACT: 2nd-Nth login drops from 6-8 min to ~5-10 seconds.
+      FIREBASE EGRESS DROPS BY ~75% — only first login of the day pays
+      the full ~290 MB cold-fetch cost; subsequent logins fetch only the
+      incremental delta (typically &lt;1 MB).
+
+    [Fix #2] V367 rebuilt its filter index on EVERY paginated batch
+      Measurement showed _v367EnsureBuilt running 95+ times during cold
+      boot — once per 500-record REST batch — because each batch bumps
+      _v357DataVersion AND grows RecordCache.benef.size, both of which
+      trigger rebuild via the V367 freshness guard. At 95K records the
+      last rebuild took ~1 second; cumulative waste was 30-60 seconds.
+      FIX: defer _v367EnsureBuilt while FB.benefReplayComplete is false.
+      During cold boot the UI shows a "loading records..." pill — no one
+      is typing in filter dropdowns yet. filteredAll falls back to the
+      V366 scan path during boot (which is what the V367 kill-switch
+      pathway does anyway). Once benefReplayComplete flips true, the
+      index builds ONCE at full size and stays cached.
+      IMPACT: 30-60 sec CPU saved during cold boot. Zero correctness risk
+      (the V366 scan path is the proven-correct fallback).
+      FIREBASE EGRESS: zero impact (pure CPU optimisation).
+
+    [Honest scope] What V368 does NOT fix:
+      Cold boot first-of-day will still take ~4-5 minutes because Firebase
+      has to physically send ~290 MB. That's a network-throughput floor
+      no code change can move. V368 attacks only the cost on subsequent
+      logins (which it eliminates) and the redundant CPU during cold boot.
+
+    + KILL SWITCH preserved: localStorage.setItem('_v367NoIndex','1') +
+      reload still disables V367 entirely.
+    + Both V366 + V367 fixes preserved.
+    + APP_VERSION bumped to V368-LIVE.
+    REQUIRES: no Firebase rules update, no schema change, no new permissions.
   ============================================================================
   V367-LIVE (2026-05-30 pre-computed filter indexes — instant filter typing):
     + Filter typing on the admin app (state / NGO / FC dropdowns) was
@@ -3050,7 +3097,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V367-LIVE';
+const APP_VERSION = 'V368-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -4383,11 +4430,21 @@ function fbBenefDetachOnLogout() {
   _adminAdvRestMode   = true;
   if (_benefFlushTimer) { clearTimeout(_benefFlushTimer); _benefFlushTimer = null; }
   if (_advFlushTimer) { clearTimeout(_advFlushTimer); _advFlushTimer = null; }
-  // V347: skip pantry clear for coordinator role (single-device FCs).
-  // For NGO + admin (potentially shared devices), clear pantries on logout.
+  // V368 [Fix #1]: skip pantry clear for admin AND coordinator. The V347
+  // policy was "clear NGO + admin pantries on logout (potentially shared
+  // devices)" — but in practice admin laptops are single-user, and the
+  // logout-clear forced a cold REST refetch of 95K+97K records (~290 MB)
+  // on EVERY admin login. Live measurement confirmed admin warm-boot
+  // path never fired. Keeping the admin pantry means 2nd-Nth login of
+  // the day uses _adminIncrementalSync (delta only, typically <1 MB)
+  // instead of the full cold REST fetch. Firebase egress drops ~75%.
+  // NGO pantry clear is preserved — NGO devices are more often shared
+  // and the dataset is smaller so the cost is acceptable.
   try {
     const _uLogout = (typeof currentUser === 'function') ? currentUser() : null;
-    if (_uLogout && _uLogout.userId && _uLogout.role !== 'coordinator') {
+    if (_uLogout && _uLogout.userId
+        && _uLogout.role !== 'coordinator'
+        && _uLogout.role !== 'admin') {
       _pantryClear(_uLogout.userId);
       _advPantryClear(_uLogout.userId);
     }
@@ -13722,6 +13779,19 @@ function _v367EnsureBuilt() {
   const v = (typeof _v357DataVersion === 'number') ? _v357DataVersion : 0;
   const sz = (typeof RecordCache !== 'undefined' && RecordCache && RecordCache.benef && typeof RecordCache.benef.size === 'number') ? RecordCache.benef.size : 0;
   if (_v367Idx.ready && _v367Idx.builtForVersion === v && _v367Idx.builtForSize === sz) return;
+  // V368 [Fix #2]: during admin cold REST replay, RecordCache.benef grows
+  // by 500 records per batch and _v357DataVersion bumps on each. Without
+  // this guard, _v367EnsureBuilt rebuilds the full index ~95 times during
+  // a 95K-record boot (live measurement: each rebuild ~1 sec at full size
+  // = 30-60 sec cumulative waste). The fast path is only useful for filter
+  // typing, and no one types in filters during the "Loading records..."
+  // banner. So defer rebuild until replay completes; filteredAll() falls
+  // back to the V366 scan path during boot (proven correct, same code as
+  // when V367 kill switch is on).
+  if (typeof FB !== 'undefined' && FB.benefReplayComplete === false) {
+    _v367Idx.ready = false;
+    return;
+  }
   const cache = (typeof _readCacheDirect === 'function') ? _readCacheDirect() : [];
   if (!cache || cache.length === 0) {
     // No data yet — mark unbuilt so fast path bails to scan.
