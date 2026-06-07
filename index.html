@@ -1,6 +1,39 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V368-LIVE
+  KRSF Beneficiary Impact Tracker  -  V369-LIVE
+  ============================================================================
+  V369-LIVE (2026-06-07 viewer "Summary not available" fix — retry on cold WS):
+    Viewer's first read after page load was timing out at 10 seconds because
+    the Firebase WebSocket was still establishing. Live console evidence
+    captured via Chrome DevTools:
+        [V365 viewer] read failed: timeout
+    The _v362ReadAssignedSummary() function itself works — when called after
+    the WebSocket warms up (e.g., ~30 sec after page load), it returns data
+    in <1 second. But on first boot, fresh = null, _v362ViewerData stays
+    null, and the screen shows "Summary not available yet" forever (until
+    user manually clicks Refresh, which usually succeeds).
+
+    [Fix] In _v362ViewerRefresh() (line 20126):
+      - Wrap the existing 10-sec race in a 4-attempt retry loop
+      - Delays between attempts: 0s (initial), 2s, 4s, 6s
+      - Total worst-case wait: ~22 sec before showing "Summary not available"
+      - In-flight guard prevents parallel chains if user clicks Refresh mid-retry
+      - Log each retry attempt to console for future diagnosis
+
+    FIREBASE EGRESS: ZERO impact. Same Firebase API call, just retried on
+    timeout. The retries only fire when the FIRST attempt times out (i.e.,
+    no data was downloaded yet). When WebSocket succeeds, the read is
+    typically <5 KB. So net egress is <= today.
+
+    BEHAVIOUR: Cache-first path unchanged - if localStorage has a valid
+    cached summary, viewer renders instantly from cache and only the
+    background refresh uses the retry path. So returning users see no
+    delay; only first-time-ever or expired-cache users wait the retry
+    window.
+
+    + APP_VERSION bumped to V369-LIVE.
+    + All V366 + V367 + V368 fixes preserved.
+    REQUIRES: no Firebase rules update, no schema change.
   ============================================================================
   V368-LIVE (2026-06-07 measured-evidence boot fix — warm boot in seconds):
     Cold boot at 95K beneficiary + 97K advocacy records was taking 6-8 min
@@ -3097,7 +3130,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V368-LIVE';
+const APP_VERSION = 'V369-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -20150,35 +20183,103 @@ async function _v362ViewerRefresh() {
     return;
   }
   _v362ViewerLastRefresh = now;
+  // V369: in-flight guard. Without this, a user clicking Refresh during the
+  // retry window (e.g., after 5 sec) would start a second parallel chain
+  // while the first is mid-flight. The two chains could both succeed and
+  // double-write the localStorage cache, or race the _v362ViewerData
+  // assignment. Cheap and self-contained.
+  if (_v369ViewerInFlight) {
+    console.log('[V369] viewer refresh already in flight — skipping duplicate');
+    return;
+  }
+  _v369ViewerInFlight = true;
   const btn = document.getElementById('v362-refresh-btn');
   if (btn) { btn.disabled = true; btn.textContent = '⟳ Loading…'; }
-  // V365: 10-sec timeout race so the refresh button can't get stuck on
-  // "Loading…" if the Firebase WebSocket hangs on a flaky mobile network.
+  // V369: retry up to 4 attempts (1 initial + 3 retries with 2s, 4s, 6s
+  // delays). Live measurement showed that the FIRST read after viewer page
+  // load times out at 10 sec because the Firebase WebSocket is still
+  // establishing — but subsequent reads succeed in <1 sec.
+  //
+  // CRITICAL EGRESS CONSTRAINT (V369-fix1): _v362ReadAssignedSummary does ONE
+  // read for global-scope viewers but Promise.all of N reads for NGO-scoped
+  // viewers (one per assigned NGO). A naive retry-on-any-failure would
+  // multiply reads by 4 × N for multi-NGO viewers. To preserve the "Firebase
+  // egress doesn't rise" guarantee, retries ONLY fire on actual timeout
+  // rejection (the WebSocket cold-start case we're trying to recover from).
+  // A successful resolve of null means the read function gracefully decided
+  // there's no data (no user, no scope) — retrying that would be wasteful
+  // and wrong.
+  const RETRY_DELAYS_MS = [0, 2000, 4000, 6000];
   let fresh = null;
+  let nullResolve = false;
   try {
-    fresh = await Promise.race([
-      _v362ReadAssignedSummary(),
-      new Promise(function(_, reject) {
-        setTimeout(function() { reject(new Error('timeout')); }, 10000);
-      })
-    ]);
-  } catch (e) {
-    console.warn('[V365 viewer] read failed:', e && e.message);
-    fresh = null;
-  }
-  if (fresh) {
-    _v362ViewerData = fresh;
-    // V363: persist to localStorage so the NEXT viewer open is instant.
-    try {
-      const u = currentUser() || {};
-      const cacheKey = '_v363ViewerCache_' + (u.userId || 'anon');
-      localStorage.setItem(cacheKey, JSON.stringify({ savedAt: Date.now(), data: fresh }));
-    } catch(_) {}
+    for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt++) {
+      if (RETRY_DELAYS_MS[attempt] > 0) {
+        // V369-fix3: show user that we're retrying (instead of silent "Loading…")
+        if (btn) btn.textContent = '⟳ Retrying ' + (attempt + 1) + '/' + RETRY_DELAYS_MS.length + '…';
+        await new Promise(function(r){ setTimeout(r, RETRY_DELAYS_MS[attempt]); });
+      }
+      try {
+        fresh = await Promise.race([
+          _v362ReadAssignedSummary(),
+          new Promise(function(_, reject) {
+            setTimeout(function() { reject(new Error('timeout')); }, 10000);
+          })
+        ]);
+        // V369-fix2: defensive — only accept data with a real dashboard.
+        // Guards against future changes to the read function's resolve shape.
+        if (fresh && fresh.dashboard) {
+          if (attempt > 0) {
+            console.log('[V369 viewer] read succeeded on attempt ' + (attempt + 1));
+          }
+          break;
+        }
+        // V369-fix1: read function resolved with null/empty (no scope, no data).
+        // Do NOT retry — same call would resolve null again, wasting time AND
+        // bandwidth on NGO-scoped viewers (Promise.all of N NGO reads × 4).
+        nullResolve = true;
+        console.warn('[V369 viewer] read resolved null/empty on attempt ' + (attempt + 1)
+          + ' — no scope or no data; not retrying');
+        break;
+      } catch (e) {
+        // Timeout rejection — exactly the case we want to retry on
+        console.warn('[V369 viewer] read attempt ' + (attempt + 1)
+          + '/' + RETRY_DELAYS_MS.length + ' timed out: ' + (e && e.message));
+        fresh = null;
+        // Loop continues to next attempt (if any)
+      }
+    }
+    if (fresh && fresh.dashboard) {
+      _v362ViewerData = fresh;
+      // V363: persist to localStorage so the NEXT viewer open is instant.
+      try {
+        const u = currentUser() || {};
+        const cacheKey = '_v363ViewerCache_' + (u.userId || 'anon');
+        localStorage.setItem(cacheKey, JSON.stringify({ savedAt: Date.now(), data: fresh }));
+      } catch(_) {}
+    } else if (nullResolve) {
+      console.warn('[V369 viewer] read returned null — showing "Summary not available"');
+    } else {
+      console.warn('[V369 viewer] all '
+        + RETRY_DELAYS_MS.length
+        + ' attempts timed out — showing "Summary not available"');
+    }
+  } finally {
+    // V369: in-flight flag MUST clear on any exit path — including
+    // an unexpected throw from inside the loop. The try/finally
+    // guarantees it; otherwise a stuck flag would block all future
+    // refresh attempts for the session.
+    _v369ViewerInFlight = false;
   }
   // V365: button always resets — even on timeout or error.
   if (btn) { btn.disabled = false; btn.textContent = '↻ Refresh'; }
   _v362RenderViewerTab(_v362ViewerActiveTab);
 }
+
+// V369: in-flight guard for _v362ViewerRefresh retry chain. Declared at
+// module scope so the function can survive being re-called from inside a
+// pending await without leaking state.
+let _v369ViewerInFlight = false;
 
 // V363: read the viewer's last-fetched summary from localStorage (instant,
 // no network). Returns null if cache miss or older than 24h (too stale to
