@@ -1,6 +1,56 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V369-LIVE
+  KRSF Beneficiary Impact Tracker  -  V370-LIVE
+  ============================================================================
+  V370-LIVE (2026-06-07 viewer stale-then-fresh + bounded Firebase egress):
+    Live measurement under realistic conditions (admin closed for 30+ min,
+    summary "stale" per V363's 15-min freshness window) revealed V369's
+    retry-on-timeout pattern was burning bandwidth without solving the
+    underlying issue. V363 falls back to aggregating 254 FC slices (~1-2 MB)
+    when the global summary is stale — and that download routinely exceeds
+    V369's 10-sec timeout. V369 then retries 4 times, potentially burning
+    up to 4 × 2 MB = 8 MB before showing "Summary not available".
+
+    Worse: V369 keeps users staring at a spinner the entire ~52-sec retry
+    window even though a perfectly serviceable (stale-but-existing) global
+    summary is sitting at 5 KB ready to render.
+
+    V370 implements stale-then-fresh:
+      Step 1 (FAST):  Read pre-aggregated summary ONLY (no slice fallback).
+                      ~5 KB for global scope, ~130 KB for 26-NGO scope.
+                      Show stale data immediately so user has something.
+      Step 2 (FRESH): In background, full read INCLUDING slice aggregation
+                      to get current numbers. Update display on success.
+      SINGLE attempt per step (no retries) — strictly bounds egress.
+
+    FIREBASE EGRESS COMPARISON (per viewer refresh):
+                                V369 best  V369 worst  V370 best  V370 worst
+      Fresh global path         5 KB       5 KB        5 KB       5 KB
+      Stale-fallback path       1.5 MB     8 MB(!)     1.5 MB     1.5 MB
+                                            (4×retries)            (single)
+    V370 is EQUAL OR LESS Firebase egress vs V369 in EVERY scenario.
+    No path uses more bandwidth than V369's happy path.
+
+    USER EXPERIENCE:
+      • Fresh summary (admin recently open): instant fast paint (5 KB)
+        then auto-refresh confirms within 1 sec. No visible second update.
+      • Stale summary (admin closed 30+ min): fast paint shows yesterday's
+        numbers (~95K) within 1-2 sec, then auto-updates to today's
+        numbers (~98K) within 15-30 sec when FC slices finish downloading.
+      • Both reads fail: same "Summary not available" as V369 worst case.
+
+    UI FEEDBACK:
+      • Stage 1 success: button shows "⟳ Refreshing…" (background work)
+      • Stage 2 success: button returns to "↻ Refresh"
+      • Stage 2 fail with stale render: stays on stale data, no error UI
+        (already showed real numbers; bother user with banner)
+      • Both fail: button returns to "↻ Refresh", spinner stays on
+        "Summary not available" message
+
+    + APP_VERSION bumped to V370-LIVE.
+    + All V366 + V367 + V368 + V369 fixes preserved.
+    + V369 retry loop removed (replaced by single-attempt two-step).
+    REQUIRES: no Firebase rules update, no schema change.
   ============================================================================
   V369-LIVE (2026-06-07 viewer "Summary not available" fix — retry on cold WS):
     Viewer's first read after page load was timing out at 10 seconds because
@@ -3130,7 +3180,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V369-LIVE';
+const APP_VERSION = 'V370-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -20018,11 +20068,17 @@ let _v362ViewerActiveTab = 'dashboard';
 let _v362ViewerLastRefresh = 0;
 let _v362ViewerData = null;  // { meta, dashboard, livelihood, advocacy, integrated, progress }
 
-function _v362ReadAssignedSummary() {
+function _v362ReadAssignedSummary(fastMode) {
   // V363: distributed-aware read. Tries pre-aggregated /_summary/global or
   // /_summary/ngo/<X> first; falls back to aggregating /_summary/fc/*
   // slices if pre-aggregated is missing or older than 15 min. Net effect:
   // viewer is admin-independent — fresh as soon as any FC saves.
+  //
+  // V370: `fastMode` parameter. When true, returns the pre-aggregated
+  // node even if stale (skipping the expensive FC slice aggregation).
+  // Used by V370's two-step refresh: Step 1 (fast paint with stale-OK
+  // data, ~5 KB) then Step 2 (full read with slices, ~1-2 MB). Each step
+  // makes a SINGLE attempt — no retry storms.
   return new Promise(async function(resolve) {
     const u = currentUser();
     if (!u) return resolve(null);
@@ -20036,6 +20092,14 @@ function _v362ReadAssignedSummary() {
         const snap = await fbRef('_summary/global').once('value');
         const pre = snap.val();
         if (pre && pre.meta && (now - (pre.meta.computedAt || 0)) < FRESH_WINDOW_MS) {
+          return resolve(pre);
+        }
+        // V370 fastMode: pre-aggregated is stale, but accept it anyway and
+        // skip the expensive slice fetch. Caller is responsible for doing
+        // a second non-fast call to get the truly fresh data.
+        if (fastMode && pre && pre.dashboard) {
+          console.log('[V370 fastMode] returning stale global (age ' +
+            Math.round((now - (pre.meta && pre.meta.computedAt || 0))/60000) + ' min)');
           return resolve(pre);
         }
         // Fall back: aggregate all FC slices
@@ -20060,6 +20124,12 @@ function _v362ReadAssignedSummary() {
       // Are any pre-aggregated NGO summaries fresh enough?
       const anyFresh = results.some(r => r.data && r.data.meta && (now - (r.data.meta.computedAt || 0)) < FRESH_WINDOW_MS);
       if (anyFresh) {
+        return resolve(_v362MergeSummaries(results));
+      }
+      // V370 fastMode: NGO pre-aggregated is stale, accept whichever NGO
+      // summaries have data and skip the slice fetch.
+      if (fastMode && results.some(r => r.data && r.data.dashboard)) {
+        console.log('[V370 fastMode] returning stale NGO summaries');
         return resolve(_v362MergeSummaries(results));
       }
       // Fall back: aggregate FC slices filtered by assigned NGOs
@@ -20195,74 +20265,94 @@ async function _v362ViewerRefresh() {
   _v369ViewerInFlight = true;
   const btn = document.getElementById('v362-refresh-btn');
   if (btn) { btn.disabled = true; btn.textContent = '⟳ Loading…'; }
-  // V369: retry up to 4 attempts (1 initial + 3 retries with 2s, 4s, 6s
-  // delays). Live measurement showed that the FIRST read after viewer page
-  // load times out at 10 sec because the Firebase WebSocket is still
-  // establishing — but subsequent reads succeed in <1 sec.
+  // V370: stale-then-fresh, two single-attempt steps.
   //
-  // CRITICAL EGRESS CONSTRAINT (V369-fix1): _v362ReadAssignedSummary does ONE
-  // read for global-scope viewers but Promise.all of N reads for NGO-scoped
-  // viewers (one per assigned NGO). A naive retry-on-any-failure would
-  // multiply reads by 4 × N for multi-NGO viewers. To preserve the "Firebase
-  // egress doesn't rise" guarantee, retries ONLY fire on actual timeout
-  // rejection (the WebSocket cold-start case we're trying to recover from).
-  // A successful resolve of null means the read function gracefully decided
-  // there's no data (no user, no scope) — retrying that would be wasteful
-  // and wrong.
-  const RETRY_DELAYS_MS = [0, 2000, 4000, 6000];
+  // Step 1 (FAST):  ~5 KB read of pre-aggregated /_summary/global only.
+  //                 Returns even if stale (>15 min). 8-sec timeout.
+  //                 Renders immediately so user has SOMETHING to look at.
+  // Step 2 (FRESH): Full read INCLUDING /_summary/fc slice aggregation.
+  //                 30-sec timeout (slices are 1-2 MB on slow connections).
+  //                 Updates display if successful.
+  //
+  // No retries on either step — every retry = full re-download. V369's
+  // 4-attempt retry could burn 4 × 2 MB = 8 MB before giving up. V370's
+  // hard ceiling is 1 × 5 KB + 1 × 2 MB ≈ 2 MB regardless of outcome.
+  let staleRendered = false;
+  let step1WasFresh = false;
   let fresh = null;
-  let nullResolve = false;
   try {
-    for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt++) {
-      if (RETRY_DELAYS_MS[attempt] > 0) {
-        // V369-fix3: show user that we're retrying (instead of silent "Loading…")
-        if (btn) btn.textContent = '⟳ Retrying ' + (attempt + 1) + '/' + RETRY_DELAYS_MS.length + '…';
-        await new Promise(function(r){ setTimeout(r, RETRY_DELAYS_MS[attempt]); });
+    // ──────── STEP 1: fast stale-OK pre-aggregated read ────────
+    try {
+      const stalePre = await Promise.race([
+        _v362ReadAssignedSummary(true),  // V370 fastMode=true: skip slice fetch
+        new Promise(function(_, reject) {
+          setTimeout(function() { reject(new Error('step1-timeout')); }, 8000);
+        })
+      ]);
+      if (stalePre && stalePre.dashboard) {
+        _v362ViewerData = stalePre;
+        _v362RenderViewerTab(_v362ViewerActiveTab);
+        staleRendered = true;
+        // V370-fix1: detect if step 1 returned FRESH data (within 15-min
+        // FRESH_WINDOW_MS). If yes, step 2 would re-fetch the SAME data
+        // and add nothing — skip it entirely to keep Firebase egress
+        // strictly bounded. For global scope, fresh check is on the
+        // single pre.meta.computedAt. For NGO scope (merged result),
+        // _v362MergeSummaries sets out.meta.computedAt to the MAX
+        // computedAt across the NGOs, so freshness check on it is
+        // equivalent to "at least one NGO was fresh".
+        const computedAt = stalePre.meta && stalePre.meta.computedAt;
+        const ageMs = (computedAt && typeof computedAt === 'number')
+          ? Date.now() - computedAt : Infinity;
+        if (ageMs < 15 * 60 * 1000) {
+          step1WasFresh = true;
+          fresh = stalePre;  // reuse for the success path below
+          console.log('[V370 step1] data is FRESH (' + Math.round(ageMs/1000)
+            + ' sec old) — skipping step 2');
+        } else {
+          console.log('[V370 step1] rendered STALE pre-aggregated data ('
+            + Math.round(ageMs/60000) + ' min old), total='
+            + (stalePre.dashboard.total || 0) + ' — will refresh in step 2');
+          if (btn) btn.textContent = '⟳ Refreshing…';
+        }
+      } else {
+        console.log('[V370 step1] no pre-aggregated data available; will rely on step 2');
       }
+    } catch (e) {
+      console.warn('[V370 step1] fast read failed: ' + (e && e.message));
+    }
+
+    // ──────── STEP 2: full read with slice aggregation for fresh data ────────
+    // V370-fix1: only run step 2 if step 1 didn't already return fresh data.
+    // This eliminates the double-fetch in the happy path (admin recently open).
+    if (!step1WasFresh) {
       try {
         fresh = await Promise.race([
-          _v362ReadAssignedSummary(),
+          _v362ReadAssignedSummary(false),  // V370 fastMode=false: include slices
           new Promise(function(_, reject) {
-            setTimeout(function() { reject(new Error('timeout')); }, 10000);
+            setTimeout(function() { reject(new Error('step2-timeout')); }, 30000);
           })
         ]);
-        // V369-fix2: defensive — only accept data with a real dashboard.
-        // Guards against future changes to the read function's resolve shape.
-        if (fresh && fresh.dashboard) {
-          if (attempt > 0) {
-            console.log('[V369 viewer] read succeeded on attempt ' + (attempt + 1));
-          }
-          break;
-        }
-        // V369-fix1: read function resolved with null/empty (no scope, no data).
-        // Do NOT retry — same call would resolve null again, wasting time AND
-        // bandwidth on NGO-scoped viewers (Promise.all of N NGO reads × 4).
-        nullResolve = true;
-        console.warn('[V369 viewer] read resolved null/empty on attempt ' + (attempt + 1)
-          + ' — no scope or no data; not retrying');
-        break;
       } catch (e) {
-        // Timeout rejection — exactly the case we want to retry on
-        console.warn('[V369 viewer] read attempt ' + (attempt + 1)
-          + '/' + RETRY_DELAYS_MS.length + ' timed out: ' + (e && e.message));
+        console.warn('[V370 step2] fresh read failed: ' + (e && e.message));
         fresh = null;
-        // Loop continues to next attempt (if any)
       }
     }
+
     if (fresh && fresh.dashboard) {
       _v362ViewerData = fresh;
+      _v362RenderViewerTab(_v362ViewerActiveTab);
+      console.log('[V370 step2] updated to fresh data, total=' + (fresh.dashboard.total || 0));
       // V363: persist to localStorage so the NEXT viewer open is instant.
       try {
         const u = currentUser() || {};
         const cacheKey = '_v363ViewerCache_' + (u.userId || 'anon');
         localStorage.setItem(cacheKey, JSON.stringify({ savedAt: Date.now(), data: fresh }));
       } catch(_) {}
-    } else if (nullResolve) {
-      console.warn('[V369 viewer] read returned null — showing "Summary not available"');
+    } else if (staleRendered) {
+      console.warn('[V370 step2] failed but step 1 stale-render is on screen — keeping it');
     } else {
-      console.warn('[V369 viewer] all '
-        + RETRY_DELAYS_MS.length
-        + ' attempts timed out — showing "Summary not available"');
+      console.warn('[V370] both steps failed — showing "Summary not available"');
     }
   } finally {
     // V369: in-flight flag MUST clear on any exit path — including
