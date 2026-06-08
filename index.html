@@ -1,6 +1,129 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V370-LIVE
+  KRSF Beneficiary Impact Tracker  -  V372-LIVE
+  ============================================================================
+  V372-LIVE (2026-06-08 the 15-MIN-BOOT KILLER + 100K-safe counter):
+    Live Chrome Performance profile (recorded by user during a real F5)
+    revealed the actual cause of the 8-15 min admin boot at 96K records:
+
+      141 seconds of pure JS scripting in renderDashboard →
+        _v361GetAdvAgg → getAdvocacyBids
+      = 94% of recorded time was a SINGLE function
+
+    Root cause (line 14179-14182): getAdvocacyBids used Array.includes()
+    for ID lookup. At 97K advocacy × 96K benef = 9.3 BILLION comparisons
+    per call. Scaling math:
+        10K records:  100M ops   ~1 sec     (the old normal)
+        50K records:  2.5B ops   ~30 sec    (started feeling slow)
+        96K records:  9.3B ops   ~15 MIN    (the user's actual pain)
+       100K records:  10B ops    ~17 min    (about to get worse)
+       200K records:  40B ops    ~60 min    (catastrophic)
+
+    [Fix #1] getAdvocacyBids: replace Array.includes() with Set.has().
+    Total ops drops from 9.3B to ~200K — that's ~47,000x faster.
+    At 96K records: 15 min -> ~50 milliseconds. Verified math:
+      const filteredSet = new Set(filteredAll().map(b => b.id));  // O(N)
+      return loadAdv().filter(a => filteredSet.has(a.bid));       // O(N)
+
+    [Fix #2] Bump _v357DataVersion on pantry-hit (admin benef + adv).
+    Diagnostic via user's F12 confirmed: after pantry hit loads 96K
+    records into RecordCache, _v357DataVersion stays at 1 (the value when
+    cache was empty). The V361 aggregation cache keyed at v=1 with empty
+    data is considered valid, so dashboard renders 0 forever. Bumping
+    the version invalidates all caches and forces fresh aggregation.
+
+    [Fix #3] Raise genId bootstrap safety floor from 100K to 1M.
+    The atomic Firebase counter (V353) already prevents the 10K-style
+    lexical-sort overwrite at any scale. This is defense in depth for the
+    catastrophic-failure case where the bootstrap scan can't read the
+    counter. With 96K records and crossing 100K imminently, the previous
+    100K floor was the wrong order of magnitude.
+
+    FIREBASE EGRESS: ZERO impact. All three fixes are pure local CPU or
+    integer constants. No new Firebase reads, writes, or listeners.
+
+    EXPECTED USER EXPERIENCE AFTER V372:
+      F5 → page loads ~2 sec → pantry hits ~2 sec → dashboard renders
+      with all data ~1 sec → fully interactive in ~5 SECONDS TOTAL.
+      (Down from 8-15 minutes. Same Firebase egress.)
+
+    + APP_VERSION bumped to V372-LIVE.
+    + All V366 + V367 + V368 + V369 + V370 + V371 fixes preserved.
+    REQUIRES: no Firebase rules update, no schema change.
+  ============================================================================
+  V371-LIVE (2026-06-08 critical data-loss guard + Team Report fix):
+
+    [Fix A] CRITICAL: silent mass-deletion via stale-cache sync
+      Forensic root-cause investigation of Bhavishaben Bhagora's 386 lost
+      records (and Anilbhai's 209 from May, same pattern) traced the deletion
+      to fbSyncCollection. When an FC saves a record from a device whose
+      loadData() cache is incomplete (cold-start race, refresh-mid-save,
+      device swap), fbSyncCollection's diff treats every Firebase record
+      missing from the local array as "deleted on another device" and
+      tombstones them all in one batch. The tombstone write bypasses
+      auditLog(), leaving zero trace of who/why. This was the SAME bug both
+      times: ~386 silent tombstones at 2026-06-05T13:32:13 IST coincided
+      with bhavisha_bhiloda_krsf creating a new record 2 sec later (audit
+      log proves she was active, but no delete entry was written).
+
+      [Guard 1] Pre-save tombstone cap (5 records). fbSyncCollection now
+      refuses any save whose diff would tombstone >5 beneficiaries or
+      advocacy records, throwing SaveError('tombstone-cap'). Legitimate
+      small saves (typical create/edit pattern: 0-1 deletes) pass cleanly.
+      The bulk-delete UI sets window._v371BulkDeleteOk = Date.now() before
+      its save and gets a 5-second bypass window.
+
+      [Guard 2] Audit log for sync-path tombstones. Every tombstone created
+      by fbSyncCollection (not just by the explicit delete UI) now writes
+      an auditLog('delete', 'beneficiary'/'advocacy', ...) entry. Future
+      incidents have a forensic trail.
+
+      IMPACT: Bhavishaben's exact 386-record incident would now be blocked
+      at Guard 1 (~386 > 5 cap, no bypass flag set) and the save would fail
+      with a clear error pointing the FC to refresh the app. Anilbhai's
+      209-record incident from May, same mechanism, would also be blocked.
+
+    [Fix B] Team Report "Received" column showing 0
+      Team Report used raw r.status === 'Benefits Received' while the
+      Advocacy KPI strip uses _advNormStatus(r) which normalises
+      benefitRecd='Yes' as Received regardless of raw status. Scheme rows
+      with legacy status='Approved'/'Applied' + benefitRecd='Yes' were
+      mis-bucketed. Fixed in 3 places: _computeNgoStats, _computeFcStats,
+      portfolio totals.
+
+    FIREBASE EGRESS: Fix A guard adds 1 audit-log write per tombstone (~150
+    bytes each, only on deletions which are rare). Fix B is pure local CPU.
+    Steady-state egress is essentially unchanged; the guard saves egress in
+    the catastrophic case by preventing 386+ tombstone writes.
+
+    + APP_VERSION bumped to V371-LIVE.
+    + All V366 + V367 + V368 + V369 + V370 fixes preserved.
+    REQUIRES: no Firebase rules update, no schema change.
+  ============================================================================
+  V371-LIVE-PREVIOUS (2026-06-08 Team Report "Received" status normalisation fix):
+    NGO admin's Team Report was showing 0 Benefits Received per FC even when
+    the Advocacy KPI strip showed 3 received. Root cause: status comparison
+    inconsistency.
+
+    Advocacy KPI page uses _advNormStatus(r) which normalises legacy data:
+      - if benefitRecd === 'Yes', treat as 'Benefits Received'
+      - else if status === 'Need to Apply'/'Rejected', use as-is
+      - else default to 'Applied'
+
+    Team Report's _computeNgoStats, _computeFcStats, and portfolio-total code
+    used raw r.status === '<string>' comparisons. Scheme rows with
+    benefitRecd='Yes' but status='Approved' (legacy) or status='Applied' were
+    therefore missed in the Received bucket and mis-classified elsewhere.
+
+    [Fix] Replace all r.status comparisons with _advNormStatus(r) in three
+    places (lines 12173-12176, 12260-12263, 12372-12375). Now Team Report's
+    Need/Applied/Received/Rejected buckets exactly match the Advocacy page.
+
+    FIREBASE EGRESS: ZERO impact. Pure local computation fix.
+
+    + APP_VERSION bumped to V371-LIVE.
+    + All V366 + V367 + V368 + V369 + V370 fixes preserved.
+    REQUIRES: no Firebase rules update, no schema change.
   ============================================================================
   V370-LIVE (2026-06-07 viewer stale-then-fresh + bounded Firebase egress):
     Live measurement under realistic conditions (admin closed for 30+ min,
@@ -3180,7 +3303,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V370-LIVE';
+const APP_VERSION = 'V372-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -4696,6 +4819,12 @@ async function _adminBenefRestFetch() {
         }
         FB.benefReplayComplete = true;
         fbUpdatePill();
+        // V372 [Fix #2]: bump _v357DataVersion so aggregation caches that
+        // were built at v=N with EMPTY RecordCache (before pantry hit)
+        // invalidate. Without this, _v361AdvAgg returns stale empty result
+        // and dashboard shows 0 even though 96K records are in memory.
+        try { if (typeof _v357DataVersion !== 'undefined') _v357DataVersion = (_v357DataVersion || 0) + 1; } catch(_){}
+        try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
         console.log('[V347] admin benef from pantry:', RecordCache.benef.size, 'records');
         _adminIncrementalSync();
         try { renderCurrentView(); } catch(_){}
@@ -4827,6 +4956,9 @@ async function _adminAdvRestFetch() {
         }
         FB.advReplayComplete = true;
         fbUpdatePill();
+        // V372 [Fix #2]: bump _v357DataVersion (same reason as benef branch).
+        try { if (typeof _v357DataVersion !== 'undefined') _v357DataVersion = (_v357DataVersion || 0) + 1; } catch(_){}
+        try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
         console.log('[V347] admin adv from pantry:', RecordCache.adv.size, 'records');
         _advAdminIncrementalSync();
         try { renderCurrentView(); } catch(_){}
@@ -5609,6 +5741,36 @@ async function fbSyncCollection(coll, newArr, idField, lastMapRef) {
   }
   diff.deletes = survivingDeletes;
   if (diff.writes.length === 0 && diff.deletes.length === 0) return;
+  // ── V371 [Guard 1]: Pre-save tombstone cap ────────────────────────────────
+  // Forensic finding: Bhavishaben's 386-record loss (Jun 5) and Anilbhai's
+  // 209-record loss (May) were both caused by fbSyncCollection silently
+  // tombstoning records when an FC saved from a device with a stale cache.
+  // The diff treated absence-from-array as a delete signal, and the sync
+  // path bypassed auditLog(). Cap deletes per save to 5; UIs that legitimately
+  // need to delete more (the bulk-delete tool) set window._v371BulkDeleteOk
+  // to opt in. Cap applies only to beneficiaries + advocacy (the high-value
+  // collections); config/partners/users keep their existing behaviour.
+  const _V371_TOMBSTONE_CAP = 5;
+  if ((coll === 'beneficiaries' || coll === 'advocacy')
+      && diff.deletes.length > _V371_TOMBSTONE_CAP) {
+    const _v371Bypass = (typeof window !== 'undefined'
+      && window._v371BulkDeleteOk
+      && (Date.now() - window._v371BulkDeleteOk < 5000));
+    if (!_v371Bypass) {
+      console.error('[V371 GUARD-1] BLOCKED save: would tombstone '
+        + diff.deletes.length + ' ' + coll + ' records (cap=' + _V371_TOMBSTONE_CAP
+        + '). If unintentional, refresh the app. If intentional, use the '
+        + 'bulk-delete UI which sets the bypass flag.');
+      // Roll back so the next save retries with same diff.
+      throw new SaveError('tombstone-cap', new Error(
+        'Save blocked — would delete ' + diff.deletes.length + ' records, '
+        + 'exceeding the safety cap of ' + _V371_TOMBSTONE_CAP + '. Refresh the app and try again. '
+        + 'If you actually meant to delete this many, use the bulk-delete UI.'
+      ));
+    }
+    console.warn('[V371 GUARD-1] Cap bypass active: allowing '
+      + diff.deletes.length + ' deletes via window._v371BulkDeleteOk flag.');
+  }
   // Stamp metadata
   const u = (typeof currentUser === 'function') ? currentUser() : null;
   const now = Date.now();
@@ -5636,6 +5798,16 @@ async function fbSyncCollection(coll, newArr, idField, lastMapRef) {
     // V347: tombstone the delete so incremental syncs propagate it.
     if (coll === 'beneficiaries' || coll === 'advocacy') {
       updates[`${FB_NAMESPACE}/tombstones/${coll}/${d}`] = { ts: Date.now() };
+      // V371 [Guard 2]: audit log entry for sync-path deletes too. Previously
+      // only the explicit delete UI called auditLog(); this sync path bypassed
+      // it, leaving zero forensic trail when sync silently tombstoned records.
+      // Best-effort — never let an audit failure abort the actual save.
+      try {
+        if (typeof auditLog === 'function') {
+          auditLog('delete', coll === 'beneficiaries' ? 'beneficiary' : 'advocacy',
+            d, '', 'Removed via sync-path diff (V371 traced)', null);
+        }
+      } catch(_) {}
     }
   }
   // V310-S2: stash the previous lastMap so we can roll back on write failure.
@@ -7902,7 +8074,13 @@ async function _genIdCore(district) {
       // ugly ID than a silent overwrite.
       console.error('[genId V353] bootstrap check failed; using safety floor.',
         e && e.message);
-      bootstrapMaxN = 100000;
+      // V372 [Fix #3]: raised from 100K to 1M. The atomic counter is the
+      // real protection (already prevents the 10K-style lexical-sort
+      // overwrite at any scale). This floor only fires if the bootstrap
+      // scan itself fails AND the counter doesn't exist. At 96K records
+      // and crossing 100K imminently, the 100K floor was the wrong order
+      // of magnitude — could conflict with real existing IDs.
+      bootstrapMaxN = 1000000;
     }
   }
   const seedFloor = Math.max(localMaxN, bootstrapMaxN);
@@ -12170,10 +12348,14 @@ function _computeNgoStats(partnerName, benefSet, advAll) {
   const advRecords = advAll.filter(a => advTaggedIds.has(a.bid));
   const advBenefs = advTagged;
   const allRows = advRecords.flatMap(a => (a.schemeRows || []).filter(r => !r._deleted));
-  const needRows     = allRows.filter(r => r.status === 'Need to Apply');
-  const appliedRows  = allRows.filter(r => r.status === 'Applied');
-  const receivedRows = allRows.filter(r => r.status === 'Benefits Received');
-  const rejectedRows = allRows.filter(r => r.status === 'Rejected');
+  // V371: use _advNormStatus(r) instead of raw r.status so the Team Report's
+  // status buckets match the Advocacy KPI page exactly. The normaliser treats
+  // benefitRecd='Yes' as "Benefits Received" regardless of the raw status
+  // field (handles legacy 'Approved' + 'Applied' records).
+  const needRows     = allRows.filter(r => _advNormStatus(r) === 'Need to Apply');
+  const appliedRows  = allRows.filter(r => _advNormStatus(r) === 'Applied');
+  const receivedRows = allRows.filter(r => _advNormStatus(r) === 'Benefits Received');
+  const rejectedRows = allRows.filter(r => _advNormStatus(r) === 'Rejected');
   const totalRows = allRows.length;
   const advNeedPct     = totalRows > 0 ? Math.round(needRows.length     / totalRows * 100) : null;
   const advAppliedPct  = totalRows > 0 ? Math.round(appliedRows.length  / totalRows * 100) : null;
@@ -12257,10 +12439,11 @@ function _computeFcStats(fcUserId, fcDisplayName, benefSet, advAll) {
   const advRecords = advAll.filter(a => advTaggedIds.has(a.bid));
   const advBenefs = advTagged;
   const allRows = advRecords.flatMap(a => (a.schemeRows || []).filter(r => !r._deleted));
-  const needRows     = allRows.filter(r => r.status === 'Need to Apply');
-  const appliedRows  = allRows.filter(r => r.status === 'Applied');
-  const receivedRows = allRows.filter(r => r.status === 'Benefits Received');
-  const rejectedRows = allRows.filter(r => r.status === 'Rejected');
+  // V371: use _advNormStatus(r) — same fix as _computeNgoStats above.
+  const needRows     = allRows.filter(r => _advNormStatus(r) === 'Need to Apply');
+  const appliedRows  = allRows.filter(r => _advNormStatus(r) === 'Applied');
+  const receivedRows = allRows.filter(r => _advNormStatus(r) === 'Benefits Received');
+  const rejectedRows = allRows.filter(r => _advNormStatus(r) === 'Rejected');
   const totalRows = allRows.length;
   const advNeedPct     = totalRows > 0 ? Math.round(needRows.length     / totalRows * 100) : null;
   const advAppliedPct  = totalRows > 0 ? Math.round(appliedRows.length  / totalRows * 100) : null;
@@ -12369,10 +12552,11 @@ function renderNGO() {
   const advAllBenefs = advTaggedAll;
   const portAdvBids = advTaggedAllIds;
   const portAdvRows = advAll.filter(a => portAdvBids.has(a.bid)).flatMap(a => (a.schemeRows || []).filter(r => !r._deleted));
-  const portNeed     = portAdvRows.filter(r => r.status === 'Need to Apply').length;
-  const portApplied  = portAdvRows.filter(r => r.status === 'Applied').length;
-  const portReceived = portAdvRows.filter(r => r.status === 'Benefits Received');
-  const portRejected = portAdvRows.filter(r => r.status === 'Rejected').length;
+  // V371: portfolio total — same _advNormStatus(r) fix.
+  const portNeed     = portAdvRows.filter(r => _advNormStatus(r) === 'Need to Apply').length;
+  const portApplied  = portAdvRows.filter(r => _advNormStatus(r) === 'Applied').length;
+  const portReceived = portAdvRows.filter(r => _advNormStatus(r) === 'Benefits Received');
+  const portRejected = portAdvRows.filter(r => _advNormStatus(r) === 'Rejected').length;
   const portAdvTotalRows = portAdvRows.length;
   const portAdvNeedPct     = portAdvTotalRows > 0 ? Math.round(portNeed     / portAdvTotalRows * 100) : null;
   const portAdvAppliedPct  = portAdvTotalRows > 0 ? Math.round(portApplied  / portAdvTotalRows * 100) : null;
@@ -14057,8 +14241,14 @@ function getLivelihoodData() {
 }
 
 function getAdvocacyBids() {
-  const filtered = filteredAll().map(b => b.id);
-  return loadAdv().filter(a => filtered.includes(a.bid));
+  // V372 [Fix #1] THE 15-MIN BOOT KILLER:
+  //   Previously: Array.includes() lookup = O(N²) at 9.3 billion ops for
+  //   96K benef × 97K adv → ~15 min of solid JS on every render.
+  //   Now: Set.has() lookup = O(1), total ops drop to ~200K → ~50ms.
+  //   ~47,000x speedup. Verified via Chrome Performance profile that
+  //   getAdvocacyBids was consuming 141 sec out of 150 sec of recording.
+  const filteredSet = new Set(filteredAll().map(b => b.id));
+  return loadAdv().filter(a => filteredSet.has(a.bid));
 }
 
 // ── Coloured intervention chips ───────────────────────────────────────────
@@ -15598,8 +15788,17 @@ async function deleteSelectedBeneficiaries(){
   // destroy every record outside the current user's NGO scope.
   const all = loadData();
   const deletedRecs = all.filter(b => ids.has(b.id));
+  // V371 [Guard 1 bypass]: this is an intentional, user-confirmed bulk delete.
+  // Set the bypass flag so fbSyncCollection's tombstone-cap doesn't block it.
+  try { window._v371BulkDeleteOk = Date.now(); } catch(_) {}
   // V310-S2: await Firebase. Bail on benef delete failure.
   if (!await _trySave(() => saveData(all.filter(b => !ids.has(b.id))), 'bulk delete beneficiaries')) return;
+  // V371 [Guard 1 bypass]: re-stamp before the cascade-delete. The benef save
+  // above can take 6-10 sec on slow networks for a 95K-record collection, and
+  // the 5-sec window of the original stamp would have expired by now. Without
+  // this re-stamp, the advocacy cascade would fail Guard 1 and leave orphan
+  // advocacy rows pointing at now-deleted beneficiary IDs.
+  try { window._v371BulkDeleteOk = Date.now(); } catch(_) {}
   await _trySave(() => saveAdv(loadAdv().filter(a => !ids.has(a.bid))), 'bulk cascade-delete advocacy');
   // Audit: one log entry per deleted record — easier to search later
   deletedRecs.forEach(b => auditLog('delete','beneficiary',b.id,b.name,`Bulk-deleted from ${b.ngo||'(unknown NGO)'}`,null));
@@ -24680,6 +24879,11 @@ async function undoImportBatch(batchId) {
 
   // Remove matching beneficiary records
   const remainingBenef = all.filter(b => b._batchId !== batchId);
+  // V371 [Guard 1 bypass]: undo-import is an intentional, user-confirmed bulk
+  // shrink (user explicitly clicked "undo this batch"). The fbSyncCollection
+  // tombstone-cap would otherwise block any undo of >5 records. Set the flag
+  // here so the saveData below passes the guard.
+  try { window._v371BulkDeleteOk = Date.now(); } catch(_) {}
   // V310-S2: await Firebase. Bail on benef failure.
   if (!await _trySave(() => saveData(remainingBenef), 'undo import: beneficiaries')) return;
 
@@ -24688,6 +24892,10 @@ async function undoImportBatch(batchId) {
   // lost its _batchId somehow, plus rows created after import that reference
   // the now-deleted bid).
   const remainingAdv = advAll.filter(a => a._batchId !== batchId && !idsToDelete.has(a.bid));
+  // V371 [Guard 1 bypass]: re-stamp before the second _trySave. The benef save
+  // above can take 6-10 sec on slow networks for 95K-record collections, and
+  // the 5-sec window for the original stamp would have expired.
+  try { window._v371BulkDeleteOk = Date.now(); } catch(_) {}
   await _trySave(() => saveAdv(remainingAdv), 'undo import: advocacy');
 
   auditLog('bulk_undo', 'beneficiary', batchId,
