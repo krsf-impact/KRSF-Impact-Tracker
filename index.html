@@ -56,6 +56,17 @@
       was keyed on _v357DataVersion and V372's bump only fired on cold-boot
       pantry hits — not on incremental syncs). Symmetric fix applied to
       _advAdminIncrementalSync for advocacy KPIs.
+
+    BUNDLED FIX (Recent Updates staleness — caught live during V375 test):
+    + Refresh button now re-fetches the latest 50 audit log entries from
+      Firebase and merges into the in-memory _auditCache. Previously: audit
+      log was a one-shot .limitToLast(50).once() at boot only, so events
+      written by OTHER devices (e.g. FCs changing advocacy status in the
+      field) never appeared in admin's Recent Updates without an F5.
+      _auditCacheAppend's built-in id-based dedup makes repeated calls safe
+      (no duplicate entries even if the same 50 records come back).
+      Egress: ~15-20 KB per Refresh click — negligible vs the 10-50 MB
+      saved by going incremental for beneficiary/advocacy.
     + APP_VERSION bumped to V375-LIVE.
     REQUIRES: no Firebase rules update (client-side scoping). For tighter
     server-side enforcement (defense in depth) admin can later restrict
@@ -16148,6 +16159,30 @@ async function _v373AdminRefresh() {
     const benefAdded = (RecordCache.benef.size || 0) - benefBefore;
     const advAdded   = (RecordCache.adv.size   || 0) - advBefore;
     const total = benefAdded + advAdded;
+    // V375 [Fix — Recent Updates staleness]: the boot fetched audit log via
+    // .limitToLast(50).once() — a one-shot. So events written by other users
+    // (e.g. FC clicking an advocacy status pill in the field) NEVER reached
+    // admin's Recent Updates card without an F5. Now Refresh re-fetches the
+    // latest 50 audit entries and merges into the in-memory cache via
+    // _auditCacheAppend (which has built-in dedup by id, so this is safe to
+    // call repeatedly). Egress: ~15-20 KB per click — negligible.
+    try {
+      if (typeof fbRef === 'function' && typeof _auditCacheAppend === 'function') {
+        const auditSnap = await fbRef('audit').limitToLast(50).once('value');
+        const auditVal = auditSnap.val() || {};
+        let auditNew = 0;
+        const before = (typeof _auditCache !== 'undefined' && Array.isArray(_auditCache)) ? _auditCache.length : 0;
+        for (const k in auditVal) {
+          const entry = auditVal[k];
+          if (entry && entry.id) _auditCacheAppend(entry);
+        }
+        const after = (typeof _auditCache !== 'undefined' && Array.isArray(_auditCache)) ? _auditCache.length : 0;
+        auditNew = Math.max(0, after - before);
+        if (auditNew > 0) console.log('[V375 audit refresh] +' + auditNew + ' new entries from other devices');
+      }
+    } catch (e) {
+      console.warn('[V375 audit refresh] failed:', e && e.message);
+    }
     // V372 [Fix #2 pattern]: bump data version + invalidate aggregation cache
     // so dashboard shows the new records immediately without an F5.
     try { if (typeof _v357DataVersion !== 'undefined') _v357DataVersion = (_v357DataVersion || 0) + 1; } catch(_){}
@@ -21329,9 +21364,29 @@ function mountViewerApp() {
     root.style.display = 'flex';
   }
   const u = currentUser() || {};
-  const scopeLabel = (Array.isArray(u.assignedNgos) && u.assignedNgos.length > 0)
-    ? u.assignedNgos.join(' · ')
-    : 'All NGOs';
+  // V375 [polish — mobile viewer header]: the V362 original dumped every
+  // assigned NGO name joined with ' · ', which filled the entire screen
+  // on a phone when the viewer had access to 20+ NGOs. New rules:
+  //   - empty / null assignedNgos → "All NGOs" (was already correct)
+  //   - 1-3 NGOs → show the names (donor sees their specific scope clearly)
+  //   - 4+ NGOs → show "N NGOs" with a tappable details element so the
+  //     full list is one tap away but doesn't waste screen real estate.
+  // The donor still has full audit trail in the dashboard below (NGO
+  // Partners table) — header doesn't need to be the source of truth.
+  let scopeLabel;
+  if (!Array.isArray(u.assignedNgos) || u.assignedNgos.length === 0) {
+    scopeLabel = 'All NGOs';
+  } else if (u.assignedNgos.length <= 3) {
+    scopeLabel = u.assignedNgos.join(' · ');
+  } else {
+    // Use <details> so the donor can expand if they want to confirm scope.
+    // Plain text "N NGOs" otherwise — clean and compact on mobile.
+    const _esc = (s) => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const full = u.assignedNgos.map(_esc).join(' · ');
+    scopeLabel = '<details style="display:inline-block"><summary style="cursor:pointer;list-style:none;display:inline">'
+               + u.assignedNgos.length + ' NGOs <span style="font-size:10px;opacity:0.7">▸</span>'
+               + '</summary><div style="font-size:11px;font-weight:400;opacity:0.85;margin-top:6px;line-height:1.5">' + full + '</div></details>';
+  }
   root.innerHTML =
     '<div style="background:#1B3A6B;color:#fff;padding:14px 16px;display:flex;align-items:center;justify-content:space-between">'
     +   '<div>'
