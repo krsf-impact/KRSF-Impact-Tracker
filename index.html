@@ -1,6 +1,115 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V373-LIVE
+  KRSF Beneficiary Impact Tracker  -  V375-LIVE
+  ============================================================================
+  V375-LIVE (2026-06-09 scopedViewer role — donor-facing desktop dashboards):
+
+    User goal: give donors/funders read-only desktop access to dashboards for
+    only the NGOs they sponsor. Existing 'viewer' role was mobile-only and
+    summary-based; V375 introduces a separate role with the full desktop UI
+    (dashboard / advocacy / livelihood / integrated tabs) but data scoped to
+    a configurable subset of NGOs and ALL write/edit/delete paths blocked.
+
+    + NEW ROLE 'scopedViewer' — desktop chrome (mountManagerApp), NOT the
+      mobile viewer shell. Donors get the same dashboards admin sees, just
+      restricted to their assignedNgos and stripped of every write affordance.
+    + assignedNgos REQUIRED (cannot be empty) — distinguishes from plain
+      'viewer' which allows empty=global. A scoped viewer with no NGOs has
+      no purpose, so the admin save form rejects empty selection.
+    + Admin-only creation/edit. NGO admins cannot create scopedViewers —
+      single point of control + audit for donor relationships.
+    + Data scoping applied at every layer:
+        - getData() — array filter by allowed NGO Set
+        - filteredAll() scan path — same filter
+        - _v367TryFastPath() — uses union of byNgo indexes (O(N) build then
+          O(1) lookups; scales as 13 NGOs × 470 FCs cleanly)
+        - _benefScopedQuery() — defers to new _v375ScopedBenefMultiFetch
+        - _advAttachListener — defers to new _v375ScopedAdvMultiFetch
+    + Firebase egress (the hard constraint):
+        - Cold boot: only fetches assigned NGOs' beneficiary + advocacy
+          records (typically 15-25% of the 97K dataset for 2-3 NGOs).
+          Compared to admin's full fetch, this is LESS egress per donor.
+        - Warm boot: pantry/IndexedDB hit, ~0 egress (same as admin).
+        - Per 3-5 donors × infrequent logins: estimated +50-150 MB/month
+          total — well under headroom.
+    + Write protection (defense in depth):
+        - All admin/ngo-gated write UI hidden (existing role checks already
+          exclude any role not in ['admin','ngo'])
+        - nav() route guard blocks admin_* routes
+        - _recInScope returns false for scopedViewer (delete guard)
+        - body[data-role="scopedViewer"] CSS hides delete actions
+    + UI polish:
+        - Sidebar user pill shows "Scoped Viewer · N NGOs" with assigned
+          NGOs list in tooltip
+        - NGO filter dropdowns auto-filter to assignedNgos (donor never
+          sees other NGO names in any UI)
+        - Admin User Management gains "Scoped Viewer (desktop, read-only,
+          NGO-restricted)" option with mandatory multi-NGO picker
+    + No summary writer changes — scopedViewer is read-only, never writes
+      to /_summary/* nodes. V374 guards remain intact.
+
+    BUNDLED FIX (Task #41 — admin incremental-sync staleness):
+    + _adminIncrementalSync now bumps _v357DataVersion + invalidates
+      V361 aggregation cache + V367 filter indexes after any in-session
+      delta arrives. Previously: admin saved a record, list updated, but
+      dashboard KPI stayed stale until tab change (because V361 agg cache
+      was keyed on _v357DataVersion and V372's bump only fired on cold-boot
+      pantry hits — not on incremental syncs). Symmetric fix applied to
+      _advAdminIncrementalSync for advocacy KPIs.
+    + APP_VERSION bumped to V375-LIVE.
+    REQUIRES: no Firebase rules update (client-side scoping). For tighter
+    server-side enforcement (defense in depth) admin can later restrict
+    /beneficiaries reads by assignedNgos in rules — optional for V376+.
+  ============================================================================
+  V374-LIVE (2026-06-09 partial-cache summary write bug — the 7985 incident):
+
+    Live evidence: viewer showed 7,985 beneficiaries instead of actual 97,038.
+    Investigation found Firebase /_summary/global had:
+      total: 7985 (should be 97038)
+      states: 2 (should be 3)
+      districts: 10 (should be 19)
+      meta.recordsInScope: 7985
+      computedAt: 2026-06-09T04:38:01 UTC
+
+    Root cause: line 20376 (V366-fix2) ONLY checked FB.advReplayComplete
+    before allowing admin summary writes. It did NOT check
+    FB.benefReplayComplete. When admin's BENEF cache was mid-load (one of
+    the V328 paginated REST batches, e.g. batch with 7985 records), and a
+    V365 5-min timer / V366 visibility handler / save event fired the
+    summary writer, it computed against the partial cache and overwrote
+    the correct /_summary/global with the wrong total.
+
+    V366's original author thought "adv streams after benef" so only adv
+    needed the guard. But cold-REST pantry-miss boots stream BOTH
+    collections via batches, and a write trigger during ANY batch
+    produces partial data.
+
+    [Fix #1] Add the missing benef replay check at line 20376:
+      if (!FB.benefReplayComplete || !FB.advReplayComplete) return;
+
+    [Fix #2] Cache-size sanity floor: refuse to write if RecordCache.benef
+    has < 100 records. Catches edge cases where flags are misreported.
+
+    [Fix #3] No-shrink guard: BEFORE writing, read the existing
+    /_summary/global. If current cache.benef.size < 80% of existing
+    summary's recordsInScope, refuse to write. This is the safety net
+    that would have caught the 7985 incident even if the flag check
+    failed: 7985 < 97038*0.8 = 77,630 -> blocked.
+
+    AUTO-RECOVERY: V374 has no explicit recovery step. The fix is
+    automatic: once user pushes V374 and admin boots with full cache
+    (V368 pantry preservation gives 96K instantly), the existing V366
+    initial-summary-write flow fires with all checks passing -> writes
+    correct 97K summary -> viewer sees correct numbers within seconds.
+    No manual admin trigger needed.
+
+    FIREBASE EGRESS: +1 small read per summary write (~5 KB to fetch
+    existing summary's recordsInScope for the no-shrink guard). Net
+    increase: ~5 KB per save event. Negligible.
+
+    + APP_VERSION bumped to V374-LIVE.
+    + All V366-V373 fixes preserved.
+    REQUIRES: no Firebase rules update, no schema change.
   ============================================================================
   V373-LIVE (2026-06-09 Integrated pagination + Refresh button + Recent Updates):
 
@@ -1759,9 +1868,18 @@ html,body{height:100%;font-family:var(--font);background:#EEF2F7;color:var(--tex
 /* Role-based UI hiding — policy: only Admin users can delete beneficiaries.
    Coordinators and NGO admins do not see delete controls. Any element marked
    [data-delete-action] (bulk-delete bar, row delete buttons, drawer delete
-   button) disappears for those roles. */
+   button) disappears for those roles.
+   V375: scopedViewer (donor) is fully read-only — hide every delete/edit
+   surface as defense in depth. Most write UIs are already JS-gated to
+   admin/ngo roles only, but CSS hiding catches anything that slipped past. */
 body[data-role="coordinator"] [data-delete-action],
-body[data-role="ngo"] [data-delete-action] { display: none !important; }
+body[data-role="ngo"] [data-delete-action],
+body[data-role="scopedViewer"] [data-delete-action],
+body[data-role="scopedViewer"] [data-write-action],
+body[data-role="scopedViewer"] [data-admin-only],
+body[data-role="scopedViewer"] .fab-enroll,
+body[data-role="scopedViewer"] #btn-enroll,
+body[data-role="scopedViewer"] .btn-enroll { display: none !important; }
 
 /* Coordinator simplification: hide everything in the sidebar except
    All Beneficiaries and Enroll (policy per spec — coordinators have a
@@ -3345,7 +3463,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V373-LIVE';
+const APP_VERSION = 'V375-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -3815,6 +3933,17 @@ async function _adminIncrementalSync() {
     }
     if (added > 0 || removed > 0) {
       try { await _pantryWrite(u.userId, Array.from(RecordCache.benef.values())); } catch(_){}
+      // V375 [Task #41 fix]: bump version + invalidate aggregation cache so
+      // dashboard totals reflect the incremental sync immediately, not just
+      // after the next tab change or manual refresh. Previously: admin's
+      // saved record showed up in the list but dashboard KPI stayed stale
+      // because the V361 agg cache was keyed on _v357DataVersion and that
+      // version wasn't bumped on incremental syncs (only on cold-boot pantry
+      // hits — V372 Fix #2). Also invalidate V367 filter indexes since the
+      // added/removed records change which IDs match each filter.
+      try { if (typeof _v357DataVersion !== 'undefined') _v357DataVersion = (_v357DataVersion || 0) + 1; } catch(_){}
+      try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
+      try { if (typeof _v367InvalidateIndex === 'function') _v367InvalidateIndex(); } catch(_){}
       try { renderCurrentView(); } catch(_){}
     }
     console.log('[V347] admin benef sync: +' + added + ' / -' + removed);
@@ -3904,6 +4033,11 @@ async function _advAdminIncrementalSync() {
     }
     if (added > 0 || removed > 0) {
       try { await _advPantryWrite(u.userId, Array.from(RecordCache.adv.values())); } catch(_){}
+      // V375 [Task #41 fix — symmetric to benef sync above]: bump version +
+      // invalidate aggregation cache so advocacy dashboard KPIs refresh
+      // immediately after incremental sync, not just after tab change.
+      try { if (typeof _v357DataVersion !== 'undefined') _v357DataVersion = (_v357DataVersion || 0) + 1; } catch(_){}
+      try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
       try { renderCurrentView(); } catch(_){}
     }
     console.log('[V347] admin adv sync: +' + added + ' / -' + removed);
@@ -5146,6 +5280,20 @@ function _benefScopedQuery() {
     FB.benefReplayComplete = true;
     return null;
   }
+  // V375: scopedViewer fetches only their assigned NGOs' records via the
+  // multi-NGO one-shot wrapper. Empty assignedNgos = no fetch (safe default).
+  if (u.role === 'scopedViewer') {
+    const assigned = Array.isArray(u.assignedNgos) ? u.assignedNgos : [];
+    if (assigned.length === 0) {
+      // Misconfigured account: never fetch fleet data, never block the UI.
+      FB.benefReplayComplete = true;
+      fbUpdatePill();
+      console.warn('[V375] scopedViewer has no assignedNgos — no data will load.');
+      return null;
+    }
+    _v375ScopedBenefMultiFetch(assigned);
+    return null;
+  }
   // Unknown/incomplete role: fall back to full fetch rather than show
   // empty data. Better to over-fetch than break the UI.
   return fbRef('beneficiaries');
@@ -5361,6 +5509,16 @@ function fbAdvHandleChild(eventType) {
     // V337: coordinator advocacy switched to one-shot fetch.
     if (eventType === 'child_added') _v337AdvOneShotFetch(fbRef('advocacy').orderByChild('createdBy').equalTo(u.userId));
     return;
+  } else if (u.role === 'scopedViewer') {
+    // V375: scopedViewer advocacy via multi-NGO one-shot wrapper.
+    const assigned = Array.isArray(u.assignedNgos) ? u.assignedNgos : [];
+    if (assigned.length === 0) {
+      FB.advReplayComplete = true;
+      fbUpdatePill();
+      return;
+    }
+    if (eventType === 'child_added') _v375ScopedAdvMultiFetch(assigned);
+    return;
   } else {
     q = fbRef('advocacy');
   }
@@ -5444,6 +5602,163 @@ async function _v337AdvOneShotFetch(query, opts) {
     fbUpdatePill();
   } finally {
     _v337AdvOneShotFetch._inFlight = false;
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// V375: SCOPED-VIEWER MULTI-NGO FETCH
+// ──────────────────────────────────────────────────────────────────────────
+// Donors (scopedViewer role) get desktop dashboards restricted to a subset
+// of NGOs (u.assignedNgos). Firebase RTDB doesn't support orderByChild('ngo')
+// .in([...]) so we fire N parallel one-shot fetches (one per assigned NGO)
+// and merge the results into RecordCache. Pantry caches the merged result
+// keyed on userId so warm boots skip Firebase entirely.
+//
+// Egress profile:
+//   - Cold boot: sum of assigned NGOs' records (typically 15-25% of full)
+//   - Warm boot: pantry hit, 0 reads
+//   - Compared to admin's full fetch: significantly LESS egress per donor
+async function _v375ScopedBenefMultiFetch(ngos, opts) {
+  opts = opts || {};
+  if (_v375ScopedBenefMultiFetch._inFlight) return;
+  _v375ScopedBenefMultiFetch._inFlight = true;
+  try {
+    const u = (typeof currentUser === 'function') ? currentUser() : null;
+    // Pantry-first: try cached records before touching Firebase.
+    if (u && u.userId && !opts.force) {
+      const cached = await _pantryRead(u.userId);
+      if (cached && !cached.stale) {
+        RecordCache.benef.clear();
+        FB.lastBenef = {};
+        for (const r of cached.records) {
+          if (r && r.id) { RecordCache.benef.set(r.id, r); FB.lastBenef[r.id] = fbHash(r); }
+        }
+        FB.benefReplayComplete = true;
+        fbUpdatePill();
+        console.log('[V375 scoped] benef from pantry:', RecordCache.benef.size, 'records');
+        try { if (typeof _v357DataVersion !== 'undefined') _v357DataVersion = (_v357DataVersion || 0) + 1; } catch(_){}
+        try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
+        try { renderCurrentView(); } catch(_){}
+        return;
+      }
+    }
+
+    RecordCache.benef.clear();
+    FB.lastBenef = {};
+    FB.benefReplayComplete = false;
+
+    // Parallel fetches across assigned NGOs. Promise.all means total wall
+    // time = slowest single NGO fetch (not sum of all). Firebase RTDB's
+    // orderByChild query is indexed (./indexOn includes 'ngo') so each
+    // .equalTo is a cheap server-side lookup.
+    let total = 0;
+    const results = await Promise.all(
+      ngos.map(ngo => fbRef('beneficiaries').orderByChild('ngo').equalTo(ngo).once('value')
+        .then(snap => ({ ngo, snap }))
+        .catch(e => ({ ngo, err: e })))
+    );
+    for (const r of results) {
+      if (r.err) {
+        console.warn('[V375] benef fetch failed for ngo=' + r.ngo + ':', r.err && r.err.message);
+        continue;
+      }
+      const val = r.snap.val() || {};
+      let count = 0;
+      for (const id in val) {
+        const rec = val[id];
+        if (rec && rec.id) { RecordCache.benef.set(rec.id, rec); FB.lastBenef[rec.id] = fbHash(rec); count++; }
+      }
+      console.log('[V375] benef fetch ngo=' + r.ngo + ':', count, 'records');
+      total += count;
+    }
+
+    FB.benefReplayComplete = true;
+    fbUpdatePill();
+    console.log('[V375 scoped] benef multi-fetch complete:', total, 'records across', ngos.length, 'NGOs');
+    try { if (typeof _v357DataVersion !== 'undefined') _v357DataVersion = (_v357DataVersion || 0) + 1; } catch(_){}
+    try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
+
+    if (u && u.userId) {
+      try { await _pantryWrite(u.userId, Array.from(RecordCache.benef.values())); } catch(_){}
+    }
+    try { renderCurrentView(); } catch(_){}
+  } catch (e) {
+    console.warn('[V375 scoped] benef multi-fetch failed:', e);
+    FB.benefReplayComplete = true;
+    fbUpdatePill();
+  } finally {
+    _v375ScopedBenefMultiFetch._inFlight = false;
+  }
+}
+
+// V375: advocacy multi-NGO fetch — symmetric to the beneficiary version.
+async function _v375ScopedAdvMultiFetch(ngos, opts) {
+  opts = opts || {};
+  if (_v375ScopedAdvMultiFetch._inFlight) return;
+  _v375ScopedAdvMultiFetch._inFlight = true;
+  try {
+    const u = (typeof currentUser === 'function') ? currentUser() : null;
+    if (u && u.userId && !opts.force) {
+      const cached = await _advPantryRead(u.userId);
+      if (cached && !cached.stale) {
+        RecordCache.adv.clear();
+        FB.lastAdv = {};
+        for (const r of cached.records) {
+          const key = r && r.__fbk;
+          if (key) { RecordCache.adv.set(key, r); FB.lastAdv[key] = fbHash(r); }
+        }
+        FB.advReplayComplete = true;
+        fbUpdatePill();
+        console.log('[V375 scoped] adv from pantry:', RecordCache.adv.size, 'records');
+        try { renderCurrentView(); } catch(_){}
+        return;
+      }
+    }
+
+    RecordCache.adv.clear();
+    FB.lastAdv = {};
+    FB.advReplayComplete = false;
+
+    let total = 0;
+    const results = await Promise.all(
+      ngos.map(ngo => fbRef('advocacy').orderByChild('ngo').equalTo(ngo).once('value')
+        .then(snap => ({ ngo, snap }))
+        .catch(e => ({ ngo, err: e })))
+    );
+    for (const r of results) {
+      if (r.err) {
+        console.warn('[V375] adv fetch failed for ngo=' + r.ngo + ':', r.err && r.err.message);
+        continue;
+      }
+      const val = r.snap.val() || {};
+      let count = 0;
+      for (const fbKey in val) {
+        const raw = val[fbKey];
+        if (!raw) continue;
+        const record = fbStampAdvKey({ ...raw });
+        const key = record.__fbk || fbKey;
+        RecordCache.adv.set(key, record);
+        FB.lastAdv[key] = fbHash(record);
+        count++;
+      }
+      console.log('[V375] adv fetch ngo=' + r.ngo + ':', count, 'records');
+      total += count;
+    }
+
+    FB.advReplayComplete = true;
+    fbUpdatePill();
+    console.log('[V375 scoped] adv multi-fetch complete:', total, 'records across', ngos.length, 'NGOs');
+
+    if (u && u.userId) {
+      try { await _advPantryWrite(u.userId, Array.from(RecordCache.adv.values())); } catch(_){}
+    }
+    try { renderCurrentView(); } catch(_){}
+  } catch (e) {
+    console.warn('[V375 scoped] adv multi-fetch failed:', e);
+    FB.advReplayComplete = true;
+    fbUpdatePill();
+  } finally {
+    _v375ScopedAdvMultiFetch._inFlight = false;
   }
 }
 
@@ -5754,6 +6069,12 @@ async function fbSyncCollection(coll, newArr, idField, lastMapRef) {
     if (coll !== 'beneficiaries' && coll !== 'advocacy') return true;
     if (_guardUser.role === 'ngo') return rec && rec.ngo === _guardUser.ngo;
     if (_guardUser.role === 'coordinator') return rec && rec.createdBy === _guardUser.userId;
+    // V375: scopedViewer can never delete — return false so the guard treats
+    // EVERY delete as out-of-scope (suppressed). Belt-and-braces: scopedViewer
+    // shouldn't reach this path because canDeleteBeneficiaries() blocks first,
+    // and the role gates in the UI never expose delete buttons. This is the
+    // last line of defense.
+    if (_guardUser.role === 'scopedViewer') return false;
     return true;  // unknown role — don't suppress a delete
   };
   for (const d of diff.deletes) {
@@ -6233,6 +6554,21 @@ function _loadDataRaw() {
 }
 
 async function saveData(arr) {
+  // V375 [Fix #2 — audit critical]: hard role guard against scopedViewer.
+  // CSS hides write buttons, nav() blocks admin_* routes, BUT mountManagerApp
+  // exposes shared modals (Edit Details, Add Family Member, Endline Photo,
+  // Income Log) whose buttons aren't tagged data-admin-only. A devtools user
+  // or any leaked button-click would otherwise reach this writer. The early
+  // throw is the last line of defense — preventing donor sessions from
+  // mutating any of the 97K records.
+  {
+    let _wu = null;
+    try { _wu = (typeof currentUser === 'function') ? currentUser() : null; } catch(_) {}
+    if (_wu && _wu.role === 'scopedViewer') {
+      if (typeof toast === 'function') toast('Read-only account — edits are disabled.', 'error', 4000);
+      throw new SaveError('read-only', new Error('scopedViewer cannot save beneficiaries'));
+    }
+  }
   // V310-S2: Firebase-only writes. Cache is updated AFTER the cloud write
   // confirms (Decision 1B). On failure, throws SaveError — caller catches
   // and surfaces to the user.
@@ -6695,6 +7031,17 @@ function loadUsers() {
   return out;
 }
 async function saveUsers(arr) {
+  // V375 [Fix #2 — defense in depth]: even though Admin Panel is route-blocked
+  // for scopedViewer (nav() bounces admin_* routes), a DevTools console call
+  // could still reach this writer. Belt-and-braces guard mirrors saveData/saveAdv.
+  {
+    let _wu = null;
+    try { _wu = (typeof currentUser === 'function') ? currentUser() : null; } catch(_) {}
+    if (_wu && _wu.role === 'scopedViewer') {
+      if (typeof toast === 'function') toast('Read-only account — user management is disabled.', 'error', 4000);
+      throw new SaveError('read-only', new Error('scopedViewer cannot save users'));
+    }
+  }
   // V310-S2: Firebase-only writes. Cache after Firebase confirms.
   // Per-record sync — concurrent user edits from different admin devices
   // can never overwrite each other.
@@ -6726,6 +7073,20 @@ function currentUser() { return loadSession(); }
 function isAdmin()  { const s=currentUser(); return s && s.role==='admin'; }
 function isNgoUser(){ const s=currentUser(); return s && s.role==='ngo'; }
 function isCoord()  { const s=currentUser(); return s && s.role==='coordinator'; }
+// V375: donor-facing desktop role. Read-only across an admin-configured subset
+// of NGOs (u.assignedNgos). Distinct from 'viewer' (mobile, summary-only).
+function isScopedViewer(){ const s=currentUser(); return s && s.role==='scopedViewer'; }
+// V375: returns the Set of NGO names a scopedViewer is allowed to see.
+// Returns null for non-scopedViewer roles (caller uses null as "no scope filter").
+// Returns an empty Set if scopedViewer has no assignedNgos (defensive — should
+// be prevented at save time but blocking here keeps it safe if data is ever
+// migrated/edited externally).
+function _v375AllowedNgoSet(u) {
+  u = u || currentUser();
+  if (!u || u.role !== 'scopedViewer') return null;
+  const arr = Array.isArray(u.assignedNgos) ? u.assignedNgos : [];
+  return new Set(arr);
+}
 
 // ── DELETE POLICY (single source of truth) ─────────────────────────────────
 // Rule (updated): Only Admin users can delete beneficiary records. NGO admins
@@ -6810,6 +7171,15 @@ function getLivTypes() {
   return defaults;
 }
 function saveLivTypes(arr) {
+  // V375 [Fix #2 — defense in depth]: block scopedViewer console calls.
+  {
+    let _wu = null;
+    try { _wu = (typeof currentUser === 'function') ? currentUser() : null; } catch(_) {}
+    if (_wu && _wu.role === 'scopedViewer') {
+      if (typeof toast === 'function') toast('Read-only account — livelihood config is disabled.', 'error', 4000);
+      return;
+    }
+  }
   // V16: whole-array sync — admin-only config, tiny, low concurrency risk.
   localStorage.setItem(LIVTYPES_KEY, JSON.stringify(arr));
   fbSyncWholeArray('config/livtypes', arr || []);
@@ -6940,6 +7310,14 @@ function getData() {
   if (!u) return [];           // no session → no data
   if (u.role === 'admin') return all;
   if (u.role === 'ngo')   return all.filter(b => b.ngo === u.ngo);
+  // V375: scopedViewer sees records only from their assigned NGOs.
+  // Empty assignedNgos (defensive — should be blocked at save time) returns
+  // nothing so a misconfigured account never leaks fleet data.
+  if (u.role === 'scopedViewer') {
+    const allowed = _v375AllowedNgoSet(u);
+    if (!allowed || allowed.size === 0) return [];
+    return all.filter(b => allowed.has(b.ngo));
+  }
   if (u.role === 'coordinator') {
     // V308.1 (Bug 2 fix): The fallback to coord==fullName used to be OR'd
     // with the createdBy check, which leaked records between two coordinators
@@ -8816,6 +9194,19 @@ function _advShowStatusPop(el, bid, scheme, remarks, currentStatus) {
 
 // Called by the picker buttons. Saves the new status and re-renders.
 async function _advApplyStatus(bid, scheme, remarks, next) {
+  // V375 [Fix #2]: defensive role guard. saveAdv() also guards but this
+  // catches the click earlier so the status popup tears down cleanly even
+  // for a denied write (otherwise the popup stays open after the failed save).
+  {
+    let _wu = null;
+    try { _wu = (typeof currentUser === 'function') ? currentUser() : null; } catch(_) {}
+    if (_wu && _wu.role === 'scopedViewer') {
+      if (typeof toast === 'function') toast('Read-only account — status changes are disabled.', 'error', 4000);
+      const _pop = document.getElementById('_adv-status-pop');
+      if (_pop) _pop.remove();
+      return;
+    }
+  }
   const pop = document.getElementById('_adv-status-pop');
   if (pop) pop.remove();
   const adv = loadAdv();
@@ -13426,6 +13817,19 @@ function _loadAdvRaw() {
 }
 
 async function saveAdv(arr) {
+  // V375 [Fix #2 — audit critical]: hard role guard against scopedViewer.
+  // Symmetric to the saveData guard. Blocks inline status pills, Log
+  // Advocacy modal, and any drawer-triggered advocacy mutation from a donor
+  // session. CSS hides the obvious buttons; this catches devtools / leaked
+  // handlers (e.g. _advApplyStatus called directly from console).
+  {
+    let _wu = null;
+    try { _wu = (typeof currentUser === 'function') ? currentUser() : null; } catch(_) {}
+    if (_wu && _wu.role === 'scopedViewer') {
+      if (typeof toast === 'function') toast('Read-only account — edits are disabled.', 'error', 4000);
+      throw new SaveError('read-only', new Error('scopedViewer cannot save advocacy'));
+    }
+  }
   // V310-S2: Firebase-only writes. Cache after Firebase confirms.
   // V317: replay-complete gate. See V317 review Bug 1 for the listener/diff
   // race scenario. Skip during bulk import (same rationale as saveData).
@@ -14185,6 +14589,19 @@ function _v367TryFastPath() {
       candidateIds = new Set(_v367Idx.byNgo[u.ngo] || []);
     } else if (u.role === 'coordinator') {
       return null;
+    } else if (u.role === 'scopedViewer') {
+      // V375: union of pre-built byNgo Sets across assigned NGOs. Each
+      // _v367Idx.byNgo[ngo] is already a Set; merging is O(sum of sizes).
+      // Donors typically have 1-3 assigned NGOs so this is much cheaper than
+      // the scan path's O(N) walk over all 97K records.
+      const assigned = Array.isArray(u.assignedNgos) ? u.assignedNgos : [];
+      if (assigned.length === 0) return [];   // defensive: no scope, no records
+      candidateIds = new Set();
+      for (const ngo of assigned) {
+        const ids = _v367Idx.byNgo[ngo];
+        if (!ids) continue;
+        for (const id of ids) candidateIds.add(id);
+      }
     }
 
     // Equality filters via index intersection.
@@ -14265,6 +14682,11 @@ function filteredAll() {
     d = cache.filter(b => b.ngo === u.ngo);
   } else if (u.role === 'coordinator') {
     d = cache.filter(b => b.createdBy ? b.createdBy === u.userId : (b.coord && b.coord === u.fullName));
+  } else if (u.role === 'scopedViewer') {
+    // V375: scope to assigned NGOs. Empty assignedNgos = no records visible
+    // (defensive against misconfigured accounts).
+    const allowed = _v375AllowedNgoSet(u);
+    d = (!allowed || allowed.size === 0) ? [] : cache.filter(b => allowed.has(b.ngo));
   } else {
     d = cache;
   }
@@ -16267,6 +16689,15 @@ window.nav=function(v){
     }
     v = 'beneficiaries';
   }
+  // V375: scopedViewer is read-only. Restrict to dashboard + the four read
+  // tabs explicitly named in the requirements (dashboard / advocacy /
+  // livelihood / integrated) plus the supporting views (list, beneficiaries,
+  // map, alerts, ngo). enroll is intercepted — donors never see the modal.
+  if (me && me.role === 'scopedViewer') {
+    if (v === 'enroll') v = 'dashboard';   // silently bounce
+    const allowed = new Set(['dashboard','list','beneficiaries','advocacy','integrated','map','ngo','alerts']);
+    if (!allowed.has(v)) v = 'dashboard';
+  }
   currentView=v;
   // V324: reset pagination and memoization cache on every nav so that
   // newly restored records (e.g. after dedup fix) are always visible.
@@ -16370,6 +16801,15 @@ function loadPartners() {
   return defaults;
 }
 async function savePartners(arr) {
+  // V375 [Fix #2 — defense in depth]: block scopedViewer console calls.
+  {
+    let _wu = null;
+    try { _wu = (typeof currentUser === 'function') ? currentUser() : null; } catch(_) {}
+    if (_wu && _wu.role === 'scopedViewer') {
+      if (typeof toast === 'function') toast('Read-only account — partner edits are disabled.', 'error', 4000);
+      throw new SaveError('read-only', new Error('scopedViewer cannot save partners'));
+    }
+  }
   // V310-S2: Firebase-only writes. Cache after Firebase confirms.
   await fbSyncCollection('partners', arr || [], 'id', 'lastPart');
   _hydratePartnersCache(Array.isArray(arr) ? arr : []);
@@ -16741,7 +17181,15 @@ function renderAdminUsers() {
   }
 
   const roleBadge = r => {
-    const map = {admin:['#7C3AED','Admin'], ngo:['#2E75B6','NGO User'], coordinator:['#10B981','Field Coordinator']};
+    // V375: labels for viewer + scopedViewer roles so the user table reads
+    // cleanly. Without this they fell through to gray "scopedViewer" raw text.
+    const map = {
+      admin:        ['#7C3AED','Admin'],
+      ngo:          ['#2E75B6','NGO User'],
+      coordinator:  ['#10B981','Field Coordinator'],
+      viewer:       ['#F59E0B','Viewer'],
+      scopedViewer: ['#0EA5E9','Scoped Viewer']
+    };
     const [c,l] = map[r] || ['#6B7280', r];
     return `<span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:10px;background:${c}22;color:${c}">${l}</span>`;
   };
@@ -16781,6 +17229,8 @@ function renderAdminUsers() {
         <option value="admin"        ${_adminUserRoleFilter==='admin'?'selected':''}>Admin</option>
         <option value="ngo"          ${_adminUserRoleFilter==='ngo'?'selected':''}>NGO User</option>
         <option value="coordinator"  ${_adminUserRoleFilter==='coordinator'?'selected':''}>Field Coordinator</option>
+        <option value="viewer"       ${_adminUserRoleFilter==='viewer'?'selected':''}>Viewer</option>
+        <option value="scopedViewer" ${_adminUserRoleFilter==='scopedViewer'?'selected':''}>Scoped Viewer</option>
       </select>
       ${(_adminUserNgoFilter||_adminUserRoleFilter||_adminUserSearch)
         ? `<button class="btn btn-sm" onclick="_adminUserNgoFilter='';_adminUserRoleFilter='';_adminUserSearch='';renderAdminUsers()">Clear</button>`
@@ -16827,6 +17277,7 @@ function _renderUserModalHtml() {
               <option value="ngo">NGO User</option>
               <option value="admin">Admin</option>
               <option value="viewer">Viewer (mobile, read-only)</option>
+              <option value="scopedViewer">Scoped Viewer (desktop, read-only, donor-facing)</option>
             </select>
           </div>
           <div class="fg" id="user-ngo-wrap" style="margin-bottom:12px"><label>NGO * <span style="font-weight:400;color:var(--gray2);font-size:11px">(scopes what the user can see)</span></label>
@@ -16855,10 +17306,24 @@ function _renderUserModalHtml() {
 function _adminUserRoleChange(role) {
   // Admins don't need an NGO (they see everything)
   // V362: viewer uses a multi-NGO picker, not the single-NGO dropdown
+  // V375: scopedViewer also uses the multi-NGO picker (donor scoping)
   const wrap = document.getElementById('user-ngo-wrap');
   const vwrap = document.getElementById('user-viewer-ngo-wrap');
-  if (wrap)  wrap.style.display  = (role === 'admin' || role === 'viewer') ? 'none' : '';
-  if (vwrap) vwrap.style.display = (role === 'viewer') ? '' : 'none';
+  if (wrap)  wrap.style.display  = (role === 'admin' || role === 'viewer' || role === 'scopedViewer') ? 'none' : '';
+  if (vwrap) vwrap.style.display = (role === 'viewer' || role === 'scopedViewer') ? '' : 'none';
+  // V375: update the picker's helper text so admin knows scope is REQUIRED
+  // for scopedViewer (vs optional/global for plain viewer).
+  try {
+    const lbl = vwrap && vwrap.querySelector('label');
+    const hint = vwrap && vwrap.querySelector('div[style*="font-size:11px"]');
+    if (role === 'scopedViewer') {
+      if (lbl)  lbl.innerHTML  = 'Assigned NGOs * <span style="font-weight:400;color:var(--red);font-size:11px">(required — donor must be scoped to at least one NGO)</span>';
+      if (hint) hint.textContent = 'Donor will see dashboards for ONLY these NGOs. Selection is mandatory.';
+    } else if (role === 'viewer') {
+      if (lbl)  lbl.innerHTML  = 'Assigned NGOs <span style="font-weight:400;color:var(--gray2);font-size:11px">(hold Ctrl/Cmd to select multiple — leave empty for ALL NGOs)</span>';
+      if (hint) hint.textContent = 'Viewer will only see numbers for the NGOs selected here. Leave empty to give global access.';
+    }
+  } catch(_) {}
 }
 
 function adminNewUser() {
@@ -16916,14 +17381,21 @@ async function adminSaveUser() {
   if (!/^[a-z0-9_]+$/.test(username)) return showErr('Username must be lowercase letters, numbers, or underscores only.');
   // V362: viewer uses assignedNgos (multi-select), not single ngo. Skip the
   // single-NGO check for viewer role.
-  if (role !== 'admin' && role !== 'viewer' && !ngo) return showErr('NGO is required for NGO users and coordinators.');
-  // V362: collect viewer's assigned NGOs from the multi-select element.
+  // V375: scopedViewer also uses assignedNgos (multi-select), single-NGO skip.
+  if (role !== 'admin' && role !== 'viewer' && role !== 'scopedViewer' && !ngo) return showErr('NGO is required for NGO users and coordinators.');
+  // V362/V375: collect viewer/scopedViewer assigned NGOs from the multi-select.
   let assignedNgos = [];
-  if (role === 'viewer') {
+  if (role === 'viewer' || role === 'scopedViewer') {
     const sel = document.getElementById('user-viewer-ngos');
     if (sel) {
       for (const opt of sel.options) { if (opt.selected) assignedNgos.push(opt.value); }
     }
+  }
+  // V375: scopedViewer MUST have at least one assigned NGO. Plain 'viewer'
+  // allows empty (= global access); scopedViewer's whole purpose is scope,
+  // so empty is a misconfiguration the form rejects up-front.
+  if (role === 'scopedViewer' && assignedNgos.length === 0) {
+    return showErr('Scoped Viewer must be assigned at least one NGO. (To grant global view access, use the plain "Viewer" role instead.)');
   }
 
   const users = loadUsers();
@@ -16961,10 +17433,11 @@ async function adminSaveUser() {
     users[idx].fullName = fullName;
     users[idx].username = username;
     users[idx].role     = role;
-    users[idx].ngo      = (role === 'admin' || role === 'viewer') ? null : ngo;
-    // V362: store viewer's assigned NGOs (empty array = global access)
-    if (role === 'viewer') users[idx].assignedNgos = assignedNgos;
-    else                   users[idx].assignedNgos = null;
+    users[idx].ngo      = (role === 'admin' || role === 'viewer' || role === 'scopedViewer') ? null : ngo;
+    // V362/V375: store viewer/scopedViewer assigned NGOs.
+    // viewer: empty array = global access. scopedViewer: must be non-empty (form blocks).
+    if (role === 'viewer' || role === 'scopedViewer') users[idx].assignedNgos = assignedNgos;
+    else                                              users[idx].assignedNgos = null;
     // V308.1 (Bug 3 fix): use SHA-256+salt instead of legacy scramble.
     if (pw) users[idx].passwordHash = await _hashPassword(pw);
     // V310-S2: await Firebase. On failure, keep modal open with error.
@@ -16980,7 +17453,9 @@ async function adminSaveUser() {
     // If the current session user edited themselves, refresh the pill
     const me = currentUser();
     if (me && me.userId === editingId) {
-      saveSession({...me, username, role, ngo: users[idx].ngo, fullName});
+      // V375: include assignedNgos so a scopedViewer who edits their own
+      // profile (rare but possible) keeps their scope in session.
+      saveSession({...me, username, role, ngo: users[idx].ngo, fullName, assignedNgos: users[idx].assignedNgos||null});
       _renderUserPill();
     }
   } else {
@@ -16992,9 +17467,10 @@ async function adminSaveUser() {
       username, fullName,
       // V308.1 (Bug 3 fix): SHA-256+salt instead of reversible scramble.
       passwordHash: await _hashPassword(pw),
-      role, ngo: (role === 'admin' || role === 'viewer') ? null : ngo,
-      // V362: viewer's NGO scoping (empty array = global access)
-      assignedNgos: role === 'viewer' ? assignedNgos : null,
+      role, ngo: (role === 'admin' || role === 'viewer' || role === 'scopedViewer') ? null : ngo,
+      // V362/V375: viewer/scopedViewer NGO scoping
+      // (viewer: empty array = global. scopedViewer: form requires non-empty.)
+      assignedNgos: (role === 'viewer' || role === 'scopedViewer') ? assignedNgos : null,
     };
     users.push(newUser);
     // V310-S2: await Firebase. On failure, keep modal open with error.
@@ -18499,7 +18975,18 @@ function exportAuditLogCsv() {
 // if it still exists in the list.
 function injectDynamicOptions() {
   const partners = loadPartners();
-  const names = partners.map(p => p.name);
+  let names = partners.map(p => p.name);
+  // V375: scopedViewer only ever sees NGO names in their assigned scope.
+  // This filters the source list BEFORE any dropdown is populated, so the
+  // donor can never select (or even see in a dropdown) NGOs outside their
+  // scope. Cheaper privacy than filtering every consumer individually.
+  try {
+    const _u = (typeof currentUser === 'function') ? currentUser() : null;
+    if (_u && _u.role === 'scopedViewer' && Array.isArray(_u.assignedNgos) && _u.assignedNgos.length > 0) {
+      const allowed = new Set(_u.assignedNgos);
+      names = names.filter(n => allowed.has(n));
+    }
+  } catch(_) {}
   const populate = (sel, includeAllOption, allLabel) => {
     const el = document.getElementById(sel);
     if (!el) return;
@@ -19473,7 +19960,14 @@ async function doLogin() {
   }
 
   // Success — persist session, hide login, render app
-  saveSession({userId:user.id, username:user.username, role:user.role, ngo:user.ngo, fullName:user.fullName});
+  // V375 [Fix #1 — audit critical]: persist assignedNgos in the session so
+  // currentUser() returns it for downstream scope checks. Without this,
+  // scopedViewer logged in and saw an empty app (assignedNgos === undefined →
+  // _v375AllowedNgoSet returned empty Set → all data filtered out). Also
+  // benefits the existing 'viewer' role's NGO-scoping which had the same
+  // gap (V362 viewer's empty-array semantics masked the bug since [] means
+  // "global access" for viewer, but it was always silently undefined).
+  saveSession({userId:user.id, username:user.username, role:user.role, ngo:user.ngo, fullName:user.fullName, assignedNgos:user.assignedNgos||null});
   // V312: now that currentUser() resolves to the new user, attach the
   // role-scoped beneficiary listener. fbAttachListeners() is idempotent
   // for the non-benef listeners; it only attaches the benef listener if
@@ -19895,6 +20389,11 @@ function renderAfterLogin() {
     mountViewerApp();        // V362: mobile-first summary-only shell
     return;                  // viewer skips injectDynamicOptions — no dropdowns
   }
+  // V375: scopedViewer uses the full manager (desktop) shell. It needs the
+  // shared topbar filters and NGO dropdowns, so it goes through the same
+  // mountManagerApp + injectDynamicOptions path as admin/ngo. Role gates
+  // throughout the rest of the file (button visibility, nav guard, write
+  // blocks) handle the read-only + scope-restricted behaviour.
   if (u && u.role === 'coordinator') {
     mountCoordApp();
   } else {
@@ -20368,14 +20867,50 @@ async function _v362WriteAllSummaries() {
     // -------- ADMIN: write global + all per-NGO summaries --------
     if (u.role === 'admin') {
       if (!Array.isArray(records) || records.length === 0) return;
-      // V366-fix2: bail if adv replay is incomplete. Without this, a save
-      // fired during admin's initial cold load (benef done, adv still
-      // streaming) would write a summary with understated advocacy counts.
-      // The post-replay _v366TryInitialSummaryWrite catches up correctly
-      // once both flags flip.
-      if (!FB.advReplayComplete) {
-        console.log('[V366-fix2] admin summary write deferred — adv replay still incomplete');
+      // V374 [Fix #1]: BOTH replay flags must be true. V366-fix2 only
+      // checked advReplayComplete — missed the benef-streaming case where
+      // admin's cold-REST pantry-miss boot streams benef in 500-record
+      // batches. A V365 timer / V366 visibility handler firing during one
+      // of those batches would write a summary with PARTIAL benef counts
+      // (e.g., the 2026-06-09 incident where viewer saw 7985 instead of
+      // 97038). Adding the benef check too closes that hole.
+      if (!FB.benefReplayComplete || !FB.advReplayComplete) {
+        console.log('[V374 guard #1] admin summary write deferred — replays incomplete '
+          + '(benef=' + !!FB.benefReplayComplete + ', adv=' + !!FB.advReplayComplete + ')');
         return;
+      }
+      // V374 [Fix #2]: cache-size sanity floor. Refuse if RecordCache.benef
+      // has fewer than 100 records — catches edge cases where flags are
+      // misreported (e.g., manual JS state mutation in dev tools).
+      const cacheBenefSize = (typeof RecordCache !== 'undefined' && RecordCache.benef)
+        ? RecordCache.benef.size : 0;
+      if (cacheBenefSize < 100) {
+        console.warn('[V374 guard #2] admin summary write blocked — cache has only '
+          + cacheBenefSize + ' records (sanity floor: 100)');
+        return;
+      }
+      // V374 [Fix #3]: no-shrink guard. Read the existing summary's
+      // recordsInScope and refuse if current cache is less than 80% of it.
+      // The 80% threshold tolerates small deletions but blocks the
+      // partial-cache catastrophe (cache=7985, summary=97038, ratio=8%).
+      // Failure of this read is non-fatal — write proceeds (better to risk
+      // a stale summary than block a legitimate write on a network blip).
+      try {
+        const existingSnap = await fbRef('_summary/global').once('value');
+        const existing = existingSnap.val();
+        const existingRecordsInScope = existing && existing.meta
+          && typeof existing.meta.recordsInScope === 'number'
+          ? existing.meta.recordsInScope : 0;
+        if (existingRecordsInScope > 0
+            && cacheBenefSize < existingRecordsInScope * 0.8) {
+          console.warn('[V374 guard #3] admin summary write blocked — would shrink summary from '
+            + existingRecordsInScope + ' to ' + cacheBenefSize
+            + ' records (' + Math.round(cacheBenefSize / existingRecordsInScope * 100)
+            + '% of existing). Refusing to overwrite a fuller summary with a partial cache.');
+          return;
+        }
+      } catch (e) {
+        console.warn('[V374 guard #3] could not read existing summary for shrink-check, proceeding:', e && e.message);
       }
       // V366 [Fix #4]: bucket records by NGO ONCE in a single O(N) pass,
       // then call _v362ComputeOneSummary with prefiltered=true for each
@@ -21701,9 +22236,21 @@ function _renderUserPill() {
   }
   userBlock.style.display = 'block';
   noUser.style.display    = 'none';
-  const roleLabel = {admin:'Admin', ngo:'NGO User', coordinator:'Field Coordinator'}[u.role] || u.role;
+  const roleLabel = {admin:'Admin', ngo:'NGO User', coordinator:'Field Coordinator', viewer:'Viewer', scopedViewer:'Scoped Viewer'}[u.role] || u.role;
   document.getElementById('sbf-name').textContent = u.fullName || u.username;
-  document.getElementById('sbf-role').textContent = roleLabel + (u.ngo ? ' · ' + u.ngo : '');
+  // V375: for scopedViewer, show "N NGOs" badge + assigned NGO list in title
+  // tooltip. Donors can see at a glance what scope they're operating in.
+  let roleSuffix = '';
+  if (u.role === 'scopedViewer' && Array.isArray(u.assignedNgos) && u.assignedNgos.length > 0) {
+    roleSuffix = ' · ' + u.assignedNgos.length + ' NGO' + (u.assignedNgos.length === 1 ? '' : 's');
+    try {
+      const roleEl = document.getElementById('sbf-role');
+      if (roleEl) roleEl.title = 'Scope: ' + u.assignedNgos.join(', ');
+    } catch(_) {}
+  } else if (u.ngo) {
+    roleSuffix = ' · ' + u.ngo;
+  }
+  document.getElementById('sbf-role').textContent = roleLabel + roleSuffix;
 
   // Topbar pill: kept hidden now that the sidebar carries the user identity.
   // Leaving the DOM node in place in case we want to add a context indicator
@@ -21723,6 +22270,10 @@ function _applyRoleVisibility() {
   const u = currentUser();
   const isAdm = u && u.role === 'admin';
   const isNgo = u && u.role === 'ngo';
+  // V375: scopedViewer is a desktop read-only role. It should see the same
+  // dashboard chrome NGO admins see (charts, breakdowns, date filters) but
+  // NEVER admin-only management surfaces.
+  const isSV  = u && u.role === 'scopedViewer';
   document.querySelectorAll('[data-admin-only]').forEach(el => {
     el.style.display = isAdm ? '' : 'none';
   });
@@ -21741,7 +22292,10 @@ function _applyRoleVisibility() {
   // Special case: needs display:flex (not the default inline that empty
   // string falls back to). Without this the inputs wrap incorrectly.
   const dr = document.getElementById('date-range-filter-row');
-  if (dr) dr.style.display = (isAdm || isNgo) ? 'flex' : 'none';
+  // V375: scopedViewer (donors) also get the date-range filter — they often
+  // need to answer "impact in Q1" or "endlines in March" without rebuilding
+  // the dashboard themselves. Same display:flex requirement as admin/NGO.
+  if (dr) dr.style.display = (isAdm || isNgo || isSV) ? 'flex' : 'none';
   // Set body data-role so CSS selectors can target role-specific UI
   // (see CSS rule body[data-role="coordinator"] ... { display:none })
   document.body.dataset.role = u ? u.role : '';
