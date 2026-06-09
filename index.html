@@ -1,6 +1,51 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V380-LIVE
+  KRSF Beneficiary Impact Tracker  -  V381-LIVE
+  ============================================================================
+  V381-LIVE (2026-06-10 — V380 + saveUsers stale-cache clobber permanent fix):
+
+    Background: tonight admin created user X via UI on production V379.
+    A second admin session (mine, on local V380 with stale pantry from
+    earlier in the day) then called saveUsers(localArray) for an unrelated
+    cleanup. saveUsers → fbSyncCollection diffed my stale 568-user array
+    vs Firebase's 570-user state, identified the 2 "missing" users
+    (which existed in Firebase but not my cache) as deletes, and issued
+    Firebase remove() calls. User X vanished. Same pattern caused the
+    Bhavishaben 386-record beneficiary loss earlier this year via
+    saveData → fbSyncCollection.
+
+    [Fix] Two new single-record helpers:
+      - saveOneUser(record) → only writes /users/<record.id>
+      - deleteOneUser(userId) → only removes /users/<userId>
+    Both touch exactly ONE Firebase path. Zero diff. Zero possibility
+    of touching other users' records. All 7 in-tree saveUsers callsites
+    migrated:
+      1. Partner rename cascade → iterate saveOneUser per affected user
+      2. Partner merge cascade → iterate saveOneUser per affected user
+      3. Edit one user → saveOneUser
+      4. Create one user → saveOneUser
+      5. Delete one user → deleteOneUser (was the catastrophic one)
+      6. Self-profile edit → saveOneUser
+      7. Password hash upgrade after login → saveOneUser
+
+    saveUsers() itself is preserved unchanged for any future legitimate
+    bulk-sync need (e.g. data migration scripts) but no in-tree code
+    calls it anymore. The fbDiff/fbSyncCollection path is no longer
+    exercised for users — the clobber surface is closed.
+
+    Trade-off: bulk partner rename now does N Firebase writes instead
+    of 1 multi-path update. For typical partner sizes (5-50 users per
+    NGO), this is 5-50 sequential writes ~30ms each = 0.15-1.5 sec.
+    Imperceptible to admin. Safety is worth it.
+
+    NOT addressed in this version (deferred to V382): saveData and
+    saveAdv also use fbSyncCollection diff. Same pattern, same risk.
+    Bhavishaben 386-record loss came through saveData. Worth fixing
+    but much larger callsite surface (40+ callsites). Tackle next.
+
+    + APP_VERSION bumped to V381-LIVE.
+    REQUIRES: nothing. Pure refactor. Behaviour identical from admin's
+    POV — saves still happen, errors still surface the same way.
   ============================================================================
   V380-LIVE (2026-06-09 — V379 + two post-deploy TL bugs found in production):
 
@@ -3647,7 +3692,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V380-LIVE';
+const APP_VERSION = 'V381-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -7282,6 +7327,101 @@ async function saveUsers(arr) {
     }
   } catch (e) {
     console.warn('[V362 users-pantry sync] failed:', e && e.message);
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// V381 [Safety fix — stale-cache user clobber]
+// ────────────────────────────────────────────────────────────────────────────
+// Background: saveUsers(arr) calls fbSyncCollection which diffs `arr` against
+// FB.lastUsers. If the local cache is stale (missing records that exist in
+// Firebase), the diff identifies those as deletes and issues remove() calls.
+// Result: records created by another session vanish. This caused tonight's
+// Sanjay Bhanat + tl1bhiloda loss, and the same pattern caused the
+// Bhavishaben 386-record loss earlier.
+//
+// Fix: two single-record helpers that touch ONLY /users/<id>. Zero diff,
+// zero clobber. Use these for all single-record user operations (create,
+// edit, delete, self-edit, password upgrade). Bulk operations (partner
+// rename/merge cascades) iterate saveOneUser per affected record.
+//
+// saveUsers() is kept as-is for any legacy callsite that genuinely wants
+// a full-array sync — but all in-tree callsites are migrated below.
+
+async function saveOneUser(record) {
+  // Single-record write — only touches /users/<id>. Other users untouched.
+  if (FB.initFailed) throw new SaveError('init-failed');
+  if (!FB.online) throw new SaveError('offline');
+  if (!FB.db) throw new SaveError('no-db');
+  // Same role gates as saveUsers — belt-and-braces against console calls.
+  {
+    let _wu = null;
+    try { _wu = (typeof currentUser === 'function') ? currentUser() : null; } catch(_) {}
+    if (_wu && _wu.role === 'scopedViewer') {
+      if (typeof toast === 'function') toast('Read-only account — user management is disabled.', 'error', 4000);
+      throw new SaveError('read-only', new Error('scopedViewer cannot save users'));
+    }
+    if (_wu && _wu.role === 'scopedViewerByFc') {
+      if (typeof toast === 'function') toast('Team Leader is view-only — user management is disabled.', 'error', 4000);
+      throw new SaveError('read-only', new Error('scopedViewerByFc cannot save users'));
+    }
+  }
+  if (!record || !record.id) {
+    throw new SaveError('bad-record', new Error('saveOneUser: record must have an id'));
+  }
+  // Single-path write — no diff, no other records touched
+  await fbRef('users/' + record.id).set(record);
+  // V381 [Fix #1 from adversarial review]: deep-clone before storing in
+  // any in-memory map. The caller (e.g. partner-rename cascade) still
+  // holds the original reference and may mutate it for the next iteration.
+  // Storing the live reference would let those post-write mutations
+  // silently corrupt our cache. _hydrateUsersCache did this defensively
+  // via JSON parse/stringify; saveOneUser must do the same.
+  const stored = JSON.parse(JSON.stringify(record));
+  RecordCache.users.set(stored.id, stored);
+  RecordCache.primed = true;
+  // Update FB.lastUsers (also cloned) so any subsequent diff-based call
+  // sees consistent state.
+  if (FB.lastUsers && typeof FB.lastUsers === 'object') {
+    FB.lastUsers[stored.id] = stored;
+  }
+  // Write-through to pantry (matches saveUsers behaviour)
+  try {
+    if (typeof _usersPantryWrite === 'function') {
+      _usersPantryWrite(Array.from(RecordCache.users.values()));
+    }
+  } catch (e) {
+    console.warn('[V381 users-pantry sync] failed:', e && e.message);
+  }
+}
+
+async function deleteOneUser(userId) {
+  // Single-record delete — only touches /users/<id>. Other users untouched.
+  if (FB.initFailed) throw new SaveError('init-failed');
+  if (!FB.online) throw new SaveError('offline');
+  if (!FB.db) throw new SaveError('no-db');
+  {
+    let _wu = null;
+    try { _wu = (typeof currentUser === 'function') ? currentUser() : null; } catch(_) {}
+    if (_wu && _wu.role === 'scopedViewer') {
+      if (typeof toast === 'function') toast('Read-only account — user management is disabled.', 'error', 4000);
+      throw new SaveError('read-only', new Error('scopedViewer cannot delete users'));
+    }
+    if (_wu && _wu.role === 'scopedViewerByFc') {
+      if (typeof toast === 'function') toast('Team Leader is view-only — user management is disabled.', 'error', 4000);
+      throw new SaveError('read-only', new Error('scopedViewerByFc cannot delete users'));
+    }
+  }
+  if (!userId) throw new SaveError('bad-id', new Error('deleteOneUser: userId required'));
+  await fbRef('users/' + userId).remove();
+  RecordCache.users.delete(userId);
+  if (FB.lastUsers && FB.lastUsers[userId]) delete FB.lastUsers[userId];
+  try {
+    if (typeof _usersPantryWrite === 'function') {
+      _usersPantryWrite(Array.from(RecordCache.users.values()));
+    }
+  } catch (e) {
+    console.warn('[V381 users-pantry sync] failed:', e && e.message);
   }
 }
 
@@ -17302,9 +17442,24 @@ async function adminSavePartner() {
     // If name changed, cascade rename to users.ngo and beneficiaries.ngo
     if (oldName !== name) {
       const users = loadUsers();
-      users.forEach(u => { if (u.ngo === oldName) u.ngo = name; });
-      try { await saveUsers(users); } catch (e) {
-        if (typeof toast === 'function') toast('Partner renamed but user-cascade failed: ' + ((e instanceof SaveError)?e.message:e), 'error', 8000);
+      const affected = users.filter(u => u.ngo === oldName);
+      affected.forEach(u => { u.ngo = name; });
+      // V381: per-record writes prevent stale-cache clobber of other admins.
+      // On partial failure, already-renamed users stay on the new name; the
+      // remaining users still hold oldName and are picked up by re-running
+      // the rename (cascade is naturally idempotent across retries).
+      let renamed = 0;
+      for (const u of affected) {
+        try { await saveOneUser(u); renamed++; }
+        catch (e) {
+          if (typeof toast === 'function') toast(
+            'Partial rename: ' + renamed + ' of ' + affected.length +
+            ' users updated. Failed at ' + u.username + ': ' +
+            ((e instanceof SaveError)?e.message:e) +
+            '. Re-run the rename to finish the rest.',
+            'error', 12000);
+          break;
+        }
       }
       const data = loadData();
       data.forEach(b => { if (b.ngo === oldName) b.ngo = name; });
@@ -17442,11 +17597,26 @@ async function _adminMergePartnerConfirm(sourceId) {
 
   // 2. Reassign users.
   const users = loadUsers();
-  let userCount = 0;
-  users.forEach(u => { if (u.ngo === source.name) { u.ngo = target.name; userCount++; } });
-  if (!await _trySave(() => saveUsers(users), 'merge partner: users')) {
-    if (typeof toast === 'function') toast('Beneficiaries reassigned but user reassignment failed. Retry the merge.', 'error', 8000);
-    return;
+  const affectedUsers = users.filter(u => u.ngo === source.name);
+  affectedUsers.forEach(u => { u.ngo = target.name; });
+  const userCount = affectedUsers.length;
+  // V381: per-record writes prevent stale-cache clobber. Iterate so a partial
+  // failure doesn't lose other admins' concurrent edits — saveOneUser only
+  // touches the one user's path. On partial failure, already-migrated users
+  // are correctly on target.name and stay there; un-migrated users remain on
+  // source.name and are picked up by the same filter on retry, so the merge
+  // is naturally idempotent across retries.
+  let migrated = 0;
+  for (const u of affectedUsers) {
+    if (!await _trySave(() => saveOneUser(u), 'merge partner: user ' + u.username)) {
+      if (typeof toast === 'function') toast(
+        'Partial merge: ' + migrated + ' of ' + userCount + ' users moved to ' +
+        target.name + '. Failed at ' + u.username + '. Retry the merge — already-' +
+        'moved users stay on ' + target.name + ', remaining users will be picked up.',
+        'error', 12000);
+      return;
+    }
+    migrated++;
   }
 
   // 3. Refresh current session if logged-in user's NGO was renamed.
@@ -17887,8 +18057,9 @@ async function adminSaveUser() {
     users[idx].assignedFcIds = (role === 'scopedViewerByFc') ? assignedFcIds : null;
     // V308.1 (Bug 3 fix): use SHA-256+salt instead of legacy scramble.
     if (pw) users[idx].passwordHash = await _hashPassword(pw);
-    // V310-S2: await Firebase. On failure, keep modal open with error.
-    try { await saveUsers(users); } catch (e) {
+    // V381: single-record write. Replaces saveUsers(users) which diff-synced
+    // the WHOLE array and could clobber other admins' concurrent additions.
+    try { await saveOneUser(users[idx]); } catch (e) {
       return showErr((e instanceof SaveError) ? e.message : 'Could not save user.');
     }
     // Audit: diff skips passwordHash (never log hashes either)
@@ -17922,8 +18093,10 @@ async function adminSaveUser() {
       assignedFcIds: (role === 'scopedViewerByFc') ? assignedFcIds : null,
     };
     users.push(newUser);
-    // V310-S2: await Firebase. On failure, keep modal open with error.
-    try { await saveUsers(users); } catch (e) {
+    // V381: single-record write — only adds newUser's path, leaves all
+    // other users in Firebase untouched. Eliminates the stale-cache
+    // clobber that wiped Sanjay Bhanat + tl1bhiloda on 9 June 2026.
+    try { await saveOneUser(newUser); } catch (e) {
       return showErr((e instanceof SaveError) ? e.message : 'Could not create user.');
     }
     auditLog('create', 'user', newUser.id, username,
@@ -17952,7 +18125,12 @@ async function adminDeleteUser(id) {
     data.forEach(b => { if (b.createdBy === id) { b.createdBy = 'u-admin'; b.createdByName = 'System Administrator'; } });
     if (!await _trySave(() => saveData(data), 'reassign records before delete user')) return;
   }
-  if (!await _trySave(() => saveUsers(users.filter(x => x.id !== id)), 'delete user')) return;
+  // V381: single-record remove — only deletes /users/<id>. The old code
+  // passed users.filter(...) to saveUsers, which then diffed against
+  // Firebase and could issue ADDITIONAL deletes for any record present
+  // in Firebase but missing from the stale local cache. That's how
+  // Sanjay + tl1 got wiped.
+  if (!await _trySave(() => deleteOneUser(id), 'delete user')) return;
   auditLog('delete', 'user', id, u.username,
     `Deleted user: ${u.username} (${u.role})${owned>0?`, ${owned} record${owned===1?'':'s'} reassigned to admin`:''}`, null);
   toast('User deleted: ' + u.username, 'success');
@@ -20088,8 +20266,9 @@ async function saveMyAccount() {
   rec.fullName = fullName;
   rec.phone    = phone;
   users[idx] = rec;
-  // V310-S2: await Firebase. On failure, surface and bail.
-  try { await saveUsers(users); } catch (e) {
+  // V381: single-record write. Self-profile edit only touches my own user
+  // record — no diff against other users' records means no clobber risk.
+  try { await saveOneUser(rec); } catch (e) {
     const msg = (e instanceof SaveError) ? e.message : 'Could not save changes.';
     if (typeof toast === 'function') toast(msg, 'error', 8000);
     return;
@@ -20397,10 +20576,10 @@ async function doLogin() {
       const idx = fresh.findIndex(x => x.id === user.id);
       if (idx >= 0) {
         fresh[idx].passwordHash = upgraded;
-        // V310-S2: best-effort upgrade. If Firebase write fails, login still
-        // succeeds; we'll retry the upgrade on next login.
-        try { await saveUsers(fresh); }
-        catch (e2) { console.warn('[V310-S2] password-hash upgrade Firebase write failed:', e2); }
+        // V381: single-record write. Password hash upgrade after legacy
+        // login — only touches the logging-in user's record. Safe.
+        try { await saveOneUser(fresh[idx]); }
+        catch (e2) { console.warn('[V381] password-hash upgrade Firebase write failed:', e2); }
       }
     } catch (e) {
       // Upgrade is best-effort — login still succeeds even if upgrade fails.
