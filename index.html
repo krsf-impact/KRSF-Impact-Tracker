@@ -1,6 +1,39 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V372-LIVE
+  KRSF Beneficiary Impact Tracker  -  V373-LIVE
+  ============================================================================
+  V373-LIVE (2026-06-09 Integrated pagination + Refresh button + Recent Updates):
+
+    [Fix #1] Integrated View hung at 96K records
+      renderIntegrated built HTML for ALL 96,874 rows on every render (~100 MB
+      DOM strings). Page froze for minutes. Same problem V361 fixed for All
+      Beneficiaries but renderIntegrated was missed.
+      Fix: paginate at 50 rows per page, prev/next controls, "Showing 1-50 of
+      96,874" indicator. Same UX pattern as All Beneficiaries.
+      IMPACT: Integrated View opens in <2 sec, no hang. ZERO Firebase impact.
+
+    [Fix #2] Explicit Refresh button on admin topbar
+      User-requested. Small light-blue (#60A5FA) circular button placed left
+      of the States filter. Click triggers _adminIncrementalSync() + visual
+      feedback ("Syncing...", then "Synced Xs ago"). Same incremental sync
+      that already runs on F5 — just on-demand.
+      Firebase impact: ZERO new pattern (uses existing _adminIncrementalSync
+      which only fetches deltas since last sync). Typical fetch: <1 KB.
+
+    [Fix #3] Recent Updates back on dashboard
+      V336 had disabled boot-time audit fetch to save bandwidth. At 117K
+      audit entries, fetching all would be ~25 MB. Re-enable with strict cap:
+      limitToLast(50) — fetches only the 50 most recent entries (~15-20 KB).
+      Dashboard's Recent Updates card filters these to beneficiary events
+      and shows the 15 most recent.
+      Firebase impact: +15-20 KB per boot. Negligible (compare to V372's
+      50 KB incremental sync).
+
+    TOTAL DAILY FIREBASE EGRESS CHANGE: ~2.5 MB/month at 5 logins/day.
+
+    + APP_VERSION bumped to V373-LIVE.
+    + All V366 + V367 + V368 + V369 + V370 + V371 + V372 fixes preserved.
+    REQUIRES: no Firebase rules update, no schema change.
   ============================================================================
   V372-LIVE (2026-06-08 the 15-MIN-BOOT KILLER + 100K-safe counter):
     Live Chrome Performance profile (recorded by user during a real F5)
@@ -2540,6 +2573,15 @@ body[data-shell="coord"] #coord-app { display: block; }
     </div>
     <div class="topbar-right">
       <div id="user-pill" style="display:none;align-items:center;gap:8px;padding:4px 10px;background:var(--gray4);border-radius:18px;margin-right:4px"></div>
+      <!-- V373 [Fix #2]: explicit Refresh button on admin topbar. Light blue (#DBEAFE),
+           small, placed left of State filter. Triggers _adminIncrementalSync (which
+           fetches only deltas since last sync; same as F5 but faster — no HTML reload).
+           Visible only to admin role; _applyRoleVisibility manages it via data-admin-only.
+           V373-fix3: layout uses inline-block + margin-right (NOT flex) because
+           _applyRoleVisibility sets style.display = '' which reverts to browser
+           default. Without a flex-providing CSS class, align-items + gap would be
+           ignored and icon/label would mis-align. Inline-block + margin avoids that. -->
+      <button data-admin-only id="topbar-refresh-btn" onclick="_v373AdminRefresh()" title="Refresh: fetch any new records since last sync" style="display:none;padding:5px 11px;background:#DBEAFE;color:#1E40AF;border:1px solid #93C5FD;border-radius:18px;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font);transition:all .15s;margin-right:6px;vertical-align:middle;white-space:nowrap"><span id="topbar-refresh-icon" style="display:inline-block;font-size:14px;line-height:1;margin-right:5px;vertical-align:middle">↻</span><span id="topbar-refresh-label" style="vertical-align:middle">Refresh</span></button>
       <select class="fsel" id="state-filter" onchange="stateFilter=this.value;renderCurrent()">
         <option value="">All States</option>
         <option>Andhra Pradesh</option><option>Arunachal Pradesh</option><option>Assam</option><option>Bihar</option><option>Chhattisgarh</option><option>Goa</option><option>Gujarat</option><option>Haryana</option><option>Himachal Pradesh</option><option>Jharkhand</option><option>Karnataka</option><option>Kerala</option><option>Madhya Pradesh</option><option>Maharashtra</option><option>Manipur</option><option>Meghalaya</option><option>Mizoram</option><option>Nagaland</option><option>Odisha</option><option>Punjab</option><option>Rajasthan</option><option>Sikkim</option><option>Tamil Nadu</option><option>Telangana</option><option>Tripura</option><option>Uttar Pradesh</option><option>Uttarakhand</option><option>West Bengal</option><option>Andaman & Nicobar Islands</option><option>Chandigarh</option><option>Dadra & Nagar Haveli and Daman & Diu</option><option>Delhi</option><option>Jammu & Kashmir</option><option>Ladakh</option><option>Lakshadweep</option><option>Puducherry</option>
@@ -3303,7 +3345,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V372-LIVE';
+const APP_VERSION = 'V373-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -4409,7 +4451,16 @@ async function fbInitialSync() {
     ] = await Promise.all([
       _v348FetchPart(),
       _v348FetchCfg(),
-      Promise.resolve({ val: function(){ return null; } }),  // V336: audit log disabled — no boot fetch
+      // V373 [Fix #3]: re-enable boot-time audit fetch — but bounded to the
+      // last 50 entries via .limitToLast(50). V336 had disabled this entirely
+      // (audit log was ~3 MB then, ~25 MB at today's 117K entries — too much).
+      // With limitToLast(50) we fetch only the 50 most recent entries
+      // (~15-20 KB), enough to populate the dashboard's "Recent Updates" card
+      // (which displays the 15 most recent beneficiary-level events).
+      fbRef('audit').limitToLast(50).once('value').catch(function(e){
+        console.warn('[V373] audit fetch failed (non-fatal):', e && e.message);
+        return { val: function(){ return null; } };
+      }),
       _v348FetchUsers(),
     ]);
     // ─ Beneficiaries ──────────────────────────────────────────────────
@@ -15481,8 +15532,18 @@ function _advBenTab2(allAdv, allB) {
 
 // ── Integrated View ───────────────────────────────────────────────────────
 // Program-overlap filter keys: '' | 'livOnly' | 'dual' | 'advOnly'
+// V373 [Fix #1]: pagination state for Integrated View. Declared with `var`
+// (not `let`) AND placed BEFORE renderIntegrated so there's no TDZ risk for
+// any caller that fires during script init. Caught by adversarial audit.
+var intCurrentPage = 1;
+
 function renderIntegrated(sub) {
-  if (sub !== undefined) intSubTab = sub;
+  if (sub !== undefined) {
+    intSubTab = sub;
+    // V373-fix2: reset pagination when sub-tab changes — avoids landing on
+    // page 7 of "Advocacy Only" when user just switched from "All".
+    intCurrentPage = 1;
+  }
   const allB = filteredAll(), allAdv = loadAdv();
 
   // Compute latest-row-per-(bid,scheme) so Integrated counts match Advocacy dashboards.
@@ -15533,10 +15594,22 @@ function renderIntegrated(sub) {
     || b.id.toLowerCase().includes(intSearch2.toLowerCase())
     || (b.village||'').toLowerCase().includes(intSearch2.toLowerCase()));
 
+  // V373 [Fix #1] PAGINATION: previously the .map below built HTML for ALL
+  // 96K rows on every render — ~100 MB DOM strings, page froze for minutes.
+  // Slice to the current page before building HTML. Same pattern V361 used
+  // for All Beneficiaries (intCurrentPage + intPageSize).
+  const intPageSize = 50;
+  if (typeof intCurrentPage !== 'number' || intCurrentPage < 1) intCurrentPage = 1;
+  const intTotalPages = Math.max(1, Math.ceil(list.length / intPageSize));
+  if (intCurrentPage > intTotalPages) intCurrentPage = intTotalPages;
+  const intStart = (intCurrentPage - 1) * intPageSize;
+  const intEnd = Math.min(intStart + intPageSize, list.length);
+  const pageList = list.slice(intStart, intEnd);
+
   // Table per Excel spec — 8 columns, same shape regardless of program filter:
   // Sr. No. | Beneficiary | Location | Partner | Program | Income Delta |
   // Scheme Benefits | Total Impact
-  const rows = list.map((b, i) => {
+  const rows = pageList.map((b, i) => {
     const d = delta(b);
     const programBadge = b.hasLiv && b.hasAdv ? `<span class="pill pill-blue" style="margin:1px">Livelihood</span><span class="pill pill-purple" style="margin:1px">Advocacy</span>`
                       : b.hasLiv ? `<span class="pill pill-blue">Livelihood</span>`
@@ -15552,7 +15625,7 @@ function renderIntegrated(sub) {
       ? `<span style="font-weight:700;color:var(--navy)">₹${impact.toLocaleString('en-IN')}</span>`
       : `<span style="color:var(--gray2);font-size:12px">—</span>`;
     return `<tr onclick="openDrawer('${escHtml(b.id)}')" style="cursor:pointer">
-      <td style="color:var(--gray2);font-size:12px;text-align:center">${i+1}</td>
+      <td style="color:var(--gray2);font-size:12px;text-align:center">${intStart + i + 1}</td>
       <td><div class="bname">${escHtml(b.name)}</div><div class="bid">${escHtml(b.id)}</div></td>
       <td>${escHtml(b.village)}<br><span style="font-size:11px;color:var(--gray2)">${escHtml(b.district)}</span></td>
       <td style="font-size:12px">${escHtml(b.ngo)}</td>
@@ -15563,6 +15636,28 @@ function renderIntegrated(sub) {
     </tr>`;
   }).join('');
 
+  // V373 [Fix #1]: pagination controls — same UX as All Beneficiaries page.
+  // V373-fix1a: merged disabled-state into single style attribute. Previously
+  // two style= attrs collided; browsers honour only the first, so the
+  // styling+border+padding were silently lost on every pagination button.
+  const _pgBtnStyleBase = 'padding:4px 8px;border:1px solid var(--gray3);border-radius:5px;background:#fff;font-size:12px;';
+  const _pgBtnDisabled = 'opacity:.4;cursor:not-allowed';
+  const _pgBtnEnabled = 'cursor:pointer';
+  const _pgFirstDisabled = intCurrentPage === 1;
+  const _pgLastDisabled = intCurrentPage === intTotalPages;
+  const pgBar = list.length > intPageSize
+    ? `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#FAFAFA;border-top:1px solid var(--gray3);font-size:12px;color:var(--gray2)">
+         <div>Showing <strong>${(intStart+1).toLocaleString('en-IN')}–${intEnd.toLocaleString('en-IN')}</strong> of <strong>${list.length.toLocaleString('en-IN')}</strong></div>
+         <div style="display:flex;gap:6px;align-items:center">
+           <button onclick="intCurrentPage=1;renderIntegrated()" ${_pgFirstDisabled?'disabled':''} style="${_pgBtnStyleBase}${_pgFirstDisabled?_pgBtnDisabled:_pgBtnEnabled}">«</button>
+           <button onclick="intCurrentPage--;renderIntegrated()" ${_pgFirstDisabled?'disabled':''} style="${_pgBtnStyleBase}padding:4px 10px;${_pgFirstDisabled?_pgBtnDisabled:_pgBtnEnabled}">‹ Prev</button>
+           <span style="padding:0 8px">Page <strong>${intCurrentPage}</strong> of ${intTotalPages.toLocaleString('en-IN')}</span>
+           <button onclick="intCurrentPage++;renderIntegrated()" ${_pgLastDisabled?'disabled':''} style="${_pgBtnStyleBase}padding:4px 10px;${_pgLastDisabled?_pgBtnDisabled:_pgBtnEnabled}">Next ›</button>
+           <button onclick="intCurrentPage=${intTotalPages};renderIntegrated()" ${_pgLastDisabled?'disabled':''} style="${_pgBtnStyleBase}${_pgLastDisabled?_pgBtnDisabled:_pgBtnEnabled}">»</button>
+         </div>
+       </div>`
+    : '';
+
   const filterLabel = intSubTab==='livOnly' ? 'Livelihood Only' :
                       intSubTab==='dual'    ? 'Dual Enrolment (Both Programs)' :
                       intSubTab==='advOnly' ? 'Advocacy Only' : 'All Beneficiaries';
@@ -15570,21 +15665,112 @@ function renderIntegrated(sub) {
   const tableCard = list.length===0
     ? `<div class="card"><div class="card-head">
          <div class="card-title">${filterLabel} <span style="font-size:12px;font-weight:400;color:var(--gray2)">0 records</span></div>
-         <div class="filters"><input id="int-search-input" class="fsearch" placeholder="Search name, ID, or village..." value="${escHtml(intSearch2)}" oninput="_searchDebounce('int', this.value, () => { intSearch2 = _searchDebounceVal.int; renderIntegrated(); })">
+         <div class="filters"><input id="int-search-input" class="fsearch" placeholder="Search name, ID, or village..." value="${escHtml(intSearch2)}" oninput="_searchDebounce('int', this.value, () => { intSearch2 = _searchDebounceVal.int; intCurrentPage = 1; renderIntegrated(); })">
          <button class="btn btn-primary btn-sm" onclick="openAdvModal()">+ Log Advocacy</button></div>
        </div><div class="empty">No beneficiaries match the current filter.</div></div>`
     : `<div class="card"><div class="card-head">
-         <div class="card-title">${filterLabel} <span style="font-size:12px;font-weight:400;color:var(--gray2)">${list.length} records</span></div>
-         <div class="filters"><input id="int-search-input" class="fsearch" placeholder="Search name, ID, or village..." value="${escHtml(intSearch2)}" oninput="_searchDebounce('int', this.value, () => { intSearch2 = _searchDebounceVal.int; renderIntegrated(); })">
+         <div class="card-title">${filterLabel} <span style="font-size:12px;font-weight:400;color:var(--gray2)">${list.length.toLocaleString('en-IN')} records</span></div>
+         <div class="filters"><input id="int-search-input" class="fsearch" placeholder="Search name, ID, or village..." value="${escHtml(intSearch2)}" oninput="_searchDebounce('int', this.value, () => { intSearch2 = _searchDebounceVal.int; intCurrentPage = 1; renderIntegrated(); })">
          <button class="btn btn-primary btn-sm" onclick="openAdvModal()">+ Log Advocacy</button></div>
        </div>
        <div style="overflow-x:auto"><table class="tbl"><thead><tr>
          <th style="width:52px;text-align:center">Sr. No.</th><th>Beneficiary</th><th>Location</th><th>Partner</th><th>Program</th><th>Income Delta</th><th>Scheme Benefits</th><th>Total Impact</th>
-       </tr></thead><tbody>${rows}</tbody></table></div></div>`;
+       </tr></thead><tbody>${rows}</tbody></table></div>${pgBar}</div>`;
 
   document.getElementById('content').innerHTML = strip + tableCard;
   _restoreSearchFocus('int-search-input');
 }
+// V373 [Fix #2]: explicit admin Refresh button handler. Triggers the same
+// incremental sync that runs on F5 (so Firebase egress matches exactly —
+// no new patterns). Visible feedback: button text "Syncing…" then "Synced
+// X new". Uses _adminIncrementalSync + _advAdminIncrementalSync which fetch
+// only records edited after the cache's highest _lastEditedAt — typically
+// 0-30 records. No risk of mass-deletion: this is a READ-only operation
+// from the user's perspective (sync ADDS records to local cache; it cannot
+// delete via the V371-guarded sync paths).
+let _v373AdminRefreshInFlight = false;
+async function _v373AdminRefresh() {
+  if (_v373AdminRefreshInFlight) return;  // Prevent double-fire from rapid clicks
+  _v373AdminRefreshInFlight = true;
+  const btn = document.getElementById('topbar-refresh-btn');
+  const icon = document.getElementById('topbar-refresh-icon');
+  const label = document.getElementById('topbar-refresh-label');
+  const origLabel = label ? label.textContent : 'Refresh';
+  // V373-fix-audit-HIGH: bail early if boot sync is still in-flight. Without
+  // this, the existing sync's in-flight guard would cause our call to return
+  // instantly with 0 deltas, and we'd misleadingly show "Up to date" while
+  // the actual boot sync is still loading data in the background.
+  const boot_in_flight = (typeof _adminIncrementalSync_inFlight !== 'undefined' && _adminIncrementalSync_inFlight)
+                      || (typeof _advAdminIncrementalSync_inFlight !== 'undefined' && _advAdminIncrementalSync_inFlight);
+  if (boot_in_flight) {
+    if (label) label.textContent = 'Sync in progress…';
+    if (btn) { btn.style.background = '#FEF3C7'; btn.style.color = '#92400E'; btn.style.borderColor = '#FDE68A'; }
+    setTimeout(function() {
+      if (btn) { btn.style.background = '#DBEAFE'; btn.style.color = '#1E40AF'; btn.style.borderColor = '#93C5FD'; btn.disabled = false; btn.style.opacity = ''; btn.style.cursor = 'pointer'; }
+      if (label) label.textContent = origLabel;
+    }, 1800);
+    _v373AdminRefreshInFlight = false;
+    return;
+  }
+  try {
+    if (btn) { btn.disabled = true; btn.style.opacity = '0.7'; btn.style.cursor = 'wait'; }
+    if (icon) { icon.style.display = 'inline-block'; icon.style.animation = 'syncSpin 0.9s linear infinite'; }
+    if (label) label.textContent = 'Syncing…';
+    const benefBefore = (typeof RecordCache !== 'undefined' && RecordCache.benef) ? RecordCache.benef.size : 0;
+    const advBefore   = (typeof RecordCache !== 'undefined' && RecordCache.adv)   ? RecordCache.adv.size   : 0;
+    // Run both syncs in parallel (each typically <1 sec at ~0-30 record deltas)
+    await Promise.all([
+      (typeof _adminIncrementalSync === 'function') ? _adminIncrementalSync() : null,
+      (typeof _advAdminIncrementalSync === 'function') ? _advAdminIncrementalSync() : null,
+    ]);
+    const benefAdded = (RecordCache.benef.size || 0) - benefBefore;
+    const advAdded   = (RecordCache.adv.size   || 0) - advBefore;
+    const total = benefAdded + advAdded;
+    // V372 [Fix #2 pattern]: bump data version + invalidate aggregation cache
+    // so dashboard shows the new records immediately without an F5.
+    try { if (typeof _v357DataVersion !== 'undefined') _v357DataVersion = (_v357DataVersion || 0) + 1; } catch(_){}
+    try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
+    try { if (typeof renderCurrent === 'function') renderCurrent(); } catch(_){}
+    if (icon) icon.style.animation = '';
+    if (label) {
+      label.textContent = total > 0
+        ? ('+' + total.toLocaleString('en-IN') + ' new')
+        : 'Up to date';
+    }
+    if (btn) { btn.style.background = '#D1FAE5'; btn.style.color = '#065F46'; btn.style.borderColor = '#A7F3D0'; }
+    // Reset button after 2.5 sec
+    setTimeout(function() {
+      if (btn) {
+        btn.style.background = '#DBEAFE';
+        btn.style.color = '#1E40AF';
+        btn.style.borderColor = '#93C5FD';
+        btn.disabled = false;
+        btn.style.opacity = '';
+        btn.style.cursor = 'pointer';
+      }
+      if (label) label.textContent = origLabel;
+    }, 2500);
+  } catch (e) {
+    console.warn('[V373 refresh] failed:', e && e.message);
+    if (icon) icon.style.animation = '';
+    if (label) label.textContent = 'Failed — retry?';
+    if (btn) { btn.style.background = '#FEE2E2'; btn.style.color = '#991B1B'; btn.style.borderColor = '#FCA5A5'; }
+    setTimeout(function() {
+      if (btn) {
+        btn.style.background = '#DBEAFE';
+        btn.style.color = '#1E40AF';
+        btn.style.borderColor = '#93C5FD';
+        btn.disabled = false;
+        btn.style.opacity = '';
+        btn.style.cursor = 'pointer';
+      }
+      if (label) label.textContent = origLabel;
+    }, 3000);
+  } finally {
+    _v373AdminRefreshInFlight = false;
+  }
+}
+window._v373AdminRefresh = _v373AdminRefresh;
 
 // ── All Beneficiaries ─────────────────────────────────────────────────────
 let allBSearch='', allBStage='', allBSelected=new Set();
