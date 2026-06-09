@@ -1,6 +1,46 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V379-LIVE
+  KRSF Beneficiary Impact Tracker  -  V380-LIVE
+  ============================================================================
+  V380-LIVE (2026-06-09 — V379 + two post-deploy TL bugs found in production):
+
+    Bug 1 (P0, security-adjacent): TL logging in on the same tab a previous
+    admin had used could land on the admin's last view — e.g. User
+    Management — with all 570 users + Edit / Delete / + Add User buttons
+    visible. Sidebar role-visibility correctly hid admin items, but the
+    main content area still held the User Management DOM because
+    mountManagerApp() called renderDashboard() directly, which only re-
+    populates the dashboard container; it never resets currentView, the
+    page-title element, or sidebar-active state. The prior view's
+    content sat under the new dashboard render until nav() was called.
+    Write handlers (deleteUser, saveUser) are JS-gated to admin role so
+    a TL click on Delete would have failed — but the UX leak was real.
+
+    [Fix #1] mountManagerApp now calls nav('dashboard') instead of
+    renderDashboard() for the non-coordinator branch. nav() updates
+    currentView, page-title, sidebar active state, replaces the content
+    area, and re-runs _applyRoleVisibility — closing all four leak
+    surfaces in one call. Passes through the TL route guard ('dashboard'
+    is in the allowed set) so behaviour is unchanged for legit views.
+
+    Bug 2 (P1, usability): TL Team Report omitted FCs with zero entries
+    entirely. _computeFcStats returns null when an FC has no
+    beneficiaries; the call site at line 13168 dropped nulls. For NGO
+    admins this is desirable noise-reduction, but for TL it broke the
+    primary purpose of Team Report — see who on my team has and hasn't
+    started. A TL with 9 assigned FCs, 3 of which are still ramping up,
+    saw only 6 rows and had no way to confirm their other 3 even exist
+    in the system.
+
+    [Fix #2] _isTL branch in the map now synthesizes a zero-row when
+    _computeFcStats returns null, matching the return shape exactly so
+    the renderer treats it like any other row. All percentage / avg
+    fields become null (rendered as "—") and counts are 0. NGO admin
+    branch is unchanged (existing behaviour preserved).
+
+    + APP_VERSION bumped to V380-LIVE.
+    REQUIRES: nothing. Two narrow, defensive patches. All other roles
+    (admin, NGO, FC, scopedViewer, coordinator, viewer) untouched.
   ============================================================================
   V379-LIVE (2026-06-09 — V378 + Enroll-button visibility cleanup):
 
@@ -3607,7 +3647,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V379-LIVE';
+const APP_VERSION = 'V380-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -13166,7 +13206,35 @@ function renderNGO() {
       ngoUsers = loadUsers().filter(x => x.ngo === u.ngo);
     }
     rows = ngoUsers
-      .map(fc => _computeFcStats(fc.id, fc.fullName || fc.username, data, advAll))
+      .map(fc => {
+        const r = _computeFcStats(fc.id, fc.fullName || fc.username, data, advAll);
+        if (r) return r;
+        // V380 [Fix #2] _computeFcStats returns null for FCs with 0
+        // beneficiaries. For TL (scopedViewerByFc), the team-report MUST
+        // show every assigned FC — even empty ones — so the TL can see
+        // who hasn't started yet. Synthesize a zero-row that matches
+        // _computeFcStats's return shape. NGO admins keep prior behaviour
+        // (empty FCs hidden) to avoid noise in long FC lists.
+        if (_isTL) {
+          return {
+            name: fc.fullName || fc.username,
+            _fcId: fc.id,
+            state: '',
+            livBenef: 0,
+            livEnrPct: null, livProgPct: null, livCompPct: null,
+            livEnrCount: 0, livProgCount: 0, livCompCount: 0,
+            livTotalAdded: 0, livAvgGain: null,
+            advBenef: 0,
+            advNeedPct: null, advAppliedPct: null,
+            advReceivedPct: null, advRejectedPct: null,
+            advNeedCount: 0, advAppliedCount: 0,
+            advReceivedCount: 0, advRejectedCount: 0,
+            advTotalBenefits: 0, advAvgBenefit: null,
+            _livCompletedCount: 0, _advRowsCount: 0, _advReceivedCount: 0,
+          };
+        }
+        return null;
+      })
       .filter(r => r !== null);
     // Catch-all for beneficiaries whose createdBy doesn't match any current
     // NGO user (legacy data, deleted users). Group them under a sentinel row.
@@ -21980,7 +22048,21 @@ function mountManagerApp() {
     // a fallback so nothing breaks if someone's session predates the shell split.
     nav('beneficiaries');
   } else {
-    renderDashboard();
+    // V380 [Fix #1] use nav('dashboard') instead of renderDashboard() so a
+    // fresh login ALWAYS lands on the dashboard view. Bare renderDashboard()
+    // rendered dashboard content but left currentView, page-title, and the
+    // prior view's DOM untouched. Result: when admin used User Management
+    // (currentView='admin_users', title='User Management', big users table
+    // in the main content area) then logged out and a TL logged in on the
+    // same tab, the TL saw User Management with all 570 users + Edit /
+    // Delete / + Add User buttons visible. nav('dashboard') resets
+    // currentView, sets the title, marks sidebar active, replaces the
+    // content, and re-runs _applyRoleVisibility (which hides admin-only
+    // sidebar entries for non-admins). nav() also passes through the TL
+    // route guard at line ~16962 — 'dashboard' is in the allowed set so
+    // it's a no-op for TL but a safety net if someone ever forces another
+    // initial view here for a different role.
+    nav('dashboard');
   }
   // V365: kick off the periodic summary auto-recompute for admin role.
   // Guarantees viewer's "Last updated" timestamp stays under 5 min as long
