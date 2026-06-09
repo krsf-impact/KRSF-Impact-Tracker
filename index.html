@@ -1,6 +1,119 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V375-LIVE
+  KRSF Beneficiary Impact Tracker  -  V379-LIVE
+  ============================================================================
+  V379-LIVE (2026-06-09 — V378 + Enroll-button visibility cleanup):
+
+    Live testing of V378 confirmed cache invalidation fix works, but
+    also surfaced cosmetic leak: the topbar "+ Enroll Beneficiary" button
+    was still visible for scopedViewer and Team Leader roles. JS nav guard
+    bounces them away from /enroll anyway, but a visible button on a
+    read-only role is misleading UX.
+
+    [Fix] Added #topbar-enroll-btn, #enroll-btn-mobile, and
+    .nav-btn[data-v="enroll"] selectors to the body[data-role=...] hide
+    rule. Now scopedViewer AND scopedViewerByFc have zero visible enroll
+    surfaces (matching their read-only status).
+
+    + APP_VERSION bumped to V379-LIVE.
+    REQUIRES: nothing. Pure CSS change. Other roles unaffected.
+  ============================================================================
+  V378-LIVE (2026-06-09 — V377 + initial-render staleness fix):
+
+    Live testing of V377 revealed: TL login showed a 0-data dashboard for
+    several seconds after Firebase fetch completed. Root cause: V361
+    aggregation cache was keyed on _v357DataVersion. The cache hit on the
+    BEFORE-fetch empty-data render and never invalidated when fetch
+    completed (no version bump in the fetch completion path).
+
+    [Fix] _hydrateBenefCache now bumps _v357DataVersion + invalidates the
+    V361 agg cache + V367 filter index. Mirrors V41's pattern but lifts
+    it from _adminIncrementalSync into the central hydration helper —
+    covers boot fetch, save writebacks, AND incremental syncs in one
+    place. Affects every role's dashboard freshness on initial load.
+
+    + APP_VERSION bumped to V378-LIVE.
+    REQUIRES: no schema/Firebase changes. Zero behavioural impact on
+    paths already invalidating (V41 _adminIncrementalSync stays — the
+    extra invalidation there is a no-op since hydrate runs after sync).
+  ============================================================================
+  V377-LIVE (2026-06-09 — V376-TL renamed + 2 polish fixes):
+
+    Content unchanged from V376-TL (Team Leader read-only role). Two polish
+    fixes added on top:
+
+    [Fix #1] User Management search field losing focus after every keystroke.
+      Cause: oninput called _adminUserSetFilter('search', val) which fired
+      renderAdminUsers() synchronously on every keystroke. The full-pane
+      innerHTML rewrite destroyed the input element and recreated it —
+      browser focus was lost on each character. Visible as: type one letter,
+      focus jumps out, user has to click back into the field, type next
+      letter, repeat.
+      Fix: new helper _adminUserSearchInput() uses the existing
+      _searchDebounce pattern (180ms) AND restores focus + caret position
+      via requestAnimationFrame after the re-render finishes.
+
+    [Fix #2] Toast notifications showed a tofu/missing-glyph character
+      before the first letters of the message text.
+      Cause: ::before content used the emoji-coded ⚠ (U+26A0 WARNING SIGN)
+      and a checkmark that rendered inconsistently on Windows + non-emoji-
+      aware fonts. On many setups the glyph was substituted with a box.
+      Fix: removed the prefix content entirely. The green/red toast
+      background already conveys success/error severity — the prefix was
+      decorative. Cleaner look, identical rendering on every device.
+
+    + APP_VERSION bumped to V377-LIVE.
+    REQUIRES: nothing extra beyond V376-TL prerequisites. No schema change,
+    no Firebase rules change, zero behavioural change for non-TL roles.
+  ============================================================================
+  V376-TL (2026-06-09 Team Leader role — read-only mirror of scopedViewer):
+
+    Lesson from the abandoned V376 build: trying to make TL a hybrid of FC
+    + read-only NGO admin touched too many code paths (4 write surfaces,
+    edit-button-hiding per record, schema reshuffling) and broke too much.
+
+    V376-TL is the simpler design: TL is a READ-ONLY role scoped to a
+    selected list of FCs (createdBy IN assignedFcIds). Mirrors the
+    scopedViewer pattern (which has worked solidly since V375) except
+    scope is by FC ids instead of NGO names.
+
+    + NEW ROLE 'scopedViewerByFc':
+        - Read-only across the FC list admin assigned
+        - Belongs to ONE NGO (TLs work within one NGO in real org structure)
+        - Sees dashboards, advocacy, livelihood, integrated, team report —
+          all filtered to records created by those FCs
+        - Cannot enroll, edit, change status, delete, or access admin panel
+
+    + SCHEMA:
+        FC.teamLeader has no field changes. Only the new TL user record:
+            {
+              role: 'scopedViewerByFc',
+              ngo: 'KRSF.Bhiloda',        // anchor NGO for the fetch
+              assignedFcIds: ['u-fc-1', 'u-fc-2', ...]   // canonical scope
+            }
+
+    + DATA SCOPING — single source of truth: TL.assignedFcIds:
+        - getData() / filteredAll() / _v367TryFastPath(): scope by
+          createdBy IN assignedFcIds
+        - Firebase fetch: NGO-scoped one-shot (same egress as NGO admin)
+          + client-side filter by createdBy
+        - Empty assignedFcIds = no records (defensive — should be blocked
+          at save time)
+
+    + WRITE SURFACE — ZERO new code needed:
+        - mountManagerApp + role guards in saveData/saveAdv/saveUsers/
+          savePartners already mirror scopedViewer pattern
+        - CSS body[data-role="scopedViewerByFc"] hides all write buttons
+        - Nav route guard blocks enroll + admin_*
+
+    + ADMIN FORM:
+        - Role dropdown gains "Team Leader (View Only)" option
+        - Pick NGO → form shows FC checkbox list for that NGO
+        - Save assignedFcIds array
+
+    + APP_VERSION bumped to V376-TL.
+    REQUIRES: no schema change to existing records. No Firebase rules
+    change. Zero behavioural change for non-TL roles.
   ============================================================================
   V375-LIVE (2026-06-09 scopedViewer role — donor-facing desktop dashboards):
 
@@ -1433,8 +1546,12 @@ html,body{height:100%;font-family:var(--font);background:#EEF2F7;color:var(--tex
 @keyframes syncPulse{0%{box-shadow:0 0 0 0 rgba(16,185,129,.6)}70%{box-shadow:0 0 0 6px rgba(16,185,129,0)}100%{box-shadow:0 0 0 0 rgba(16,185,129,0)}}
 @keyframes syncSpin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
 @media (max-width:640px){#sync-pill{top:8px;right:8px;padding:5px 10px;font-size:11px}}
-.toast.success::before{content:'✓  ';font-weight:700;margin-right:2px}
-.toast.error::before{content:'⚠   ';font-weight:700;margin-right:2px}
+/* V377 [Fix #2]: prefix removed. The ✓ and ⚠ glyphs rendered as
+   missing-glyph boxes on Windows + non-emoji fonts, showing as weird
+   characters before the message text. Green/red background already
+   conveys severity — the prefix was decorative. */
+.toast.success::before{content:'';}
+.toast.error::before{content:'';}
 
 /* ════════════════════════════════════════════════════════════════
    MOBILE STYLES  (≀768px)
@@ -1890,7 +2007,23 @@ body[data-role="scopedViewer"] [data-write-action],
 body[data-role="scopedViewer"] [data-admin-only],
 body[data-role="scopedViewer"] .fab-enroll,
 body[data-role="scopedViewer"] #btn-enroll,
-body[data-role="scopedViewer"] .btn-enroll { display: none !important; }
+body[data-role="scopedViewer"] .btn-enroll,
+body[data-role="scopedViewer"] #topbar-enroll-btn,
+body[data-role="scopedViewer"] #enroll-btn-mobile,
+body[data-role="scopedViewer"] .nav-btn[data-v="enroll"],
+/* V376-TL: TL is read-only — mirror every scopedViewer hide rule.
+   V379 [Fix] also hides the topbar #topbar-enroll-btn, the mobile FAB,
+   and the sidebar Enroll nav item — these were leaking through for
+   both scopedViewer and TL (different selector from the previous list). */
+body[data-role="scopedViewerByFc"] [data-delete-action],
+body[data-role="scopedViewerByFc"] [data-write-action],
+body[data-role="scopedViewerByFc"] [data-admin-only],
+body[data-role="scopedViewerByFc"] .fab-enroll,
+body[data-role="scopedViewerByFc"] #btn-enroll,
+body[data-role="scopedViewerByFc"] .btn-enroll,
+body[data-role="scopedViewerByFc"] #topbar-enroll-btn,
+body[data-role="scopedViewerByFc"] #enroll-btn-mobile,
+body[data-role="scopedViewerByFc"] .nav-btn[data-v="enroll"] { display: none !important; }
 
 /* Coordinator simplification: hide everything in the sidebar except
    All Beneficiaries and Enroll (policy per spec — coordinators have a
@@ -3474,7 +3607,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V375-LIVE';
+const APP_VERSION = 'V379-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -4313,6 +4446,17 @@ function _hydrateBenefCache(arr) {
   RecordCache.benef.clear();
   for (const r of arr) { if (r && r.id) RecordCache.benef.set(r.id, r); }
   RecordCache.primed = true;
+  // V378 [Fix — initial-render staleness]: bump version + invalidate V361
+  // aggregation cache + V367 filter index whenever the benef cache is
+  // replaced. Without this, the dashboard renders BEFORE Firebase fetch
+  // completes (cache empty → agg cache stores empty result), and when
+  // data arrives the agg cache key (_v357DataVersion) hasn't changed, so
+  // the stale empty agg is returned. Mirrors the V41 / Task #41 fix that
+  // already covered _adminIncrementalSync — this catches the boot fetch
+  // path AND every save's writeback in one place.
+  try { if (typeof _v357DataVersion !== 'undefined') _v357DataVersion = (_v357DataVersion || 0) + 1; } catch(_){}
+  try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
+  try { if (typeof _v367InvalidateIndex === 'function') _v367InvalidateIndex(); } catch(_){}
   try {
     const u = (typeof currentUser === 'function') ? currentUser() : null;
     if (u && u.userId) _pantryWrite(u.userId, Array.from(RecordCache.benef.values()));
@@ -5305,6 +5449,13 @@ function _benefScopedQuery() {
     _v375ScopedBenefMultiFetch(assigned);
     return null;
   }
+  // V376-TL: scopedViewerByFc uses NGO one-shot fetch (TL is anchored to
+  // a single NGO). The client-side filter in getData/filteredAll narrows
+  // to assignedFcIds. Egress = single NGO admin login.
+  if (u.role === 'scopedViewerByFc' && u.ngo) {
+    _v337BenefOneShotFetch(fbRef('beneficiaries').orderByChild('ngo').equalTo(u.ngo));
+    return null;
+  }
   // Unknown/incomplete role: fall back to full fetch rather than show
   // empty data. Better to over-fetch than break the UI.
   return fbRef('beneficiaries');
@@ -5529,6 +5680,17 @@ function fbAdvHandleChild(eventType) {
       return;
     }
     if (eventType === 'child_added') _v375ScopedAdvMultiFetch(assigned);
+    return;
+  } else if (u.role === 'scopedViewerByFc') {
+    // V376-TL: TL advocacy via NGO one-shot (TL is anchored to one NGO,
+    // same as NGO admin). Client-side filter in filteredAll() narrows to
+    // assignedFcIds. Egress matches a single NGO admin login.
+    if (!u.ngo) {
+      FB.advReplayComplete = true;
+      fbUpdatePill();
+      return;
+    }
+    if (eventType === 'child_added') _v337AdvOneShotFetch(fbRef('advocacy').orderByChild('ngo').equalTo(u.ngo));
     return;
   } else {
     q = fbRef('advocacy');
@@ -6086,6 +6248,8 @@ async function fbSyncCollection(coll, newArr, idField, lastMapRef) {
     // and the role gates in the UI never expose delete buttons. This is the
     // last line of defense.
     if (_guardUser.role === 'scopedViewer') return false;
+    // V376-TL: TL is view-only — same delete suppression as scopedViewer.
+    if (_guardUser.role === 'scopedViewerByFc') return false;
     return true;  // unknown role — don't suppress a delete
   };
   for (const d of diff.deletes) {
@@ -6579,6 +6743,11 @@ async function saveData(arr) {
       if (typeof toast === 'function') toast('Read-only account — edits are disabled.', 'error', 4000);
       throw new SaveError('read-only', new Error('scopedViewer cannot save beneficiaries'));
     }
+    // V376-TL: same read-only block for TL viewer role.
+    if (_wu && _wu.role === 'scopedViewerByFc') {
+      if (typeof toast === 'function') toast('Team Leader is view-only — edits are disabled.', 'error', 4000);
+      throw new SaveError('read-only', new Error('scopedViewerByFc cannot save beneficiaries'));
+    }
   }
   // V310-S2: Firebase-only writes. Cache is updated AFTER the cloud write
   // confirms (Decision 1B). On failure, throws SaveError — caller catches
@@ -7052,6 +7221,10 @@ async function saveUsers(arr) {
       if (typeof toast === 'function') toast('Read-only account — user management is disabled.', 'error', 4000);
       throw new SaveError('read-only', new Error('scopedViewer cannot save users'));
     }
+    if (_wu && _wu.role === 'scopedViewerByFc') {
+      if (typeof toast === 'function') toast('Team Leader is view-only — user management is disabled.', 'error', 4000);
+      throw new SaveError('read-only', new Error('scopedViewerByFc cannot save users'));
+    }
   }
   // V310-S2: Firebase-only writes. Cache after Firebase confirms.
   // Per-record sync — concurrent user edits from different admin devices
@@ -7087,6 +7260,19 @@ function isCoord()  { const s=currentUser(); return s && s.role==='coordinator';
 // V375: donor-facing desktop role. Read-only across an admin-configured subset
 // of NGOs (u.assignedNgos). Distinct from 'viewer' (mobile, summary-only).
 function isScopedViewer(){ const s=currentUser(); return s && s.role==='scopedViewer'; }
+// V376-TL: read-only role scoped to a list of FCs (instead of NGOs). Used
+// for Team Leaders who manage a subset of FCs within a single NGO. Mirrors
+// scopedViewer's pattern at every level — UI hiding, write guards, nav
+// route block — except the scope filter is createdBy IN assignedFcIds.
+function isScopedViewerByFc(){ const s=currentUser(); return s && s.role==='scopedViewerByFc'; }
+// Build a Set of FC userIds this TL can see. Returns null if not a TL,
+// or empty Set if the TL was misconfigured (no FCs assigned).
+function _v376FcScopeSet(u) {
+  u = u || currentUser();
+  if (!u || u.role !== 'scopedViewerByFc') return null;
+  const arr = Array.isArray(u.assignedFcIds) ? u.assignedFcIds : [];
+  return new Set(arr);
+}
 // V375: returns the Set of NGO names a scopedViewer is allowed to see.
 // Returns null for non-scopedViewer roles (caller uses null as "no scope filter").
 // Returns an empty Set if scopedViewer has no assignedNgos (defensive — should
@@ -7328,6 +7514,13 @@ function getData() {
     const allowed = _v375AllowedNgoSet(u);
     if (!allowed || allowed.size === 0) return [];
     return all.filter(b => allowed.has(b.ngo));
+  }
+  // V376-TL: scopedViewerByFc sees records created by selected FCs only.
+  // Mirrors scopedViewer's empty-set defensive fallback.
+  if (u.role === 'scopedViewerByFc') {
+    const allowed = _v376FcScopeSet(u);
+    if (!allowed || allowed.size === 0) return [];
+    return all.filter(b => allowed.has(b.createdBy));
   }
   if (u.role === 'coordinator') {
     // V308.1 (Bug 2 fix): The fallback to coord==fullName used to be OR'd
@@ -9213,6 +9406,12 @@ async function _advApplyStatus(bid, scheme, remarks, next) {
     try { _wu = (typeof currentUser === 'function') ? currentUser() : null; } catch(_) {}
     if (_wu && _wu.role === 'scopedViewer') {
       if (typeof toast === 'function') toast('Read-only account — status changes are disabled.', 'error', 4000);
+      const _pop = document.getElementById('_adv-status-pop');
+      if (_pop) _pop.remove();
+      return;
+    }
+    if (_wu && _wu.role === 'scopedViewerByFc') {
+      if (typeof toast === 'function') toast('Team Leader is view-only — status changes are disabled.', 'error', 4000);
       const _pop = document.getElementById('_adv-status-pop');
       if (_pop) _pop.remove();
       return;
@@ -12951,15 +13150,21 @@ function renderNGO() {
   const advAll = loadAdv();
 
   // Branch on role to decide what each row represents.
-  const _isFcMode = !!(u && u.role === 'ngo' && u.ngo);
+  // V376-TL: TL also uses FC-mode so they see their team breakdown
+  // (instead of a meaningless one-row NGO Partners table).
+  const _isFcMode = !!(u && (u.role === 'ngo' || u.role === 'scopedViewerByFc') && u.ngo);
+  const _isTL = !!(u && u.role === 'scopedViewerByFc');
   let rows;
   if (_isFcMode) {
-    // List every FC who belongs to this NGO. Includes FCs with zero
-    // beneficiaries — _computeFcStats will return null for those, and we drop.
-    // We also include the NGO admin themselves as a "creator" row in case they
-    // enrolled records directly (admin-created beneficiaries are counted via
-    // their own user id in createdBy).
-    const ngoUsers = loadUsers().filter(x => x.ngo === u.ngo);
+    // List FCs to show as rows. NGO admin sees EVERY FC in their NGO.
+    // V376-TL: TL sees only the FCs in their assignedFcIds (scoped view).
+    let ngoUsers;
+    if (_isTL) {
+      const allowed = new Set(Array.isArray(u.assignedFcIds) ? u.assignedFcIds : []);
+      ngoUsers = loadUsers().filter(x => x && allowed.has(x.id));
+    } else {
+      ngoUsers = loadUsers().filter(x => x.ngo === u.ngo);
+    }
     rows = ngoUsers
       .map(fc => _computeFcStats(fc.id, fc.fullName || fc.username, data, advAll))
       .filter(r => r !== null);
@@ -13840,6 +14045,10 @@ async function saveAdv(arr) {
       if (typeof toast === 'function') toast('Read-only account — edits are disabled.', 'error', 4000);
       throw new SaveError('read-only', new Error('scopedViewer cannot save advocacy'));
     }
+    if (_wu && _wu.role === 'scopedViewerByFc') {
+      if (typeof toast === 'function') toast('Team Leader is view-only — edits are disabled.', 'error', 4000);
+      throw new SaveError('read-only', new Error('scopedViewerByFc cannot save advocacy'));
+    }
   }
   // V310-S2: Firebase-only writes. Cache after Firebase confirms.
   // V317: replay-complete gate. See V317 review Bug 1 for the listener/diff
@@ -14613,6 +14822,17 @@ function _v367TryFastPath() {
         if (!ids) continue;
         for (const id of ids) candidateIds.add(id);
       }
+    } else if (u.role === 'scopedViewerByFc') {
+      // V376-TL: union of byCreatedBy Sets across assigned FC ids. TLs
+      // typically have 10-12 FCs so K is small — faster than the scan path.
+      const fcIds = Array.isArray(u.assignedFcIds) ? u.assignedFcIds : [];
+      if (fcIds.length === 0) return [];
+      candidateIds = new Set();
+      for (const fcId of fcIds) {
+        const ids = _v367Idx.byCreatedBy[fcId];
+        if (!ids) continue;
+        for (const id of ids) candidateIds.add(id);
+      }
     }
 
     // Equality filters via index intersection.
@@ -14698,6 +14918,10 @@ function filteredAll() {
     // (defensive against misconfigured accounts).
     const allowed = _v375AllowedNgoSet(u);
     d = (!allowed || allowed.size === 0) ? [] : cache.filter(b => allowed.has(b.ngo));
+  } else if (u.role === 'scopedViewerByFc') {
+    // V376-TL: scope to assigned FC ids. Same defensive empty-set fallback.
+    const fcs = _v376FcScopeSet(u);
+    d = (!fcs || fcs.size === 0) ? [] : cache.filter(b => fcs.has(b.createdBy));
   } else {
     d = cache;
   }
@@ -16733,6 +16957,13 @@ window.nav=function(v){
     const allowed = new Set(['dashboard','list','beneficiaries','advocacy','integrated','map','ngo','alerts']);
     if (!allowed.has(v)) v = 'dashboard';
   }
+  // V376-TL: same allowed-route set as scopedViewer (read-only with full
+  // dashboard chrome). enroll silently bounces to dashboard.
+  if (me && me.role === 'scopedViewerByFc') {
+    if (v === 'enroll') v = 'dashboard';
+    const allowed = new Set(['dashboard','list','beneficiaries','advocacy','integrated','map','ngo','alerts']);
+    if (!allowed.has(v)) v = 'dashboard';
+  }
   currentView=v;
   // V324: reset pagination and memoization cache on every nav so that
   // newly restored records (e.g. after dedup fix) are always visible.
@@ -16752,7 +16983,7 @@ window.nav=function(v){
   const titles={dashboard:'Dashboard',beneficiaries:'All Beneficiaries',list:'Livelihood',ngo:'NGO Partners',alerts:'Alerts & Flags',map:'Field Map',integrated:'Integrated View',advocacy:'Advocacy',admin_partners:'Partner Management',admin_users:'User Management',admin_livelihoods:'Livelihood Management',admin_schemes:'Advocacy Management',admin_audit:'Audit Log',admin_bandwidth:'Bandwidth Usage'};
   // For NGO logins the "ngo" page shows their team (FCs), not partners — retitle.
   const _navUser = (typeof currentUser === 'function') ? currentUser() : null;
-  if (v === 'ngo' && _navUser && _navUser.role === 'ngo') titles.ngo = 'Team Report';
+  if (v === 'ngo' && _navUser && (_navUser.role === 'ngo' || _navUser.role === 'scopedViewerByFc')) titles.ngo = 'Team Report';
   document.getElementById('page-title').textContent=titles[v]||v;
   document.getElementById('page-count').style.display=(v==='list'||v==='beneficiaries')?'block':'none';
   closeDrawer();
@@ -16843,6 +17074,10 @@ async function savePartners(arr) {
     if (_wu && _wu.role === 'scopedViewer') {
       if (typeof toast === 'function') toast('Read-only account — partner edits are disabled.', 'error', 4000);
       throw new SaveError('read-only', new Error('scopedViewer cannot save partners'));
+    }
+    if (_wu && _wu.role === 'scopedViewerByFc') {
+      if (typeof toast === 'function') toast('Team Leader is view-only — partner edits are disabled.', 'error', 4000);
+      throw new SaveError('read-only', new Error('scopedViewerByFc cannot save partners'));
     }
   }
   // V310-S2: Firebase-only writes. Cache after Firebase confirms.
@@ -17180,6 +17415,32 @@ function _adminUserSetFilter(kind, val) {
   renderAdminUsers();
 }
 
+// V377 [Fix #1]: dedicated search input handler. Debounces re-renders
+// (180ms — matches livSearch/advSearch patterns) AND restores focus +
+// caret position after renderAdminUsers() rewrites the pane via
+// innerHTML. Without this, the input is destroyed and recreated on every
+// keystroke and the browser drops focus — user has to click back into the
+// box for each character. requestAnimationFrame waits until after the
+// render flush so the new input element exists by the time we focus.
+function _adminUserSearchInput(val) {
+  _searchDebounceVal['admUser'] = val;
+  clearTimeout(_searchDebounceTimer['admUser']);
+  _searchDebounceTimer['admUser'] = setTimeout(() => {
+    _adminUserSearch = _searchDebounceVal['admUser'];
+    renderAdminUsers();
+    requestAnimationFrame(() => {
+      const el = document.getElementById('admin-user-search');
+      if (el) {
+        el.focus();
+        try {
+          const v = el.value;
+          el.setSelectionRange(v.length, v.length);
+        } catch(_) {}
+      }
+    });
+  }, 180);
+}
+
 function renderAdminUsers() {
   const allUsers = loadUsers();
   const me = currentUser();
@@ -17219,11 +17480,12 @@ function renderAdminUsers() {
     // V375: labels for viewer + scopedViewer roles so the user table reads
     // cleanly. Without this they fell through to gray "scopedViewer" raw text.
     const map = {
-      admin:        ['#7C3AED','Admin'],
-      ngo:          ['#2E75B6','NGO User'],
-      coordinator:  ['#10B981','Field Coordinator'],
-      viewer:       ['#F59E0B','Viewer'],
-      scopedViewer: ['#0EA5E9','Scoped Viewer']
+      admin:             ['#7C3AED','Admin'],
+      ngo:               ['#2E75B6','NGO User'],
+      coordinator:       ['#10B981','Field Coordinator'],
+      viewer:            ['#F59E0B','Viewer'],
+      scopedViewer:      ['#0EA5E9','Scoped Viewer'],
+      scopedViewerByFc:  ['#DC2626','Team Leader']  // V376-TL
     };
     const [c,l] = map[r] || ['#6B7280', r];
     return `<span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:10px;background:${c}22;color:${c}">${l}</span>`;
@@ -17252,7 +17514,7 @@ function renderAdminUsers() {
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:10px 14px;border-bottom:1px solid var(--gray3);background:#FAFBFC">
       <input id="admin-user-search" placeholder="Search name, username, NGO..." value="${escHtml(_adminUserSearch)}"
         style="flex:1;min-width:200px;padding:6px 10px;border:1px solid var(--gray3);border-radius:6px;font-size:13px"
-        oninput="_adminUserSetFilter('search', this.value)">
+        oninput="_adminUserSearchInput(this.value)">
       <select onchange="_adminUserSetFilter('ngo', this.value)"
         style="padding:6px 10px;border:1px solid var(--gray3);border-radius:6px;font-size:13px;min-width:160px">
         <option value="">All NGOs</option>
@@ -17266,6 +17528,7 @@ function renderAdminUsers() {
         <option value="coordinator"  ${_adminUserRoleFilter==='coordinator'?'selected':''}>Field Coordinator</option>
         <option value="viewer"       ${_adminUserRoleFilter==='viewer'?'selected':''}>Viewer</option>
         <option value="scopedViewer" ${_adminUserRoleFilter==='scopedViewer'?'selected':''}>Scoped Viewer</option>
+        <option value="scopedViewerByFc" ${_adminUserRoleFilter==='scopedViewerByFc'?'selected':''}>Team Leader</option>
       </select>
       ${(_adminUserNgoFilter||_adminUserRoleFilter||_adminUserSearch)
         ? `<button class="btn btn-sm" onclick="_adminUserNgoFilter='';_adminUserRoleFilter='';_adminUserSearch='';renderAdminUsers()">Clear</button>`
@@ -17313,10 +17576,11 @@ function _renderUserModalHtml() {
               <option value="admin">Admin</option>
               <option value="viewer">Viewer (mobile, read-only)</option>
               <option value="scopedViewer">Scoped Viewer (desktop, read-only, donor-facing)</option>
+              <option value="scopedViewerByFc">Team Leader (View Only)</option>
             </select>
           </div>
           <div class="fg" id="user-ngo-wrap" style="margin-bottom:12px"><label>NGO * <span style="font-weight:400;color:var(--gray2);font-size:11px">(scopes what the user can see)</span></label>
-            <select id="user-ngo">
+            <select id="user-ngo" onchange="if(document.getElementById('user-role').value==='scopedViewerByFc')_v376TLPopulateFcs()">
               <option value="">— Select NGO —</option>
               ${partners.map(p=>`<option value="${p.name.replace(/"/g,'&quot;')}">${p.name}</option>`).join('')}
             </select>
@@ -17328,6 +17592,16 @@ function _renderUserModalHtml() {
               ${partners.map(p=>`<option value="${p.name.replace(/"/g,'&quot;')}">${p.name}</option>`).join('')}
             </select>
             <div style="font-size:11px;color:var(--gray2);margin-top:4px">Viewer will only see numbers for the NGOs selected here. Leave empty to give global access.</div>
+          </div>
+          <!-- V376-TL: FC checkbox list for Team Leader role. Populated dynamically
+               by _v376TLPopulateFcs whenever the NGO dropdown changes. Each checked
+               FC's id goes into assignedFcIds on save. -->
+          <div class="fg" id="user-tl-fcs-wrap" style="margin-bottom:12px;display:none">
+            <label>Assigned Field Coordinators * <span style="font-weight:400;color:var(--red);font-size:11px">(required — TL will only see records created by these FCs)</span></label>
+            <div id="user-tl-fcs-list" style="max-height:240px;overflow-y:auto;border:1px solid var(--gray3);border-radius:6px;padding:8px;background:#fff">
+              <div style="color:var(--gray2);font-size:12px;padding:8px">Select an NGO first to see its FCs.</div>
+            </div>
+            <div style="font-size:11px;color:var(--gray2);margin-top:4px">Pick the FCs reporting to this Team Leader. Selection is mandatory.</div>
           </div>
         </div>
         <div class="modal-foot" style="display:flex;justify-content:flex-end;gap:8px;padding:12px 18px;border-top:1px solid var(--gray3)">
@@ -17342,10 +17616,13 @@ function _adminUserRoleChange(role) {
   // Admins don't need an NGO (they see everything)
   // V362: viewer uses a multi-NGO picker, not the single-NGO dropdown
   // V375: scopedViewer also uses the multi-NGO picker (donor scoping)
+  // V376-TL: scopedViewerByFc uses the single-NGO dropdown + an FC picker.
   const wrap = document.getElementById('user-ngo-wrap');
   const vwrap = document.getElementById('user-viewer-ngo-wrap');
+  const tlwrap = document.getElementById('user-tl-fcs-wrap');
   if (wrap)  wrap.style.display  = (role === 'admin' || role === 'viewer' || role === 'scopedViewer') ? 'none' : '';
   if (vwrap) vwrap.style.display = (role === 'viewer' || role === 'scopedViewer') ? '' : 'none';
+  if (tlwrap) tlwrap.style.display = (role === 'scopedViewerByFc') ? '' : 'none';
   // V375: update the picker's helper text so admin knows scope is REQUIRED
   // for scopedViewer (vs optional/global for plain viewer).
   try {
@@ -17359,6 +17636,55 @@ function _adminUserRoleChange(role) {
       if (hint) hint.textContent = 'Viewer will only see numbers for the NGOs selected here. Leave empty to give global access.';
     }
   } catch(_) {}
+  // V376-TL: populate FC checkbox list whenever role becomes TL.
+  if (role === 'scopedViewerByFc') _v376TLPopulateFcs();
+}
+
+// V376-TL: render the FC checkbox list filtered to the currently-selected
+// NGO. Called on role change + on NGO change. Pre-checks FCs already in
+// the editing user's assignedFcIds (edit mode).
+function _v376TLPopulateFcs() {
+  try {
+    const editingId = document.getElementById('user-id').value;
+    const selectedNgo = document.getElementById('user-ngo').value;
+    const list = document.getElementById('user-tl-fcs-list');
+    if (!list) return;
+    if (!selectedNgo) {
+      list.innerHTML = '<div style="color:var(--gray2);font-size:12px;padding:8px">Select an NGO first to see its FCs.</div>';
+      return;
+    }
+    const users = (typeof loadUsers === 'function') ? loadUsers() : [];
+    const fcs = users.filter(x => x && x.role === 'coordinator' && x.ngo === selectedNgo);
+    if (fcs.length === 0) {
+      list.innerHTML = '<div style="color:var(--gray2);font-size:12px;padding:8px">No FCs found in ' + _v376Esc(selectedNgo) + '.</div>';
+      return;
+    }
+    // Pre-check FCs that are in the editing user's assignedFcIds.
+    let preChecked = new Set();
+    if (editingId) {
+      const me = users.find(u => u.id === editingId);
+      if (me && Array.isArray(me.assignedFcIds)) preChecked = new Set(me.assignedFcIds);
+    }
+    fcs.sort((a, b) => (a.fullName || a.username).localeCompare(b.fullName || b.username));
+    let html = '';
+    for (const fc of fcs) {
+      const checked = preChecked.has(fc.id) ? ' checked' : '';
+      html += '<label style="display:block;padding:4px 6px;cursor:pointer;font-size:13px;border-radius:4px"'
+            + ' onmouseover="this.style.background=\'#F3F4F6\'" onmouseout="this.style.background=\'\'">'
+            + '<input type="checkbox" value="' + _v376Esc(fc.id) + '"' + checked
+            + ' style="margin-right:6px;vertical-align:middle">'
+            + _v376Esc(fc.fullName || fc.username)
+            + '</label>';
+    }
+    list.innerHTML = html;
+  } catch (e) {
+    console.warn('[V376-TL pickers] failed to populate:', e && e.message);
+  }
+}
+
+// V376-TL: tiny HTML-escape helper for picker labels.
+function _v376Esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
 function adminNewUser() {
@@ -17417,7 +17743,7 @@ async function adminSaveUser() {
   // V362: viewer uses assignedNgos (multi-select), not single ngo. Skip the
   // single-NGO check for viewer role.
   // V375: scopedViewer also uses assignedNgos (multi-select), single-NGO skip.
-  if (role !== 'admin' && role !== 'viewer' && role !== 'scopedViewer' && !ngo) return showErr('NGO is required for NGO users and coordinators.');
+  if (role !== 'admin' && role !== 'viewer' && role !== 'scopedViewer' && !ngo) return showErr('NGO is required for NGO users, coordinators, and Team Leaders.');
   // V362/V375: collect viewer/scopedViewer assigned NGOs from the multi-select.
   let assignedNgos = [];
   if (role === 'viewer' || role === 'scopedViewer') {
@@ -17431,6 +17757,22 @@ async function adminSaveUser() {
   // so empty is a misconfiguration the form rejects up-front.
   if (role === 'scopedViewer' && assignedNgos.length === 0) {
     return showErr('Scoped Viewer must be assigned at least one NGO. (To grant global view access, use the plain "Viewer" role instead.)');
+  }
+
+  // V376-TL: collect FC checkboxes for Team Leader role.
+  let assignedFcIds = [];
+  if (role === 'scopedViewerByFc') {
+    const list = document.getElementById('user-tl-fcs-list');
+    if (list) {
+      const boxes = list.querySelectorAll('input[type="checkbox"]');
+      for (const cb of boxes) { if (cb.checked && cb.value) assignedFcIds.push(cb.value); }
+    }
+    if (assignedFcIds.length === 0) {
+      return showErr('Team Leader must be assigned at least one Field Coordinator.');
+    }
+    if (!ngo) {
+      return showErr('NGO is required for Team Leader.');
+    }
   }
 
   const users = loadUsers();
@@ -17473,6 +17815,8 @@ async function adminSaveUser() {
     // viewer: empty array = global access. scopedViewer: must be non-empty (form blocks).
     if (role === 'viewer' || role === 'scopedViewer') users[idx].assignedNgos = assignedNgos;
     else                                              users[idx].assignedNgos = null;
+    // V376-TL: persist assignedFcIds for Team Leader role. Other roles get null.
+    users[idx].assignedFcIds = (role === 'scopedViewerByFc') ? assignedFcIds : null;
     // V308.1 (Bug 3 fix): use SHA-256+salt instead of legacy scramble.
     if (pw) users[idx].passwordHash = await _hashPassword(pw);
     // V310-S2: await Firebase. On failure, keep modal open with error.
@@ -17490,7 +17834,7 @@ async function adminSaveUser() {
     if (me && me.userId === editingId) {
       // V375: include assignedNgos so a scopedViewer who edits their own
       // profile (rare but possible) keeps their scope in session.
-      saveSession({...me, username, role, ngo: users[idx].ngo, fullName, assignedNgos: users[idx].assignedNgos||null});
+      saveSession({...me, username, role, ngo: users[idx].ngo, fullName, assignedNgos: users[idx].assignedNgos||null, assignedFcIds: users[idx].assignedFcIds||null});
       _renderUserPill();
     }
   } else {
@@ -17506,6 +17850,8 @@ async function adminSaveUser() {
       // V362/V375: viewer/scopedViewer NGO scoping
       // (viewer: empty array = global. scopedViewer: form requires non-empty.)
       assignedNgos: (role === 'viewer' || role === 'scopedViewer') ? assignedNgos : null,
+      // V376-TL: assignedFcIds for Team Leader role.
+      assignedFcIds: (role === 'scopedViewerByFc') ? assignedFcIds : null,
     };
     users.push(newUser);
     // V310-S2: await Firebase. On failure, keep modal open with error.
@@ -20002,7 +20348,7 @@ async function doLogin() {
   // benefits the existing 'viewer' role's NGO-scoping which had the same
   // gap (V362 viewer's empty-array semantics masked the bug since [] means
   // "global access" for viewer, but it was always silently undefined).
-  saveSession({userId:user.id, username:user.username, role:user.role, ngo:user.ngo, fullName:user.fullName, assignedNgos:user.assignedNgos||null});
+  saveSession({userId:user.id, username:user.username, role:user.role, ngo:user.ngo, fullName:user.fullName, assignedNgos:user.assignedNgos||null, assignedFcIds:user.assignedFcIds||null});
   // V312: now that currentUser() resolves to the new user, attach the
   // role-scoped beneficiary listener. fbAttachListeners() is idempotent
   // for the non-benef listeners; it only attaches the benef listener if
@@ -22291,7 +22637,7 @@ function _renderUserPill() {
   }
   userBlock.style.display = 'block';
   noUser.style.display    = 'none';
-  const roleLabel = {admin:'Admin', ngo:'NGO User', coordinator:'Field Coordinator', viewer:'Viewer', scopedViewer:'Scoped Viewer'}[u.role] || u.role;
+  const roleLabel = {admin:'Admin', ngo:'NGO User', coordinator:'Field Coordinator', viewer:'Viewer', scopedViewer:'Scoped Viewer', scopedViewerByFc:'Team Leader'}[u.role] || u.role;
   document.getElementById('sbf-name').textContent = u.fullName || u.username;
   // V375: for scopedViewer, show "N NGOs" badge + assigned NGO list in title
   // tooltip. Donors can see at a glance what scope they're operating in.
@@ -22302,6 +22648,9 @@ function _renderUserPill() {
       const roleEl = document.getElementById('sbf-role');
       if (roleEl) roleEl.title = 'Scope: ' + u.assignedNgos.join(', ');
     } catch(_) {}
+  } else if (u.role === 'scopedViewerByFc' && Array.isArray(u.assignedFcIds)) {
+    // V376-TL: show "NGO · N FCs" so TL sees their team size at a glance.
+    roleSuffix = ' · ' + (u.ngo || '') + ' · ' + u.assignedFcIds.length + ' FC' + (u.assignedFcIds.length === 1 ? '' : 's');
   } else if (u.ngo) {
     roleSuffix = ' · ' + u.ngo;
   }
@@ -22316,7 +22665,8 @@ function _renderUserPill() {
   // Sidebar nav: rename "NGO Partners" → "Team Report" for NGO logins, since
   // the page shows their FCs' performance (their team), not other NGOs.
   const navLbl = document.getElementById('nav-ngo-label');
-  if (navLbl) navLbl.textContent = (u.role === 'ngo') ? 'Team Report' : 'NGO Partners';
+  // V376-TL: same rename for Team Leader login.
+  if (navLbl) navLbl.textContent = (u.role === 'ngo' || u.role === 'scopedViewerByFc') ? 'Team Report' : 'NGO Partners';
 }
 
 // Hide admin-only nav items for non-admin users; hide actions coordinators
@@ -22329,6 +22679,8 @@ function _applyRoleVisibility() {
   // dashboard chrome NGO admins see (charts, breakdowns, date filters) but
   // NEVER admin-only management surfaces.
   const isSV  = u && u.role === 'scopedViewer';
+  // V376-TL: TL is also a read-only desktop role — same chrome as scopedViewer.
+  const isTL  = u && u.role === 'scopedViewerByFc';
   document.querySelectorAll('[data-admin-only]').forEach(el => {
     el.style.display = isAdm ? '' : 'none';
   });
@@ -22350,7 +22702,7 @@ function _applyRoleVisibility() {
   // V375: scopedViewer (donors) also get the date-range filter — they often
   // need to answer "impact in Q1" or "endlines in March" without rebuilding
   // the dashboard themselves. Same display:flex requirement as admin/NGO.
-  if (dr) dr.style.display = (isAdm || isNgo || isSV) ? 'flex' : 'none';
+  if (dr) dr.style.display = (isAdm || isNgo || isSV || isTL) ? 'flex' : 'none';
   // Set body data-role so CSS selectors can target role-specific UI
   // (see CSS rule body[data-role="coordinator"] ... { display:none })
   document.body.dataset.role = u ? u.role : '';
