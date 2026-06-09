@@ -1,6 +1,40 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V381-LIVE
+  KRSF Beneficiary Impact Tracker  -  V382-LIVE
+  ============================================================================
+  V382-LIVE (2026-06-10 — V381 + cold-boot speedup + V381 fbHash patch):
+
+    What changed: two tiny edits to _adminBenefRestFetch and _adminAdvRestFetch.
+
+      1. BATCH 500 → 5000 — 10x fewer HTTP round trips during cold boot.
+         97K records went from 195 round trips to 20.
+      2. Removed per-batch renderCurrentView() inside the fetch loop.
+         Replaced with one final render after all records are loaded.
+         The progress banner still updates during load for visual feedback.
+
+    Expected effect on cold boot (empty IndexedDB / fresh install):
+      - HTTP round trips:        195   →   20
+      - Full UI re-renders:      195   →   1
+      - Cold-boot time:          3-5 min   →   30-60 sec
+      - Bandwidth:               ~50 MB    →   ~50 MB (unchanged)
+
+    Warm reloads (the normal case) are unchanged. Pantry hit path still
+    serves the cache instantly. Only the IndexedDB-empty path is affected.
+
+    Bundled patches:
+      - V381 fbHash type-mismatch fix at saveOneUser line ~7386.
+        Stores fbHash(stored) in FB.lastUsers instead of the raw object,
+        matching the convention used by fbToMap and fbUsersHandleChild.
+        Latent bug — would only have fired if any future code called
+        legacy saveUsers() after a saveOneUser write.
+
+    NOT in this version (deferred to V383): saveData / saveAdv single-
+    record fix (the dangerous one — Bhavishaben loss pattern). ~40
+    callsites, scheduled for the next session with fresh eyes and full
+    adversarial review.
+
+    + APP_VERSION bumped to V382-LIVE.
+    REQUIRES: nothing. Pure perf improvement + a one-line correctness fix.
   ============================================================================
   V381-LIVE (2026-06-10 — V380 + saveUsers stale-cache clobber permanent fix):
 
@@ -3692,7 +3726,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V381-LIVE';
+const APP_VERSION = 'V382-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -5231,7 +5265,10 @@ async function _adminBenefRestFetch() {
   // Reset in `finally` so logout/relogin works correctly.
   if (_adminBenefRestFetch._inFlight) return;
   _adminBenefRestFetch._inFlight = true;
-  const BATCH = 500;
+  // V382: bigger batches = fewer HTTP round trips. 97K records at BATCH=500
+  // meant 195 round trips and 195 UI re-renders during cold boot (3-5 min).
+  // BATCH=5000 → 20 round trips (~3 sec network) and re-render only at end.
+  const BATCH = 5000;
   const _u347b = (typeof currentUser === 'function') ? currentUser() : null;
   try {
     if (_u347b && _u347b.userId) {
@@ -5325,7 +5362,10 @@ async function _adminBenefRestFetch() {
       }
       total += page.length;
       _banner(total, false);
-      try { renderCurrentView(); } catch(_) {}
+      // V382: per-batch renderCurrentView() removed. With 195 batches it
+      // re-ran the full dashboard 195 times — ~100-500ms each = 30-100 sec
+      // pure wasted CPU. The banner still updates to show progress; the
+      // final render happens once after the loop completes.
       if (rawKeys.length < BATCH) break;
       lastKey = rawKeys[rawKeys.length - 1];
     }
@@ -5336,6 +5376,8 @@ async function _adminBenefRestFetch() {
     if (_u347b && _u347b.userId) {
       try { await _pantryWrite(_u347b.userId, Array.from(RecordCache.benef.values())); } catch(_){}
     }
+    // V382: single final render now that all records are loaded.
+    try { renderCurrentView(); } catch(_) {}
     // V366 [Fix #2/#8]: trigger initial summary write via the new wait-for-
     // both helper. Previously a fixed 500ms setTimeout could fire before
     // _adminAdvRestFetch had completed, producing a summary with
@@ -5367,7 +5409,8 @@ async function _adminAdvRestFetch() {
   // Cheap and self-contained — leave it in.
   if (_adminAdvRestFetch._inFlight) return;
   _adminAdvRestFetch._inFlight = true;
-  const BATCH = 500;
+  // V382: same speedup as the benef fetch — bigger batches, single final render.
+  const BATCH = 5000;
   const _u347a = (typeof currentUser === 'function') ? currentUser() : null;
   try {
     if (_u347a && _u347a.userId) {
@@ -5437,7 +5480,7 @@ async function _adminAdvRestFetch() {
           FB.lastAdv[key] = fbHash(rec);
         }
       }
-      try { renderCurrentView(); } catch(_) {}
+      // V382: per-batch renderCurrentView() removed. See benef fetch comment.
       if (rawKeys.length < BATCH) break;
       lastKey = rawKeys[rawKeys.length - 1];
     }
@@ -5447,6 +5490,8 @@ async function _adminAdvRestFetch() {
     if (_u347a && _u347a.userId) {
       try { await _advPantryWrite(_u347a.userId, Array.from(RecordCache.adv.values())); } catch(_){}
     }
+    // V382: single final render after all advocacy records loaded.
+    try { renderCurrentView(); } catch(_) {}
     // V366 [Fix #8]: trigger initial summary write — adv replay just finished.
     // The helper checks both flags so it only fires when benef is also ready.
     try {
@@ -7380,10 +7425,19 @@ async function saveOneUser(record) {
   const stored = JSON.parse(JSON.stringify(record));
   RecordCache.users.set(stored.id, stored);
   RecordCache.primed = true;
-  // Update FB.lastUsers (also cloned) so any subsequent diff-based call
-  // sees consistent state.
-  if (FB.lastUsers && typeof FB.lastUsers === 'object') {
-    FB.lastUsers[stored.id] = stored;
+  // Update FB.lastUsers so any subsequent diff-based call (e.g. legacy
+  // saveUsers being called from a migration script) sees consistent state.
+  // V381 [Fix from cross-system review]: FB.lastUsers stores fbHash(record)
+  // strings everywhere else in the codebase — fbToMap (line 4884), the
+  // listener at line 6096, the bulk diff path at 6113. fbDiff compares
+  // newMap[k] !== lastMap[k] expecting both sides to be hash strings.
+  // Storing the raw object here would make fbDiff see every other record
+  // as changed (object vs string is always !==), causing the next bulk
+  // sync to rewrite every user — bandwidth waste plus a re-armed
+  // clobber window. Always store the hash to keep parity with the rest
+  // of the codebase.
+  if (FB.lastUsers && typeof FB.lastUsers === 'object' && typeof fbHash === 'function') {
+    FB.lastUsers[stored.id] = fbHash(stored);
   }
   // Write-through to pantry (matches saveUsers behaviour)
   try {
