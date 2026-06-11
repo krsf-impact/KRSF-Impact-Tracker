@@ -1,6 +1,68 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V382-LIVE
+  KRSF Beneficiary Impact Tracker  -  V383-LIVE
+  ============================================================================
+  V383-LIVE (2026-06-10 — staging hotfixes ported: 3 bugs, 6 code changes):
+
+    Three bugs were caught on staging (krsf-impact-staging) and need to
+    ship to production. All three exist in LIVE today (they predate V382)
+    and chain together — a failed bulk import leaves ghosts in the cache
+    that resurface in any later save, including bulk deletes.
+
+    Bug 1 — Double bulk import on twice-click
+      confirmBulkImport() had no re-entrancy guard. A large file kept the
+      function in flight for many seconds while the Confirm button stayed
+      enabled. Second click started a concurrent run with its own batchId
+      → every row enrolled TWICE.
+      Fix (Change 5): module-scope _importRunInFlight flag, set after the
+      early-return gates, cleared in finally so success/failure/throw all
+      release it. Second click toasts and exits.
+
+    Bug 2 — Bulk delete of >~30 records always failed with bare "Save failed"
+      Inside fbSyncCollection, the V321 reassign-guard ran ONE serial
+      Firebase once() per deleted record BEFORE the V371 cap check. For
+      50+ deletes the loop alone exceeded the 5-second bypass window, so
+      the cap check saw an expired flag and blocked the very deletes the
+      bulk-delete UI had just authorised. The error message map was also
+      missing 'tombstone-cap', so users saw "Save failed" with no clue.
+      Fix (Changes 1, 2, 3, 4): evaluate the bypass freshness BEFORE the
+      verify loop; parallelise the verify loop (Promise.all); cap check
+      uses the pre-loop bypass; add a clear 'tombstone-cap' message.
+
+    Bug 3 — Deleted entries come back ("resurrection")
+      When the import's final save failed, the batch's records sat in the
+      in-memory cache + IndexedDB pantry (hydrated row-by-row during the
+      loop) but were NOT in Firebase and NOT in FB.lastBenef. Any later
+      full-array save — including a bulk delete's own saveData(all.filter
+      (...)) — diffed those ghosts as fresh writes and silently committed
+      them. So deleting records sometimes re-uploaded old duplicates.
+      Fix (Change 6): on benef-save failure, purge the batch's records
+      (filtered by importedIds, which are genId-claimed fresh IDs and
+      cannot collide with pre-existing records) from cache + pantry.
+
+    What does NOT change in this version:
+      - deleteSelectedBeneficiaries and undoBatchImport keep their
+        existing window._v371BulkDeleteOk = Date.now() stamps. They work
+        correctly once Changes 2/4 land.
+      - The 5-record _V371_TOMBSTONE_CAP value and purpose are unchanged.
+        The cap still blocks the Bhavishaben/Anilbhai stale-cache mass-
+        tombstone pattern because a stale-cache save never stamps the
+        bypass flag.
+      - V321 reassign-guard logic is unchanged — only made parallel.
+      - No Firebase rules changes, no schema changes.
+
+    Source of these fixes: index-V382-DEV.html (staging file, project
+    krsf-impact-staging). Comment tags renamed from V382-DEV to V383.
+    Staging-only artefacts (STAGING ribbon, staging Firebase config)
+    were INTENTIONALLY NOT ported — LIVE keeps krsf-impact-tracking.
+
+    NOT in this version (deferred to V384): saveData / saveAdv single-
+    record refactor (the saveOneUser pattern from V381 applied to
+    beneficiary + advocacy saves). 40+ callsites, scheduled for the
+    next session with full adversarial review.
+
+    + APP_VERSION bumped to V383-LIVE.
+    REQUIRES: nothing. Three independent bug fixes; no migration needed.
   ============================================================================
   V382-LIVE (2026-06-10 — V381 + cold-boot speedup + V381 fbHash patch):
 
@@ -3726,7 +3788,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V382-LIVE';
+const APP_VERSION = 'V383-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -3806,6 +3868,9 @@ class SaveError extends Error {
       'init-failed':  'Cloud sync is not available. Please reload the page.',
       'write-failed': 'Could not save to cloud. Please check your connection and try again.',
       'no-db':        'Cloud sync is still starting up. Please wait a moment and try again.',
+      // V383 fix: 'tombstone-cap' previously fell through to the generic
+      // 'Save failed.' fallback, hiding the actual reason from the user.
+      'tombstone-cap': 'Save blocked by the mass-delete safety cap. Use the bulk-delete tool for large deletions, or refresh the app and try again.',
     })[reason] || 'Save failed. Please try again.';
     super(msg);
     this.name = 'SaveError';
@@ -6333,6 +6398,17 @@ async function fbSyncCollection(coll, newArr, idField, lastMapRef) {
   if (!FB.db) throw new SaveError('no-db');
   const diff = fbDiff(newArr, FB[lastMapRef], idField);
   if (diff.writes.length === 0 && diff.deletes.length === 0) return;
+  // V383 fix: evaluate the V371 bulk-delete bypass window HERE, before
+  // the V321 reassign-guard verify loop below. The loop used to run one
+  // Firebase read per deleted record BEFORE the cap check; for a bulk delete
+  // of 50+ records that easily exceeds the 5-second bypass window, so the
+  // cap check saw an expired flag and blocked the very deletes the bulk-delete
+  // UI had just authorised ("Save failed" on every large bulk delete). The
+  // window must measure how recently the USER confirmed the bulk delete,
+  // not how fast the network verified it.
+  const _v371BypassFresh = (typeof window !== 'undefined'
+    && window._v371BulkDeleteOk
+    && (Date.now() - window._v371BulkDeleteOk < 5000));
   // V317 Fix C: reassign-guard. Before we issue any delete, verify each
   // record is actually gone from Firebase. The diff thinks a record is
   // deleted because it's in FB[lastMapRef] but not in newArr — but that
@@ -6382,7 +6458,11 @@ async function fbSyncCollection(coll, newArr, idField, lastMapRef) {
     if (_guardUser.role === 'scopedViewerByFc') return false;
     return true;  // unknown role — don't suppress a delete
   };
-  for (const d of diff.deletes) {
+  // V383 fix: verify all deletes IN PARALLEL (Promise.all) instead of one
+  // awaited read per record. The serial loop cost N round-trips for N deletes
+  // (~100ms each — a 100-record bulk delete spent 10+ seconds just verifying).
+  // The reads are independent; Firebase pipelines them over one socket.
+  await Promise.all(diff.deletes.map(async (d) => {
     try {
       const snap = await FB.db.ref(`${FB_NAMESPACE}/${coll}/${d}`).once('value');
       if (snap.exists() && !_recInScope(snap.val())) {
@@ -6415,7 +6495,7 @@ async function fbSyncCollection(coll, newArr, idField, lastMapRef) {
       console.warn(`[V321 reassign-guard] Verify failed for ${coll}/${d}; keeping delete:`, e);
       survivingDeletes.push(d);
     }
-  }
+  }));
   diff.deletes = survivingDeletes;
   if (diff.writes.length === 0 && diff.deletes.length === 0) return;
   // ── V371 [Guard 1]: Pre-save tombstone cap ────────────────────────────────
@@ -6430,9 +6510,10 @@ async function fbSyncCollection(coll, newArr, idField, lastMapRef) {
   const _V371_TOMBSTONE_CAP = 5;
   if ((coll === 'beneficiaries' || coll === 'advocacy')
       && diff.deletes.length > _V371_TOMBSTONE_CAP) {
-    const _v371Bypass = (typeof window !== 'undefined'
-      && window._v371BulkDeleteOk
-      && (Date.now() - window._v371BulkDeleteOk < 5000));
+    // V383 fix: use the bypass freshness evaluated BEFORE the reassign-
+    // guard verify loop (see _v371BypassFresh above). Re-checking Date.now()
+    // here punished slow networks/large deletes, not stale caches.
+    const _v371Bypass = _v371BypassFresh;
     if (!_v371Bypass) {
       console.error('[V371 GUARD-1] BLOCKED save: would tombstone '
         + diff.deletes.length + ' ' + coll + ' records (cap=' + _V371_TOMBSTONE_CAP
@@ -24039,9 +24120,20 @@ function _validateImportRows() {
 // Called when admin clicks "Confirm Import". Writes all valid rows (and any
 // warning-only rows the admin chose to include based on dupeDecision). Runs
 // as a single batch: one saveData + one auditLog entry.
+// V383 fix: re-entrancy guard for confirmBulkImport. The import loop
+// awaits one genId() Firebase round-trip per row, so a large file keeps the
+// function in flight for many seconds — and the "Confirm Import" button
+// stays enabled the whole time (_importState is only reset at the very end).
+// A second click started a concurrent second run with its own batchId and
+// enrolled every row TWICE. The guard makes the second click a no-op.
+let _importRunInFlight = false;
 async function confirmBulkImport() {
   if (!isAdmin()) return toast('Import is admin-only.', 'error');
   if (!_importState.validated) return;
+  if (_importRunInFlight) {
+    toast('Import is already running — please wait for it to finish.', 'warn', 5000);
+    return;
+  }
 
   const importable = _importState.validated.filter(v => {
     if (v.status === 'error') return false;
@@ -24069,6 +24161,13 @@ async function confirmBulkImport() {
     toast('Still syncing with the server. Please wait a few seconds and try the import again.', 'warn', 6000);
     return;
   }
+
+  // V383: all early-return gates passed — mark the run in flight. The
+  // outer try/finally guarantees the flag clears on every exit (success,
+  // failed final save, or an unexpected throw), so the import button is
+  // never permanently locked.
+  _importRunInFlight = true;
+  try {
 
   const data = loadData();
   const advData = loadAdv();
@@ -24255,12 +24354,41 @@ async function confirmBulkImport() {
   // FB.lastBenef and writes them in a single multi-path update().
   // V310-S2: await Firebase. On failure, surface clearly — the entire batch
   // didn't land in cloud and the user should retry.
+  let _benefSaved = false;
   try {
     await saveData(data);
+    _benefSaved = true;
     await saveAdv(advData);
   } catch (e) {
     const msg = (e instanceof SaveError) ? e.message : 'Bulk import failed to save to cloud.';
-    if (typeof toast === 'function') toast(msg + ' Please retry the import.', 'error', 10000);
+    if (!_benefSaved) {
+      // V383 fix: the per-row saveData() calls in the loop above (bulk-
+      // import path) hydrated the in-memory cache AND the IndexedDB pantry
+      // with this batch's records even though Firebase never accepted them.
+      // Leaving those ghosts in place had two effects observed in staging:
+      //   1. Retrying the import duplicated every row — the ghosts made
+      //      loadData() include batch 1, so the retry's final save pushed
+      //      BOTH batches to Firebase ("enrolled 2 times").
+      //   2. ANY later full-array save (including a bulk delete's
+      //      saveData(all.filter(...))) diffed the ghosts as fresh writes
+      //      and silently committed them — "deleted entries came back".
+      // Purge the failed batch from cache + pantry so local state matches
+      // Firebase again before the user retries. Filter by the exact IDs
+      // created in THIS run (importedIds) rather than _batchId: batchId is
+      // the last 7 digits of a timestamp and could theoretically collide
+      // with an old batch's id, whereas importedIds are genId()-claimed
+      // fresh IDs that cannot belong to any pre-existing record.
+      try {
+        const _failedIds = new Set(importedIds);
+        _hydrateBenefCache(loadData().filter(b => !_failedIds.has(b.id)));
+      } catch(_) {}
+      if (typeof toast === 'function') toast(msg + ' Nothing was imported. Please retry the import.', 'error', 10000);
+    } else {
+      // Beneficiaries ARE committed in Firebase; only the advocacy rows
+      // failed. Do NOT tell the user to retry the whole import — that would
+      // duplicate every beneficiary. Scheme rows can be re-added per record.
+      if (typeof toast === 'function') toast('Beneficiaries were imported, but their scheme rows failed to save: ' + msg + ' Do NOT re-import — add scheme rows from each record instead.', 'error', 12000);
+    }
     return;
   }
 
@@ -24287,6 +24415,12 @@ async function confirmBulkImport() {
   _importState = { fileName: null, rawRows: null, validated: null, activeRowIdx: null, dupeDecision: null };
   _rebuildStateFilterOptions();
   renderAdminImport();
+
+  // V383: closes the in-flight guard try opened after the early-return
+  // gates. finally guarantees the flag clears on every exit path.
+  } finally {
+    _importRunInFlight = false;
+  }
 }
 
 // Download just the error rows as a CSV so the admin can fix and re-upload
