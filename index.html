@@ -1,6 +1,38 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V383-LIVE
+  KRSF Beneficiary Impact Tracker  -  V384-LIVE
+  ============================================================================
+  V384-LIVE (2026-06-14 — Advocacy scheme-chip counts respect status filter):
+
+    Issue: on the Advocacy view, when admin clicked a status pill at the
+    top (Need to Apply / All Applications Submitted / Applied but Benefits
+    Pending / Benefits Received / Applications Rejected), the beneficiary
+    list below was correctly filtered, BUT the scheme filter chips in the
+    middle (Ayushman Bharat, Birth Certificate, Caste Certificate, etc.)
+    continued to show their unfiltered total counts. Example: clicking
+    "Benefits Received" left "Ayushman Bharat 72290" visible — that is the
+    total Ayushman Bharat applications tracked, not the Benefits Received
+    subset. Misleading numbers in the chip row caused real confusion about
+    what was actually being filtered.
+
+    [Fix] _advSchemeChips now accepts the active status filter (advStageF)
+    and filters its row set before counting. Status semantics:
+      - empty advStageF                 → no filter (unchanged behaviour)
+      - 'ALL_SUBMITTED_FILTER'          → everything except Need to Apply
+      - any specific status string      → exact match
+    Chip totals (including the All Schemes / Other Schemes chips) now
+    reflect the same scope as the beneficiary list below.
+
+    What does NOT change:
+      - The per-row scheme pills were already filtered correctly via
+        rowFilter in _advBenTab2; no change there.
+      - The summary strip at top (the cells you click) continues to show
+        totals as before — those numbers are the click targets.
+      - Status filter logic, scheme chip click behaviour, and pagination
+        are all unchanged.
+
+    + APP_VERSION bumped to V384-LIVE.
+    REQUIRES: nothing. Single-function change in renderAdvocacy path.
   ============================================================================
   V383-LIVE (2026-06-10 — staging hotfixes ported: 3 bugs, 6 code changes):
 
@@ -3788,7 +3820,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V383-LIVE';
+const APP_VERSION = 'V384-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -16360,7 +16392,11 @@ function renderAdvocacy(sub) {
   const stripNote = `<div style="font-size:10px;color:var(--gray2);margin:-8px 2px 12px 2px;line-height:1.4">Total Beneficiaries and Benefit Amount are per person / ₹. The 5 middle cells count individual scheme applications — one beneficiary with multiple schemes contributes to each status they have.</div>`;
 
   // Scheme filter chips
-  const schemeChips = _advSchemeChips(allAdv);
+  // V384: pass the active status filter (advStageF) so each scheme chip's
+  // count reflects only rows matching that status. Without this, clicking
+  // "Benefits Received" still showed "Ayushman Bharat 72290" (the total
+  // tracked count) instead of the Benefits Received subset for each scheme.
+  const schemeChips = _advSchemeChips(allAdv, advStageF);
 
   const inner = _advBenTab2(allAdv, allB);
   // V329: preserve scroll position — replacing innerHTML resets scroll to top.
@@ -16384,9 +16420,20 @@ function renderAdvocacy(sub) {
   }));
 }
 
-function _advSchemeChips(allAdv) {
-  const allRows = _advLatestRowsAll(allAdv);
-  // Count per scheme (latest only)
+function _advSchemeChips(allAdv, activeStatus) {
+  const allRowsRaw = _advLatestRowsAll(allAdv);
+  // V384: respect the active status filter (advStageF) when counting scheme
+  // chips. 'ALL_SUBMITTED_FILTER' = anything except Need to Apply. Empty
+  // status = no filter (current behaviour preserved). Specific status =
+  // exact match. Without this, clicking a status pill showed the right
+  // beneficiary list below but the chips above kept their unfiltered totals,
+  // making the chip numbers misleading.
+  const allRows = !activeStatus
+    ? allRowsRaw
+    : activeStatus === 'ALL_SUBMITTED_FILTER'
+      ? allRowsRaw.filter(r => _advNormStatus(r) !== 'Need to Apply')
+      : allRowsRaw.filter(r => _advNormStatus(r) === activeStatus);
+  // Count per scheme (latest only, after status filter)
   const ic = {};
   allRows.forEach(r=>{ if(r.scheme) ic[r.scheme]=(ic[r.scheme]||0)+1; });
   const total = allRows.length;
