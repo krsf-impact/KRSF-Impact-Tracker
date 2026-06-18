@@ -1,6 +1,65 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V385-LIVE
+  KRSF Beneficiary Impact Tracker  -  V387-LIVE
+  ============================================================================
+  V387-LIVE (2026-06-14 — Recent Updates fix for scheme status_change events):
+
+    Bug: V386 fixed Recent Updates to show the beneficiary's name on
+    advocacy "update" events, but the remaining "Stage Changed" rows
+    (scheme status_change events — e.g. an FC marking Caste Certificate
+    as Benefits Received) STILL showed the scheme name in the Beneficiary
+    column. Same visible symptom, different code path.
+
+    Cause: advocacy audit events come in two shapes.
+      Shape 1 — action='update', recordType='advocacy':
+        recordId is the advocacy record id (ADV-xxx).
+        Resolved via advBidByAdvId → beneficiary id.
+      Shape 2 — action='status_change', recordType='advocacy':
+        recordId IS the beneficiary id directly (see auditLog call near
+        line 9855: `auditLog('status_change','advocacy', bid, scheme, ...)`).
+    V386 only handled shape 1. For shape 2 the lookup returned undefined,
+    bid stayed null, and beneficiaryName fell back to recordLabel — the
+    scheme name.
+
+    [Fix] In the bid-resolution block for advocacy events, try recordId-
+    as-bid first (matches shape 2). If recordId is in nameById, that's our
+    beneficiary. Only fall back to the ADV-xxx lookup if shape 2 doesn't
+    apply. Legacy name-match fallback preserved as last resort.
+
+    Net effect: every advocacy row in Recent Updates now shows the
+    beneficiary's name in the Beneficiary column and the scheme name in
+    the Details column.
+
+    + APP_VERSION bumped to V387-LIVE.
+    REQUIRES: nothing. Display-layer fix only.
+  ============================================================================
+  V386-LIVE (2026-06-14 — Recent Updates shows beneficiary name on advocacy events):
+
+    Bug: in the Dashboard's Recent Updates table, when an FC updated a
+    scheme's status (e.g. marked "Ayushman Bharat" as Benefits Received
+    for Rameshbhai Parmar), the Beneficiary column showed the SCHEME name
+    ("Ayushman Bharat") instead of the person's name. Confusing — admins
+    couldn't tell at a glance which beneficiary was affected.
+
+    Cause: _renderDashboardRecentUpdates set
+      beneficiaryName = escHtml(e.recordLabel || '')
+    unconditionally. For advocacy events the audit-log entry stores the
+    scheme name in recordLabel (it's the most identifying field of the
+    advocacy record). For beneficiary events recordLabel is the
+    beneficiary's name. The display path didn't distinguish the two.
+
+    [Fix] Moved bid resolution above the beneficiaryName computation so
+    we can look up the actual person's name on advocacy events:
+      - Beneficiary events: e.recordLabel (unchanged — already the name)
+      - Advocacy events: nameById[bid] when the bid resolves, else fall
+        back to e.recordLabel (preserves legacy display when the advocacy
+        record was deleted before this fix landed)
+    Scheme info is preserved in the Details column (summary already
+    describes the status transition, e.g. "Ayushman Bharat: Applied →
+    Benefits Received").
+
+    + APP_VERSION bumped to V386-LIVE.
+    REQUIRES: nothing. Display-layer change only.
   ============================================================================
   V385-LIVE (2026-06-14 — Advocacy summary strip shows beneficiary counts):
 
@@ -3850,7 +3909,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V385-LIVE';
+const APP_VERSION = 'V387-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -16133,34 +16192,61 @@ function _renderDashboardRecentUpdates(list) {
   const rowsHtml = events.map(e => {
     const col = actionColor(e.action);
     const label = actionLabel(e);
-    // V308.1: full escape via escHtml. Previous partial '<'-only escape didn't
-    // cover '>', '&', '"', "'" so attribute-context injection still slipped.
-    const beneficiaryName = escHtml(e.recordLabel||'');
-    const summary = escHtml(e.summary||'');
-    const displayName = (e.userId && fullNameById[e.userId]) || e.username || '—';
-    const who = escHtml(displayName + (e.role==='admin'?' (Admin)':e.role==='ngo'?' (NGO)':e.role==='coordinator'?' (FC)':''));
+    // V386 [Fix]: bid resolution moved BEFORE the Beneficiary column value
+    // so we can show the actual person's name on advocacy events. Previously
+    // beneficiaryName was always e.recordLabel — for advocacy events that is
+    // the SCHEME name (e.g. "Ayushman Bharat"), not the person. Resolving
+    // via the advocacy store's bid field gives us the real beneficiary id,
+    // and nameById then gives the real beneficiary name. Scheme info is
+    // preserved in the Details column (summary) which already describes the
+    // status transition.
     // For beneficiary events we can make the row clickable to open the drawer;
     // for advocacy events the recordId is ADV-xxx so we resolve it through
-    // the advocacy store (same lookup used for visibility filter above).
-    // V326: For admin users, also allow clicking records that aren't in the
-    // local cache yet (newly created records visible in audit before the
-    // Firebase listener has delivered them). openDrawer() handles the
-    // not-found case gracefully.
+    // the advocacy store. V326: admins can click records that aren't in the
+    // local cache yet (audit log delivers faster than listener replay).
     let bid = null;
     if (e.recordType === 'beneficiary') {
       if (visibleIds.has(e.recordId) || isAdmin) {
         bid = e.recordId;
       }
     } else if (e.recordType === 'advocacy') {
-      const resolved = advBidByAdvId[e.recordId];
-      if (resolved && (visibleIds.has(resolved) || isAdmin)) {
-        bid = resolved;
+      // V387 [Fix]: advocacy audit events come in TWO shapes:
+      // (1) action === 'update' on the advocacy record: recordId is ADV-xxx,
+      //     resolved via advBidByAdvId to find the beneficiary id.
+      // (2) action === 'status_change': recordId IS the beneficiary id
+      //     directly (see auditLog call near line 9855:
+      //     `auditLog('status_change', 'advocacy', bid, scheme, ...)`).
+      // V386 only handled shape 1. For shape 2 the lookup returned undefined
+      // → bid stayed null → beneficiaryName fell back to e.recordLabel which
+      // is the SCHEME name ("Caste Certificate"). User saw it as the
+      // remaining "Stage Changed" rows still showing scheme names.
+      // Try recordId-as-bid first (shape 2), then ADV-xxx lookup (shape 1),
+      // then the legacy name-match fallback.
+      if (nameById[e.recordId]) {
+        bid = e.recordId;  // shape 2: status_change events
       } else {
-        // Legacy fallback: advocacy record was deleted, match by name
-        const match = [...visibleIds].find(id => nameById[id] === e.recordLabel);
-        if (match) bid = match;
+        const resolved = advBidByAdvId[e.recordId];
+        if (resolved && (visibleIds.has(resolved) || isAdmin)) {
+          bid = resolved;  // shape 1: update events on advocacy records
+        } else {
+          // Legacy fallback: advocacy record was deleted, match by name
+          const match = [...visibleIds].find(id => nameById[id] === e.recordLabel);
+          if (match) bid = match;
+        }
       }
     }
+    // V386 [Fix]: choose the beneficiary name to display.
+    // - Beneficiary events: e.recordLabel is the beneficiary name (correct).
+    // - Advocacy events: prefer nameById[bid] (the real person). Fall back
+    //   to e.recordLabel only when the bid cannot be resolved (e.g. legacy
+    //   data where the advocacy record was deleted before this fix landed).
+    // V308.1: full escape via escHtml.
+    const beneficiaryName = (e.recordType === 'advocacy' && bid && nameById[bid])
+      ? escHtml(nameById[bid])
+      : escHtml(e.recordLabel || '');
+    const summary = escHtml(e.summary||'');
+    const displayName = (e.userId && fullNameById[e.userId]) || e.username || '—';
+    const who = escHtml(displayName + (e.role==='admin'?' (Admin)':e.role==='ngo'?' (NGO)':e.role==='coordinator'?' (FC)':''));
     const ebid = bid ? escHtml(bid) : '';
     return `<tr ${bid?`onclick="openDrawer('${ebid}')" style="cursor:pointer"`:''}>
       <td style="font-size:12px;color:var(--gray2);white-space:nowrap">${ago(e.ts)}</td>
