@@ -1,6 +1,36 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V384-LIVE
+  KRSF Beneficiary Impact Tracker  -  V385-LIVE
+  ============================================================================
+  V385-LIVE (2026-06-14 — Advocacy summary strip shows beneficiary counts):
+
+    UX upgrade. The 5 clickable status cells in the Advocacy summary strip
+    (Need to Apply / All Applications Submitted / Applied but Benefits
+    Pending / Benefits Received / Applications Rejected) used to show an
+    abstract percentage subtitle like "73% of applications". Admins kept
+    asking how many ACTUAL PEOPLE were behind each application count.
+
+    [Fix] Each filter cell now shows a beneficiary-count subtitle instead.
+    Format: "9,217 beneficiaries" (Indian-locale formatting, singular
+    "beneficiary" when count is 1).
+      - Big number on the cell still counts SCHEME ROWS (a person tracked
+        for 3 schemes contributes 3 — unchanged, that's the click target).
+      - Subtitle now counts UNIQUE __bid values for rows in that status.
+      - "All Applications Submitted" subtitle uses unique bids across the
+        three filed statuses (Applied + Benefits Received + Rejected).
+      - Total Beneficiaries (leftmost) and Benefit Amount (rightmost) are
+        unchanged — they had no percentage subtitle to begin with.
+
+    Implementation: single pass over allRows builds one Set per status of
+    distinct beneficiary IDs. Cost is O(n) where n is total scheme rows;
+    on ~189K rows in production this adds about 5-15ms per Advocacy render,
+    imperceptible. summaryStrip helper extended with a new optional `sub`
+    field that overrides the percentage bar+text. Cells without `sub` keep
+    the old percentage-bar rendering — backward compatible with Livelihood
+    and other views.
+
+    + APP_VERSION bumped to V385-LIVE.
+    REQUIRES: nothing. Display-layer change only; data layer untouched.
   ============================================================================
   V384-LIVE (2026-06-14 — Advocacy scheme-chip counts respect status filter):
 
@@ -3820,7 +3850,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V384-LIVE';
+const APP_VERSION = 'V385-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -15439,10 +15469,18 @@ function summaryStrip(cells, rowClass) {
     const textc  = c.textc || '#111827';
     const active = !!c.active;
     const pctW   = (c.pct != null) ? c.pct : null;
-    const barHtml = pctW != null
-      ? `<div style="height:3px;background:#E5E7EB;border-radius:2px;margin-top:auto;overflow:hidden"><div style="height:100%;width:${pctW}%;background:${col};border-radius:2px"></div></div>
-         <div style="font-size:10px;color:#6B7280;margin-top:4px">${pctW}% ${c.pctLabel||''}</div>`
-      : '';
+    // V385: when a cell provides `sub`, it replaces the percentage bar+text
+    // with a plain subtitle line. Used by the Advocacy summary strip to show
+    // "X beneficiaries" instead of "X% of applications" (more actionable —
+    // tells the admin how many unique people are behind those applications).
+    // Falls back to the pct bar if `sub` is absent, preserving Livelihood +
+    // any other view that still uses the percentage style.
+    const barHtml = c.sub != null
+      ? `<div style="font-size:11px;color:#6B7280;margin-top:auto;padding-top:6px">${c.sub}</div>`
+      : pctW != null
+        ? `<div style="height:3px;background:#E5E7EB;border-radius:2px;margin-top:auto;overflow:hidden"><div style="height:100%;width:${pctW}%;background:${col};border-radius:2px"></div></div>
+           <div style="font-size:10px;color:#6B7280;margin-top:4px">${pctW}% ${c.pctLabel||''}</div>`
+        : '';
     return `<div onclick="${c.onclick||''}" style="background:#fff;border:2px solid ${active?col:'#E5E7EB'};border-radius:9px;padding:12px 14px;cursor:pointer;transition:.15s;height:100%;display:flex;flex-direction:column;min-height:96px" onmouseover="this.style.borderColor='${col}'" onmouseout="this.style.borderColor='${active?col:'#E5E7EB'}'">
       <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:${textc};margin-bottom:5px">${c.label}</div>
       <div style="font-size:22px;font-weight:700;color:${textc};line-height:1.1">${c.val}</div>
@@ -16377,16 +16415,39 @@ function renderAdvocacy(sub) {
   const filedTotal = appliedCnt + rejectedCnt + benefitCnt;
 
   const pctOf = n => filedTotal ? Math.round(n/filedTotal*100) : 0;
+  // V385: compute unique beneficiary counts per status. The big number on
+  // each cell counts SCHEME ROWS (one person tracked for 3 schemes adds 3);
+  // the subtitle now shows how many UNIQUE PEOPLE are behind those rows,
+  // which is more actionable for admins. Single pass over allRows; one Set
+  // per status holds distinct __bid values, plus one combined Set for
+  // "All Applications Submitted" (everything except Need to Apply).
+  const bidsBy = Object.create(null);
+  const submittedBidsSet = new Set();
+  for (const r of allRows) {
+    const s = _advNormStatus(r);
+    if (!bidsBy[s]) bidsBy[s] = new Set();
+    bidsBy[s].add(r.__bid);
+    if (s !== 'Need to Apply') submittedBidsSet.add(r.__bid);
+  }
+  const _benSize = s => (bidsBy[s] ? bidsBy[s].size : 0);
+  const _benSub = n => n.toLocaleString('en-IN') + ' beneficiar' + (n === 1 ? 'y' : 'ies');
+  const needApplyBens = _benSize('Need to Apply');
+  const appliedBens   = _benSize('Applied');
+  const benefitBens   = _benSize('Benefits Received');
+  const rejectedBens  = _benSize('Rejected');
+  const submittedBens = submittedBidsSet.size;
+
   // Single row of 7 cells — Total Beneficiaries (bids) + 5 application-status
-  // cells (rows) + Benefit Amount (₹). A small clarifier below prevents
-  // misreading bid-counts and row-counts as the same unit.
+  // cells (rows) + Benefit Amount (₹). The new `sub` field on each filter
+  // cell replaces the old "X% of applications" line with the beneficiary
+  // count subtitle (V385).
   const strip = summaryStrip([
     {kind:'readonly', label:'Total Beneficiaries', val: totalBens},
-    {kind:'filter',   label:'Need to Apply',               val: needApplyCnt,   col:'#F59E0B', textc:'#B45309', active: advStageF==='Need to Apply',    pct: allRows.length?Math.round(needApplyCnt/allRows.length*100):0, pctLabel:'of tracked', onclick:`advStageF='${advStageF==='Need to Apply'?'':'Need to Apply'}';advBCurrentPage=1;renderAdvocacy(advSubTab)`},
-    {kind:'filter',   label:'All Applications Submitted',  val: filedTotal,     col:'#6B7280', textc:'#374151', active: advStageF==='ALL_SUBMITTED_FILTER',    pct: allRows.length?Math.round(filedTotal/allRows.length*100):0,   pctLabel:'of tracked', onclick:`advStageF='${advStageF==='ALL_SUBMITTED_FILTER'?'':'ALL_SUBMITTED_FILTER'}';advBCurrentPage=1;renderAdvocacy(advSubTab)`},
-    {kind:'filter',   label:'Applied but Benefits Pending',val: appliedCnt,     col:'#60A5FA', textc:'#1D4ED8', active: advStageF==='Applied',          pct: pctOf(appliedCnt),    pctLabel:'of applications', onclick:`advStageF='${advStageF==='Applied'?'':'Applied'}';advBCurrentPage=1;renderAdvocacy(advSubTab)`},
-    {kind:'filter',   label:'Benefits Received',           val: benefitCnt,     col:'#10B981', textc:'#065F46', active: advStageF==='Benefits Received',pct: pctOf(benefitCnt),    pctLabel:'of applications', onclick:`advStageF='${advStageF==='Benefits Received'?'':'Benefits Received'}';advBCurrentPage=1;renderAdvocacy(advSubTab)`},
-    {kind:'filter',   label:'Applications Rejected',       val: rejectedCnt,    col:'#F87171', textc:'#991B1B', active: advStageF==='Rejected',         pct: pctOf(rejectedCnt),   pctLabel:'of applications', onclick:`advStageF='${advStageF==='Rejected'?'':'Rejected'}';advBCurrentPage=1;renderAdvocacy(advSubTab)`},
+    {kind:'filter',   label:'Need to Apply',               val: needApplyCnt,   col:'#F59E0B', textc:'#B45309', active: advStageF==='Need to Apply',         sub: _benSub(needApplyBens), onclick:`advStageF='${advStageF==='Need to Apply'?'':'Need to Apply'}';advBCurrentPage=1;renderAdvocacy(advSubTab)`},
+    {kind:'filter',   label:'All Applications Submitted',  val: filedTotal,     col:'#6B7280', textc:'#374151', active: advStageF==='ALL_SUBMITTED_FILTER',  sub: _benSub(submittedBens), onclick:`advStageF='${advStageF==='ALL_SUBMITTED_FILTER'?'':'ALL_SUBMITTED_FILTER'}';advBCurrentPage=1;renderAdvocacy(advSubTab)`},
+    {kind:'filter',   label:'Applied but Benefits Pending',val: appliedCnt,     col:'#60A5FA', textc:'#1D4ED8', active: advStageF==='Applied',               sub: _benSub(appliedBens),   onclick:`advStageF='${advStageF==='Applied'?'':'Applied'}';advBCurrentPage=1;renderAdvocacy(advSubTab)`},
+    {kind:'filter',   label:'Benefits Received',           val: benefitCnt,     col:'#10B981', textc:'#065F46', active: advStageF==='Benefits Received',     sub: _benSub(benefitBens),   onclick:`advStageF='${advStageF==='Benefits Received'?'':'Benefits Received'}';advBCurrentPage=1;renderAdvocacy(advSubTab)`},
+    {kind:'filter',   label:'Applications Rejected',       val: rejectedCnt,    col:'#F87171', textc:'#991B1B', active: advStageF==='Rejected',              sub: _benSub(rejectedBens),  onclick:`advStageF='${advStageF==='Rejected'?'':'Rejected'}';advBCurrentPage=1;renderAdvocacy(advSubTab)`},
     {kind:'readonly', label:'Benefit Amount (₹)', val: totalAmt>0 ? '₹'+totalAmt.toLocaleString('en-IN') : '—'},
   ], 'adv-summary-strip');
   const stripNote = `<div style="font-size:10px;color:var(--gray2);margin:-8px 2px 12px 2px;line-height:1.4">Total Beneficiaries and Benefit Amount are per person / ₹. The 5 middle cells count individual scheme applications — one beneficiary with multiple schemes contributes to each status they have.</div>`;
