@@ -1,6 +1,143 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V387-LIVE
+  KRSF Beneficiary Impact Tracker  -  V389-LIVE
+  ============================================================================
+  V389-LIVE (2026-06-20 — 5 small post-audit fixes, zero Firebase impact):
+
+    All 5 changes are tiny, isolated, and do not touch the save path.
+    Egress unchanged, load time unchanged, schema unchanged, live data
+    untouched. The big saveData/saveAdv 40-callsite migration is parked
+    under user nickname "B1" and waits for an explicit request.
+
+    1. fbSyncWholeArray + fbSyncWholeObject surface failures via toast.
+       Previously the catch block only console.warn'd, so saveSchemes /
+       saveLivTypes / saveSchemesMeta showed a "Renamed" toast even when
+       the cloud write actually failed. Admin now sees "Cloud save failed
+       for <path>. Local copy kept — please retry." API unchanged; old
+       callers still work because the helpers don't throw.
+
+    2. _ensureCachePrimed self-heals on corrupted localStorage.
+       If JSON.parse of USERS_KEY or krsf_partners_v2 throws, we now
+       delete the bad key in the catch so the next session re-fetches
+       from Firebase instead of leaving the user locked out with an
+       empty cache for the rest of the session.
+
+    3. _v343VersionCheck only self-promotes _minVersion on LIVE builds.
+       Wrapped the fbRef('_minVersion').set(APP_VERSION) call in
+       `if (APP_VERSION.endsWith('-LIVE'))`. A DEV build accidentally
+       pointed at production cannot force-reload every real user into
+       a version they cannot fetch.
+
+    4. Advocacy IDs use crypto.randomUUID() across all 4 generation sites.
+       Closes the ~10% collision rate on 100-row bulk imports (old
+       Date.now() + Math.random()*1000 collided same-ms with 1-in-1000
+       prob). The single-record paths used Date.now() only, which also
+       could collide on ms-adjacent saves — fixed for consistency.
+       Format: `ADV-<8 hex chars>` (e.g. ADV-550e8400). 4 billion unique
+       prefixes, effectively zero collision risk.
+
+    5. saveMyAccount auto-close timer is cancellable.
+       Tracks the setTimeout id on a module-level variable. New helper
+       closeMyAccountModal() cancels the timer + hides the modal. The X
+       button and Cancel button now call this helper. openMyAccount()
+       also cancels any pending timer up-front so a rapid re-open can't
+       be auto-closed by a stale timer from the previous open.
+
+    What does NOT change:
+      - Save / load / Firebase logic (V388 already shipped XSS escaping
+        + typed-delete + themed confirms — those are stable)
+      - V371 tombstone cap, V374 partial-cache guard, V381 saveOneUser,
+        V383 ghost-purge — all unchanged
+      - Firebase config (still production: krsf-impact-tracking)
+      - All routes, role gates, permission boundaries
+      - All public APIs of save helpers
+
+    Deferred to a future version when user requests it ("B1"):
+      - saveData / saveAdv 40-callsite single-record migration that
+        closes the V371-class data-loss pattern. V371 cap continues to
+        protect against >5 record losses; 1-5 record stale-cache losses
+        remain possible until B1 ships.
+
+  ============================================================================
+  V388-LIVE (2026-06-20 — Audit-driven security + UX hardening, zero Firebase impact):
+
+    Bundles 9 fixes from the V387 audit. All are render-side or input-side.
+    No new Firebase reads/writes/listeners. No schema changes. Existing
+    data untouched. Bandwidth budget unchanged.
+
+    1. XSS escHtml sweep across ~14 render sites.
+       Wraps user-controlled fields (beneficiary names, partner names,
+       villages, NGO labels, audit log summaries, scheme rows, map popup
+       text, advocacy search results, partners-as-option dropdowns) in
+       escHtml() so a tainted name like `<img src=x onerror=...>` saved
+       by any FC can no longer execute when another user (incl. admin)
+       opens the affected view. The partner table buttons also switched
+       from inline-onclick interpolation to data-* attributes for
+       genuine attribute-context safety.
+
+    2. Toast z-index 999 → 13500.
+       Toasts sat behind modals (12000) — save confirmations and errors
+       were rendering invisibly inside any modal/drawer.
+
+    3. Login overlay z-index 10000 → 50000.
+       Was sharing 10000 with the detail drawer. If a session expired
+       mid-drawer, stacking was DOM-order-dependent. Now always on top.
+
+    4. Themed prompt modal — adminRenameScheme + adminRenameLivType.
+       Replaces the 2 native prompt() calls. iOS Safari was dropping
+       native prompts when the keyboard appeared.
+
+    5. Themed modal migration for destructive confirms (9 callsites).
+       Migrated to showConfirmModal(): revertStage, deleteBeneficiary
+       (both branches), deleteLogEntry, undoBulkEndline, adminDelete-
+       Partner, adminMergePartner, undoBulkStatusForBeneficiary,
+       adminDeleteLivType, adminDeleteScheme. Two latter functions
+       converted from sync to async — onclick handlers don't use return
+       values, so signature change is safe. Remaining confirms (bulk
+       import, endline bulk apply, dedup paths, ~12 sites) deferred to
+       V389 — bigger contexts, more testing surface.
+
+    6. toast() null guard.
+       Returns early if #toast div not yet in DOM. Prevents TypeError
+       from very-early errors that fire before the shell renders.
+
+    7. saveSchemes scopedViewer / scopedViewerByFc role block.
+       Mirrors the saveLivTypes IIFE guard. A donor (scopedViewer) with
+       devtools console access can no longer overwrite the global schemes
+       list. (Real enforcement still belongs in Firebase Rules.)
+
+    8. Bulk delete typed confirmation.
+       deleteSelectedBeneficiaries now opens showTypedConfirmModal —
+       admin must type DELETE before the confirm button activates.
+       Closes the accidental mass-tombstone risk that gave us the
+       V371-class catastrophes (Bhavishaben 386 records, Anilbhai 209).
+
+    9. Six hidden admin routes exposed in sidebar.
+       Removed data-sidebar-hidden="true" from Audit Log, Photo Migration,
+       Advocacy Backfill, Fix Duplicate IDs, Delete Duplicate Records,
+       Scheme Rename Backfill. They no longer require typing
+       window.nav('admin_xxx') in the console.
+
+    New helpers introduced (inserted after showConfirmModal):
+      - showPromptModal(message, defaultValue, opts) → Promise<string|null>
+      - showTypedConfirmModal(message, requiredText, opts) → Promise<boolean>
+
+    What does NOT change in this version:
+      - Save / load / Firebase logic untouched
+      - V371 tombstone cap unchanged
+      - V381 single-record saveUsers pattern unchanged
+      - V383 stale-cache purge unchanged
+      - All existing routes, role gates, permission boundaries
+      - Firebase config (still production: krsf-impact-tracking)
+
+    Deferred to V389 (needs staging time):
+      - saveData / saveAdv 40-callsite single-record migration
+      - fbSyncWholeArray surface failures
+      - _ensureCachePrimed corruption recovery
+      - _v343VersionCheck dev/prod guard
+      - Advocacy bulk-import ID collision (crypto.randomUUID)
+      - Remaining destructive confirms (~12 sites)
+
   ============================================================================
   V387-LIVE (2026-06-14 — Recent Updates fix for scheme status_change events):
 
@@ -1829,7 +1966,7 @@ html,body{height:100%;font-family:var(--font);background:#EEF2F7;color:var(--tex
 /* Toast: pops up bottom-right with slide-in, auto-hides after 3s. Larger and
    more visible since status-update confirmations are the primary use case and
    were too easy to miss at the old 13px size. */
-.toast{position:fixed;bottom:28px;right:28px;background:var(--navy);color:#fff;padding:16px 22px;border-radius:10px;font-size:16px;font-weight:600;z-index:999;transform:translateY(100px);opacity:0;transition:transform .25s cubic-bezier(.2,.9,.3,1.2),opacity .25s;max-width:380px;box-shadow:0 12px 32px rgba(0,0,0,.28);line-height:1.35}
+.toast{position:fixed;bottom:28px;right:28px;background:var(--navy);color:#fff;padding:16px 22px;border-radius:10px;font-size:16px;font-weight:600;z-index:13500;transform:translateY(100px);opacity:0;transition:transform .25s cubic-bezier(.2,.9,.3,1.2),opacity .25s;max-width:380px;box-shadow:0 12px 32px rgba(0,0,0,.28);line-height:1.35}
 .toast.show{transform:translateY(0);opacity:1}
 .toast.success{background:var(--green)}
 .toast.error{background:var(--red)}
@@ -3055,7 +3192,7 @@ body[data-shell="coord"] #coord-app { display: block; }
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="2" width="10" height="12" rx="1"/><path d="M5.5 5.5h5M5.5 8h5M5.5 10.5h3"/></svg>
       Advocacy Management
     </button>
-    <button data-admin-only class="nav-btn" data-v="admin_audit" onclick="nav('admin_audit')" style="display:none" data-sidebar-hidden="true">
+    <button data-admin-only class="nav-btn" data-v="admin_audit" onclick="nav('admin_audit')" style="display:none">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h7l3 3v9H3z"/><path d="M5.5 7h5M5.5 9.5h5M5.5 12h3"/></svg>
       Audit Log
     </button>
@@ -3071,7 +3208,7 @@ body[data-shell="coord"] #coord-app { display: block; }
     </button>
     <!-- V310-S3: Photo migration entry point. Admin only. One-shot tool to
          move existing base64 photos to Firebase Storage. -->
-    <button data-admin-only class="nav-btn" data-v="admin_photo_migration" onclick="nav('admin_photo_migration')" style="display:none" data-sidebar-hidden="true">
+    <button data-admin-only class="nav-btn" data-v="admin_photo_migration" onclick="nav('admin_photo_migration')" style="display:none">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="12" height="9" rx="1"/><circle cx="8" cy="9" r="2.5"/><path d="M6 4l1-1.5h2L10 4"/></svg>
       Photo Migration
     </button>
@@ -3080,15 +3217,15 @@ body[data-shell="coord"] #coord-app { display: block; }
          the role-scoped listener (V314) can pull them in. Without this,
          NGO users see false "advocacy-tagged but no schemes logged" alerts
          for beneficiaries whose advocacy records pre-date V314. -->
-    <button data-admin-only class="nav-btn" data-v="admin_advocacy_backfill" onclick="nav('admin_advocacy_backfill')" style="display:none" data-sidebar-hidden="true">
+    <button data-admin-only class="nav-btn" data-v="admin_advocacy_backfill" onclick="nav('admin_advocacy_backfill')" style="display:none">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8m0 0l-3-3m3 3l3-3M3 14h10"/></svg>
       Advocacy Backfill
     </button>
-    <button data-admin-only class="nav-btn" data-v="admin_dedup_ids" onclick="nav('admin_dedup_ids')" style="display:none" data-sidebar-hidden="true">
+    <button data-admin-only class="nav-btn" data-v="admin_dedup_ids" onclick="nav('admin_dedup_ids')" style="display:none">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h8M2 12h5"/><circle cx="12" cy="11" r="3"/><path d="M11 11h2M12 10v2"/></svg>
       Fix Duplicate IDs
     </button>
-    <button data-admin-only class="nav-btn" data-v="admin_delete_dupes" onclick="nav('admin_delete_dupes')" style="display:none" data-sidebar-hidden="true">
+    <button data-admin-only class="nav-btn" data-v="admin_delete_dupes" onclick="nav('admin_delete_dupes')" style="display:none">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M5 4V2h6v2M6 7v5M10 7v5"/><rect x="2" y="4" width="12" height="10" rx="1"/></svg>
       Delete Duplicate Records
     </button>
@@ -3098,7 +3235,7 @@ body[data-shell="coord"] #coord-app { display: block; }
          'Income Cirtificate' -> 'Income Certificate'.
          V339: hidden from sidebar via data-sidebar-hidden (use
          window.nav('admin_scheme_rename') in the console to reach it). -->
-    <button data-admin-only class="nav-btn" data-v="admin_scheme_rename" onclick="nav('admin_scheme_rename')" style="display:none" data-sidebar-hidden="true">
+    <button data-admin-only class="nav-btn" data-v="admin_scheme_rename" onclick="nav('admin_scheme_rename')" style="display:none">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 8h9M8 5l3 3-3 3"/><path d="M13 3v10"/></svg>
       Scheme Rename Backfill
     </button>
@@ -3772,7 +3909,7 @@ body[data-shell="coord"] #coord-app { display: block; }
 <!-- F1/F2: My Account modal — self-service password + profile edit -->
 <div id="myaccount-modal" class="overlay" style="display:none;align-items:center;justify-content:center">
   <div class="modal" style="max-width:460px;width:92%">
-    <div class="modal-head"><div class="modal-title">My Account</div><button class="modal-close" onclick="document.getElementById('myaccount-modal').style.display='none'">✕</button></div>
+    <div class="modal-head"><div class="modal-title">My Account</div><button class="modal-close" onclick="closeMyAccountModal()">✕</button></div>
     <div class="modal-body">
       <div id="myacct-err" style="display:none;background:#FEE2E2;color:#991B1B;padding:8px 11px;border-radius:6px;font-size:12px;margin-bottom:12px"></div>
       <div id="myacct-ok" style="display:none;background:#D1FAE5;color:#065F46;padding:8px 11px;border-radius:6px;font-size:12px;margin-bottom:12px"></div>
@@ -3786,7 +3923,7 @@ body[data-shell="coord"] #coord-app { display: block; }
       <div class="fg" style="margin-bottom:4px"><label>Confirm New Password</label><input id="myacct-newpw2" type="password" autocomplete="new-password"></div>
     </div>
     <div class="modal-foot" style="display:flex;justify-content:flex-end;gap:8px;padding:12px 18px;border-top:1px solid var(--gray3)">
-      <button class="btn btn-sm" onclick="document.getElementById('myaccount-modal').style.display='none'">Cancel</button>
+      <button class="btn btn-sm" onclick="closeMyAccountModal()">Cancel</button>
       <button class="btn btn-primary btn-sm" onclick="saveMyAccount()">Save Changes</button>
     </div>
   </div>
@@ -3811,7 +3948,7 @@ body[data-shell="coord"] #coord-app { display: block; }
   }
   #login-overlay > .login-card { position: relative; z-index: 1; }
 </style>
-<div id="login-overlay" style="position:fixed;inset:0;z-index:10000;display:none;align-items:center;justify-content:center;font-family:var(--font)">
+<div id="login-overlay" style="position:fixed;inset:0;z-index:50000;display:none;align-items:center;justify-content:center;font-family:var(--font)">
   <div class="login-card" style="background:rgba(255,255,255,0.96);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.22),0 2px 8px rgba(0,0,0,.08);padding:32px 36px;max-width:380px;width:90%;border:1px solid rgba(255,255,255,0.6)">
     <div style="text-align:center;margin-bottom:22px">
       <div style="font-size:11px;font-weight:700;color:var(--navy);letter-spacing:.1em;text-transform:uppercase">Dr. K. R. Shroff Foundation</div>
@@ -3909,7 +4046,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V387-LIVE';
+const APP_VERSION = 'V389-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -4089,7 +4226,12 @@ function _ensureCachePrimed() {
       const arr = JSON.parse(usersRaw) || [];
       for (const r of arr) { if (r && r.id) RecordCache.users.set(r.id, r); }
     }
-  } catch(e) { console.warn('[V310] users prime failed:', e); }
+  } catch(e) {
+    console.warn('[V310] users prime failed:', e);
+    // V389: self-heal — delete the corrupted key so next session re-fetches
+    // from Firebase instead of staying locked out with an empty users cache.
+    try { localStorage.removeItem(USERS_KEY); } catch(_){}
+  }
   try {
     // Literal string used here (instead of PARTNERS_KEY) because the prime
     // function may run before PARTNERS_KEY is defined — the seedUsers() IIFE
@@ -4104,7 +4246,12 @@ function _ensureCachePrimed() {
       const arr = JSON.parse(partRaw) || [];
       for (const r of arr) { if (r && r.id) RecordCache.partners.set(r.id, r); }
     }
-  } catch(e) { console.warn('[V310] partners prime failed:', e); }
+  } catch(e) {
+    console.warn('[V310] partners prime failed:', e);
+    // V389: self-heal — delete the corrupted key so next session re-fetches
+    // from Firebase instead of staying locked out with an empty partners cache.
+    try { localStorage.removeItem('krsf_partners_v2'); } catch(_){}
+  }
   // V315: explicitly clear any stale benef/adv from previous V310 bug.
   // Safe to call repeatedly — only affects in-memory cache.
   RecordCache.benef.clear();
@@ -4607,7 +4754,15 @@ function _v343VersionCheck() {
       const minNum = _v343ParseVer(minVer);
       if (myNum === 0) return;
       if (myNum > minNum) {
-        fbRef('_minVersion').set(APP_VERSION).catch(function(e){ console.warn('[V347] min-version write failed:', e); });
+        // V389: only self-promote on LIVE builds. A DEV build accidentally
+        // pointed at production would otherwise bump _minVersion to a string
+        // production users cannot fetch, force-reloading every real user into
+        // a broken loop. APP_VERSION pattern is `V<N>-LIVE` or `V<N>-DEV`.
+        if (typeof APP_VERSION === 'string' && APP_VERSION.endsWith('-LIVE')) {
+          fbRef('_minVersion').set(APP_VERSION).catch(function(e){ console.warn('[V347] min-version write failed:', e); });
+        } else {
+          console.warn('[V389] Skipping _minVersion self-promotion — not a LIVE build:', APP_VERSION);
+        }
         return;
       }
       if (myNum < minNum) {
@@ -6792,6 +6947,14 @@ async function fbSyncWholeArray(path, arr) {
     await fbRef(path).set(arr);
   } catch(e) {
     console.warn(`[V310-S2] Whole-array write failed for ${path}:`, e);
+    // V389: surface silent failure so admin sees the actual outcome instead of
+    // a false "Saved" toast. Local LS still holds the change; on reload Firebase
+    // wins so it appears to revert. Tell the user to retry.
+    try {
+      if (typeof toast === 'function') {
+        toast(`Cloud save failed for ${path.split('/').pop()}. Local copy kept — please retry.`, 'error', 6000);
+      }
+    } catch(_) {}
   } finally {
     FB.pendingWrites--;
     fbUpdatePill();
@@ -6812,9 +6975,16 @@ async function fbSyncWholeObject(path, obj) {
   try {
     FB.pendingWrites++;
     fbUpdatePill();
+    // V389: throwing branches below now also surface a toast (see catch).
     await fbRef(path).set(obj || {});
   } catch(e) {
     console.warn(`[V322] Whole-object write failed for ${path}:`, e);
+    // V389: surface silent failure — same rationale as fbSyncWholeArray.
+    try {
+      if (typeof toast === 'function') {
+        toast(`Cloud save failed for ${path.split('/').pop()}. Local copy kept — please retry.`, 'error', 6000);
+      }
+    } catch(_) {}
   } finally {
     FB.pendingWrites--;
     fbUpdatePill();
@@ -7832,6 +8002,16 @@ function getSchemes() {
   return defaults;
 }
 function saveSchemes(arr) {
+  // V388: defense in depth — block scopedViewer / scopedViewerByFc console calls.
+  // Mirrors the saveLivTypes guard. Real enforcement lives in Firebase Rules.
+  {
+    let _wu = null;
+    try { _wu = (typeof currentUser === 'function') ? currentUser() : null; } catch(_) {}
+    if (_wu && (_wu.role === 'scopedViewer' || _wu.role === 'scopedViewerByFc')) {
+      if (typeof toast === 'function') toast('Read-only account — schemes config is disabled.', 'error', 4000);
+      return;
+    }
+  }
   // V16: whole-array sync — admin-only config, tiny, low concurrency risk.
   localStorage.setItem(SCHEMES_KEY, JSON.stringify(arr));
   fbSyncWholeArray('config/schemes', arr || []);
@@ -9281,6 +9461,8 @@ function _ensureIncomeLogMigrated(b) {
 
 function toast(msg, type='') {
   const t = document.getElementById('toast');
+  // V388: null guard — toast may fire before page shell renders (very-early errors).
+  if (!t) return;
   t.textContent = msg;
   t.className = 'toast show ' + type;
   setTimeout(() => t.className = 'toast', 3000);
@@ -9717,7 +9899,8 @@ async function updateStatus(id, status) {
       toast('Only NGO Partners and Admins can revert status changes.', 'error');
       return;
     }
-    if (!confirm(`Revert "${b.name}" from ${stageLabel(b.status)} back to ${stageLabel(status)}?\n\nThis cannot be undone except by moving the record forward again.`)) return;
+    // V388: themed modal — works on mobile webviews where native confirm() can silently auto-cancel.
+    if (!await showConfirmModal(`Revert "${b.name}" from ${stageLabel(b.status)} back to ${stageLabel(status)}?\n\nThis cannot be undone except by moving the record forward again.`, { danger: true, okLabel: 'Revert', title: 'Revert stage' })) return;
   }
   const prevStatus = b.status;
   const prevEndline = b.endlineDate;
@@ -9914,16 +10097,19 @@ async function deleteBeneficiary(id) {
     const namesPreview = linkedFamily.slice(0, 3)
       .map(f => `• ${(f.name || '(no name)')} — ${f.relation || 'family member'}`).join('\n');
     const more = linkedFamily.length > 3 ? `\n…and ${linkedFamily.length - 3} more` : '';
-    const proceed = confirm(
+    // V388: themed modal — reliable across browsers and mobile webviews.
+    const proceed = await showConfirmModal(
       `Delete this beneficiary record? This cannot be undone.\n\n` +
       `⚠️ ${linkedFamily.length} family member ` +
       `${linkedFamily.length === 1 ? 'record is' : 'records are'} linked to this person:\n\n` +
       `${namesPreview}${more}\n\n` +
-      `${linkedFamily.length === 1 ? 'It' : 'They'} will be kept but shown as "head record removed" in their drawer. Proceed?`
+      `${linkedFamily.length === 1 ? 'It' : 'They'} will be kept but shown as "head record removed" in their drawer. Proceed?`,
+      { danger: true, okLabel: 'Delete', title: 'Delete beneficiary (with linked family)' }
     );
     if (!proceed) return;
   } else {
-    if (!confirm('Delete this beneficiary record? This cannot be undone.')) return;
+    // V388: themed modal.
+    if (!await showConfirmModal('Delete this beneficiary record? This cannot be undone.', { danger: true, okLabel: 'Delete', title: 'Delete beneficiary' })) return;
   }
 
   // Capture name + details before deletion for the audit log — after the
@@ -11170,8 +11356,8 @@ function advEnrollAppendSchemeRow(schemeName, checked, status, isCustom, origina
     <div style="display:flex;align-items:center;gap:10px;width:100%">
       ${checkboxHtml}
       ${isCustom
-        ? `<input type="text" class="adv-enroll-name" placeholder="Custom scheme name..." value="${schemeName||''}" style="flex:1;padding:5px 9px;border:1px solid var(--gray3);border-radius:5px;font-size:13px;font-family:var(--font)">`
-        : `<span class="adv-enroll-name" style="flex:1;font-size:13px">${schemeName}</span>`}
+        ? `<input type="text" class="adv-enroll-name" placeholder="Custom scheme name..." value="${escHtml(schemeName||'')}" style="flex:1;padding:5px 9px;border:1px solid var(--gray3);border-radius:5px;font-size:13px;font-family:var(--font)">`
+        : `<span class="adv-enroll-name" style="flex:1;font-size:13px">${escHtml(schemeName)}</span>`}
       ${pillHtml}
       ${isCustom ? `<button type="button" onclick="this.closest('.adv-enroll-row').remove()" style="background:none;border:none;color:var(--gray2);cursor:pointer;font-size:16px;padding:0 4px" title="Remove">×</button>` : ''}
     </div>
@@ -11179,8 +11365,8 @@ function advEnrollAppendSchemeRow(schemeName, checked, status, isCustom, origina
          single scheme name covers multiple applications (tractor, rotavator,
          greenhouse). The remarks field surfaces what THIS application is for. -->
     <div class="adv-enroll-remarks-wrap" style="width:100%;padding-left:28px;margin-top:6px;display:${checked?'block':'none'}">
-      <input type="text" class="adv-enroll-remarks" placeholder="Optional remarks (e.g. tractor, rotavator, greenhouse, application date, scheme variant…)" value="${(originalStored && originalStored.remarks ? originalStored.remarks : '').replace(/"/g,'&quot;')}" maxlength="200" style="width:100%;padding:5px 9px;border:1px solid var(--gray3);border-radius:5px;font-size:12px;font-family:var(--font);background:#FAFAFA" oninput="this.closest('.adv-enroll-row').dataset.touched='1'">
-      ${!isCustom ? `<button type="button" onclick="advEnrollDuplicateRow(this)" style="margin-top:5px;background:none;border:1px dashed var(--navy);color:var(--navy);cursor:pointer;font-size:11px;padding:3px 9px;border-radius:5px;font-family:var(--font)" title="Add another application under this same scheme (e.g. for a different machine or application date)">+ Add another ${schemeName} application</button>` : ''}
+      <input type="text" class="adv-enroll-remarks" placeholder="Optional remarks (e.g. tractor, rotavator, greenhouse, application date, scheme variant…)" value="${escHtml(originalStored && originalStored.remarks ? originalStored.remarks : '')}" maxlength="200" style="width:100%;padding:5px 9px;border:1px solid var(--gray3);border-radius:5px;font-size:12px;font-family:var(--font);background:#FAFAFA" oninput="this.closest('.adv-enroll-row').dataset.touched='1'">
+      ${!isCustom ? `<button type="button" onclick="advEnrollDuplicateRow(this)" style="margin-top:5px;background:none;border:1px dashed var(--navy);color:var(--navy);cursor:pointer;font-size:11px;padding:3px 9px;border-radius:5px;font-family:var(--font)" title="Add another application under this same scheme (e.g. for a different machine or application date)">+ Add another ${escHtml(schemeName)} application</button>` : ''}
     </div>
   `;
   // Make the row a column container so the remarks line stacks below.
@@ -11580,10 +11766,10 @@ async function _submitEnrollInner() {
         if (warn && msg) {
           const loc = [existing.village, existing.district].filter(Boolean).join(', ');
           msg.innerHTML =
-            `Mobile <b>${phoneDigits}</b> is already on record for ` +
-            `<b>${(existing.name||'(no name)').replace(/</g,'&lt;')}</b>` +
-            (loc ? ` — ${loc.replace(/</g,'&lt;')}` : '') +
-            ` (ID ${existing.id}).`;
+            `Mobile <b>${escHtml(phoneDigits)}</b> is already on record for ` +
+            `<b>${escHtml(existing.name || '(no name)')}</b>` +
+            (loc ? ` — ${escHtml(loc)}` : '') +
+            ` (ID ${escHtml(existing.id)}).`;
           warn.classList.add('show');
           const body = document.querySelector('#enroll-overlay .modal-body');
           if (body) body.scrollTop = 0;
@@ -11930,7 +12116,8 @@ async function _submitEnrollInner() {
             // self-contained.
             const _me = currentUser() || {};
             advArr.push({
-              id: 'ADV-'+String(Date.now()).slice(-7),
+              // V389: crypto.randomUUID gives 4 billion unique 8-char prefixes — no ms-adjacent collision.
+              id: 'ADV-' + crypto.randomUUID().slice(0, 8),
               bid: editingId,
               bname: fields.name,
               schemeRows: newRows.concat(tombstones),
@@ -12074,7 +12261,8 @@ async function _submitEnrollInner() {
       // worth. With these fields + scoped listener, FC's advocacy fetch
       // drops by ~50x.
       advArr.push({
-        id: 'ADV-'+String(Date.now()).slice(-7),
+        // V389: crypto.randomUUID gives 4 billion unique 8-char prefixes — no ms-adjacent collision.
+        id: 'ADV-' + crypto.randomUUID().slice(0, 8),
         bid: id,
         bname: name,
         schemeRows: toStoredSchemeRows(enrollSchemeRows),
@@ -13305,7 +13493,8 @@ async function _deleteLogEntry(idx) {
   const b = data.find(x => x.id === _currentLogIncomeBid);
   if (!b || !Array.isArray(b.incomeLog) || idx < 0 || idx >= b.incomeLog.length) return;
   const removed = b.incomeLog[idx];
-  if (!confirm(`Delete this income entry?\n\n${fmtD(removed.date)} — ₹${(removed.amount||0).toLocaleString('en-IN')}\n\nThis cannot be undone.`)) return;
+  // V388: themed modal.
+  if (!await showConfirmModal(`Delete this income entry?\n\n${fmtD(removed.date)} — ₹${(removed.amount||0).toLocaleString('en-IN')}\n\nThis cannot be undone.`, { danger: true, okLabel: 'Delete', title: 'Delete income entry' })) return;
   b.incomeLog.splice(idx, 1);
   // Recompute mirror.
   b.endIncome = b.incomeLog.length > 0 ? _incomeLogTotal(b) : null;
@@ -13353,7 +13542,8 @@ async function _undoBulkEndlineForBeneficiary(id) {
     return;
   }
   const snap = b._preBulkEndlineSnapshot;
-  if (!confirm(`Restore this record to its pre-bulk state?\n\nBatch: ${snap.batchId}\nBy: ${snap.by}\nAt: ${fmtD((snap.at||'').split('T')[0])}\n\nThe current income log will be discarded and replaced with the ${(snap.incomeLog||[]).length} snapshot entr${(snap.incomeLog||[]).length===1?'y':'ies'}. This action itself cannot be undone.`)) return;
+  // V388: themed modal.
+  if (!await showConfirmModal(`Restore this record to its pre-bulk state?\n\nBatch: ${snap.batchId}\nBy: ${snap.by}\nAt: ${fmtD((snap.at||'').split('T')[0])}\n\nThe current income log will be discarded and replaced with the ${(snap.incomeLog||[]).length} snapshot entr${(snap.incomeLog||[]).length===1?'y':'ies'}. This action itself cannot be undone.`, { danger: true, okLabel: 'Restore', title: 'Undo bulk endline' })) return;
 
   // Restore snapshot
   b.incomeLog   = Array.isArray(snap.incomeLog) ? snap.incomeLog.slice() : [];
@@ -14171,20 +14361,20 @@ function buildPopup(b) {
   }
   return `<div class="map-popup">
     <div class="map-popup-head" style="background:${avatarColor}22">
-      <div class="map-avatar" style="background:${avatarColor}">${initials}</div>
+      <div class="map-avatar" style="background:${avatarColor}">${escHtml(initials)}</div>
       <div>
-        <div class="map-popup-name">${b.name}</div>
-        <div class="map-popup-id">${b.id}</div>
+        <div class="map-popup-name">${escHtml(b.name)}</div>
+        <div class="map-popup-id">${escHtml(b.id)}</div>
       </div>
     </div>
     <div class="map-popup-body">
-      <div class="map-popup-row"><span class="map-popup-label">Village</span><span class="map-popup-val">${b.village}${b.taluka?', '+b.taluka:''} ${b.lat?'<span style="color:var(--green);font-size:10px">📍 GPS</span>':''}</span></div>
-      <div class="map-popup-row"><span class="map-popup-label">Intervention</span><span class="map-popup-val" style="color:${intervColor}">${(b.interventions||[]).join(', ')}</span></div>
-      <div class="map-popup-row"><span class="map-popup-label">NGO</span><span class="map-popup-val">${b.ngo}</span></div>
-      <div class="map-popup-row"><span class="map-popup-label">Status</span><span class="map-popup-val">${stageLabel(b.status)}</span></div>
+      <div class="map-popup-row"><span class="map-popup-label">Village</span><span class="map-popup-val">${escHtml(b.village)}${b.taluka?', '+escHtml(b.taluka):''} ${b.lat?'<span style="color:var(--green);font-size:10px">📍 GPS</span>':''}</span></div>
+      <div class="map-popup-row"><span class="map-popup-label">Intervention</span><span class="map-popup-val" style="color:${intervColor}">${escHtml((b.interventions||[]).join(', '))}</span></div>
+      <div class="map-popup-row"><span class="map-popup-label">NGO</span><span class="map-popup-val">${escHtml(b.ngo)}</span></div>
+      <div class="map-popup-row"><span class="map-popup-label">Status</span><span class="map-popup-val">${escHtml(stageLabel(b.status))}</span></div>
       <div class="map-popup-row"><span class="map-popup-label">Baseline</span><span class="map-popup-val">${fmt(b.baseIncome)}/yr</span></div>
       ${deltaHtml}
-      <button class="map-popup-btn" onclick="closeMapPopupOpenDrawer('${b.id}')">View Full Profile</button>
+      <button class="map-popup-btn" onclick="closeMapPopupOpenDrawer('${escHtml(b.id)}')">View Full Profile</button>
     </div>
   </div>`;
 }
@@ -14831,7 +15021,7 @@ function advSearch(q) {
   if (!q.trim()) { res.style.display='none'; _advSearchIdx = -1; return; }
   const matches = getData().filter(b => (b.name||'').toLowerCase().includes(q.toLowerCase())||(b.id||'').toLowerCase().includes(q.toLowerCase())).slice(0,8);
   if (!matches.length) { res.style.display='none'; _advSearchIdx = -1; return; }
-  res.innerHTML = matches.map((b, i) => `<div data-idx="${i}" data-bid="${b.id}" onclick="selectAdvBenef('${b.id}')" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--gray3);font-size:13px" onmouseover="this.style.background='var(--gray4)'" onmouseout="this.style.background=this.dataset.hl==='1'?'#EEF4FB':''"><span style="font-weight:500">${b.name}</span> <span style="color:var(--gray2);font-size:11px">${b.id} · ${b.village}</span></div>`).join('');
+  res.innerHTML = matches.map((b, i) => `<div data-idx="${i}" data-bid="${escHtml(b.id)}" onclick="selectAdvBenef('${escHtml(b.id)}')" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--gray3);font-size:13px" onmouseover="this.style.background='var(--gray4)'" onmouseout="this.style.background=this.dataset.hl==='1'?'#EEF4FB':''"><span style="font-weight:500">${escHtml(b.name)}</span> <span style="color:var(--gray2);font-size:11px">${escHtml(b.id)} · ${escHtml(b.village)}</span></div>`).join('');
   res.style.display = 'block';
   _advSearchIdx = -1; // reset selection on every new query
 }
@@ -14963,7 +15153,8 @@ async function saveAdvocacy() {
     isUpdate = false;
     const me = currentUser() || {};
     rec = {
-      id: 'ADV-' + String(Date.now()).slice(-7),
+      // V389: crypto.randomUUID gives 4 billion unique 8-char prefixes — no ms-adjacent collision.
+      id: 'ADV-' + crypto.randomUUID().slice(0, 8),
       bid,
       bname: b ? b.name : bid,
       schemeRows: rows,
@@ -16695,11 +16886,11 @@ function _advBenTab2(allAdv, allB) {
     const countSub = schemeRows.length > 1
       ? `<div style="font-size:11px;color:var(--gray2);margin-top:3px">${schemeRows.length} schemes tracked</div>`
       : '';
-    return `<tr onclick="openDrawer('${b.id}')" style="cursor:pointer">
+    return `<tr onclick="openDrawer('${escHtml(b.id)}')" style="cursor:pointer">
       ${srNo}
-      <td><div class="bname">${b.name}</div><div class="bid">${b.id}</div></td>
-      <td>${b.village}<br><span style="font-size:11px;color:var(--gray2)">${b.district}</span></td>
-      <td style="font-size:12px">${b.ngo}</td>
+      <td><div class="bname">${escHtml(b.name)}</div><div class="bid">${escHtml(b.id)}</div></td>
+      <td>${escHtml(b.village)}<br><span style="font-size:11px;color:var(--gray2)">${escHtml(b.district)}</span></td>
+      <td style="font-size:12px">${escHtml(b.ngo)}</td>
       <td onclick="event.stopPropagation()">${schemePills}${countSub}</td>
       <td>${benefitCell}</td>
     </tr>`;
@@ -17185,7 +17376,12 @@ async function deleteSelectedBeneficiaries(){
   // Policy guard: coordinators cannot delete. Single source of truth.
   if (!_blockCoordinatorDelete()) return;
   if (allBSelected.size === 0) return;
-  if (!confirm(`Delete ${allBSelected.size} selected beneficiar${allBSelected.size===1?'y':'ies'}? This cannot be undone.`)) return;
+  // V388: typed-confirmation guard. Bulk delete is the gateway to V371-class
+  // mass-tombstone bugs (Bhavishaben lost 386 records). Require the admin to
+  // type DELETE so a stray click cannot wipe the selection.
+  const _count = allBSelected.size;
+  const _msg = `You are about to permanently delete ${_count} beneficiar${_count===1?'y':'ies'} and all their advocacy records.\n\nThis cannot be undone.`;
+  if (!await showTypedConfirmModal(_msg, 'DELETE', { title: 'Confirm bulk delete', okLabel: `Delete ${_count}` })) return;
   const ids = new Set(allBSelected);
   // IMPORTANT: Read the FULL data set (loadData), not the scoped one (getData).
   // saveData writes the whole STORE_KEY — using a scoped read here would
@@ -17641,21 +17837,21 @@ function renderAdminPartners() {
     const hasNgoUser = ngoUserCount[p.name] > 0;
     return `<tr>
       <td style="color:var(--gray2);font-size:12px;text-align:center">${i+1}</td>
-      <td><div class="bname">${p.name}</div><div style="font-size:11px;color:var(--gray2)">${p.state||'—'}${p.focus?' · '+p.focus:''}</div></td>
+      <td><div class="bname">${escHtml(p.name)}</div><div style="font-size:11px;color:var(--gray2)">${escHtml(p.state||'—')}${p.focus?' · '+escHtml(p.focus):''}</div></td>
       <td style="text-align:center">
         ${hasNgoUser
           ? `<span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:10px;background:#2E75B622;color:#2E75B6">${ngoUserCount[p.name]} NGO user${ngoUserCount[p.name]===1?'':'s'}</span>`
-          : `<button class="btn btn-sm btn-primary" onclick="adminCreateNgoLogin('${p.name.replace(/'/g,"\\'")}')">+ Create NGO Login</button>`}
+          : `<button class="btn btn-sm btn-primary" data-pname="${escHtml(p.name)}" onclick="adminCreateNgoLogin(this.dataset.pname)">+ Create NGO Login</button>`}
       </td>
       <td style="text-align:center">
         <span style="font-weight:500">${coordCount[p.name]||0}</span>
-        <button class="btn btn-sm" style="margin-left:6px" onclick="adminAddCoordinatorFor('${p.name.replace(/'/g,"\\'")}')">+ Add Coordinator</button>
+        <button class="btn btn-sm" style="margin-left:6px" data-pname="${escHtml(p.name)}" onclick="adminAddCoordinatorFor(this.dataset.pname)">+ Add Coordinator</button>
       </td>
       <td style="text-align:center;font-weight:500">${benefCount[p.name]||0}</td>
       <td style="white-space:nowrap">
-        <button class="btn btn-sm" onclick="adminEditPartner('${p.id}')">Edit</button>
-        <button class="btn btn-sm" onclick="adminMergePartner('${p.id}')" title="Merge this partner into another (reassigns all beneficiaries and users, then deletes this partner)">Merge</button>
-        <button class="btn btn-sm" style="color:var(--red)" onclick="adminDeletePartner('${p.id}')">Delete</button>
+        <button class="btn btn-sm" onclick="adminEditPartner('${escHtml(p.id)}')">Edit</button>
+        <button class="btn btn-sm" onclick="adminMergePartner('${escHtml(p.id)}')" title="Merge this partner into another (reassigns all beneficiaries and users, then deletes this partner)">Merge</button>
+        <button class="btn btn-sm" style="color:var(--red)" onclick="adminDeletePartner('${escHtml(p.id)}')">Delete</button>
       </td>
     </tr>`;
   }).join('');
@@ -17831,7 +18027,8 @@ async function adminDeletePartner(id) {
   if (users.length > 0 || benefs.length > 0) {
     return alert(`Cannot delete "${p.name}" — it is currently linked to ${users.length} user(s) and ${benefs.length} beneficiary record(s). Reassign or delete those first.`);
   }
-  if (!confirm(`Delete partner "${p.name}"? This cannot be undone.`)) return;
+  // V388: themed modal.
+  if (!await showConfirmModal(`Delete partner "${p.name}"? This cannot be undone.`, { danger: true, okLabel: 'Delete', title: 'Delete partner' })) return;
   // V310-S2: await Firebase. On failure, surface and bail.
   if (!await _trySave(() => savePartners(loadPartners().filter(x => x.id !== id)), 'delete partner')) return;
   auditLog('delete', 'partner', id, p.name, `Deleted partner: ${p.name}`, null);
@@ -17855,7 +18052,7 @@ function adminMergePartner(sourceId) {
 
   // Build the picker: all other partners as options
   const options = others.map(p =>
-    `<option value="${p.id}">${p.name}${p.state?' ('+p.state+')':''}</option>`
+    `<option value="${escHtml(p.id)}">${escHtml(p.name)}${p.state?' ('+escHtml(p.state)+')':''}</option>`
   ).join('');
 
   // Inject a one-shot modal. Removed on close.
@@ -17868,7 +18065,7 @@ function adminMergePartner(sourceId) {
     <div style="background:#fff;border-radius:8px;padding:20px;width:min(460px,92vw);box-shadow:0 10px 40px rgba(0,0,0,.2)">
       <div style="font-weight:700;font-size:16px;margin-bottom:8px">Merge Partner</div>
       <div style="font-size:13px;color:var(--gray);line-height:1.5;margin-bottom:14px">
-        Merge <b>${source.name}</b> into another partner. All <b>${sourceBenefs.length}</b> beneficiary record${sourceBenefs.length===1?'':'s'} and <b>${sourceUsers.length}</b> user${sourceUsers.length===1?'':'s'} will be reassigned, and <b>${source.name}</b> will be deleted.
+        Merge <b>${escHtml(source.name)}</b> into another partner. All <b>${sourceBenefs.length}</b> beneficiary record${sourceBenefs.length===1?'':'s'} and <b>${sourceUsers.length}</b> user${sourceUsers.length===1?'':'s'} will be reassigned, and <b>${escHtml(source.name)}</b> will be deleted.
       </div>
       <label style="font-size:12px;color:var(--gray2);display:block;margin-bottom:6px">Merge into:</label>
       <select id="merge-target" style="width:100%;padding:8px;border:1px solid var(--gray3);border-radius:6px;font-size:14px;margin-bottom:18px">
@@ -17877,7 +18074,7 @@ function adminMergePartner(sourceId) {
       </select>
       <div style="display:flex;gap:8px;justify-content:flex-end">
         <button class="btn" onclick="document.getElementById('${modalId}').remove()">Cancel</button>
-        <button class="btn btn-primary" onclick="_adminMergePartnerConfirm('${sourceId}')">Merge</button>
+        <button class="btn btn-primary" onclick="_adminMergePartnerConfirm('${escHtml(sourceId)}')">Merge</button>
       </div>
     </div>`;
   document.body.appendChild(div);
@@ -17898,7 +18095,8 @@ async function _adminMergePartnerConfirm(sourceId) {
   if (source.id === target.id) {
     return alert('Cannot merge a partner into itself.');
   }
-  if (!confirm(`Merge "${source.name}" → "${target.name}"?\n\nThis will reassign all beneficiaries and users, then delete "${source.name}". This cannot be undone.`)) {
+  // V388: themed modal.
+  if (!await showConfirmModal(`Merge "${source.name}" → "${target.name}"?\n\nThis will reassign all beneficiaries and users, then delete "${source.name}". This cannot be undone.`, { danger: true, okLabel: 'Merge', title: 'Merge partner' })) {
     return;
   }
 
@@ -18149,14 +18347,14 @@ function _renderUserModalHtml() {
           <div class="fg" id="user-ngo-wrap" style="margin-bottom:12px"><label>NGO * <span style="font-weight:400;color:var(--gray2);font-size:11px">(scopes what the user can see)</span></label>
             <select id="user-ngo" onchange="if(document.getElementById('user-role').value==='scopedViewerByFc')_v376TLPopulateFcs()">
               <option value="">— Select NGO —</option>
-              ${partners.map(p=>`<option value="${p.name.replace(/"/g,'&quot;')}">${p.name}</option>`).join('')}
+              ${partners.map(p=>`<option value="${escHtml(p.name)}">${escHtml(p.name)}</option>`).join('')}
             </select>
           </div>
           <!-- V362: multi-NGO picker for viewer role. Empty selection = global access. -->
           <div class="fg" id="user-viewer-ngo-wrap" style="margin-bottom:12px;display:none">
             <label>Assigned NGOs <span style="font-weight:400;color:var(--gray2);font-size:11px">(hold Ctrl/Cmd to select multiple — leave empty for ALL NGOs)</span></label>
             <select id="user-viewer-ngos" multiple style="min-height:140px">
-              ${partners.map(p=>`<option value="${p.name.replace(/"/g,'&quot;')}">${p.name}</option>`).join('')}
+              ${partners.map(p=>`<option value="${escHtml(p.name)}">${escHtml(p.name)}</option>`).join('')}
             </select>
             <div style="font-size:11px;color:var(--gray2);margin-top:4px">Viewer will only see numbers for the NGOs selected here. Leave empty to give global access.</div>
           </div>
@@ -18515,7 +18713,8 @@ async function adminRenameLivType(idx) {
   const types = getLivTypes();
   const oldName = types[idx];
   if (!oldName) return;
-  const newName = prompt('Rename livelihood type:', oldName);
+  // V388: themed prompt modal — works on iOS where native prompt() vanishes when keyboard appears.
+  const newName = await showPromptModal('Rename livelihood type:', oldName, { title: 'Rename livelihood type', okLabel: 'Save' });
   if (newName == null) return;
   const trimmed = newName.trim();
   if (!trimmed) return toast('Name cannot be empty', 'error');
@@ -18543,7 +18742,7 @@ async function adminRenameLivType(idx) {
   renderAdminLivelihoods();
 }
 
-function adminDeleteLivType(idx) {
+async function adminDeleteLivType(idx) {
   const types = getLivTypes();
   const name = types[idx];
   if (!name) return;
@@ -18551,7 +18750,8 @@ function adminDeleteLivType(idx) {
   const msg = inUse > 0
     ? `Remove "${name}" from the livelihood list?\n\n${inUse} existing record${inUse===1?'':'s'} will keep this tag (historical data preserved), but the type won't appear in new enrollment forms.`
     : `Remove "${name}" from the livelihood list?`;
-  if (!confirm(msg)) return;
+  // V388: themed modal (function became async — onclick handlers don't need the return value).
+  if (!await showConfirmModal(msg, { danger: true, okLabel: 'Remove', title: 'Remove livelihood type' })) return;
   types.splice(idx, 1);
   saveLivTypes(types);
   auditLog('delete', 'livelihood_type', name, name,
@@ -19266,7 +19466,8 @@ async function _undoBulkStatusForBeneficiary(bid) {
   const targets = adv.filter(r => r.bid === bid && r._preBulkStatusSnapshot);
   if (targets.length === 0) { toast('No bulk-status snapshot on this record.', 'error'); return; }
   const snap = targets[0]._preBulkStatusSnapshot; // banner only shows one batch at a time per drawer
-  if (!confirm(`Undo the last bulk status update on this record?\n\nBatch: ${snap.batchId}\nBy: ${snap.by}\nAt: ${(snap.at||'').split('T')[0]}\nScheme: ${snap.scheme}\n${snap.fromStatus} → ${snap.toStatus}\n\nThe affected scheme rows will revert to their pre-batch state.`)) return;
+  // V388: themed modal.
+  if (!await showConfirmModal(`Undo the last bulk status update on this record?\n\nBatch: ${snap.batchId}\nBy: ${snap.by}\nAt: ${(snap.at||'').split('T')[0]}\nScheme: ${snap.scheme}\n${snap.fromStatus} → ${snap.toStatus}\n\nThe affected scheme rows will revert to their pre-batch state.`, { danger: true, okLabel: 'Undo', title: 'Undo bulk status update' })) return;
 
   let restored = 0;
   targets.forEach(rec => {
@@ -19362,7 +19563,8 @@ async function adminRenameScheme(idx) {
   const schemes = getSchemes();
   const oldName = schemes[idx];
   if (!oldName) return;
-  const newName = prompt('Rename scheme:', oldName);
+  // V388: themed prompt modal — works on iOS where native prompt() vanishes when keyboard appears.
+  const newName = await showPromptModal('Rename scheme:', oldName, { title: 'Rename scheme', okLabel: 'Save' });
   if (newName == null) return;
   const trimmed = newName.trim();
   if (!trimmed) return toast('Name cannot be empty', 'error');
@@ -19404,7 +19606,7 @@ async function adminRenameScheme(idx) {
   renderAdminSchemes();
 }
 
-function adminDeleteScheme(idx) {
+async function adminDeleteScheme(idx) {
   const schemes = getSchemes();
   const name = schemes[idx];
   if (!name) return;
@@ -19413,7 +19615,8 @@ function adminDeleteScheme(idx) {
   const msg = inUse > 0
     ? `Remove "${name}" from the schemes list?\n\n${inUse} existing scheme row${inUse===1?'':'s'} will keep this tag (historical data preserved), but the scheme won't appear in new enrollments or the + Log Advocacy dropdown.`
     : `Remove "${name}" from the schemes list?`;
-  if (!confirm(msg)) return;
+  // V388: themed modal (function became async — onclick handlers don't need the return value).
+  if (!await showConfirmModal(msg, { danger: true, okLabel: 'Remove', title: 'Remove scheme' })) return;
   schemes.splice(idx, 1);
   saveSchemes(schemes);
   // V322: drop the meta entry too. Historical schemeRows that still
@@ -19826,9 +20029,9 @@ function renderAdminAuditLog() {
         const label = _auditActionLabel(e);
         const rtype = _auditRecordTypeLabel(e.recordType);
         const displayName = (e.userId && fullNameById[e.userId]) || e.username || '(system)';
-        const usernameHint = (displayName !== e.username && e.username) ? ` <span style="font-size:10px;color:var(--gray2)">(${e.username})</span>` : '';
-        const who = displayName + usernameHint + (e.role ? ` <span style="font-size:10px;color:var(--gray2)">· ${e.role}${e.ngo?' · '+e.ngo:''}</span>` : '');
-        const summary = (e.summary||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        const usernameHint = (displayName !== e.username && e.username) ? ` <span style="font-size:10px;color:var(--gray2)">(${escHtml(e.username)})</span>` : '';
+        const who = escHtml(displayName) + usernameHint + (e.role ? ` <span style="font-size:10px;color:var(--gray2)">· ${escHtml(e.role)}${e.ngo?' · '+escHtml(e.ngo):''}</span>` : '');
+        const summary = escHtml(e.summary || '');
         const recordLabel = (e.recordLabel||e.recordId||'').replace(/</g,'&lt;');
         return `<tr>
           <td style="white-space:nowrap;font-size:11px;color:var(--gray1);font-family:monospace">${_formatAuditTs(e.ts)}</td>
@@ -20535,7 +20738,28 @@ function printBeneficiary(bid) {
 // ── F1/F2: My Account (self-service password + profile) ────────────────────
 // Any logged-in user can change their own password + edit their full name
 // and phone. Current password is required only when setting a new password.
+
+// V389: track the auto-close timer so closeMyAccountModal() can cancel it.
+// Prevents the race where rapid open-close-open auto-closes the freshly opened instance.
+let _myAcctAutoCloseTimer = null;
+function closeMyAccountModal() {
+  if (_myAcctAutoCloseTimer) {
+    clearTimeout(_myAcctAutoCloseTimer);
+    _myAcctAutoCloseTimer = null;
+  }
+  const m = document.getElementById('myaccount-modal');
+  if (m) m.style.display = 'none';
+  const ok = document.getElementById('myacct-ok');
+  if (ok) ok.style.display = 'none';
+}
+
 function openMyAccount() {
+  // V389: cancel any pending auto-close from a prior session so it can't fire
+  // mid-edit and dismiss the freshly opened modal.
+  if (_myAcctAutoCloseTimer) {
+    clearTimeout(_myAcctAutoCloseTimer);
+    _myAcctAutoCloseTimer = null;
+  }
   const u = currentUser();
   if (!u) return;
   const users = loadUsers();
@@ -20626,7 +20850,9 @@ async function saveMyAccount() {
   // Close the modal after a brief flash so the user sees confirmation.
   // Without this, the modal sat open indefinitely and looked broken — you
   // had to hit Cancel to dismiss even though the save already succeeded.
-  setTimeout(() => {
+  // V389: capture the timer ID so a manual close (or re-open) can cancel it.
+  _myAcctAutoCloseTimer = setTimeout(() => {
+    _myAcctAutoCloseTimer = null;
     const m = document.getElementById('myaccount-modal');
     if (m) m.style.display = 'none';
     // Also hide the success message so it doesn't flash on next open
@@ -21005,6 +21231,155 @@ function showConfirmModal(message, opts) {
     } catch (e) {
       // Fallback: native confirm (e.g. before document.body exists)
       resolve(window.confirm(String(message || '')));
+    }
+  });
+}
+
+// V388: themed in-app prompt modal — replaces native prompt() for rename flows.
+// Returns Promise<string|null> — null means cancelled, string is the trimmed input.
+// Falls back to native prompt() if the modal cannot be mounted.
+function showPromptModal(message, defaultValue, opts) {
+  opts = opts || {};
+  const okLabel     = opts.okLabel     || 'Save';
+  const cancelLabel = opts.cancelLabel || 'Cancel';
+  const placeholder = opts.placeholder || '';
+  return new Promise(resolve => {
+    let overlay;
+    try {
+      overlay = document.createElement('div');
+      overlay.className = 'krsf-prompt-overlay';
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(17,24,39,0.55);z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px;font-family:DM Sans,system-ui,sans-serif;';
+      const card = document.createElement('div');
+      card.style.cssText = 'background:#fff;border-radius:10px;max-width:440px;width:100%;box-shadow:0 12px 32px rgba(0,0,0,0.25);overflow:hidden;';
+      const head = document.createElement('div');
+      head.style.cssText = 'padding:14px 18px 8px;font-weight:600;font-size:15px;color:#111827;';
+      head.textContent = opts.title || 'Edit value';
+      const body = document.createElement('div');
+      body.style.cssText = 'padding:0 18px 14px;font-size:13.5px;line-height:1.5;color:#374151;';
+      const lbl = document.createElement('div');
+      lbl.style.cssText = 'margin-bottom:8px;';
+      lbl.textContent = String(message || '');
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = String(defaultValue == null ? '' : defaultValue);
+      input.placeholder = placeholder;
+      input.style.cssText = 'width:100%;padding:9px 12px;border:1px solid #D1D5DB;border-radius:6px;font-size:14px;color:#111827;box-sizing:border-box;';
+      body.appendChild(lbl);
+      body.appendChild(input);
+      const btnRow = document.createElement('div');
+      btnRow.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;padding:12px 18px 14px;background:#F9FAFB;border-top:1px solid #E5E7EB;';
+      const cancelBtn = document.createElement('button');
+      cancelBtn.style.cssText = 'padding:8px 14px;border:1px solid #D1D5DB;background:#fff;border-radius:6px;font-size:13px;color:#374151;cursor:pointer;';
+      cancelBtn.textContent = cancelLabel;
+      const okBtn = document.createElement('button');
+      okBtn.style.cssText = 'padding:8px 14px;border:1px solid #1B3A6B;background:#1B3A6B;color:#fff;border-radius:6px;font-size:13px;cursor:pointer;font-weight:500;';
+      okBtn.textContent = okLabel;
+      btnRow.appendChild(cancelBtn);
+      btnRow.appendChild(okBtn);
+      card.appendChild(head);
+      card.appendChild(body);
+      card.appendChild(btnRow);
+      overlay.appendChild(card);
+      document.body.appendChild(overlay);
+      const finish = (val) => {
+        try { document.body.removeChild(overlay); } catch(_){}
+        document.removeEventListener('keydown', keyHandler, true);
+        resolve(val);
+      };
+      const keyHandler = (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); finish(null); }
+        if (e.key === 'Enter')  { e.preventDefault(); finish(input.value); }
+      };
+      cancelBtn.onclick = () => finish(null);
+      okBtn.onclick     = () => finish(input.value);
+      overlay.addEventListener('click', e => { if (e.target === overlay) finish(null); });
+      document.addEventListener('keydown', keyHandler, true);
+      setTimeout(() => { input.focus(); input.select(); }, 0);
+    } catch (e) {
+      resolve(window.prompt(String(message || ''), String(defaultValue == null ? '' : defaultValue)));
+    }
+  });
+}
+
+// V388: typed-confirmation modal — for catastrophic actions (bulk delete).
+// Requires the user to type a specific word (default "DELETE") before the
+// confirm button activates. Prevents the V371-class mass-tombstone risk.
+// Returns Promise<boolean>.
+function showTypedConfirmModal(message, requiredText, opts) {
+  opts = opts || {};
+  const required    = String(requiredText || 'DELETE');
+  const okLabel     = opts.okLabel     || 'Confirm delete';
+  const cancelLabel = opts.cancelLabel || 'Cancel';
+  const lines = String(message || '').split('\n');
+  return new Promise(resolve => {
+    let overlay;
+    try {
+      overlay = document.createElement('div');
+      overlay.className = 'krsf-typed-confirm-overlay';
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(17,24,39,0.55);z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px;font-family:DM Sans,system-ui,sans-serif;';
+      const card = document.createElement('div');
+      card.style.cssText = 'background:#fff;border-radius:10px;max-width:460px;width:100%;box-shadow:0 12px 32px rgba(0,0,0,0.25);overflow:hidden;';
+      const head = document.createElement('div');
+      head.style.cssText = 'padding:14px 18px 8px;font-weight:600;font-size:15px;color:#991B1B;';
+      head.textContent = opts.title || 'Confirm destructive action';
+      const body = document.createElement('div');
+      body.style.cssText = 'padding:0 18px 14px;font-size:13.5px;line-height:1.5;color:#374151;';
+      lines.forEach((line, i) => {
+        const p = document.createElement('p');
+        p.style.cssText = 'margin:' + (i === 0 ? '0' : '8px 0 0') + ';white-space:pre-wrap;';
+        p.textContent = line;
+        body.appendChild(p);
+      });
+      const prompt = document.createElement('div');
+      prompt.style.cssText = 'margin:14px 0 6px;font-size:13px;color:#111827;';
+      prompt.innerHTML = 'Type <b style="font-family:monospace;letter-spacing:0.5px;">' + escHtml(required) + '</b> to enable the confirm button:';
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.placeholder = required;
+      input.style.cssText = 'width:100%;padding:9px 12px;border:1px solid #D1D5DB;border-radius:6px;font-size:14px;color:#111827;box-sizing:border-box;font-family:monospace;letter-spacing:0.5px;';
+      body.appendChild(prompt);
+      body.appendChild(input);
+      const btnRow = document.createElement('div');
+      btnRow.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;padding:12px 18px 14px;background:#F9FAFB;border-top:1px solid #E5E7EB;';
+      const cancelBtn = document.createElement('button');
+      cancelBtn.style.cssText = 'padding:8px 14px;border:1px solid #D1D5DB;background:#fff;border-radius:6px;font-size:13px;color:#374151;cursor:pointer;';
+      cancelBtn.textContent = cancelLabel;
+      const okBtn = document.createElement('button');
+      const enabledCss  = 'padding:8px 14px;border:1px solid #991B1B;background:#991B1B;color:#fff;border-radius:6px;font-size:13px;cursor:pointer;font-weight:500;';
+      const disabledCss = 'padding:8px 14px;border:1px solid #E5E7EB;background:#F3F4F6;color:#9CA3AF;border-radius:6px;font-size:13px;cursor:not-allowed;font-weight:500;';
+      okBtn.style.cssText = disabledCss;
+      okBtn.textContent = okLabel;
+      okBtn.disabled = true;
+      input.addEventListener('input', () => {
+        const ok = input.value === required;
+        okBtn.disabled = !ok;
+        okBtn.style.cssText = ok ? enabledCss : disabledCss;
+      });
+      btnRow.appendChild(cancelBtn);
+      btnRow.appendChild(okBtn);
+      card.appendChild(head);
+      card.appendChild(body);
+      card.appendChild(btnRow);
+      overlay.appendChild(card);
+      document.body.appendChild(overlay);
+      const finish = (val) => {
+        try { document.body.removeChild(overlay); } catch(_){}
+        document.removeEventListener('keydown', keyHandler, true);
+        resolve(val);
+      };
+      const keyHandler = (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+        if (e.key === 'Enter' && !okBtn.disabled) { e.preventDefault(); finish(true); }
+      };
+      cancelBtn.onclick = () => finish(false);
+      okBtn.onclick     = () => { if (!okBtn.disabled) finish(true); };
+      overlay.addEventListener('click', e => { if (e.target === overlay) finish(false); });
+      document.addEventListener('keydown', keyHandler, true);
+      setTimeout(() => input.focus(), 0);
+    } catch (e) {
+      // Fallback: native confirm with the typed-word baked into the message.
+      const ans = window.prompt(String(message || '') + '\n\nType ' + required + ' to confirm:', '');
+      resolve(ans === required);
     }
   });
 }
@@ -24520,7 +24895,9 @@ async function confirmBulkImport() {
     // advocacy record too. Same shape as the one submitEnroll creates.
     if (p.interventions.includes('Advocacy (Govt. Schemes)') && p.schemeRows.length > 0) {
       advData.push({
-        id: 'ADV-' + String(Date.now() + Math.floor(Math.random() * 1000)).slice(-7),
+        // V389: crypto.randomUUID — closes the ~10% collision rate on 100-row bulk imports
+        // (old Date.now()+Math.random()*1000 collided same-ms with 1-in-1000 prob).
+        id: 'ADV-' + crypto.randomUUID().slice(0, 8),
         bid: id,
         bname: p.name,
         schemeRows: p.schemeRows,
