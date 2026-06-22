@@ -1,6 +1,125 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V389-LIVE
+  KRSF Beneficiary Impact Tracker  -  V394-LIVE
+  ============================================================================
+  V394-LIVE (2026-06-22 — accessibility & mobile fit · staging-tested):
+
+    UI-only release (CSS + viewer markup). No reads/writes changed.
+
+    1. [7.1] Mobile viewer had NO logout — a donor on a shared phone was stuck
+       as that account. Added a "Sign out" button to the viewer header (calls
+       doLogout + reloads). HIGH.
+    2. [5.1] Dashboard 6-up KPI grid used an inline repeat(6,1fr) that beat the
+       mobile @media rule — phones showed 6 crushed columns. Moved to a
+       .stats-6 class that collapses to 2 columns under 768px.
+    3. [8.1] Added a visible :focus-visible ring on buttons/nav/links/inputs
+       (most had outline:none with no replacement).
+    4. [8.2] Added prefers-reduced-motion support — disables the infinite sync
+       pulse/spin + transitions for users who opt out.
+    5. [7.4] Viewer empty-state no longer blames the admin — neutral copy.
+
+    Deferred (larger / lower value): emoji->SVG swap, full type-scale, NGO-table
+    mobile cards, KPI hero hierarchy, touch-target sweep, enroll-label, drawer
+    grouping, donor CSV export, refresh-cooldown race, body scope banner.
+
+  ============================================================================
+  V393-LIVE (2026-06-22 — admin safety & honesty · staging-tested):
+
+    Trust + safety fixes for admin / login paths. No new reads/writes — the
+    audit banner just tells the truth about reads that already happen.
+
+    1. [6.1] Audit-log banner was FALSE — it claimed audit is "disabled / no
+       longer written to the cloud", but _fbPushAudit DOES write every event and
+       boot fetches the last 50. Banner now states the truth (recent 50 cloud
+       events + this session).
+    2. [6.2] adminDeleteUser uses the themed danger modal (was native confirm(),
+       which V388 missed) — reliable on mobile webviews; reassignment consequence visible.
+    3. adminSaveUser duplicate-fullName warning → themed modal (was native confirm).
+    4. confirmBulkImport "Ready to import N" → themed modal (was native confirm).
+    5. [1.4] Login error region got role="alert" so screen readers announce failures.
+
+    Verified NON-ISSUES (not changed): the "Delete Duplicate Records" + "Scheme
+    Rename" sidebar buttons are already hidden (display:none) and _delDupDelete is
+    hard-disabled — the audit's "dead visible button" did not reproduce.
+    Deferred (lower value / larger UI work): full bulk-import progress bar,
+    anon-auth-failure banner, maintenance-tools grouping, and the remaining
+    native confirm()s inside one-shot admin tools.
+
+  ============================================================================
+  V392-LIVE (2026-06-21 — escaping & input correctness · staging-tested):
+
+    Render-layer hardening + 3 real data-correctness fixes. No new reads/writes
+    (ingress unchanged). Most partial escapes were already context-safe; this
+    finishes the escHtml adoption for user-entered free text and fixes the
+    genuinely-raw option sinks.
+
+    1. [4.4] saveAdvocacy looks up the beneficiary in the FULL dataset (falls
+       back to loadData) so out-of-scope / deleted records still save the correct
+       bname + NGO instead of the raw bid + the saver's NGO.
+    2. [item 8] Quick-pick advocacy status only auto-fills the default benefit
+       amount for LOCKED (fixed) schemes — variable schemes (MGNREGA, PM-KISAN)
+       keep the FC-entered amount. Mirrors advOnStatusChange.
+    3. [3.4] Income-entry submit rejects a future date (the input max= was only
+       a UI hint). Applied to both the add and edit paths.
+    4. [escaping] escHtml() now wraps user-entered text at the income-log table,
+       duplicate-name warning, coordinator datalist, advocacy scheme dropdown,
+       NGO-performance row + NGO filter dropdowns — closing the genuinely-raw
+       option sinks and finishing the partial-escape cleanup.
+
+  ============================================================================
+  V391-LIVE (2026-06-21 — concurrency / double-submit guards · staging-tested):
+
+    Six fixes, all applying the proven submitEnroll in-flight pattern
+    (_enrollSubmitInFlight + _disableSaveBtnForUpload/_restoreSaveBtn) to the
+    save paths that lacked it. Data-protective (prevents duplicate / partial
+    writes) and ingress-NEGATIVE (the login guard stops double fbAttachListeners
+    on a double-tap). Verified on krsf-impact-staging: all 4 guards block a
+    re-entrant call; income-save rollback restores the original status; and
+    _safeUUID falls back when crypto.randomUUID is unavailable.
+
+    1. [1.1] doLogin in-flight guard — double-tap / repeated Enter no longer
+       double-fires auditLog('login') + fbAttachListeners() (double reads).
+    2. [3.1] _submitNewLogEntry in-flight guard; plus an inline hint in the Log
+       Income modal ("Saving will mark this beneficiary Completed") so the
+       Enrolled->Completed flip is no longer a silent surprise.
+    3. [3.2] Income-save failure rollback restores the record's ORIGINAL status
+       and endlineDate instead of a hardcoded 'Intervention In Progress'.
+    4. [4.1] saveAdvocacy in-flight guard — no duplicate advocacy rows on a 2G
+       double-tap.
+    5. [6.8] adminSaveUser in-flight guard — no duplicate user records on a
+       fast double-tap of Save.
+    6. [4.5] _safeUUID() fallback at the 4 advocacy-ID sites — crypto.randomUUID
+       is undefined on file:// / older WebViews; ID minting never throws now.
+
+  ============================================================================
+  V390-LIVE (2026-06-21 — data-safety release · staging-tested before ship):
+
+    Three fixes, all chosen to honour: (a) nothing happens to live data,
+    (b) Firebase download must not increase, (c) faster load. Verified end to
+    end on krsf-impact-staging before this LIVE build: the per-NGO guard blocks
+    a partial write, revert archive + restore round-trips through Firebase, and
+    config-save returns an honest success/failure result.
+
+    1. [5.2 / CRITICAL] Per-NGO summary no-shrink guard. The V374 guard only
+       protected _summary/global; the same batch also overwrites every
+       _summary/ngo/<X> (what donors read). A cache that is >=80% complete
+       OVERALL can still be badly partial for ONE NGO. We now read the existing
+       per-NGO scopes ONCE per admin write cycle (single small request) and SKIP
+       overwriting any NGO summary that would shrink below 80% of its stored
+       value. Net download: +1 small read per admin write cycle (admin-only).
+
+    2. [2.1] Non-destructive revert. Reverting Completed -> Intervention In
+       Progress previously DELETED endlineDate + endIncome + incomeLog. It now
+       ARCHIVES them onto b._revertedEndline (nothing deleted); the drawer shows
+       a "Restore archived endline" button to put them back. Additive field —
+       zero impact on existing records / dashboards / exports.
+
+    3. [6.3] Honest config-save result. fbSyncWholeArray/Object now RESOLVE a
+       boolean (true only when the cloud .set() succeeded). saveSchemes /
+       saveLivTypes / saveSchemesMeta return it; adminRenameScheme awaits it and
+       no longer shows a green "Renamed" toast when the cloud config write
+       actually failed. No new reads/writes.
+
   ============================================================================
   V389-LIVE (2026-06-20 — 5 small post-audit fixes, zero Firebase impact):
 
@@ -1795,6 +1914,7 @@ html,body{height:100%;font-family:var(--font);background:#EEF2F7;color:var(--tex
 
 /* ── Stats ────────────────────────────────────────────────────── */
 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
+.stats-6{grid-template-columns:repeat(6,1fr)}
 .stat{background:#fff;border:1px solid var(--gray3);border-radius:10px;padding:14px 16px;border-top:3px solid var(--gray3)}
 .stat.s-blue{border-top-color:var(--navy2)}
 .stat.s-green{border-top-color:var(--green)}
@@ -1984,6 +2104,13 @@ html,body{height:100%;font-family:var(--font);background:#EEF2F7;color:var(--tex
 #sync-pill.error .sync-dot{background:#EF4444}
 @keyframes syncPulse{0%{box-shadow:0 0 0 0 rgba(16,185,129,.6)}70%{box-shadow:0 0 0 6px rgba(16,185,129,0)}100%{box-shadow:0 0 0 0 rgba(16,185,129,0)}}
 @keyframes syncSpin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+/* V394 [8.1]: visible keyboard focus ring. Most controls used outline:none with
+   no replacement. :focus-visible only shows for keyboard/switch nav, so mouse and
+   touch users don't get rings. */
+.btn:focus-visible,.nav-btn:focus-visible,.mob-nav-item:focus-visible,a:focus-visible,button:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-visible,[tabindex]:focus-visible,.fsel:focus-visible,.fsearch:focus-visible{outline:2px solid var(--navy2);outline-offset:2px}
+/* V394 [8.2]: honour prefers-reduced-motion — kill the infinite sync pulse/spin
+   and transitions for users who opt out (vestibular safety + battery on phones). */
+@media (prefers-reduced-motion: reduce){*,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}}
 @media (max-width:640px){#sync-pill{top:8px;right:8px;padding:5px 10px;font-size:11px}}
 /* V377 [Fix #2]: prefix removed. The ✓ and ⚠ glyphs rendered as
    missing-glyph boxes on Windows + non-emoji fonts, showing as weird
@@ -2059,7 +2186,7 @@ html,body{height:100%;font-family:var(--font);background:#EEF2F7;color:var(--tex
   .content { padding: 12px; }
 
   /* ── Stat cards → 2×2 grid ── */
-  .stats { grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+  .stats, .stats-6 { grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
   .stat { padding: 12px; }
   .stat-val { font-size: 22px !important; }
 
@@ -3955,7 +4082,7 @@ body[data-shell="coord"] #coord-app { display: block; }
       <h2 style="font-size:22px;font-weight:700;color:var(--navy);margin:6px 0 4px 0">KRSF Livelihood Tracker</h2>
       <div style="font-size:12px;color:var(--gray2)">Sign in to continue</div>
     </div>
-    <div id="login-err" style="display:none;background:#FEE2E2;color:#991B1B;padding:8px 11px;border-radius:6px;font-size:12px;margin-bottom:12px"></div>
+    <div id="login-err" role="alert" style="display:none;background:#FEE2E2;color:#991B1B;padding:8px 11px;border-radius:6px;font-size:12px;margin-bottom:12px"></div>
     <div class="fg" style="margin-bottom:12px">
       <label style="font-size:12px;font-weight:600;color:var(--gray1);margin-bottom:4px;display:block">Username</label>
       <input id="login-username" autocomplete="username" style="width:100%;padding:9px 11px;border:1px solid var(--gray3);border-radius:7px;font-size:14px;font-family:var(--font)" onkeydown="if(event.key==='Enter')document.getElementById('login-password').focus()">
@@ -3964,7 +4091,7 @@ body[data-shell="coord"] #coord-app { display: block; }
       <label style="font-size:12px;font-weight:600;color:var(--gray1);margin-bottom:4px;display:block">Password</label>
       <input id="login-password" type="password" autocomplete="current-password" style="width:100%;padding:9px 11px;border:1px solid var(--gray3);border-radius:7px;font-size:14px;font-family:var(--font)" onkeydown="if(event.key==='Enter')doLogin()">
     </div>
-    <button onclick="doLogin()" class="btn btn-primary" style="width:100%;padding:10px;font-size:14px;font-weight:600">Sign In</button>
+    <button id="login-btn" onclick="doLogin()" class="btn btn-primary" style="width:100%;padding:10px;font-size:14px;font-weight:600">Sign In</button>
   </div>
 </div>
 
@@ -4046,7 +4173,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V389-LIVE';
+const APP_VERSION = 'V394-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -6937,14 +7064,18 @@ async function fbWriteChangedRecords(coll, changed, idField, lastMapRef, cacheSe
 // On Firebase failure we just log — local LS already has the value, admin
 // can retry from the admin panel.
 async function fbSyncWholeArray(path, arr) {
+  // V390 [6.3]: resolves TRUE only when the cloud .set() succeeded; FALSE on
+  // offline / not-ready / write error. Never throws — all callers are
+  // fire-and-forget and must keep working; awaiting callers use the boolean.
   if (FB.initFailed || !FB.online || !FB.db) {
     console.warn(`[V310-S2] Skipping cloud sync for ${path} (offline / not ready). Local copy preserved.`);
-    return;
+    return false;
   }
   try {
     FB.pendingWrites++;
     fbUpdatePill();
     await fbRef(path).set(arr);
+    return true;
   } catch(e) {
     console.warn(`[V310-S2] Whole-array write failed for ${path}:`, e);
     // V389: surface silent failure so admin sees the actual outcome instead of
@@ -6955,6 +7086,7 @@ async function fbSyncWholeArray(path, arr) {
         toast(`Cloud save failed for ${path.split('/').pop()}. Local copy kept — please retry.`, 'error', 6000);
       }
     } catch(_) {}
+    return false;
   } finally {
     FB.pendingWrites--;
     fbUpdatePill();
@@ -6968,15 +7100,18 @@ async function fbSyncWholeArray(path, arr) {
 // is what we want for an empty meta map; `set([])` would persist an empty
 // array, which is a different shape.
 async function fbSyncWholeObject(path, obj) {
+  // V390 [6.3]: resolves TRUE only when the cloud .set() succeeded; FALSE
+  // otherwise. Never throws — see fbSyncWholeArray.
   if (FB.initFailed || !FB.online || !FB.db) {
     console.warn(`[V322] Skipping cloud sync for ${path} (offline / not ready). Local copy preserved.`);
-    return;
+    return false;
   }
   try {
     FB.pendingWrites++;
     fbUpdatePill();
     // V389: throwing branches below now also surface a toast (see catch).
     await fbRef(path).set(obj || {});
+    return true;
   } catch(e) {
     console.warn(`[V322] Whole-object write failed for ${path}:`, e);
     // V389: surface silent failure — same rationale as fbSyncWholeArray.
@@ -6985,6 +7120,7 @@ async function fbSyncWholeObject(path, obj) {
         toast(`Cloud save failed for ${path.split('/').pop()}. Local copy kept — please retry.`, 'error', 6000);
       }
     } catch(_) {}
+    return false;
   } finally {
     FB.pendingWrites--;
     fbUpdatePill();
@@ -7973,19 +8109,21 @@ function getLivTypes() {
   localStorage.setItem(LIVTYPES_KEY, JSON.stringify(defaults));
   return defaults;
 }
-function saveLivTypes(arr) {
+async function saveLivTypes(arr) {
   // V375 [Fix #2 — defense in depth]: block scopedViewer console calls.
   {
     let _wu = null;
     try { _wu = (typeof currentUser === 'function') ? currentUser() : null; } catch(_) {}
     if (_wu && _wu.role === 'scopedViewer') {
       if (typeof toast === 'function') toast('Read-only account — livelihood config is disabled.', 'error', 4000);
-      return;
+      return false;
     }
   }
   // V16: whole-array sync — admin-only config, tiny, low concurrency risk.
+  // LS write is synchronous (before the await), so non-awaiting callers are
+  // unaffected; V390 [6.3] returns the cloud-sync boolean for awaiting callers.
   localStorage.setItem(LIVTYPES_KEY, JSON.stringify(arr));
-  fbSyncWholeArray('config/livtypes', arr || []);
+  return await fbSyncWholeArray('config/livtypes', arr || []);
 }
 
 // Dynamic govt schemes — replaces the hardcoded GOVT_SCHEMES constant for
@@ -8001,7 +8139,7 @@ function getSchemes() {
   localStorage.setItem(SCHEMES_KEY, JSON.stringify(defaults));
   return defaults;
 }
-function saveSchemes(arr) {
+async function saveSchemes(arr) {
   // V388: defense in depth — block scopedViewer / scopedViewerByFc console calls.
   // Mirrors the saveLivTypes guard. Real enforcement lives in Firebase Rules.
   {
@@ -8009,12 +8147,14 @@ function saveSchemes(arr) {
     try { _wu = (typeof currentUser === 'function') ? currentUser() : null; } catch(_) {}
     if (_wu && (_wu.role === 'scopedViewer' || _wu.role === 'scopedViewerByFc')) {
       if (typeof toast === 'function') toast('Read-only account — schemes config is disabled.', 'error', 4000);
-      return;
+      return false;
     }
   }
   // V16: whole-array sync — admin-only config, tiny, low concurrency risk.
+  // LS write is synchronous (before the await); V390 [6.3] returns the
+  // cloud-sync boolean for awaiting callers (e.g. adminRenameScheme).
   localStorage.setItem(SCHEMES_KEY, JSON.stringify(arr));
-  fbSyncWholeArray('config/schemes', arr || []);
+  return await fbSyncWholeArray('config/schemes', arr || []);
 }
 
 // ── V322: SCHEME METADATA (default benefit amount per scheme) ──────────────
@@ -8038,7 +8178,7 @@ function getSchemesMeta() {
   } catch(_) {}
   return {};
 }
-function saveSchemesMeta(obj) {
+async function saveSchemesMeta(obj) {
   // Validate: drop any keys with non-finite or negative amounts to keep
   // storage clean. A 0 / missing amount is the "no default" sentinel and
   // is stored explicitly only if the admin entered 0 deliberately; the
@@ -8059,7 +8199,8 @@ function saveSchemesMeta(obj) {
     if (Object.keys(entry).length > 0) clean[k] = entry;
   });
   localStorage.setItem(SCHEMES_META_KEY, JSON.stringify(clean));
-  fbSyncWholeObject('config/schemes_meta', clean);
+  // V390 [6.3]: return cloud-sync boolean for awaiting callers.
+  return await fbSyncWholeObject('config/schemes_meta', clean);
 }
 // V327-DEV: type helpers for the Documents/Schemes grouping in the
 // enrollment form. Anything without an explicit type defaults to 'Scheme'
@@ -9764,7 +9905,8 @@ function openDrawer(id) {
              <span style="margin-right:8px">NGO Partner actions:</span>
              ${b.status === 'Intervention In Progress'
                ? `<button class="btn btn-sm" style="color:var(--amber);border-color:var(--amber);font-size:11px;padding:4px 10px" onclick="updateStatus('${b.id}','Enrolled')" title="Revert this record from Intervention In Progress back to Enrolled. The in-progress date is cleared but other data is kept.">↶ Revert to Enrolled</button>`
-               : `<button class="btn btn-sm" style="color:var(--amber);border-color:var(--amber);font-size:11px;padding:4px 10px" onclick="updateStatus('${b.id}','Intervention In Progress')" title="Revert this record from Completed back to Intervention In Progress. The endline date, total endline income, and ALL income log entries are cleared but the in-progress date is kept.">↶ Revert to Intervention In Progress</button>`}
+               : `<button class="btn btn-sm" style="color:var(--amber);border-color:var(--amber);font-size:11px;padding:4px 10px" onclick="updateStatus('${b.id}','Intervention In Progress')" title="Revert this record from Completed back to Intervention In Progress. The endline date, total endline income, and ALL income log entries are archived (not deleted) and can be restored; the in-progress date is kept.">↶ Revert to Intervention In Progress</button>`}
+             ${b._revertedEndline ? `<button class="btn btn-sm" style="color:var(--green);border-color:var(--green2);font-size:11px;padding:4px 10px;margin-left:6px" onclick="restoreRevertedEndline('${b.id}')" title="Restore the endline date, income and ${Array.isArray(b._revertedEndline.incomeLog)?b._revertedEndline.incomeLog.length:0} income-log entr${(Array.isArray(b._revertedEndline.incomeLog)&&b._revertedEndline.incomeLog.length===1)?'y':'ies'} archived when this record was last reverted, and mark it Completed again.">↺ Restore archived endline</button>` : ''}
            </div>`
         : ''}
     </div>` : ''}
@@ -9900,7 +10042,15 @@ async function updateStatus(id, status) {
       return;
     }
     // V388: themed modal — works on mobile webviews where native confirm() can silently auto-cancel.
-    if (!await showConfirmModal(`Revert "${b.name}" from ${stageLabel(b.status)} back to ${stageLabel(status)}?\n\nThis cannot be undone except by moving the record forward again.`, { danger: true, okLabel: 'Revert', title: 'Revert stage' })) return;
+    // V390 [2.1]: tailored wording — Completed→In Progress no longer deletes the
+    // endline data (it is archived), so the message reflects that.
+    let _revertMsg = `Revert "${b.name}" from ${stageLabel(b.status)} back to ${stageLabel(status)}?`;
+    if (b.status === 'Completed' && status === 'Intervention In Progress') {
+      _revertMsg += `\n\nThe endline date, endline income and all income-log entries will be archived on the record (not deleted) — you can restore them from the drawer afterwards.`;
+    } else {
+      _revertMsg += `\n\nThis can be redone by moving the record forward again.`;
+    }
+    if (!await showConfirmModal(_revertMsg, { danger: true, okLabel: 'Revert', title: 'Revert stage' })) return;
   }
   const prevStatus = b.status;
   const prevEndline = b.endlineDate;
@@ -9919,9 +10069,20 @@ async function updateStatus(id, status) {
   //   automatically when user moves back to In Progress).
   if (isBackward) {
     if (prevStatus === 'Completed' && status === 'Intervention In Progress') {
+      // V390 [2.1]: NON-DESTRUCTIVE revert. Previously this DELETED endlineDate,
+      // endIncome and the whole incomeLog. Now we ARCHIVE them onto
+      // b._revertedEndline so nothing is lost and the drawer can restore them.
+      // Additive field — invisible to existing dashboards / exports / CSV.
+      const _revActor = currentUser();
+      b._revertedEndline = {
+        endlineDate: (b.endlineDate != null ? b.endlineDate : null),
+        endIncome:   (b.endIncome   != null ? b.endIncome   : null),
+        incomeLog:   (Array.isArray(b.incomeLog) ? b.incomeLog.slice() : []),
+        revertedAt:  new Date().toISOString(),
+        revertedBy:  (_revActor && (_revActor.username || _revActor.userId)) || null
+      };
       b.endlineDate = null;
       b.endIncome = null;
-      // #5: also clear the income log (it belonged to the Completed stage).
       b.incomeLog = [];
     } else if (prevStatus === 'Intervention In Progress' && status === 'Enrolled') {
       b.inProgressDate = null;
@@ -9936,6 +10097,40 @@ async function updateStatus(id, status) {
     ? 'Reverted to ' + stageLabel(status)
     : 'Progress updated to: ' + stageLabel(status),
     'success');
+  openDrawer(id);
+  if (currentView !== 'dashboard') renderCurrent();
+}
+
+// V390 [2.1]: restore endline data that a Completed→In Progress revert archived
+// onto b._revertedEndline, and mark the record Completed again. Admin/NGO only,
+// mirroring the revert guard. Reads the FULL dataset (loadData) so saveData
+// never drops records outside the current user's scope.
+async function restoreRevertedEndline(id) {
+  const actor = currentUser();
+  if (!actor || (actor.role !== 'admin' && actor.role !== 'ngo')) {
+    toast('Only NGO Partners and Admins can restore archived endline data.', 'error');
+    return;
+  }
+  const all = loadData();
+  const b = all.find(x => x.id === id);
+  if (!b || !b._revertedEndline) return;
+  const arc = b._revertedEndline;
+  const nEntries = Array.isArray(arc.incomeLog) ? arc.incomeLog.length : 0;
+  if (!await showConfirmModal(`Restore the archived endline for "${b.name}"?\n\nThis re-applies ${nEntries} income-log entr${nEntries===1?'y':'ies'} and the endline date, and marks the record Completed again.`, { okLabel: 'Restore', title: 'Restore endline' })) return;
+  b.incomeLog = Array.isArray(arc.incomeLog) ? arc.incomeLog.slice() : [];
+  // endIncome is a computed mirror of sum(incomeLog); recompute from the
+  // restored log, falling back to the archived total for legacy single-shot data.
+  b.endIncome = (b.incomeLog.length > 0 && typeof _incomeLogTotal === 'function')
+    ? _incomeLogTotal(b)
+    : (arc.endIncome != null ? arc.endIncome : null);
+  b.endlineDate = arc.endlineDate || b.endlineDate || new Date().toISOString().split('T')[0];
+  b.status = 'Completed';
+  delete b._revertedEndline;
+  if (!await _trySave(() => saveData(all), 'restore endline')) return;
+  auditLog('status_change', 'beneficiary', id, b.name,
+    `Restored archived endline (re-completed); ${nEntries} income entr${nEntries===1?'y':'ies'} restored`,
+    {status:['Intervention In Progress', 'Completed']});
+  toast('Archived endline restored', 'success');
   openDrawer(id);
   if (currentView !== 'dashboard') renderCurrent();
 }
@@ -10057,7 +10252,10 @@ async function _advApplyStatus(bid, scheme, remarks, next) {
   let storedStatus = next, storedBenefitRecd = 'No';
   if (next === 'Benefits Received') {
     storedStatus = 'Approved'; storedBenefitRecd = 'Yes';
-    if (!row.benefitAmt) { const def = getSchemeDefaultAmount(scheme); if (def) row.benefitAmt = def; }
+    // V392 [item 8]: only auto-fill the default for LOCKED (fixed-amount) schemes,
+    // mirroring advOnStatusChange. Variable-amount schemes (MGNREGA, PM-KISAN)
+    // keep the FC-entered amount instead of a misleading default.
+    if (!row.benefitAmt && isSchemeBenefitLocked(scheme)) { const def = getSchemeDefaultAmount(scheme); if (def) row.benefitAmt = def; }
   }
   row.status = storedStatus; row.benefitRecd = storedBenefitRecd;
   // V329: optimistic local update — reflect new status in the list immediately
@@ -10321,7 +10519,7 @@ function openEnroll() {
   const coordList = document.getElementById('coord-name-list');
   if (coordList) {
     const coords = [...new Set(getData().map(b => (b.coord||'').trim()).filter(Boolean))].sort();
-    coordList.innerHTML = coords.map(c => `<option value="${c.replace(/"/g,'&quot;')}"></option>`).join('');
+    coordList.innerHTML = coords.map(c => `<option value="${escHtml(c)}"></option>`).join('');
   }
   // V4.1: ensure Section 2 title resets to "Programme" (not "Programme Planning")
   _checkProgrammePlanning();
@@ -11802,7 +12000,7 @@ async function _submitEnrollInner() {
         const msg  = document.getElementById('dup-name-warn-msg');
         if (warn && msg) {
           msg.innerHTML =
-            `<b>${(name).replace(/</g,'&lt;')}</b> from <b>${(village).replace(/</g,'&lt;')}</b>` +
+            `<b>${escHtml(name)}</b> from <b>${escHtml(village)}</b>` +
             ` is already enrolled as <b>${existing.id}</b>` +
             (existing.enrollDate ? ` on ${existing.enrollDate}` : '') + `.`;
           warn.classList.add('show');
@@ -12117,7 +12315,7 @@ async function _submitEnrollInner() {
             const _me = currentUser() || {};
             advArr.push({
               // V389: crypto.randomUUID gives 4 billion unique 8-char prefixes — no ms-adjacent collision.
-              id: 'ADV-' + crypto.randomUUID().slice(0, 8),
+              id: 'ADV-' + _safeUUID().slice(0, 8),
               bid: editingId,
               bname: fields.name,
               schemeRows: newRows.concat(tombstones),
@@ -12262,7 +12460,7 @@ async function _submitEnrollInner() {
       // drops by ~50x.
       advArr.push({
         // V389: crypto.randomUUID gives 4 billion unique 8-char prefixes — no ms-adjacent collision.
-        id: 'ADV-' + crypto.randomUUID().slice(0, 8),
+        id: 'ADV-' + _safeUUID().slice(0, 8),
         bid: id,
         bname: name,
         schemeRows: toStoredSchemeRows(enrollSchemeRows),
@@ -13203,14 +13401,14 @@ function _renderLogIncomeBody(b) {
            ${log.map((e, i) => {
              const isEditing = _editingLogIdx === i;
              const editedSuffix = e.editedAt
-               ? `<div style="font-size:10px;color:var(--gray2);margin-top:2px">Edited by ${(e.editedByName||e.editedBy||'?').replace(/</g,'&lt;')} · ${fmtD(e.editedAt.split('T')[0])}</div>`
+               ? `<div style="font-size:10px;color:var(--gray2);margin-top:2px">Edited by ${escHtml(e.editedByName||e.editedBy||'?')} · ${fmtD(e.editedAt.split('T')[0])}</div>`
                : '';
              return `<tr style="border-top:1px solid var(--gray3);${isEditing?'background:var(--amber2,#FFF7E6)':''}">
                <td style="padding:8px">${fmtD(e.date)}</td>
                <td style="padding:8px;text-align:right;font-weight:600">₹${(parseFloat(e.amount)||0).toLocaleString('en-IN')}</td>
-               <td style="padding:8px;color:var(--gray1);font-size:12px">${(e.note||'—').replace(/</g,'&lt;')}</td>
+               <td style="padding:8px;color:var(--gray1);font-size:12px">${escHtml(e.note||'—')}</td>
                <td style="padding:8px;font-size:11px;color:var(--gray2)">
-                 ${(e.addedByName||e.addedBy||'?').replace(/</g,'&lt;')}<br>
+                 ${escHtml(e.addedByName||e.addedBy||'?')}<br>
                  <span style="font-size:10px">${e.addedAt ? fmtD(e.addedAt.split('T')[0]) : ''}</span>
                  ${editedSuffix}
                </td>
@@ -13292,6 +13490,7 @@ function _renderLogIncomeBody(b) {
          it's impossible to miss on mobile. -->
     <div class="msec" style="margin-top:18px;background:#EFF6FF;border:1px solid #BFDBFE;border-left:4px solid var(--navy);padding:14px">
       <div class="msec-title" style="color:var(--navy);font-size:13px">${formTitle}</div>
+      ${(!editing && log.length === 0 && b.status !== 'Completed') ? `<div style="font-size:12px;color:var(--navy);margin-top:6px;display:flex;align-items:flex-start;gap:6px;line-height:1.4"><span style="font-weight:700">&#9432;</span><span>Saving will mark this beneficiary <b>Completed</b>.</span></div>` : ''}
       <div class="frow">
         <div class="fg">
           <label>Date *</label>
@@ -13355,13 +13554,29 @@ function _saveLogIncomeFromFooter() {
 }
 
 // ── Add new entry ────────────────────────────────────────────────────────
+let _logEntryInFlight = false;
 async function _submitNewLogEntry() {
+  // V391 [3.1]: double-submit guard. On 2G a double-tap previously saved the
+  // same entry twice (and the first tap silently flipped Enrolled->Completed).
+  if (_logEntryInFlight) { console.warn('[_submitNewLogEntry] re-entrant call blocked (already in-flight).'); return; }
+  _logEntryInFlight = true;
+  const _liBtnHandle = _disableSaveBtnForUpload('save-income-btn', '💾 Saving…');
+  try {
+    return await _submitNewLogEntryInner();
+  } finally {
+    _logEntryInFlight = false;
+    _restoreSaveBtn(_liBtnHandle);
+  }
+}
+async function _submitNewLogEntryInner() {
   const dateRaw = document.getElementById('li-date')?.value;
   const amountRaw = document.getElementById('li-amount')?.value;
   const noteRaw = (document.getElementById('li-note')?.value || '').trim();
   const err = document.getElementById('li-err');
   const showErr = msg => { if (err) { err.textContent = msg; err.classList.add('show'); } };
   if (!dateRaw) { showErr('Please pick a date.'); return; }
+  // V392 [3.4]: reject a future date on submit (input max= is only a UI hint).
+  if (dateRaw > new Date().toISOString().split('T')[0]) { showErr('Date cannot be in the future.'); return; }
   if (amountRaw === '' || amountRaw == null) { showErr('Please enter an amount.'); return; }
   const amount = parseFloat(amountRaw);
   if (isNaN(amount) || amount < 0) { showErr('Amount must be a valid non-negative number.'); return; }
@@ -13384,6 +13599,10 @@ async function _submitNewLogEntry() {
     addedAt: new Date().toISOString(),
   };
   const wasFirst = b.incomeLog.length === 0;
+  // V391 [3.2]: capture the ORIGINAL status/endlineDate so a failed save can
+  // restore exactly what was there, not a hardcoded 'Intervention In Progress'.
+  const _prevStatus = b.status;
+  const _prevEndlineDate = b.endlineDate;
   b.incomeLog.push(newEntry);
   // Keep b.endIncome in sync as a computed mirror — every dashboard, KPI,
   // and CSV export reads this directly, so we maintain it here.
@@ -13402,7 +13621,7 @@ async function _submitNewLogEntry() {
     // Roll back: remove the entry we just pushed.
     b.incomeLog.pop();
     b.endIncome = _incomeLogTotal(b);
-    if (wasFirst) { b.endlineDate = null; b.status = 'Intervention In Progress'; }
+    if (wasFirst) { b.endlineDate = _prevEndlineDate; b.status = _prevStatus; }  // V391 [3.2]: restore ORIGINAL, not hardcoded
     const msg = (e instanceof SaveError) ? e.message : 'Could not save income entry';
     if (typeof toast === 'function') toast(msg, 'error', 8000);
     return;
@@ -13449,6 +13668,8 @@ async function _submitEditLogEntry() {
   const err = document.getElementById('li-err');
   const showErr = msg => { if (err) { err.textContent = msg; err.classList.add('show'); } };
   if (!dateRaw) { showErr('Please pick a date.'); return; }
+  // V392 [3.4]: reject a future date on submit (input max= is only a UI hint).
+  if (dateRaw > new Date().toISOString().split('T')[0]) { showErr('Date cannot be in the future.'); return; }
   if (amountRaw === '' || amountRaw == null) { showErr('Please enter an amount.'); return; }
   const amount = parseFloat(amountRaw);
   if (isNaN(amount) || amount < 0) { showErr('Amount must be a valid non-negative number.'); return; }
@@ -14540,7 +14761,7 @@ function refreshMapMarkers() {
   </div>
   <div class="modal-foot">
     <button class="btn" onclick="closeAdvModal()">Cancel</button>
-    <button class="btn btn-primary" onclick="saveAdvocacy()">Save Record</button>
+    <button id="adv-save-btn" class="btn btn-primary" onclick="saveAdvocacy()">Save Record</button>
   </div>
 </div>
 </div>
@@ -14753,7 +14974,7 @@ function advAddSchemeRow(scheme, status, benefitRecd, benefitAmt, remarks) {
   const wrap = document.getElementById('adv-scheme-rows');
   if (!wrap) return;
   const rowId = ++_advRowCount;
-  const schemeOpts = getSchemes().map(s => `<option value="${s}" ${s===(scheme||'')?'selected':''}>${s}</option>`).join('');
+  const schemeOpts = getSchemes().map(s => `<option value="${escHtml(s)}" ${s===(scheme||'')?'selected':''}>${escHtml(s)}</option>`).join('');
   // Determine initial status: prefer explicit status arg, else default to Applied
   const initStatus = status || 'Applied';
   const statusOpts = ADV_STATUSES.map(s => `<option value="${s}" ${s===initStatus?'selected':''}>${s}</option>`).join('');
@@ -15074,13 +15295,30 @@ function selectAdvBenef(id) {
   _advPrefillRows(id);
 }
 
+let _advSaveInFlight = false;
 async function saveAdvocacy() {
+  // V391 [4.1]: double-submit guard. On 2G a double-tap on a NEW beneficiary
+  // previously created two advocacy records (different UUIDs) = duplicates.
+  if (_advSaveInFlight) { console.warn('[saveAdvocacy] re-entrant call blocked (already in-flight).'); return; }
+  _advSaveInFlight = true;
+  const _advBtnHandle = _disableSaveBtnForUpload('adv-save-btn', 'Saving…');
+  try {
+    return await _saveAdvocacyInner();
+  } finally {
+    _advSaveInFlight = false;
+    _restoreSaveBtn(_advBtnHandle);
+  }
+}
+async function _saveAdvocacyInner() {
   const bid = document.getElementById('adv-bid').value;
   const err = document.getElementById('adv-err');
   if (!bid) { err.textContent='Please select a beneficiary first.'; err.classList.add('show'); return; }
   const rows = advGetRows();
   if (!rows.length) { err.textContent='Please add at least one scheme row.'; err.classList.add('show'); return; }
-  const b = getData().find(x=>x.id===bid);
+  // V392 [4.4]: look up the beneficiary in the FULL dataset (fall back to
+  // loadData) so an out-of-scope / just-deleted record still gets the correct
+  // bname + ngo attribution instead of the raw bid + the saver's NGO.
+  const b = getData().find(x=>x.id===bid) || loadData().find(x=>x.id===bid);
   const arr = loadAdv();
   const notes = document.getElementById('adv-notes').value.trim();
   const nowIso = new Date().toISOString();
@@ -15154,7 +15392,7 @@ async function saveAdvocacy() {
     const me = currentUser() || {};
     rec = {
       // V389: crypto.randomUUID gives 4 billion unique 8-char prefixes — no ms-adjacent collision.
-      id: 'ADV-' + crypto.randomUUID().slice(0, 8),
+      id: 'ADV-' + _safeUUID().slice(0, 8),
       bid,
       bname: b ? b.name : bid,
       schemeRows: rows,
@@ -16070,9 +16308,9 @@ function _renderDashboardTopNGOs(list, advLatest) {
           </thead>
           <tbody>
             ${rows.map((r, i) => `
-              <tr data-ngo-row="${r.name.replace(/"/g,'&quot;')}" onclick="_filterByNgoFromRow(this)" style="cursor:pointer" title="Click to filter to this NGO">
+              <tr data-ngo-row="${escHtml(r.name)}" onclick="_filterByNgoFromRow(this)" style="cursor:pointer" title="Click to filter to this NGO">
                 <td style="text-align:center;color:var(--gray2);font-weight:600">${i+1}</td>
-                <td style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.name}</td>
+                <td style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(r.name)}</td>
                 <td style="text-align:right">${r.count}</td>
                 <td style="text-align:right;color:${r.income>0?'var(--green)':'var(--gray2)'};font-weight:${r.income>0?'600':'400'}">${r.income>0?fmt(r.income):'—'}</td>
                 <td style="text-align:right;color:${r.schemes>0?'var(--purple)':'var(--gray2)'};font-weight:${r.schemes>0?'600':'400'}">${r.schemes>0?fmt(r.schemes):'—'}</td>
@@ -16174,7 +16412,7 @@ function renderDashboard() {
   </div>`;
 
   document.getElementById('content').innerHTML = `
-    <div class="stats" style="grid-template-columns:repeat(6,1fr);margin-bottom:18px">
+    <div class="stats stats-6" style="margin-bottom:18px">
       ${tile('Total Beneficiaries', total, filterBadges || 'Livelihood & Advocacy', 's-blue')}
       ${tile('States Covered', distinctStates.size, distinctStates.size ? [...distinctStates].sort().join(', ') : '—', 's-purple')}
       ${tile('Districts Covered', distinctDistricts.size, distinctDistricts.size===1 ? '1 district' : distinctDistricts.size+' districts', 's-amber')}
@@ -18371,7 +18609,7 @@ function _renderUserModalHtml() {
         </div>
         <div class="modal-foot" style="display:flex;justify-content:flex-end;gap:8px;padding:12px 18px;border-top:1px solid var(--gray3)">
           <button class="btn btn-sm" onclick="document.getElementById('user-modal').style.display='none'">Cancel</button>
-          <button class="btn btn-primary btn-sm" onclick="adminSaveUser()">Save</button>
+          <button id="user-save-btn" class="btn btn-primary btn-sm" onclick="adminSaveUser()">Save</button>
         </div>
       </div>
     </div>`;
@@ -18492,7 +18730,22 @@ function adminEditUser(id) {
   document.getElementById('user-modal').style.display = 'flex';
 }
 
+let _userSaveInFlight = false;
 async function adminSaveUser() {
+  // V391 [6.8]: double-submit guard. A fast double-tap of Save could push two
+  // user records before the first write returned (the uniqueness check reads a
+  // stale local array).
+  if (_userSaveInFlight) { console.warn('[adminSaveUser] re-entrant call blocked (already in-flight).'); return; }
+  _userSaveInFlight = true;
+  const _userBtnHandle = _disableSaveBtnForUpload('user-save-btn', 'Saving…');
+  try {
+    return await _adminSaveUserInner();
+  } finally {
+    _userSaveInFlight = false;
+    _restoreSaveBtn(_userBtnHandle);
+  }
+}
+async function _adminSaveUserInner() {
   const err = document.getElementById('user-err');
   const fullName = document.getElementById('user-fullname').value.trim();
   const username = document.getElementById('user-username').value.trim().toLowerCase();
@@ -18557,11 +18810,13 @@ async function adminSaveUser() {
       x.ngo === targetNgo
     );
     if (collision) {
-      const ok = confirm(
+      // V393: themed modal — consistent with the rest of the app and reliable on mobile.
+      const ok = await showConfirmModal(
         'Another user in ' + (targetNgo || 'the same scope') + ' already has the full name "' + fullName + '" (username: ' + collision.username + ').\n\n' +
         'Two users sharing a full name in the same NGO is allowed but discouraged — it can complicate audit logs and visibility filters for legacy records. ' +
         'Consider adding a middle initial or surname to distinguish them.\n\n' +
-        'Continue with this name anyway?'
+        'Continue with this name anyway?',
+        { okLabel: 'Use this name', title: 'Duplicate full name' }
       );
       if (!ok) return;
     }
@@ -18645,7 +18900,9 @@ async function adminDeleteUser(id) {
   const msg = owned > 0
     ? `Delete user "${u.username}"?\n\n${owned} beneficiary record${owned===1?'':'s'} currently owned by this user will be reassigned to the admin account. This cannot be undone.`
     : `Delete user "${u.username}"? This cannot be undone.`;
-  if (!confirm(msg)) return;
+  // V393 [6.2]: themed danger modal — native confirm() can auto-dismiss on some
+  // Android webviews and can't emphasise the record-reassignment consequence.
+  if (!await showConfirmModal(msg, { danger: true, okLabel: 'Delete user', title: 'Delete user' })) return;
   // V310-S2: Reassign owned records to admin before deleting. Bail on failure.
   if (owned > 0) {
     const data = loadData();
@@ -19573,7 +19830,10 @@ async function adminRenameScheme(idx) {
     return toast('That name is already used', 'error');
   }
   schemes[idx] = trimmed;
-  saveSchemes(schemes);
+  // V390 [6.3]: await the cloud config result so we don't show a green
+  // "Renamed" toast when the cloud write actually failed.
+  const _schemesCloudOk = await saveSchemes(schemes);
+  let _metaCloudOk = true;
   // V322: cascade the rename into config/schemes_meta. A rename should
   // preserve the configured default amount under the new name; otherwise
   // the admin would have to re-enter it. Skip if the old name had no
@@ -19582,7 +19842,7 @@ async function adminRenameScheme(idx) {
   if (Object.prototype.hasOwnProperty.call(meta, oldName)) {
     meta[trimmed] = meta[oldName];
     delete meta[oldName];
-    saveSchemesMeta(meta);
+    _metaCloudOk = await saveSchemesMeta(meta);
   }
   // V310-S2: Cascade rename — await Firebase. saveSchemes is config (LS-only).
   let changed = 0;
@@ -19596,9 +19856,17 @@ async function adminRenameScheme(idx) {
     if (changed > 0) {
       if (!await _trySave(() => saveAdv(adv), 'cascade rename scheme')) return;
     }
-    toast(`Renamed: ${oldName} → ${trimmed}${changed?` (updated ${changed} row${changed===1?'':'s'})`:''}`, 'success');
+    if (_schemesCloudOk && _metaCloudOk) {
+      toast(`Renamed: ${oldName} → ${trimmed}${changed?` (updated ${changed} row${changed===1?'':'s'})`:''}`, 'success');
+    } else {
+      toast(`Renamed "${oldName}" → "${trimmed}" locally, but the schemes config did not reach the cloud and may revert on reload. Please retry.`, 'error', 7000);
+    }
   } else {
-    toast(`Renamed: ${oldName} → ${trimmed}`, 'success');
+    if (_schemesCloudOk && _metaCloudOk) {
+      toast(`Renamed: ${oldName} → ${trimmed}`, 'success');
+    } else {
+      toast(`Renamed "${oldName}" → "${trimmed}" locally, but the schemes config did not reach the cloud and may revert on reload. Please retry.`, 'error', 7000);
+    }
   }
   auditLog('update', 'scheme', trimmed, trimmed,
     `Renamed scheme: ${oldName} → ${trimmed}${changed?` (cascaded to ${changed} row${changed===1?'':'s'})`:''}`,
@@ -20053,7 +20321,7 @@ function renderAdminAuditLog() {
       </div>
 
       <div style="margin:12px 18px;padding:10px 14px;background:#FEF3C7;border:1px solid #FBBF24;border-radius:6px;font-size:12px;color:#92400E;line-height:1.4">
-        <strong>Audit logging is disabled.</strong> To control Firebase bandwidth, audit events are no longer written to or fetched from the cloud. The table below shows only audit entries generated by THIS session on THIS device. Past history is not available here — re-enable in code if needed.
+        <strong>Showing recent activity.</strong> Audit events ARE written to the cloud. This table shows the most recent 50 cloud events plus everything logged in this session on this device — not the full history. For a deeper investigation, load more via the button below or raise the limit in code.
       </div>
       <div style="padding:12px 18px;border-bottom:1px solid var(--gray3);background:var(--gray4)">
         <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
@@ -20151,7 +20419,7 @@ function injectDynamicOptions() {
     if (!el) return;
     const prev = el.value;
     el.innerHTML = (includeAllOption ? `<option value="">${allLabel||'All NGOs'}</option>` : '') +
-      names.map(n => `<option value="${n.replace(/"/g,'&quot;')}">${n}</option>`).join('');
+      names.map(n => `<option value="${escHtml(n)}">${escHtml(n)}</option>`).join('');
     // Restore selection if the value is still valid
     if (prev && (names.includes(prev) || (!includeAllOption))) el.value = prev;
     else if (includeAllOption) el.value = '';
@@ -21060,7 +21328,23 @@ function _formatLockoutRemaining(ms) {
   return hr + ' hour' + (hr === 1 ? '' : 's');
 }
 
+let _loginInFlight = false;
 async function doLogin() {
+  // V391 [1.1]: double-submit guard. Mirrors submitEnroll — drops re-entrant
+  // calls (double-tap / repeated Enter) so a second login can't double-fire
+  // auditLog('login') + fbAttachListeners() (which would double the listeners
+  // and reads). Button disabled as belt-and-braces visual feedback.
+  if (_loginInFlight) { console.warn('[doLogin] re-entrant call blocked (already in-flight).'); return; }
+  _loginInFlight = true;
+  const _loginBtnHandle = _disableSaveBtnForUpload('login-btn', 'Signing in…');
+  try {
+    return await _doLoginInner();
+  } finally {
+    _loginInFlight = false;
+    _restoreSaveBtn(_loginBtnHandle);
+  }
+}
+async function _doLoginInner() {
   const u = document.getElementById('login-username').value.trim();
   const p = document.getElementById('login-password').value;
   const err = document.getElementById('login-err');
@@ -22244,6 +22528,27 @@ async function _v362WriteAllSummaries() {
       } catch (e) {
         console.warn('[V374 guard #3] could not read existing summary for shrink-check, proceeding:', e && e.message);
       }
+      // V390 [Fix 5.2]: per-NGO no-shrink guard. The global guard above only
+      // protects _summary/global, but the same update{} batch below also
+      // overwrites every _summary/ngo/<X> (what donors / scopedViewers read).
+      // A cache that is >=80% complete OVERALL can still be badly partial for a
+      // SINGLE NGO (e.g. that NGO's records failed to stream), which would
+      // shrink just that NGO's summary. Read the existing per-NGO scopes ONCE
+      // (single small request) and, in the loop below, SKIP any node that would
+      // drop below 80% of its stored value. Read failure is non-fatal — same
+      // policy as guard #3. An NGO entirely absent from cache is never in the
+      // loop, so its fuller summary is left intact (not zeroed).
+      const _existingNgoScope = {};
+      try {
+        const _ngoSnap = await fbRef('_summary/ngo').once('value');
+        const _ngoVal = _ngoSnap.val() || {};
+        for (const _k in _ngoVal) {
+          const _m = _ngoVal[_k] && _ngoVal[_k].meta;
+          if (_m && typeof _m.recordsInScope === 'number') _existingNgoScope[_k] = _m.recordsInScope;
+        }
+      } catch (e) {
+        console.warn('[V390 per-NGO guard] could not read existing per-NGO summaries, proceeding:', e && e.message);
+      }
       // V366 [Fix #4]: bucket records by NGO ONCE in a single O(N) pass,
       // then call _v362ComputeOneSummary with prefiltered=true for each
       // bucket. Previously each per-NGO call did its own .filter() over the
@@ -22278,12 +22583,26 @@ async function _v362WriteAllSummaries() {
             _advLatestRowsCache = null;
             _advLatestRowsCacheLen = -1;
           } catch(_) {}
-          update['_summary/ngo/' + _v363SafeKey(ngoName)] = _v362ComputeOneSummary(
+          const _ngoKey = _v363SafeKey(ngoName);
+          const _ngoSummary = _v362ComputeOneSummary(
             recsByNgo[ngoName] || [],
             advByNgo[ngoName] || [],
             ngoName,
             true  // prefiltered → skip the inner .filter()
           );
+          // V390 [Fix 5.2]: skip overwriting a fuller per-NGO summary with a
+          // partial one (leaves the existing node untouched this cycle).
+          const _newNgoScope = (_ngoSummary && _ngoSummary.meta
+            && typeof _ngoSummary.meta.recordsInScope === 'number')
+            ? _ngoSummary.meta.recordsInScope : 0;
+          const _prevNgoScope = _existingNgoScope[_ngoKey] || 0;
+          if (_prevNgoScope > 0 && _newNgoScope < _prevNgoScope * 0.8) {
+            console.warn('[V390 per-NGO guard] skip ' + ngoName + ' — would shrink summary from '
+              + _prevNgoScope + ' to ' + _newNgoScope + ' records ('
+              + Math.round(_newNgoScope / _prevNgoScope * 100) + '%). Keeping existing.');
+            continue;
+          }
+          update['_summary/ngo/' + _ngoKey] = _ngoSummary;
         }
         // V366-fix1: restore the cache invariant — clear once more so any
         // subsequent caller (renderAdvocacy etc.) re-computes against the
@@ -22690,7 +23009,10 @@ function mountViewerApp() {
     +     '<div style="font-size:11px;opacity:0.7">KRSF Impact · ' + (u.fullName || u.username || 'Viewer') + '</div>'
     +     '<div style="font-size:13px;font-weight:600;margin-top:2px">' + scopeLabel + '</div>'
     +   '</div>'
-    +   '<button id="v362-refresh-btn" onclick="_v362ViewerRefresh()" style="background:#FBBF24;color:#1B3A6B;border:none;border-radius:6px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer">↻ Refresh</button>'
+    +   '<div style="display:flex;align-items:center;gap:8px">'
+    +     '<button id="v362-refresh-btn" onclick="_v362ViewerRefresh()" style="background:#FBBF24;color:#1B3A6B;border:none;border-radius:6px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer">↻ Refresh</button>'
+    +     '<button onclick="_v394ViewerSignOut()" aria-label="Sign out" title="Sign out" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.35);border-radius:6px;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer">Sign out</button>'
+    +   '</div>'
     + '</div>'
     + '<div id="v362-viewer-body" style="flex:1;overflow-y:auto;padding:16px;-webkit-overflow-scrolling:touch">'
     +   '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:80px 20px;color:#6B7280">'
@@ -22718,6 +23040,16 @@ function mountViewerApp() {
 }
 window.mountViewerApp = mountViewerApp;
 
+// V394 [7.1]: the mobile viewer had NO logout — a donor on a shared phone was
+// stuck as that account. The header "Sign out" button calls the app's doLogout,
+// then reloads to tear down the fixed viewer overlay and show the login screen.
+async function _v394ViewerSignOut() {
+  try { if (typeof doLogout === 'function') await doLogout(); } catch(_) {}
+  try { const r = document.getElementById('v362-viewer-root'); if (r) r.remove(); } catch(_) {}
+  try { location.reload(); } catch(_) {}
+}
+window._v394ViewerSignOut = _v394ViewerSignOut;
+
 function _v362ViewerSwitchTab(tab) {
   _v362ViewerActiveTab = tab;
   _v362RenderViewerTab(tab);
@@ -22734,7 +23066,7 @@ function _v362RenderViewerTab(tab) {
   const body = document.getElementById('v362-viewer-body');
   if (!body) return;
   if (!_v362ViewerData) {
-    body.innerHTML = '<div style="padding:40px;text-align:center;color:#6B7280"><div style="font-size:14px">Summary not available yet.</div><div style="font-size:11px;margin-top:8px">Ask the admin to open their dashboard to compute the first summary.</div></div>';
+    body.innerHTML = '<div style="padding:40px;text-align:center;color:#6B7280"><div style="font-size:14px">Summary not available yet.</div><div style="font-size:11px;margin-top:8px">It is still being prepared — tap ↻ Refresh in a moment.</div></div>';
     return;
   }
   const d = _v362ViewerData;
@@ -23123,7 +23455,7 @@ function _v356PopulateSchemeFilter() {
   _v356SchemeSetSig = sig;
   const prev = el.value;
   el.innerHTML = '<option value="">Scheme — All</option>' +
-    schemes.map(s => `<option value="${String(s).replace(/"/g, '&quot;')}">${String(s).replace(/</g,'&lt;')}</option>`).join('');
+    schemes.map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('');
   if (prev && schemes.includes(prev)) el.value = prev;
 }
 
@@ -24718,7 +25050,7 @@ async function confirmBulkImport() {
     return;
   }
 
-  if (!confirm(`Ready to import ${importable.length} beneficiaries. This cannot be undone from the UI. Continue?`)) return;
+  if (!await showConfirmModal(`Ready to import ${importable.length} beneficiaries. This cannot be undone from the UI. Continue?`, { okLabel: 'Import', title: 'Confirm import' })) return;
 
   // V317: bulk imports must wait for listener replay to complete. The import
   // reads loadData() to detect duplicates and to merge new records into the
@@ -24897,7 +25229,7 @@ async function confirmBulkImport() {
       advData.push({
         // V389: crypto.randomUUID — closes the ~10% collision rate on 100-row bulk imports
         // (old Date.now()+Math.random()*1000 collided same-ms with 1-in-1000 prob).
-        id: 'ADV-' + crypto.randomUUID().slice(0, 8),
+        id: 'ADV-' + _safeUUID().slice(0, 8),
         bid: id,
         bname: p.name,
         schemeRows: p.schemeRows,
@@ -25167,6 +25499,21 @@ async function uploadPhotoForRecord(bid, kind, base64DataUrl) {
 // data-en/data-gu attributes (used elsewhere for i18n) are left alone so
 // that subsequent language switches still apply correctly to the restored
 // label.
+// V391 [4.5]: crypto.randomUUID is undefined in non-secure contexts (file://,
+// plain http, older Android WebViews). Fall back to a getRandomValues UUID,
+// then a time+random string, so advocacy ID minting never throws.
+function _safeUUID() {
+  try { if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID(); } catch(_) {}
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+      const b = new Uint8Array(16); crypto.getRandomValues(b);
+      b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+      const h = []; for (let i = 0; i < 16; i++) h.push(b[i].toString(16).padStart(2, '0'));
+      return h[0]+h[1]+h[2]+h[3]+'-'+h[4]+h[5]+'-'+h[6]+h[7]+'-'+h[8]+h[9]+'-'+h[10]+h[11]+h[12]+h[13]+h[14]+h[15];
+    }
+  } catch(_) {}
+  return (Date.now().toString(16) + Math.random().toString(16).slice(2) + Math.random().toString(16).slice(2)).slice(0, 36);
+}
 function _disableSaveBtnForUpload(btnId, busyLabel) {
   const btn = document.getElementById(btnId);
   if (!btn) return null;
