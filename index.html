@@ -1,6 +1,36 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V398-LIVE
+  KRSF Beneficiary Impact Tracker  -  V399-LIVE
+  ============================================================================
+  V399-LIVE (2026-06-22 — always-fresh updates (Service Worker fix) · staging-tested):
+
+    Reliability-only release. Fixes the V398 "stuck on an old version" problem,
+    where a device kept showing an old build even after a hard refresh.
+
+    *** THIS RELEASE SHIPS TWO FILES: push BOTH index.html AND sw.js to GitHub. ***
+    (One-time. From V400 on it is index.html only again.)
+
+    Root cause: sw.js used stale-while-revalidate for the HTML, and the app's
+    auto-update only triggers when sw.js itself changes. Since every release
+    (V390–V398) changed only index.html, the Service Worker kept serving its
+    cached copy and a device could wedge on an old version (no auto-reload).
+
+    Fix (in sw.js, CACHE_VERSION → krsf-v399-1):
+      - HTML shell is now NETWORK-FIRST: when online, always fetch the latest
+        index.html; fall back to the cached copy when offline or slower than 3s
+        (PWA still opens offline, app start stays fast). A device can no longer
+        get stuck on an old build.
+      - Fresh-on-install precache (cache:'reload') so a new worker never seeds a
+        stale page. skipWaiting + clients.claim → open clients auto-reload onto
+        the new version (no console, no hard refresh).
+    No change to index.html logic (only APP_VERSION + this note). No Firebase
+    reads/writes change; no data-path change. V398 features unchanged.
+
+    Verified on staging: new worker installs/activates/controls + app boots;
+    network-first serves a changed file on reload (not stale); offline fallback
+    cached; and a client on the OLD v352 worker AUTO-UPDATED to v399 (old cache
+    pruned) with no manual reload or cache clear.
+
   ============================================================================
   V398-LIVE (2026-06-22 — cache self-heal + "Reset all clients" · staging-tested):
 
@@ -4253,7 +4283,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V398-LIVE';
+const APP_VERSION = 'V399-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
