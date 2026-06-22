@@ -1,6 +1,55 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V394-LIVE
+  KRSF Beneficiary Impact Tracker  -  V397-LIVE
+  ============================================================================
+  V397-LIVE (2026-06-22 — stay-logged-in + easy logout · staging-tested):
+
+    UI/session only. No new Firebase reads/writes; no change to the save path.
+
+    1. [boot-gate] Stop the false auto-logout on refresh. bootGate previously
+       logged you out whenever the device's local users list didn't contain your
+       account — the case right after clearing app data, on a fresh phone, or
+       before the list finishes syncing. Now it only forces re-login when the
+       list is loaded (non-empty) AND genuinely lacks the account, so a valid
+       session survives a refresh. (Deleted-user detection still works once the
+       list is loaded.)
+    2. [mobile logout] Added an always-visible Sign-out button to the mobile top
+       bar (was only reachable via the hamburger menu bottom or the Account
+       sheet). Desktop unaffected.
+    3. [logout safety] doLogout warns if writes are still uploading
+       (FB.pendingWrites > 0) before signing out — consistent with V396.
+
+  ============================================================================
+  V396-LIVE (2026-06-22 — sync & deploy safety · staging-tested):
+
+    Prevents the two ways an FC's edits can silently vanish (the Bhavisha-phone
+    situation). No change to the save logic itself; adds two guards:
+
+    1. [deploy safety] _v343VersionCheck no longer force-reloads a client while
+       writes are still uploading (FB.pendingWrites > 0). The reload defers via
+       _v396SafeReload until pending writes flush, so deploying a new version
+       while FCs are mid-save can't discard their unsynced edits. (RTDB web keeps
+       pending writes in memory only — a reload would lose them.)
+    2. [close safety] A beforeunload guard warns the FC if they close/refresh
+       the app with FB.pendingWrites > 0, so a flaky-network pending write isn't
+       silently lost on exit.
+
+    NOTE: these make loss VISIBLE/PREVENTABLE; they don't make a write succeed on
+    a dead connection. The sync pill already shows Offline / Syncing(n) /
+    Initialising honestly.
+
+  ============================================================================
+  V395-LIVE (2026-06-22 — restore hidden maintenance tools · staging-tested):
+
+    Pure sidebar visibility — no logic or data change. Re-adds
+    data-sidebar-hidden="true" to 6 one-shot maintenance routes that a pre-V389
+    change ("Six hidden admin routes exposed") had un-hidden: Audit Log, Photo
+    Migration, Advocacy Backfill, Fix Duplicate IDs, Delete Duplicate Records,
+    Scheme Rename Backfill. Matches the user's earlier "Best yet" config; still
+    reachable via window.nav('<route>') in the console. Daily tools (Dashboard,
+    Partners, Users, Livelihoods, Advocacy Management, Import Data, Bandwidth)
+    stay visible.
+
   ============================================================================
   V394-LIVE (2026-06-22 — accessibility & mobile fit · staging-tested):
 
@@ -2158,6 +2207,14 @@ html,body{height:100%;font-family:var(--font);background:#EEF2F7;color:var(--tex
     border: none; cursor: pointer; flex-shrink: 0;
   }
   .mob-menu-btn svg { color: #fff; width: 18px; height: 18px; }
+  /* V397: always-visible Sign-out on mobile top bar. */
+  .mob-logout-btn {
+    display: flex !important; align-items: center; justify-content: center;
+    width: 36px; height: 36px; border-radius: 8px;
+    background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3);
+    cursor: pointer; flex-shrink: 0;
+  }
+  .mob-logout-btn svg { color: #DC2626; width: 18px; height: 18px; }
 
   /* ── Bottom nav ── */
   .mob-bottom-nav {
@@ -2512,6 +2569,7 @@ html,body{height:100%;font-family:var(--font);background:#EEF2F7;color:var(--tex
    stylesheet at equal specificity, so this rule won at the cascade and
    coordinators on phones had no visible entry point to the enrollment form. */
 .mob-menu-btn { display: none; }
+.mob-logout-btn { display: none; }
 .mob-bottom-nav { display: none; }
 .mob-overlay { display: none; }
 .mob-filter-row { display: none; }
@@ -3319,7 +3377,7 @@ body[data-shell="coord"] #coord-app { display: block; }
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="2" width="10" height="12" rx="1"/><path d="M5.5 5.5h5M5.5 8h5M5.5 10.5h3"/></svg>
       Advocacy Management
     </button>
-    <button data-admin-only class="nav-btn" data-v="admin_audit" onclick="nav('admin_audit')" style="display:none">
+    <button data-admin-only data-sidebar-hidden="true" class="nav-btn" data-v="admin_audit" onclick="nav('admin_audit')" style="display:none">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h7l3 3v9H3z"/><path d="M5.5 7h5M5.5 9.5h5M5.5 12h3"/></svg>
       Audit Log
     </button>
@@ -3335,7 +3393,7 @@ body[data-shell="coord"] #coord-app { display: block; }
     </button>
     <!-- V310-S3: Photo migration entry point. Admin only. One-shot tool to
          move existing base64 photos to Firebase Storage. -->
-    <button data-admin-only class="nav-btn" data-v="admin_photo_migration" onclick="nav('admin_photo_migration')" style="display:none">
+    <button data-admin-only data-sidebar-hidden="true" class="nav-btn" data-v="admin_photo_migration" onclick="nav('admin_photo_migration')" style="display:none">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="12" height="9" rx="1"/><circle cx="8" cy="9" r="2.5"/><path d="M6 4l1-1.5h2L10 4"/></svg>
       Photo Migration
     </button>
@@ -3344,15 +3402,15 @@ body[data-shell="coord"] #coord-app { display: block; }
          the role-scoped listener (V314) can pull them in. Without this,
          NGO users see false "advocacy-tagged but no schemes logged" alerts
          for beneficiaries whose advocacy records pre-date V314. -->
-    <button data-admin-only class="nav-btn" data-v="admin_advocacy_backfill" onclick="nav('admin_advocacy_backfill')" style="display:none">
+    <button data-admin-only data-sidebar-hidden="true" class="nav-btn" data-v="admin_advocacy_backfill" onclick="nav('admin_advocacy_backfill')" style="display:none">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8m0 0l-3-3m3 3l3-3M3 14h10"/></svg>
       Advocacy Backfill
     </button>
-    <button data-admin-only class="nav-btn" data-v="admin_dedup_ids" onclick="nav('admin_dedup_ids')" style="display:none">
+    <button data-admin-only data-sidebar-hidden="true" class="nav-btn" data-v="admin_dedup_ids" onclick="nav('admin_dedup_ids')" style="display:none">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h8M2 12h5"/><circle cx="12" cy="11" r="3"/><path d="M11 11h2M12 10v2"/></svg>
       Fix Duplicate IDs
     </button>
-    <button data-admin-only class="nav-btn" data-v="admin_delete_dupes" onclick="nav('admin_delete_dupes')" style="display:none">
+    <button data-admin-only data-sidebar-hidden="true" class="nav-btn" data-v="admin_delete_dupes" onclick="nav('admin_delete_dupes')" style="display:none">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M5 4V2h6v2M6 7v5M10 7v5"/><rect x="2" y="4" width="12" height="10" rx="1"/></svg>
       Delete Duplicate Records
     </button>
@@ -3362,7 +3420,7 @@ body[data-shell="coord"] #coord-app { display: block; }
          'Income Cirtificate' -> 'Income Certificate'.
          V339: hidden from sidebar via data-sidebar-hidden (use
          window.nav('admin_scheme_rename') in the console to reach it). -->
-    <button data-admin-only class="nav-btn" data-v="admin_scheme_rename" onclick="nav('admin_scheme_rename')" style="display:none">
+    <button data-admin-only data-sidebar-hidden="true" class="nav-btn" data-v="admin_scheme_rename" onclick="nav('admin_scheme_rename')" style="display:none">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 8h9M8 5l3 3-3 3"/><path d="M13 3v10"/></svg>
       Scheme Rename Backfill
     </button>
@@ -3400,6 +3458,7 @@ body[data-shell="coord"] #coord-app { display: block; }
       <div class="topbar-count" id="page-count" style="display:none"></div>
     </div>
     <div class="topbar-right">
+      <button class="mob-logout-btn" onclick="doLogout()" aria-label="Sign out" title="Sign out"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></button>
       <div id="user-pill" style="display:none;align-items:center;gap:8px;padding:4px 10px;background:var(--gray4);border-radius:18px;margin-right:4px"></div>
       <!-- V373 [Fix #2]: explicit Refresh button on admin topbar. Light blue (#DBEAFE),
            small, placed left of State filter. Triggers _adminIncrementalSync (which
@@ -4173,7 +4232,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V394-LIVE';
+const APP_VERSION = 'V397-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -4870,6 +4929,36 @@ function _v343ParseVer(v) {
 // check with .on('value', ...) so foreground tabs reload within seconds
 // of a new version being published.
 let _v347VersionListenerAttached = false;
+// V396 [deploy safety]: never force-reload while writes are still uploading —
+// RTDB web keeps pending writes in memory only, so a reload would discard an
+// FC's unsynced edits. Defer until FB.pendingWrites drains to 0.
+function _v396SafeReload(minVer) {
+  try {
+    if (typeof FB !== 'undefined' && FB && FB.pendingWrites > 0) {
+      try { if (typeof toast === 'function') toast('New version ready — it will reload automatically once your changes finish saving.', 'info', 4000); } catch(_){}
+      setTimeout(function(){ _v396SafeReload(minVer); }, 4000);
+      return;
+    }
+  } catch(_) {}
+  try { if (typeof toast === 'function') toast('New version available — reloading.', 'info', 2000); } catch(_){}
+  setTimeout(function() {
+    try {
+      var sep = location.href.indexOf('?') === -1 ? '?' : '&';
+      location.href = location.href.replace(/[?&]_cb=\d+/, '') + sep + '_cb=' + Date.now();
+    } catch(_) { try { location.reload(); } catch(_){} }
+  }, 800);
+}
+// V396 [close safety]: warn before close/refresh if writes are still uploading,
+// so a flaky-network pending write isn't silently lost on exit.
+window.addEventListener('beforeunload', function(e) {
+  try {
+    if (typeof FB !== 'undefined' && FB && FB.pendingWrites > 0) {
+      e.preventDefault();
+      e.returnValue = 'Some changes are still uploading. If you leave now they may be lost.';
+      return e.returnValue;
+    }
+  } catch(_) {}
+});
 function _v343VersionCheck() {
   if (_v347VersionListenerAttached) return;
   if (!FB.db) return;
@@ -4899,13 +4988,9 @@ function _v343VersionCheck() {
           return;
         }
         sessionStorage.setItem(reloadKey, minVer);
-        try { if (typeof toast === 'function') toast('New version available — reloading.', 'info', 3000); } catch(_){}
-        setTimeout(function() {
-          try {
-            var sep = location.href.indexOf('?') === -1 ? '?' : '&';
-            location.href = location.href.replace(/[?&]_cb=\d+/, '') + sep + '_cb=' + Date.now();
-          } catch(_) { try { location.reload(); } catch(_){} }
-        }, 1500);
+        // V396: route through _v396SafeReload so a mid-save FC isn't reloaded
+        // (and their unsynced edits discarded) until pending writes flush.
+        _v396SafeReload(minVer);
       }
     } catch (e) { console.warn('[V347] version check error:', e); }
   });
@@ -21697,7 +21782,12 @@ function _uniqArr(arr) {
 
 async function doLogout() {
   // V331 FIX (S1.7): themed modal instead of native confirm() — works in webview/iframe.
-  const ok = await showConfirmModal('Sign out now?', { okLabel: 'Sign out' });
+  // V397: if writes are still uploading, warn first — logging out clears the
+  // session and detaches listeners, so a pending write would be lost.
+  const _pend = (typeof FB !== 'undefined' && FB && FB.pendingWrites > 0);
+  const ok = await showConfirmModal(
+    _pend ? 'Some changes are still uploading. If you sign out now they may be lost.\n\nSign out anyway?' : 'Sign out now?',
+    { danger: _pend, okLabel: 'Sign out' });
   if (!ok) return;
   const me = currentUser();
   if (me) auditLog('logout', 'session', me.userId, me.username, 'Signed out', null);
@@ -27444,7 +27534,12 @@ function _fmtBatchDate(iso) {
   // Validate the stored session against current users list — if the user
   // was deleted since last login, force re-login.
   const users = loadUsers();
-  if (!users.find(x => x.id === u.userId)) {
+  // V397 [stay-logged-in]: only force re-login when we have a NON-EMPTY users
+  // list that genuinely lacks this account. An empty/partial local cache at boot
+  // (cleared data, fresh phone, pre-sync) must NOT log a valid session out —
+  // that was the "log in -> refresh -> logged out" bug. Genuine "user deleted"
+  // is still caught once the list is loaded.
+  if (users.length > 0 && !users.find(x => x.id === u.userId)) {
     saveSession(null);
     document.getElementById('login-overlay').style.display = 'flex';
     return;
