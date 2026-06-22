@@ -1,6 +1,27 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V397-LIVE
+  KRSF Beneficiary Impact Tracker  -  V398-LIVE
+  ============================================================================
+  V398-LIVE (2026-06-22 — cache self-heal + "Reset all clients" · staging-tested):
+
+    Two changes.
+    1. [cache self-heal] ROOT-CAUSE FIX for the "admin Advocacy shows 0 while
+       112k records exist" bug. _pantryRead / _advPantryRead now treat an
+       EMPTY-but-fresh cache as STALE, so a 0-record cache can no longer
+       short-circuit the full Firebase fetch — it self-heals on the next load.
+       Mirrors the existing users-cache `users.length > 0` guard. No new reads in
+       the normal case (a full cache is still used as-is); only an empty cache
+       re-fetches (negligible — an empty query).
+    2. [reset all clients] NEW admin tool on the Bandwidth Usage page — "Reset all
+       clients (log out + clear cache)". Writes a rising _forceResetFleet flag
+       (same broadcast pattern as V359's _pantryInvalidateFleet); every open
+       client logs out, clears its cache, and reloads within seconds.
+       SAFETY: a client mid-save (FB.pendingWrites > 0) finishes uploading BEFORE
+       resetting (no data loss — reuses the V396 guard); a localStorage baseline
+       (_v398ResetSeen, never cleared by the reset) makes a freshly-loaded client
+       never reset itself and prevents any reload loop. Heavy on Firebase
+       (everyone re-downloads) — deliberate admin action, use sparingly.
+
   ============================================================================
   V397-LIVE (2026-06-22 — stay-logged-in + easy logout · staging-tested):
 
@@ -4217,14 +4238,14 @@ function escHtml(s) {
 //
 // V16.0.2: switched to dedicated "Livelihood" Firebase project (asia-southeast1).
 const FB_CONFIG = {
+  // V398-LIVE: PRODUCTION project (krsf-impact-tracking).
   apiKey: "AIzaSyCgJpYmdEdvdvbi3kdXfgFL-N4KiDLbUlI",
   authDomain: "krsf-impact-tracking.firebaseapp.com",
   databaseURL: "https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app",
   projectId: "krsf-impact-tracking",
   storageBucket: "krsf-impact-tracking.firebasestorage.app",
   messagingSenderId: "128350099648",
-  appId: "1:128350099648:web:39ab37f486b74742dc3525",
-  measurementId: "G-762FL34XJB"
+  appId: "1:128350099648:web:39ab37f486b74742dc3525"
 };
 const FB_NAMESPACE = 'krsf_tracker';  // top-level node, isolates from other apps
 // V310-S2: SYNC_QUEUE_KEY removed (offline queue layer removed).
@@ -4232,7 +4253,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V397-LIVE';
+const APP_VERSION = 'V398-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -4537,7 +4558,11 @@ async function _pantryRead(userId) {
   const o = await _idbGet(_pantryKey(userId));
   if (!o || o.userId !== userId || o.schemaVersion !== PANTRY_SCHEMA_VERSION) return null;
   if (!Array.isArray(o.records)) return null;
-  const stale = (Date.now() - (o.ts || 0)) > _PANTRY_TTL_MS;
+  // V398: an EMPTY-but-fresh cache must NOT short-circuit the full fetch.
+  // A 0-record cache that's within the TTL was poisoning advocacy/benef loads
+  // (admin showed 0 records while 112k sat in Firebase). Treat empty as stale so
+  // every caller re-fetches. Mirrors the users-pantry `users.length > 0` guard.
+  const stale = (o.records.length === 0) || ((Date.now() - (o.ts || 0)) > _PANTRY_TTL_MS);
   return { stale: stale, records: o.records, lastSyncTs: o.lastSyncTs || 0 };
 }
 async function _pantryClear(userId) {
@@ -4558,7 +4583,9 @@ async function _advPantryRead(userId) {
   const o = await _idbGet(_advPantryKey(userId));
   if (!o || o.userId !== userId || o.schemaVersion !== PANTRY_SCHEMA_VERSION) return null;
   if (!Array.isArray(o.records)) return null;
-  const stale = (Date.now() - (o.ts || 0)) > _PANTRY_TTL_MS;
+  // V398: empty advocacy cache = treat as stale → force a real fetch (root-cause
+  // fix for the "admin Advocacy shows 0 while 112k records exist" bug).
+  const stale = (o.records.length === 0) || ((Date.now() - (o.ts || 0)) > _PANTRY_TTL_MS);
   return { stale: stale, records: o.records, lastSyncTs: o.lastSyncTs || 0 };
 }
 async function _advPantryClear(userId) {
@@ -4996,6 +5023,100 @@ function _v343VersionCheck() {
   });
 }
 
+// ============================================================================
+// V398: fleet-wide "Reset all clients" (admin button on the Bandwidth page).
+// Admin click writes a rising value to _forceResetFleet; every open client
+// listens in real time and — once its own pending writes have flushed (V396
+// data-loss safety) — clears its local cache, logs out, and reloads to the
+// login screen. Same broadcast pattern as V359's _pantryInvalidateFleet, so it
+// rides Firebase rules that already permit fleet flags.
+//
+// LOOP-SAFETY (critical): the last-acted value is persisted in localStorage
+// (_v398ResetSeen) and is NEVER cleared by the reset itself. The very first
+// listener fire on a device only BASELINES (records the current value, does not
+// act), so a freshly-loaded client never resets itself. Only a value strictly
+// greater than the stored baseline triggers a reset.
+// ============================================================================
+let _v398ResetListenerAttached = false;
+function _v398ResetCheck() {
+  if (_v398ResetListenerAttached) return;
+  if (!FB.db) return;
+  _v398ResetListenerAttached = true;
+  fbRef('_forceResetFleet').on('value', function(snap) {
+    try {
+      const n = Number(snap.val() || 0);
+      const seenRaw = localStorage.getItem('_v398ResetSeen');
+      if (seenRaw === null) {
+        // First fire on this device — baseline only, never act on load.
+        localStorage.setItem('_v398ResetSeen', String(n));
+        return;
+      }
+      const seen = Number(seenRaw) || 0;
+      if (n > seen) {
+        // Persist BEFORE acting so the post-reload boot sees seen === n and does
+        // NOT re-trigger (this is what prevents a reload loop).
+        localStorage.setItem('_v398ResetSeen', String(n));
+        _v398ExecuteReset();
+      }
+    } catch (e) { console.warn('[V398] reset check error:', e && e.message); }
+  });
+}
+let _v398ResetInFlight = false;
+function _v398ExecuteReset() {
+  if (_v398ResetInFlight) return;
+  _v398ResetInFlight = true;
+  _v398ResetStep();
+}
+function _v398ResetStep() {
+  // V396 data-loss safety: never reset a client that's mid-save. Wait for
+  // pending writes to flush; on a dead connection this simply waits (safe — the
+  // unsaved work is preserved and that one client just doesn't reset).
+  if (typeof FB !== 'undefined' && FB && FB.pendingWrites > 0) {
+    try { toast('Admin requested a reset — finishing your uploads first…', '', 4000); } catch (_) {}
+    setTimeout(_v398ResetStep, 3000);
+    return;
+  }
+  _v398ResetNow();
+}
+async function _v398ResetNow() {
+  console.log('[V398] fleet reset — clearing cache, logging out, reloading');
+  // 1. Wipe ALL local caches (the whole IndexedDB pantry store).
+  try {
+    const db = await _idbOpen();
+    await new Promise(function(res) {
+      try {
+        const tx = db.transaction([_IDB_STORE], 'readwrite');
+        tx.objectStore(_IDB_STORE).clear();
+        tx.oncomplete = res; tx.onerror = function(){ res(); }; tx.onabort = function(){ res(); };
+      } catch (_) { res(); }
+    });
+  } catch (_) {}
+  // 2. Log out (clears only SESSION_KEY — does NOT touch _v398ResetSeen).
+  try { saveSession(null); } catch (_) {}
+  // 3. Clear session-scoped reload guards so the fresh boot isn't blocked.
+  try { sessionStorage.clear(); } catch (_) {}
+  // 4. Reload → fresh login screen, fresh data on next sign-in.
+  location.reload();
+}
+// Admin-side trigger (wired to the Bandwidth-page button).
+async function _v398ConfirmResetAll() {
+  const ok = await showConfirmModal(
+    'This logs out and clears the cache for EVERYONE — every admin (including you on this device) and every field coordinator — within a few seconds.\n\n' +
+    '• Anyone who is mid-save finishes uploading first, so no data is lost.\n' +
+    '• Everyone must log back in, and each device re-downloads its data.\n\n' +
+    'This is heavy on Firebase. Use it only to fix a cache problem. Continue?',
+    { danger: true, okLabel: 'Reset everyone', title: 'Reset all clients' });
+  if (!ok) return;
+  try {
+    const u = (typeof currentUser === 'function') ? currentUser() : null;
+    await fbRef('_forceResetFleet').set(Date.now());
+    try { await fbRef('_forceResetFleetBy').set({ by: (u && (u.fullName || u.username || u.userId)) || 'admin', at: new Date().toISOString() }); } catch (_) {}
+    try { toast('✓ Reset sent — all clients will log out and refresh shortly.', 'success', 4500); } catch (_) {}
+  } catch (e) {
+    try { toast('Reset failed: ' + (e && e.message || e), 'error', 5000); } catch (_) {}
+  }
+}
+
 // V350: visibility-aware _minVersion listener management. Mobile FCs were
 // burning bandwidth because every phone-sleep / phone-wake cycle triggered
 // a WebSocket reconnect, and on reconnect the SDK re-syncs all attached
@@ -5327,6 +5448,8 @@ async function fbInitialSync() {
   }
   // V347: attach real-time version listener — propagates new versions instantly.
   try { _v343VersionCheck(); } catch(_){}
+  // V398: attach the fleet-reset listener (admin "Reset all clients" button).
+  try { _v398ResetCheck(); } catch(_){}
   // V350: visibility-aware listener management + reconnect telemetry.
   try { _v350SetupVisibility(); } catch(_){}
   try { _v350SetupReconnectTracker(); } catch(_){}
@@ -9404,7 +9527,7 @@ let _genIdMutex = Promise.resolve();
 // After this fires once, the counter is canonical and no further scans
 // ever happen for that state in the entire Firebase project.
 async function _v353BootstrapScanMax(prefix) {
-  const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';
+  const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';  // V398-LIVE: production
   const NS = 'krsf_tracker';
   let authToken = '';
   try {
@@ -20298,6 +20421,17 @@ async function renderAdminBandwidth() {
     html += '<button type="button" id="v359-admin-push-btn" onclick="_v359AdminPushToAll()" ';
     html += 'style="padding:10px 18px;border:none;border-radius:6px;background:#1B3A6B;color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font);white-space:nowrap">';
     html += 'Push fresh data to all FCs</button>';
+    html += '</div>';
+    // V398: admin "Reset all clients" — fleet-wide logout + cache clear. Heavy;
+    // use only to fix cache problems. Clients mid-save finish uploading first.
+    html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:12px;background:#FEE2E2;border:1px solid #FCA5A5;border-radius:8px;flex-wrap:wrap">';
+    html += '<div style="font-size:12px;color:#991B1B;flex:1;min-width:200px">';
+    html += '<b>Reset all clients (log out + clear cache)</b><br>';
+    html += 'Logs out EVERYONE (admins + FCs) and clears their cache within seconds, forcing a fresh re-sync. Anyone mid-save finishes saving first (no data loss). Heavy on Firebase — use only to fix a cache problem.';
+    html += '</div>';
+    html += '<button type="button" onclick="_v398ConfirmResetAll()" ';
+    html += 'style="padding:10px 18px;border:none;border-radius:6px;background:#B91C1C;color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font);white-space:nowrap">';
+    html += 'Reset all clients</button>';
     html += '</div>';
     // V362: admin manual summary recompute button. Useful right after a
     // backend operation (recovery, manual edit) so viewer sees fresh numbers
