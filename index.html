@@ -1,6 +1,49 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V401-LIVE
+  KRSF Beneficiary Impact Tracker  -  V403-LIVE
+  ============================================================================
+  V403-LIVE (2026-07-07 — Today card: advocacy counts PEOPLE · verified):
+
+    Tiny follow-up to the V401 Today card, per user feedback. The advocacy
+    section previously counted scheme APPLICATIONS (rows) — one person
+    applying for 3 schemes today showed as 3. Now "Applied" and "Benefits
+    received" count UNIQUE BENEFICIARIES (dedup by bid via Sets), matching
+    how the livelihood chips already worked; section relabelled "Advocacy —
+    people today"; the "Records updated" chip removed (user wants the two).
+    Status classification still uses the canonical _advNormStatus, so the
+    card always agrees with the Advocacy page. Verified: one person with 4
+    applied rows today counts once. No Firebase change; same cached
+    single-pass compute.
+
+  ============================================================================
+  V402-LIVE (2026-07-07 — alerts quadratic fix: the REAL 59s boot freeze · verified):
+
+    ONE-LINE-CLASS performance fix. No new Firebase reads/writes; no data-path
+    change; alert output identical.
+
+    ROOT CAUSE (named by a Performance-tab recording on the admin's machine
+    after V400 shipped and boot was STILL ~60s): getAlerts Rule 9 ("Benefits
+    Received with zero amount") did `data.find(x => x.id === bid)` INSIDE its
+    per-flagged-beneficiary loop — a linear scan of ALL ~120K records per
+    entry. KRSF field policy is that FCs do NOT enter benefit amounts, so on
+    real data this rule flags ~7.8K beneficiaries → ~7.8K × ~120K = hundreds
+    of millions of comparisons = ONE 59.0s main-thread task inside the
+    dashboard's requestAnimationFrame render (getAlerts runs via
+    updateAlertBadge). Every synthetic staging reproduction missed it because
+    test rows had benefit amounts filled in. Measured honestly: 2.04ms per
+    find() lookup at 120K records → 7,800 lookups ≈ 16s on a fast machine,
+    ~59s on the admin laptop — matching the recording exactly.
+
+    FIX: build an id→record Map once before the loop (O(N), ~30ms), then O(1)
+    lookups. Verified at 120K benef + 60K zero-amount advocacy records
+    (8x heavier than production): getAlerts 1.7s total (was extrapolated
+    ~122s at that scale), lookup results byte-identical to find().
+
+    NOTE (product, not touched): Rule 9 flags the very records KRSF policy
+    says are fine (amounts intentionally blank). The rule still runs — just
+    fast now. Disabling/reworking it is a product decision for a future
+    version.
+
   ============================================================================
   V401-LIVE (2026-07-06 — admin mobile view · staging-tested, rendered-verified):
 
@@ -9,43 +52,32 @@
     change; V400 no-freeze discipline maintained.
 
     1. [bottom nav resurrected] The .mob-bottom-nav bar was DEAD CODE for
-       every role: the unconditional desktop display:none (~line 2690 region)
-       sits LATER in the stylesheet than the mobile @media show rule (the
-       file's recurring cascade gotcha), and the coordinator shell hides the
-       bar explicitly. V401 shows it for ADMIN ONLY at <=768px, with
-       .content padding-bottom so the fixed bar never covers the last rows.
-       The body:has(.overlay.open) hide rules still win, so modals/drawers
-       keep suppressing the bar.
+       every role (cascade gotcha: the unconditional desktop display:none
+       sits later in the stylesheet than the mobile @media show rule; the
+       coordinator shell hides the bar explicitly). V401 shows it for ADMIN
+       ONLY at <=768px, with .content padding-bottom so the fixed bar never
+       covers the last rows.
     2. [admin nav] Five tabs: Dashboard · People (beneficiaries) · Advocacy ·
        Livelihood (list) · More. Four new admin-only buttons, hidden for all
-       other roles by default (!important both ways per the cascade gotcha).
-       nav()'s mobMap is now role-aware; mobNav()'s duplicate highlight block
-       removed (it keyed off the raw view name and would have highlighted the
-       hidden legacy tab for admin).
-    3. [More sheet] Slide-up sheet (mirrors the account sheet) exposing every
-       remaining screen at phone width: Field Map, Alerts & Flags, NGO
-       Partners, Integrated View, Partner/User/Livelihood/Advocacy
-       Management, Import Data, Bandwidth Usage, My Account, Sign out.
-       The 6 maintenance tools stay hidden per the V395 policy.
+       other roles. nav()'s mobMap is now role-aware; mobNav()'s duplicate
+       highlight block removed.
+    3. [More sheet] Slide-up sheet exposing every remaining screen at phone
+       width: Field Map, Alerts & Flags, NGO Partners, Integrated View,
+       Partner/User/Livelihood/Advocacy Management, Import Data, Bandwidth
+       Usage, My Account, Sign out. The 6 maintenance tools stay hidden per
+       the V395 policy.
     4. [Today card] Admin dashboard gains "TODAY · <date> · all NGOs":
        Enrolled (today + yesterday); Livelihood — status updates today
-       (Enrolled / In progress / Completed = livelihood beneficiaries whose
-       record was edited today, bucketed by CURRENT status — the app stores
-       no per-status-change timestamp); Advocacy — today (Applied / Benefits
-       received = rows created today by _advNormStatus; Records updated =
-       adv records edited today). NO-FREEZE: computed once per data change
-       (cached by _v357DataVersion + IST day), memoized date parsing, numeric
-       _lastEditedAt gate — tens of ms, zero Firebase reads.
-       Verified with seeded data: all 9 numbers matched the seed exactly.
+       (Enrolled / In progress / Completed, bucketed by CURRENT status);
+       Advocacy — today (Applied / Benefits received / Records updated).
+       NO-FREEZE: computed once per data change (cached by _v357DataVersion
+       + IST day), memoized date parsing, numeric _lastEditedAt gate.
 
   ============================================================================
   V400-LIVE (2026-07-06 — instant boot: non-blocking summary compute · staging-tested):
 
-    PERFORMANCE-ONLY release. Fixes the 60-120s admin boot freeze and the ~7s
-    freeze every 5 minutes. No new Firebase reads/writes; no data-path change.
-    Root cause (profiled live, reproduced at 240K scale): the V363/V366 admin
-    summary writer computed global + 17 per-NGO summaries in ONE synchronous
-    stretch — a single 61.7s main-thread long-task at boot. Fix:
+    PERFORMANCE release. The V363/V366 admin summary writer computed global +
+    17 per-NGO summaries in ONE synchronous stretch. Fix:
     _v400ComputeAllSummaries — all 18 nodes in one chunked pass (8K records
     per slice, setTimeout(0) yields; longest block at full scale: 251ms),
     memoized date parsing, dedup once per scope from a single stable sort.
@@ -4395,7 +4427,7 @@ function escHtml(s) {
 //
 // V16.0.2: switched to dedicated "Livelihood" Firebase project (asia-southeast1).
 const FB_CONFIG = {
-  // V401-LIVE: PRODUCTION project (krsf-impact-tracking).
+  // V402-LIVE: PRODUCTION project (krsf-impact-tracking).
   apiKey: "AIzaSyCgJpYmdEdvdvbi3kdXfgFL-N4KiDLbUlI",
   authDomain: "krsf-impact-tracking.firebaseapp.com",
   databaseURL: "https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app",
@@ -4410,7 +4442,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V401-LIVE';
+const APP_VERSION = 'V403-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -9695,7 +9727,7 @@ let _genIdMutex = Promise.resolve();
 // After this fires once, the counter is canonical and no further scans
 // ever happen for that state in the entire Firebase project.
 async function _v353BootstrapScanMax(prefix) {
-  const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';  // V401-LIVE: production
+  const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';  // V402-LIVE: production
   const NS = 'krsf_tracker';
   let authToken = '';
   try {
@@ -14798,8 +14830,19 @@ function getAlerts() {
       }
     });
   });
+  // V402: THE 59-SECOND BOOT FREEZE FIX. `data.find(x => x.id === bid)` inside
+  // this loop was a linear scan of ALL ~120K records — and because KRSF policy
+  // is that FCs do NOT enter benefit amounts, zeroBenefitByBid contains tens
+  // of thousands of entries on real data. Tens of thousands × 120K = billions
+  // of comparisons = ONE 59s main-thread task at every admin boot (profiled
+  // live via the Performance flame chart: hot frames at the old find() lines).
+  // Synthetic test data had amounts filled in, which is why every staging
+  // reproduction missed it. Fix: build an id→record Map once (O(N), ~30ms),
+  // then each lookup is O(1). Output identical (ids are unique).
+  const _alertsById = new Map();
+  for (const _ab of data) { if (_ab && _ab.id) _alertsById.set(_ab.id, _ab); }
   Object.entries(zeroBenefitByBid).forEach(([bid, schemes]) => {
-    const b = data.find(x => x.id === bid);
+    const b = _alertsById.get(bid);
     if (!b) return;  // skip if beneficiary not in scope (role filter)
     // V308.1: also escape the user-customisable scheme names.
     const uniqueSchemes = [...new Set(schemes)];
@@ -16747,23 +16790,28 @@ function _v401TodayStats() {
       else if (b.status === 'Completed') livDone++;
     }
   }
-  let benefitsToday = 0, appliedToday = 0, advUpdatesToday = 0;
+  // V403: advocacy counts are UNIQUE PEOPLE, not scheme applications — one
+  // beneficiary applying for 3 schemes today counts once. (Livelihood chips
+  // were already per-person.) Dedup by beneficiary id via Sets.
+  const _brBids = new Set(), _apBids = new Set();
+  let advUpdatesToday = 0;
   for (const a of RecordCache.adv.values()) {
     if (!a) continue;
     const ts = (typeof a._lastEditedAt === 'number') ? a._lastEditedAt : 0;
     if (ts < dayStartMs || ts >= dayEndMs) continue;   // numeric gate — no parsing
     advUpdatesToday++;
+    const _pid = a.bid || a.__fbk;
     for (const r of (a.schemeRows || [])) {
       if (!r || r._deleted) continue;
       const s = _advNormStatus(r);
       if (s !== 'Benefits Received' && s !== 'Applied') continue;
       if (_v400IstDayMemo(r.createdAt) !== todayIst) continue;
-      if (s === 'Benefits Received') benefitsToday++; else appliedToday++;
+      if (s === 'Benefits Received') _brBids.add(_pid); else _apBids.add(_pid);
     }
   }
   _v401TodayCache = { ver: ver, day: todayIst, enrolledToday: enrolledToday,
     enrolledYest: enrolledYest, livEnr: livEnr, livProg: livProg, livDone: livDone,
-    benefitsToday: benefitsToday, appliedToday: appliedToday, advUpdatesToday: advUpdatesToday };
+    benefitsToday: _brBids.size, appliedToday: _apBids.size, advUpdatesToday: advUpdatesToday };
   return _v401TodayCache;
 }
 // The card itself — admin only; other roles get '' (dashboard unchanged).
@@ -16800,11 +16848,10 @@ function _v401TodayStrip() {
       </div>
     </div>
     <div style="border-top:1px solid var(--gray3);padding-top:9px">
-      <div style="${SECT}"><span style="font-size:14px" aria-hidden="true">📋</span>Advocacy — today</div>
+      <div style="${SECT}"><span style="font-size:14px" aria-hidden="true">📋</span>Advocacy — people today</div>
       <div style="${CHIPS}">
         ${chip('Applied', s.appliedToday, '#E6F1FB', '#0C447C')}
         ${chip('Benefits received', s.benefitsToday, '#E1F5EE', '#085041')}
-        ${chip('Records updated', s.advUpdatesToday, '#EEEDFE', '#3C3489')}
       </div>
     </div>
   </div>`;
