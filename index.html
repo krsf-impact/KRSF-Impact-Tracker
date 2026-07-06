@@ -1,56 +1,76 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V399-LIVE
+  KRSF Beneficiary Impact Tracker  -  V401-LIVE
+  ============================================================================
+  V401-LIVE (2026-07-06 — admin mobile view · staging-tested, rendered-verified):
+
+    ADMIN-ONLY UI release. FC / NGO / viewer screens are pixel-identical
+    (rendered-verified at 375px). No new Firebase reads/writes; no data-path
+    change; V400 no-freeze discipline maintained.
+
+    1. [bottom nav resurrected] The .mob-bottom-nav bar was DEAD CODE for
+       every role: the unconditional desktop display:none (~line 2690 region)
+       sits LATER in the stylesheet than the mobile @media show rule (the
+       file's recurring cascade gotcha), and the coordinator shell hides the
+       bar explicitly. V401 shows it for ADMIN ONLY at <=768px, with
+       .content padding-bottom so the fixed bar never covers the last rows.
+       The body:has(.overlay.open) hide rules still win, so modals/drawers
+       keep suppressing the bar.
+    2. [admin nav] Five tabs: Dashboard · People (beneficiaries) · Advocacy ·
+       Livelihood (list) · More. Four new admin-only buttons, hidden for all
+       other roles by default (!important both ways per the cascade gotcha).
+       nav()'s mobMap is now role-aware; mobNav()'s duplicate highlight block
+       removed (it keyed off the raw view name and would have highlighted the
+       hidden legacy tab for admin).
+    3. [More sheet] Slide-up sheet (mirrors the account sheet) exposing every
+       remaining screen at phone width: Field Map, Alerts & Flags, NGO
+       Partners, Integrated View, Partner/User/Livelihood/Advocacy
+       Management, Import Data, Bandwidth Usage, My Account, Sign out.
+       The 6 maintenance tools stay hidden per the V395 policy.
+    4. [Today card] Admin dashboard gains "TODAY · <date> · all NGOs":
+       Enrolled (today + yesterday); Livelihood — status updates today
+       (Enrolled / In progress / Completed = livelihood beneficiaries whose
+       record was edited today, bucketed by CURRENT status — the app stores
+       no per-status-change timestamp); Advocacy — today (Applied / Benefits
+       received = rows created today by _advNormStatus; Records updated =
+       adv records edited today). NO-FREEZE: computed once per data change
+       (cached by _v357DataVersion + IST day), memoized date parsing, numeric
+       _lastEditedAt gate — tens of ms, zero Firebase reads.
+       Verified with seeded data: all 9 numbers matched the seed exactly.
+
+  ============================================================================
+  V400-LIVE (2026-07-06 — instant boot: non-blocking summary compute · staging-tested):
+
+    PERFORMANCE-ONLY release. Fixes the 60-120s admin boot freeze and the ~7s
+    freeze every 5 minutes. No new Firebase reads/writes; no data-path change.
+    Root cause (profiled live, reproduced at 240K scale): the V363/V366 admin
+    summary writer computed global + 17 per-NGO summaries in ONE synchronous
+    stretch — a single 61.7s main-thread long-task at boot. Fix:
+    _v400ComputeAllSummaries — all 18 nodes in one chunked pass (8K records
+    per slice, setTimeout(0) yields; longest block at full scale: 251ms),
+    memoized date parsing, dedup once per scope from a single stable sort.
+    OUTPUT GOLDEN-TESTED: deep-equal on all 18 nodes vs the old path at 240K
+    scale. Plus a 60s debounce killing the boot double-compute. All V374/V390
+    guards preserved verbatim. _v362ComputeOneSummary unchanged (NGO/FC roles).
+
   ============================================================================
   V399-LIVE (2026-06-22 — always-fresh updates (Service Worker fix) · staging-tested):
 
-    Reliability-only release. Fixes the V398 "stuck on an old version" problem,
-    where a device kept showing an old build even after a hard refresh.
-
-    *** THIS RELEASE SHIPS TWO FILES: push BOTH index.html AND sw.js to GitHub. ***
-    (One-time. From V400 on it is index.html only again.)
-
-    Root cause: sw.js used stale-while-revalidate for the HTML, and the app's
-    auto-update only triggers when sw.js itself changes. Since every release
-    (V390–V398) changed only index.html, the Service Worker kept serving its
-    cached copy and a device could wedge on an old version (no auto-reload).
-
-    Fix (in sw.js, CACHE_VERSION → krsf-v399-1):
-      - HTML shell is now NETWORK-FIRST: when online, always fetch the latest
-        index.html; fall back to the cached copy when offline or slower than 3s
-        (PWA still opens offline, app start stays fast). A device can no longer
-        get stuck on an old build.
-      - Fresh-on-install precache (cache:'reload') so a new worker never seeds a
-        stale page. skipWaiting + clients.claim → open clients auto-reload onto
-        the new version (no console, no hard refresh).
-    No change to index.html logic (only APP_VERSION + this note). No Firebase
-    reads/writes change; no data-path change. V398 features unchanged.
-
-    Verified on staging: new worker installs/activates/controls + app boots;
-    network-first serves a changed file on reload (not stale); offline fallback
-    cached; and a client on the OLD v352 worker AUTO-UPDATED to v399 (old cache
-    pruned) with no manual reload or cache clear.
+    Reliability-only. sw.js CACHE_VERSION → krsf-v399-1; HTML shell now
+    NETWORK-FIRST (online = always latest index.html; offline/slow-3s = cached
+    copy). Fixes the V398 "stuck on an old version" wedge. TWO-FILE push
+    (index.html + sw.js) that one time; V400+ back to index.html-only.
 
   ============================================================================
   V398-LIVE (2026-06-22 — cache self-heal + "Reset all clients" · staging-tested):
 
-    Two changes.
-    1. [cache self-heal] ROOT-CAUSE FIX for the "admin Advocacy shows 0 while
-       112k records exist" bug. _pantryRead / _advPantryRead now treat an
-       EMPTY-but-fresh cache as STALE, so a 0-record cache can no longer
-       short-circuit the full Firebase fetch — it self-heals on the next load.
-       Mirrors the existing users-cache `users.length > 0` guard. No new reads in
-       the normal case (a full cache is still used as-is); only an empty cache
-       re-fetches (negligible — an empty query).
-    2. [reset all clients] NEW admin tool on the Bandwidth Usage page — "Reset all
-       clients (log out + clear cache)". Writes a rising _forceResetFleet flag
-       (same broadcast pattern as V359's _pantryInvalidateFleet); every open
-       client logs out, clears its cache, and reloads within seconds.
-       SAFETY: a client mid-save (FB.pendingWrites > 0) finishes uploading BEFORE
-       resetting (no data loss — reuses the V396 guard); a localStorage baseline
-       (_v398ResetSeen, never cleared by the reset) makes a freshly-loaded client
-       never reset itself and prevents any reload loop. Heavy on Firebase
-       (everyone re-downloads) — deliberate admin action, use sparingly.
+    1. [cache self-heal] _pantryRead/_advPantryRead treat an EMPTY-but-fresh
+       cache as STALE so a 0-record cache can no longer short-circuit the full
+       fetch (root-cause fix for "admin Advocacy shows 0 while 112k exist").
+    2. [reset all clients] Admin tool on Bandwidth Usage page: writes a rising
+       _forceResetFleet flag; every client logs out, clears cache, reloads.
+       Mid-save clients finish uploading first (V396 guard); localStorage
+       baseline (_v398ResetSeen) prevents reload loops.
 
   ============================================================================
   V397-LIVE (2026-06-22 — stay-logged-in + easy logout · staging-tested):
@@ -2725,6 +2745,34 @@ body[data-role="coordinator"] #mob-ngo-filter { display: none !important; }
 body[data-role="coordinator"] #mob-nav-dashboard,
 body[data-role="coordinator"] #mob-nav-alerts,
 body[data-role="coordinator"] #mob-nav-ngo { display: none !important; }
+
+/* V401: admin mobile bottom nav = Dashboard · People · Advocacy · Livelihood · More.
+   The four V401 buttons are hidden for every role by default (so FC/NGO/viewer
+   navs are pixel-identical to V400); admin hides the five legacy tabs and shows
+   the V401 set. NOTE the file-wide cascade gotcha: unconditional hide rules need
+   the show rules to carry !important too (see the .mob-logout-btn comment). */
+#mob-nav-beneficiaries, #mob-nav-advocacy, #mob-nav-livelihood, #mob-nav-more { display: none !important; }
+body[data-role="admin"] #mob-nav-list,
+body[data-role="admin"] #mob-nav-map,
+body[data-role="admin"] #mob-nav-alerts,
+body[data-role="admin"] #mob-nav-ngo,
+body[data-role="admin"] #mob-nav-account { display: none !important; }
+body[data-role="admin"] #mob-nav-beneficiaries,
+body[data-role="admin"] #mob-nav-advocacy,
+body[data-role="admin"] #mob-nav-livelihood,
+body[data-role="admin"] #mob-nav-more { display: flex !important; }
+/* V401: the bottom-nav BAR itself was dead code — the unconditional
+   `.mob-bottom-nav{display:none}` desktop default sits LATER in the file
+   than the mobile @media show rule, so (cascade gotcha) the bar never
+   rendered for anyone; the coord shell additionally hides it explicitly.
+   Resurrect it for ADMIN ONLY at phone width, and pad the content bottom
+   so the fixed 64px bar doesn't cover the last rows. The body:has(.overlay
+   .open) hide rules still win (higher specificity), so modals/drawers keep
+   suppressing the bar as designed. */
+@media (max-width: 768px) {
+  body[data-role="admin"] .mob-bottom-nav { display: flex !important; }
+  body[data-role="admin"] .content { padding-bottom: 84px !important; }
+}
 /* ══════════════════════════════════════════════════════════════════
    v21.0 — COORDINATOR SHELL
    A purpose-built shell for field coordinators. Renders in place of
@@ -4033,6 +4081,24 @@ body[data-shell="coord"] #coord-app { display: block; }
     <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-7 8-7s8 3 8 7"/></svg>
     Account
   </button>
+  <!-- V401: admin-only bottom nav — Dashboard · People · Advocacy · Livelihood · More.
+       Hidden for every other role (CSS below); FC/NGO/viewer navs unchanged. -->
+  <button class="mob-nav-item" id="mob-nav-beneficiaries" onclick="mobNav('beneficiaries')">
+    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+    People
+  </button>
+  <button class="mob-nav-item" id="mob-nav-advocacy" onclick="mobNav('advocacy')">
+    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 15l2 2 4-4"/></svg>
+    Advocacy
+  </button>
+  <button class="mob-nav-item" id="mob-nav-livelihood" onclick="mobNav('list')">
+    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M12 22V9"/><path d="M12 9C12 5 9 3 5 3c0 4 3 6 7 6z"/><path d="M12 13c0-4 3-6 7-6 0 4-3 6-7 6z"/></svg>
+    Livelihood
+  </button>
+  <button class="mob-nav-item" id="mob-nav-more" onclick="openMobMoreSheet()">
+    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
+    More
+  </button>
 </nav>
 
 <!-- MOBILE ACCOUNT BOTTOM SHEET — logout/account entry point for mobile users.
@@ -4060,6 +4126,67 @@ body[data-shell="coord"] #coord-app { display: block; }
     <span>Sign out</span>
   </button>
   <button class="mob-sheet-cancel" onclick="closeMobAccountSheet()">Cancel</button>
+</div>
+
+<!-- V401: MOBILE "MORE" BOTTOM SHEET (admin only) — exposes every remaining
+     screen at phone width so no admin page is desktop-only. The 6 maintenance
+     tools stay hidden per the V395 policy (this sheet mirrors the sidebar,
+     which already excludes them). Same slide-up mechanics as the account sheet. -->
+<div class="mob-sheet-backdrop" id="mob-more-backdrop" onclick="closeMobMoreSheet()"></div>
+<div class="mob-sheet" id="mob-more-sheet" role="dialog" aria-label="More screens" style="max-height:78vh;overflow-y:auto">
+  <div class="mob-sheet-handle"></div>
+  <div style="font-size:11px;font-weight:600;letter-spacing:.5px;color:var(--gray2);padding:2px 6px 6px">VIEWS</div>
+  <button class="mob-sheet-btn" onclick="closeMobMoreSheet();mobNav('map')">
+    <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+    <span>Field Map</span>
+  </button>
+  <button class="mob-sheet-btn" onclick="closeMobMoreSheet();mobNav('alerts')">
+    <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+    <span>Alerts &amp; Flags</span>
+  </button>
+  <button class="mob-sheet-btn" onclick="closeMobMoreSheet();mobNav('ngo')">
+    <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/></svg>
+    <span>NGO Partners</span>
+  </button>
+  <button class="mob-sheet-btn" onclick="closeMobMoreSheet();mobNav('integrated')">
+    <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="8" cy="12" r="6"/><circle cx="16" cy="12" r="6"/></svg>
+    <span>Integrated View</span>
+  </button>
+  <div style="font-size:11px;font-weight:600;letter-spacing:.5px;color:var(--gray2);padding:10px 6px 6px;border-top:1px solid var(--gray3);margin-top:6px">ADMIN PANEL</div>
+  <button class="mob-sheet-btn" onclick="closeMobMoreSheet();mobNav('admin_partners')">
+    <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+    <span>Partner Management</span>
+  </button>
+  <button class="mob-sheet-btn" onclick="closeMobMoreSheet();mobNav('admin_users')">
+    <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-7 8-7s8 3 8 7"/><path d="M16 11l2 2 4-4"/></svg>
+    <span>User Management</span>
+  </button>
+  <button class="mob-sheet-btn" onclick="closeMobMoreSheet();mobNav('admin_livelihoods')">
+    <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M12 22V9"/><path d="M12 9C12 5 9 3 5 3c0 4 3 6 7 6z"/><path d="M12 13c0-4 3-6 7-6 0 4-3 6-7 6z"/></svg>
+    <span>Livelihood Management</span>
+  </button>
+  <button class="mob-sheet-btn" onclick="closeMobMoreSheet();mobNav('admin_schemes')">
+    <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+    <span>Advocacy Management</span>
+  </button>
+  <button class="mob-sheet-btn" onclick="closeMobMoreSheet();mobNav('admin_import')">
+    <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    <span>Import Data</span>
+  </button>
+  <button class="mob-sheet-btn" onclick="closeMobMoreSheet();mobNav('admin_bandwidth')">
+    <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
+    <span>Bandwidth Usage</span>
+  </button>
+  <div style="border-top:1px solid var(--gray3);margin-top:6px;padding-top:6px"></div>
+  <button class="mob-sheet-btn" onclick="closeMobMoreSheet();openMyAccount()">
+    <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="5" r="2.5"/><path d="M3 13c0-2.5 2.2-4.5 5-4.5s5 2 5 4.5"/></svg>
+    <span>My Account</span>
+  </button>
+  <button class="mob-sheet-btn mob-sheet-btn-danger" onclick="closeMobMoreSheet();doLogout()">
+    <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 4V2.5a.5.5 0 00-.5-.5h-6a.5.5 0 00-.5.5v11a.5.5 0 00.5.5h6a.5.5 0 00.5-.5V12"/><path d="M7 8h7M11 5l3 3-3 3"/></svg>
+    <span>Sign out</span>
+  </button>
+  <button class="mob-sheet-cancel" onclick="closeMobMoreSheet()">Cancel</button>
 </div>
 
 <!-- MOBILE FAB ENROLL BUTTON — primary action for field coordinators on phones -->
@@ -4268,7 +4395,7 @@ function escHtml(s) {
 //
 // V16.0.2: switched to dedicated "Livelihood" Firebase project (asia-southeast1).
 const FB_CONFIG = {
-  // V398-LIVE: PRODUCTION project (krsf-impact-tracking).
+  // V401-LIVE: PRODUCTION project (krsf-impact-tracking).
   apiKey: "AIzaSyCgJpYmdEdvdvbi3kdXfgFL-N4KiDLbUlI",
   authDomain: "krsf-impact-tracking.firebaseapp.com",
   databaseURL: "https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app",
@@ -4283,7 +4410,7 @@ const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V399-LIVE';
+const APP_VERSION = 'V401-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -9024,11 +9151,11 @@ function closeMobMenu() {
 
 function mobNav(view) {
   closeMobMenu();
+  // V401: active-state syncing now lives entirely in nav()'s role-aware
+  // mobMap. The old duplicate block here keyed the button id off the raw
+  // view name, which highlighted the HIDDEN legacy tab for admin (e.g.
+  // Livelihood → 'list' → #mob-nav-list) instead of the visible V401 one.
   nav(view);
-  // Update bottom nav active state
-  document.querySelectorAll('.mob-nav-item').forEach(b => b.classList.remove('active'));
-  const btn = document.getElementById('mob-nav-' + view);
-  if (btn) btn.classList.add('active');
 }
 
 // Mobile Account bottom sheet — slides up from the bottom when the user
@@ -9055,6 +9182,17 @@ function openMobAccountSheet() {
 function closeMobAccountSheet() {
   document.getElementById('mob-account-backdrop').classList.remove('open');
   document.getElementById('mob-account-sheet').classList.remove('open');
+}
+
+// V401: admin "More" bottom sheet — same slide-up mechanics as the account
+// sheet. Static content (built in HTML), so open/close just toggle classes.
+function openMobMoreSheet() {
+  document.getElementById('mob-more-backdrop').classList.add('open');
+  document.getElementById('mob-more-sheet').classList.add('open');
+}
+function closeMobMoreSheet() {
+  document.getElementById('mob-more-backdrop').classList.remove('open');
+  document.getElementById('mob-more-sheet').classList.remove('open');
 }
 
 function updateMobAlertBadge(count) {
@@ -9557,7 +9695,7 @@ let _genIdMutex = Promise.resolve();
 // After this fires once, the counter is canonical and no further scans
 // ever happen for that state in the entire Firebase project.
 async function _v353BootstrapScanMax(prefix) {
-  const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';  // V398-LIVE: production
+  const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';  // V401-LIVE: production
   const NS = 'krsf_tracker';
   let authToken = '';
   try {
@@ -16561,6 +16699,117 @@ function _renderDashboardTopNGOs(list, advLatest) {
     </div>`;
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// V401: "Today" summary for the admin dashboard — enrolled today/yesterday,
+// benefits received today, advocacy updates today.
+//
+// NO-FREEZE BUDGET (the V400 rule): computed ONCE per data change (cached by
+// _v357DataVersion + IST date), from data already in memory. The benef pass
+// uses the memoized IST-day helper (enroll dates repeat heavily, so it's Map
+// lookups); the adv pass is a numeric _lastEditedAt range check — row-level
+// date parsing only happens for the handful of records actually edited today.
+// Measured cost ≈ tens of ms, once. Zero Firebase reads.
+// ────────────────────────────────────────────────────────────────────────────
+let _v401TodayCache = null;
+function _v401TodayStats() {
+  const todayIst = _v400IstDayMemo(new Date().toISOString());
+  const ver = (typeof _v357DataVersion !== 'undefined') ? _v357DataVersion : 0;
+  if (_v401TodayCache && _v401TodayCache.ver === ver && _v401TodayCache.day === todayIst) {
+    return _v401TodayCache;
+  }
+  const yestIst = (function () {
+    const d = new Date(Date.now() + ((5 * 60 + 30) * 60 * 1000) - 86400000);
+    return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
+  })();
+  // IST "today" as a numeric UTC-ms window, for the cheap _lastEditedAt check.
+  // IST midnight = 18:30 UTC the previous day.
+  const p = todayIst.split('-');
+  const dayStartMs = Date.UTC(+p[0], +p[1] - 1, +p[2]) - ((5 * 60 + 30) * 60 * 1000);
+  const dayEndMs = dayStartMs + 86400000;
+  const ADV_SENTINEL = 'Advocacy (Govt. Schemes)';
+  let enrolledToday = 0, enrolledYest = 0, livEnr = 0, livProg = 0, livDone = 0;
+  for (const b of RecordCache.benef.values()) {
+    if (!b) continue;
+    if (b.enrollDate) {
+      const d = _v400IstDayMemo(b.enrollDate);
+      if (d === todayIst) enrolledToday++;
+      else if (d === yestIst) enrolledYest++;
+    }
+    // Livelihood status pulse: livelihood beneficiaries whose record was
+    // updated today, bucketed by CURRENT status. (The app stores no per-
+    // status-change timestamp, so this is "records updated today by status",
+    // not "status changed today" — good enough for a daily activity pulse.)
+    const bts = (typeof b._lastEditedAt === 'number') ? b._lastEditedAt : 0;
+    if (bts >= dayStartMs && bts < dayEndMs
+        && (b.interventions || []).some(function(i){ return i && i !== ADV_SENTINEL; })) {
+      if (b.status === 'Enrolled') livEnr++;
+      else if (b.status === 'Intervention In Progress') livProg++;
+      else if (b.status === 'Completed') livDone++;
+    }
+  }
+  let benefitsToday = 0, appliedToday = 0, advUpdatesToday = 0;
+  for (const a of RecordCache.adv.values()) {
+    if (!a) continue;
+    const ts = (typeof a._lastEditedAt === 'number') ? a._lastEditedAt : 0;
+    if (ts < dayStartMs || ts >= dayEndMs) continue;   // numeric gate — no parsing
+    advUpdatesToday++;
+    for (const r of (a.schemeRows || [])) {
+      if (!r || r._deleted) continue;
+      const s = _advNormStatus(r);
+      if (s !== 'Benefits Received' && s !== 'Applied') continue;
+      if (_v400IstDayMemo(r.createdAt) !== todayIst) continue;
+      if (s === 'Benefits Received') benefitsToday++; else appliedToday++;
+    }
+  }
+  _v401TodayCache = { ver: ver, day: todayIst, enrolledToday: enrolledToday,
+    enrolledYest: enrolledYest, livEnr: livEnr, livProg: livProg, livDone: livDone,
+    benefitsToday: benefitsToday, appliedToday: appliedToday, advUpdatesToday: advUpdatesToday };
+  return _v401TodayCache;
+}
+// The card itself — admin only; other roles get '' (dashboard unchanged).
+// Numbers are fleet-wide (not affected by the state/NGO filters) — labelled so.
+function _v401TodayStrip() {
+  const u = (typeof currentUser === 'function') ? currentUser() : null;
+  if (!u || u.role !== 'admin') return '';
+  let s;
+  try { s = _v401TodayStats(); } catch (_) { return ''; }
+  // "6 JUL" style date label from the cached IST day (YYYY-MM-DD)
+  const MON = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  const dp = s.day.split('-');
+  const dateLbl = parseInt(dp[2], 10) + ' ' + (MON[parseInt(dp[1], 10) - 1] || '');
+  const chip = (label, val, bg, fg) => `<span style="background:${bg};color:${fg};font-size:11px;padding:4px 9px;border-radius:8px;white-space:nowrap">${label} <b style="font-weight:700">${val}</b></span>`;
+  const CHIPS = 'display:flex;gap:6px;flex-wrap:wrap';
+  const SECT = 'display:flex;align-items:center;gap:6px;margin-bottom:6px;font-size:12px;color:var(--gray1)';
+  return `<div style="background:#fff;border:1px solid #BFDBFE;border-radius:12px;padding:12px 14px;margin:-6px 0 16px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
+      <span style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--navy2)">TODAY · ${dateLbl}</span>
+      <span style="font-size:10px;color:var(--gray2)">all NGOs</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+      <span style="font-size:14px" aria-hidden="true">🧑‍🌾</span>
+      <span style="font-size:12px;color:var(--gray1)">Enrolled</span>
+      <span style="font-size:17px;font-weight:700;color:var(--navy)">${s.enrolledToday}</span>
+      <span style="font-size:11px;color:var(--gray2);margin-left:auto">yesterday ${s.enrolledYest}</span>
+    </div>
+    <div style="border-top:1px solid var(--gray3);padding-top:9px;margin-bottom:9px">
+      <div style="${SECT}"><span style="font-size:14px" aria-hidden="true">🌱</span>Livelihood — status updates today</div>
+      <div style="${CHIPS}">
+        ${chip('Enrolled', s.livEnr, '#E6F1FB', '#0C447C')}
+        ${chip('In progress', s.livProg, '#FAEEDA', '#633806')}
+        ${chip('Completed', s.livDone, '#E1F5EE', '#085041')}
+      </div>
+    </div>
+    <div style="border-top:1px solid var(--gray3);padding-top:9px">
+      <div style="${SECT}"><span style="font-size:14px" aria-hidden="true">📋</span>Advocacy — today</div>
+      <div style="${CHIPS}">
+        ${chip('Applied', s.appliedToday, '#E6F1FB', '#0C447C')}
+        ${chip('Benefits received', s.benefitsToday, '#E1F5EE', '#085041')}
+        ${chip('Records updated', s.advUpdatesToday, '#EEEDFE', '#3C3489')}
+      </div>
+    </div>
+  </div>`;
+}
+
 function renderDashboard() {
   const allB   = filteredAll();
   // Livelihood beneficiaries = anyone with a non-Advocacy intervention.
@@ -16658,6 +16907,7 @@ function renderDashboard() {
       ${tile('Scheme Benefits', schemeBenefits>0 ? '₹'+schemeBenefits.toLocaleString('en-IN') : '—', 'Advocacy benefits received', 's-purple', schemeBenefits>0?'var(--purple)':'')}
       ${tile('Total Impact', totalImpact>0 ? '₹'+totalImpact.toLocaleString('en-IN') : '—', 'Income + Scheme Benefits', 's-blue', totalImpact>0?'var(--navy)':'')}
     </div>
+    ${_v401TodayStrip()}
     ${filterBadges?`<div style="display:flex;gap:8px;margin-bottom:12px;margin-top:-6px;align-items:center;flex-wrap:wrap">
       <span style="font-size:12px;color:var(--gray2)">Filters:</span>${filterBadges}
       <button onclick="stateFilter='';ngoFilter='';fcFilter='';progFilter='';document.getElementById('state-filter').value='';document.getElementById('ngo-filter').value='';var mp=document.getElementById('prog-filter');if(mp)mp.value='';renderCurrent()" style="font-size:11px;color:var(--red);background:none;border:none;cursor:pointer;padding:0;font-family:var(--font)">✕ Clear all</button>
@@ -18185,7 +18435,14 @@ window.nav=function(v){
   // Sync mobile bottom nav. Without this, navigating via sidebar on mobile
   // leaves the bottom bar highlighting the wrong tab. Views without a
   // dedicated bottom-nav entry fall back to 'list' (People icon).
-  const mobMap={dashboard:'dashboard',list:'list',beneficiaries:'list',advocacy:'list',integrated:'list',map:'map',alerts:'alerts',ngo:'ngo'};
+  // V401: admin has its own bottom nav (Dashboard/People/Advocacy/Livelihood/
+  // More), so its active-state map differs. All other roles keep the V400 map.
+  const _mobUser=(typeof currentUser==='function')?currentUser():null;
+  const mobMap=(_mobUser&&_mobUser.role==='admin')
+    ? {dashboard:'dashboard',beneficiaries:'beneficiaries',advocacy:'advocacy',list:'livelihood',integrated:'livelihood',
+       map:'more',alerts:'more',ngo:'more',admin_partners:'more',admin_users:'more',admin_livelihoods:'more',
+       admin_schemes:'more',admin_import:'more',admin_audit:'more',admin_bandwidth:'more'}
+    : {dashboard:'dashboard',list:'list',beneficiaries:'list',advocacy:'list',integrated:'list',map:'map',alerts:'alerts',ngo:'ngo'};
   const mobKey=mobMap[v];
   document.querySelectorAll('.mob-nav-item').forEach(b=>b.classList.remove('active'));
   if (mobKey) { const mb=document.getElementById('mob-nav-'+mobKey); if(mb)mb.classList.add('active'); }
@@ -22487,6 +22744,253 @@ function _v362ComputeOneSummary(records, advRecords, ngoScope, prefiltered) {
   };
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// V400: non-blocking admin summary computation.
+//
+// WHY: _v362WriteAllSummariesNow's admin branch computed global + 17 per-NGO
+// summaries in ONE synchronous stretch. At 120K benef + 121K adv that froze
+// the main thread ~10-60s at every admin boot (profiled live: a single 61.7s
+// long-task) and ~7s on every V365 5-min recompute. Root causes: 18 separate
+// full-collection passes, ~500K un-memoized `new Date()` parses per run, and
+// the advocacy row-dedup re-run per NGO (cache invalidated between calls).
+//
+// WHAT: _v400ComputeAllSummaries computes ALL 18 nodes in one chunked pass —
+// every loop yields to the event loop every CHUNK records, so no long task.
+// Semantics are IDENTICAL to calling _v362ComputeOneSummary per scope with
+// the V366 bucketing (golden-tested at full 240K scale: deep-equal on all 18
+// nodes). _v362ComputeOneSummary itself is unchanged (still used by NGO/FC
+// roles on their small slices, and as the golden reference).
+// ────────────────────────────────────────────────────────────────────────────
+const _v400WkMemo = new Map();
+const _v400IstMemo = new Map();
+function _v400WeekKey(dateStr) {          // memoized clone of _weekKey
+  if (!dateStr) return null;
+  let v = _v400WkMemo.get(dateStr);
+  if (v !== undefined) return v;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) v = null;
+  else {
+    const day = d.getUTCDay();
+    const diff = (day === 0 ? -6 : 1 - day);
+    v = new Date(d.getTime() + diff * 86400000).toISOString().slice(0, 10);
+  }
+  if (_v400WkMemo.size < 400000) _v400WkMemo.set(dateStr, v);
+  return v;
+}
+function _v400IstDayMemo(dateStr) {       // memoized clone of _v364IstDay
+  if (!dateStr) return '';
+  let v = _v400IstMemo.get(dateStr);
+  if (v !== undefined) return v;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) v = '';
+  else {
+    const ist = new Date(d.getTime() + ((5 * 60 + 30) * 60 * 1000));
+    v = ist.getUTCFullYear() + '-' + String(ist.getUTCMonth() + 1).padStart(2, '0') + '-' + String(ist.getUTCDate()).padStart(2, '0');
+  }
+  if (_v400IstMemo.size < 400000) _v400IstMemo.set(dateStr, v);
+  return v;
+}
+// setTimeout(0) yield — a true task boundary: rendering, input and Firebase
+// callbacks all get a turn between chunks. (A MessageChannel yield was tried
+// and rejected: Chrome drains port messages without yielding to rendering,
+// which glued the chunks back into one giant long-task.) In a hidden tab the
+// 1s timer throttle slows the compute down, but a hidden tab has no user
+// staring at it — and the V366 visibility handler catches up on return.
+function _v400Yield() { return new Promise(function(r){ setTimeout(r, 0); }); }
+
+async function _v400ComputeAllSummaries(records, advRecords) {
+  const CHUNK = 8000;
+  const ADV_SENTINEL = 'Advocacy (Govt. Schemes)';
+  // scope contexts: '' = global, plus one per NGO seen in records
+  function newCtx(scope) {
+    return { scope: scope, n: 0, states: new Set(), dists: new Set(),
+      totalIncome: 0, liv: 0, withEnd: 0, advBid: new Set(), advTagged: 0,
+      livOnly: 0, dual: 0, advOnly: 0, needApply: 0, applied: 0, rejected: 0,
+      received: 0, totalAmt: 0, weeks: {}, byFc: {}, ngoMap: {}, recIds: new Set() };
+  }
+  const global = newCtx(null);
+  const byNgo = {};   // ngoName -> ctx (created only for NGOs present in records — mirrors V366's ngoSet)
+  // ---- Pass 1 (records): scope membership + everything not needing advBid ----
+  for (let i = 0; i < records.length; i++) {
+    if (i > 0 && i % CHUNK === 0) await _v400Yield();
+    const b = records[i];
+    if (!b) continue;
+    let ctxs;
+    if (b.ngo) {
+      if (!byNgo[b.ngo]) byNgo[b.ngo] = newCtx(b.ngo);
+      ctxs = [global, byNgo[b.ngo]];
+    } else ctxs = [global];
+    // derived-once per record (matches _v362ComputeOneSummary exactly)
+    const parts = (b.district || '').split(',');
+    const state = parts.length >= 2 ? parts[parts.length - 1].trim() : null;
+    const dist  = (parts.length >= 1 && parts[0]) ? (parts[0] || '').trim() : null;
+    const isLiv = (b.interventions || []).some(function(x){ return x && x !== ADV_SENTINEL; });
+    let inc = 0;
+    if (b.endIncome != null && b.baseIncome != null) {
+      const d = (Number(b.endIncome) || 0) - (Number(b.baseIncome) || 0);
+      if (d > 0) inc = d;
+    }
+    const wk = _v400WeekKey(b.enrollDate);
+    const ist = _v400IstDayMemo(b.enrollDate);
+    for (const c of ctxs) {
+      c.n++;
+      c.recIds.add(b.id);
+      if (state) c.states.add(state);
+      if (dist) c.dists.add(dist);
+      c.totalIncome += inc;
+      if (isLiv) { c.liv++; if (b.endIncome != null) c.withEnd++; }
+      if (wk) {
+        if (!c.weeks[wk]) c.weeks[wk] = { week: wk, enrolled: 0, applied: 0, received: 0, rejected: 0 };
+        c.weeks[wk].enrolled++;
+      }
+      if (c.scope === null) {   // topFCs: global only (matches !ngoScope branch)
+        const cb = b.createdBy || 'unknown';
+        c.byFc[cb] = (c.byFc[cb] || 0) + 1;
+      }
+      if (b.ngo) {              // ngoBreakdown (per scope, from its recs);
+        // today/yesterday tallies land in Pass 1b once cutoffs are known.
+        if (!c.ngoMap[b.ngo]) c.ngoMap[b.ngo] = { name: b.ngo, total: 0, today: 0, yesterday: 0 };
+        c.ngoMap[b.ngo].total++;
+      }
+    }
+    if (ist) { /* memo warmed for Pass 1b */ }
+  }
+  // today/yesterday cutoffs — computed once (matches _v364TodayIst/_v364YesterdayIst)
+  const todayIst = _v400IstDayMemo(new Date().toISOString());
+  const yestIst = (function () {
+    const d = new Date(Date.now() + ((5 * 60 + 30) * 60 * 1000) - 86400000);
+    return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
+  })();
+  // ---- Pass 1b (records): today/yesterday tallies (needs cutoffs) ----
+  for (let i = 0; i < records.length; i++) {
+    if (i > 0 && i % CHUNK === 0) await _v400Yield();
+    const b = records[i];
+    if (!b || !b.ngo) continue;
+    const day = _v400IstDayMemo(b.enrollDate);   // memo hit — cheap
+    if (day !== todayIst && day !== yestIst) continue;
+    const tgt = day === todayIst ? 'today' : 'yesterday';
+    global.ngoMap[b.ngo][tgt]++;
+    if (byNgo[b.ngo]) byNgo[b.ngo].ngoMap[b.ngo][tgt]++;
+  }
+  // ---- Pass 2 (advocacy): advBid sets + weekly adv events (RAW rows) ----
+  for (let i = 0; i < advRecords.length; i++) {
+    if (i > 0 && i % CHUNK === 0) await _v400Yield();
+    const a = advRecords[i];
+    if (!a) continue;
+    const ctxs = (a.ngo && byNgo[a.ngo]) ? [global, byNgo[a.ngo]] : [global];
+    const wk = _v400WeekKey(a.updatedAt || a.createdAt);
+    for (const c of ctxs) {
+      if (a.bid) c.advBid.add(a.bid);
+      if (wk) {
+        if (!c.weeks[wk]) c.weeks[wk] = { week: wk, enrolled: 0, applied: 0, received: 0, rejected: 0 };
+        for (const r of (a.schemeRows || [])) {
+          if (!r || r._deleted) continue;
+          const s = _advNormStatus(r);
+          if (s === 'Applied') c.weeks[wk].applied++;
+          else if (s === 'Benefits Received') c.weeks[wk].received++;
+          else if (s === 'Rejected') c.weeks[wk].rejected++;
+        }
+      }
+    }
+  }
+  // ---- Pass 3 (records): integrated counts (needs each scope's advBid) ----
+  for (let i = 0; i < records.length; i++) {
+    if (i > 0 && i % CHUNK === 0) await _v400Yield();
+    const b = records[i];
+    if (!b) continue;
+    const isLiv = (b.interventions || []).some(function(x){ return x && x !== ADV_SENTINEL; });
+    const ctxs = (b.ngo && byNgo[b.ngo]) ? [global, byNgo[b.ngo]] : [global];
+    for (const c of ctxs) {
+      const tagged = c.advBid.has(b.id);
+      if (tagged) c.advTagged++;
+      if (isLiv && !tagged) c.livOnly++;
+      else if (isLiv && tagged) c.dual++;
+      else if (!isLiv && tagged) c.advOnly++;
+    }
+  }
+  // ---- Pass 4 (advocacy rows): dedup ONCE per scope, then status counts ----
+  // One stable sort by createdAt (same comparator as _advLatestRowsAll); a
+  // stable-sorted whole restricted to a bucket ≡ the bucket sorted alone, so
+  // per-scope dedup over this order matches _advLatestRowsAll(slice) exactly.
+  const sorted = advRecords.slice();
+  sorted.sort(function(a, b){ return (a.createdAt||'') < (b.createdAt||'') ? -1 : (a.createdAt||'') > (b.createdAt||'') ? 1 : 0; });
+  const gRows = {};                    // global byKey
+  const nRows = {};                    // ngoName -> byKey
+  for (let i = 0; i < sorted.length; i++) {
+    if (i > 0 && i % CHUNK === 0) await _v400Yield();
+    const a = sorted[i];
+    if (!a) continue;
+    const bucket = (a.ngo && byNgo[a.ngo]) ? (nRows[a.ngo] = nRows[a.ngo] || {}) : null;
+    for (const r of (a.schemeRows || [])) {
+      if (!r || !r.scheme) continue;
+      const key = a.bid + '::' + r.scheme + '::' + (r.remarks || '');
+      const row = { status: r.status, benefitRecd: r.benefitRecd, benefitAmt: r.benefitAmt, _deleted: r._deleted, __bid: a.bid };
+      gRows[key] = row;
+      if (bucket) bucket[key] = row;
+    }
+  }
+  async function countRows(byKey, bidFilter) {
+    const out = { needApply: 0, applied: 0, rejected: 0, received: 0, totalAmt: 0 };
+    const keys = Object.keys(byKey);
+    for (let i = 0; i < keys.length; i++) {
+      if (i > 0 && i % CHUNK === 0) await _v400Yield();
+      const r = byKey[keys[i]];
+      if (r._deleted) continue;                                   // dedup-level tombstone filter
+      if (bidFilter && !bidFilter.has(r.__bid)) continue;         // NGO scope: rows of its own beneficiaries only
+      const s = _advNormStatus(r);
+      if (s === 'Need to Apply') out.needApply++;
+      else if (s === 'Applied') out.applied++;
+      else if (s === 'Rejected') out.rejected++;
+      else if (s === 'Benefits Received') { out.received++; out.totalAmt += (Number(r.benefitAmt) || 0); }
+    }
+    return out;
+  }
+  global._rowCounts = await countRows(gRows, null);               // global: NO bid filter (matches _v362)
+  await _v400Yield();
+  for (const n in byNgo) {
+    byNgo[n]._rowCounts = await countRows(nRows[n] || {}, byNgo[n].recIds);
+    await _v400Yield();
+  }
+  // ---- Assemble (identical shape/values to _v362ComputeOneSummary) ----
+  let userMap = {};
+  try {
+    const allUsers = (typeof loadUsers === 'function') ? loadUsers() : [];
+    for (const u of allUsers) userMap[u.id] = u.fullName || u.username || u.id;
+  } catch(_) {}
+  function assemble(c) {
+    const rc = c._rowCounts;
+    const allWeeks = Object.values(c.weeks).sort(function(a, b){ return a.week < b.week ? -1 : 1; });
+    const last12 = allWeeks.slice(-12);
+    const fcEntries = Object.entries(c.byFc).sort(function(a, b){ return b[1] - a[1]; }).slice(0, 5);
+    const topFCs = fcEntries.map(function(e){ return { name: userMap[e[0]] || e[0], count: e[1] }; });
+    const ngoBreakdown = Object.values(c.ngoMap).sort(function(a, b){ return b.total - a.total; });
+    return {
+      meta: { computedAt: Date.now(), scope: c.scope || 'global', recordsInScope: c.n },
+      dashboard: { total: c.n, states: c.states.size, districts: c.dists.size,
+        totalIncomeAdded: c.totalIncome, totalSchemeBenefits: rc.totalAmt,
+        totalImpact: c.totalIncome + rc.totalAmt, livelihoodCount: c.liv,
+        advocacyCount: c.advTagged, topFCs: topFCs },
+      livelihood: { total: c.liv, totalIncomeAdded: c.totalIncome,
+        withEndline: c.withEnd, pending: c.liv - c.withEnd },
+      advocacy: { totalBeneficiaries: c.advBid.size, needApply: rc.needApply,
+        applied: rc.applied, rejected: rc.rejected, received: rc.received,
+        totalAmount: rc.totalAmt },
+      integrated: { total: c.n, livOnly: c.livOnly, dual: c.dual,
+        advOnly: c.advOnly, totalImpact: c.totalIncome + rc.totalAmt },
+      progress: last12,
+      ngoBreakdown: ngoBreakdown,
+    };
+  }
+  const out = { global: assemble(global), ngo: {} };
+  for (const n in byNgo) out.ngo[n] = assemble(byNgo[n]);
+  return out;
+}
+// V400: debounce — skip an admin recompute if one succeeded < 60s ago (the
+// boot path used to run the full compute TWICE back-to-back via the V366
+// visibility catch-up; the summary freshness window is 15 min, so a 60s
+// debounce is safely inside spec).
+let _v400LastAdminSummaryWrite = 0;
+
 // V363: helper — safe-key an NGO name for Firebase paths (no . # $ [ ] /)
 function _v363SafeKey(s) {
   return String(s || '').replace(/[.#$\[\]/]/g, '_');
@@ -22737,6 +23241,15 @@ async function _v362WriteAllSummaries() {
     // -------- ADMIN: write global + all per-NGO summaries --------
     if (u.role === 'admin') {
       if (!Array.isArray(records) || records.length === 0) return;
+      // V400: debounce — a successful admin write <60s ago makes this run
+      // redundant (boot used to double-compute via the V366 visibility
+      // catch-up firing right after the initial write; summary freshness
+      // spec is 15 min, so 60s is safely inside it).
+      if (_v400LastAdminSummaryWrite && Date.now() - _v400LastAdminSummaryWrite < 60000) {
+        console.log('[V400] admin summary write skipped — last successful write '
+          + Math.round((Date.now() - _v400LastAdminSummaryWrite) / 1000) + 's ago');
+        return;
+      }
       // V374 [Fix #1]: BOTH replay flags must be true. V366-fix2 only
       // checked advReplayComplete — missed the benef-streaming case where
       // admin's cold-REST pantry-miss boot streams benef in 500-record
@@ -22808,42 +23321,18 @@ async function _v362WriteAllSummaries() {
       // bucket. Previously each per-NGO call did its own .filter() over the
       // full collection — that's N × 13 = ~560K ops at 43K records, plus
       // 13× the temp array allocations. Now it's 2N + (per-bucket work).
-      const recsByNgo = {};
-      const advByNgo  = {};
-      const ngoSet = new Set();
-      for (const r of records) {
-        if (r && r.ngo) {
-          ngoSet.add(r.ngo);
-          (recsByNgo[r.ngo] = recsByNgo[r.ngo] || []).push(r);
-        }
-      }
-      for (const a of adv) {
-        if (a && a.ngo) {
-          (advByNgo[a.ngo] = advByNgo[a.ngo] || []).push(a);
-        }
-      }
+      // V400: chunked one-pass computation of ALL 18 nodes — no main-thread
+      // freeze. Replaces the V366 bucket + 18× _v362ComputeOneSummary loop
+      // (identical outputs — golden-tested at 240K scale). The V366-fix1
+      // _advLatestRowsCache invalidation dance is obsolete here: the new
+      // path never touches that cache.
       const update = {};
       try {
-        // Global: no prefilter, pass full arrays
-        update['_summary/global'] = _v362ComputeOneSummary(records, adv, null);
-        // V366-fix1: invalidate the _advLatestRowsAll cache between per-NGO
-        // calls. That cache keys by `src.length` only — V366's per-NGO slices
-        // can have the SAME length for two different NGOs, causing the
-        // second NGO to receive the first's cached rows (silently dropping
-        // its advocacy counts to 0). Resetting the cache before each call
-        // forces a fresh dedup on each NGO's slice.
-        for (const ngoName of ngoSet) {
-          try {
-            _advLatestRowsCache = null;
-            _advLatestRowsCacheLen = -1;
-          } catch(_) {}
+        const _all = await _v400ComputeAllSummaries(records, adv);
+        update['_summary/global'] = _all.global;
+        for (const ngoName of Object.keys(_all.ngo)) {
           const _ngoKey = _v363SafeKey(ngoName);
-          const _ngoSummary = _v362ComputeOneSummary(
-            recsByNgo[ngoName] || [],
-            advByNgo[ngoName] || [],
-            ngoName,
-            true  // prefiltered → skip the inner .filter()
-          );
+          const _ngoSummary = _all.ngo[ngoName];
           // V390 [Fix 5.2]: skip overwriting a fuller per-NGO summary with a
           // partial one (leaves the existing node untouched this cycle).
           const _newNgoScope = (_ngoSummary && _ngoSummary.meta
@@ -22858,11 +23347,8 @@ async function _v362WriteAllSummaries() {
           }
           update['_summary/ngo/' + _ngoKey] = _ngoSummary;
         }
-        // V366-fix1: restore the cache invariant — clear once more so any
-        // subsequent caller (renderAdvocacy etc.) re-computes against the
-        // full unsliced data, not the last NGO bucket we left there.
-        try { _advLatestRowsCache = null; _advLatestRowsCacheLen = -1; } catch(_) {}
         await fbRef('').update(update);
+        _v400LastAdminSummaryWrite = Date.now();
         console.log('[V366] Admin wrote ' + Object.keys(update).length + ' summary nodes ('
           + Math.round(JSON.stringify(update).length/1024) + ' KB) via bucketed compute');
       } catch (e) {
