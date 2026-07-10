@@ -1,6 +1,104 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V406-LIVE
+  KRSF Beneficiary Impact Tracker  -  V408-LIVE
+  ============================================================================
+  V408-LIVE (2026-07-10 — one photo system: baseline/endline retired · verified):
+
+    Per user request ("remove baseline photo and endline photo — just keep
+    the normal 8-photo Cloudinary thing"). Decisions confirmed with user:
+    legacy photos SHOWN read-only in the unified gallery (not hidden, not
+    migrated — they stay exactly where they are); enrollment photo step
+    REMOVED. Production reality that shaped this: full scan found 1,992
+    records with baseline photoUrls, 1 endline, 13 legacy base64 — those
+    ~2,000 real field photos must not become invisible.
+
+    1. [enroll] Photo capture removed from the enrollment form (camera
+       preview, Open Camera / Capture / Retake / Upload buttons, photo
+       status bar). Photos are added anytime via the beneficiary's Photos
+       gallery instead. GPS capture STAYS — it powers the Field Map — and
+       is now fetched automatically when the form opens (previously it only
+       ran as a side-effect of taking a photo, which is why just 887 of
+       120k records have coordinates; this should improve Field Map
+       coverage). openEdit does NOT auto-fetch, so office edits can never
+       overwrite field-captured coordinates.
+    2. [drawer] "Before & After Photos" section, "📷 Show Photos" action,
+       and "+ Add Endline Photo" action all removed — superseded by the
+       unified gallery. The endline SURVEY flow (income, date) is untouched.
+    3. [gallery] Legacy baseline/endline photos now render as READ-ONLY
+       tiles (marked "OLD") inside the same Photos gallery, tap-to-zoom via
+       the lightbox with an "older system" caption. They don't count toward
+       the 8-photo cap and can't be deleted from the gallery. They are NOT
+       moved: still served from Firebase Storage (or inline base64 for the
+       13 legacy records) — zero migration, zero new Firebase reads (the
+       URL was already on the record; the image loads lazily only when that
+       record's drawer is open, exactly like the old Show Photos viewer).
+    4. Old capture machinery (capturePhoto, handlePhotoUpload, elph modal,
+       showBeneficiaryPhotos, Firebase-Storage upload path) left dormant in
+       code — unreachable from the UI, null-guarded, zero behavior. Removing
+       function bodies wholesale risks breaking references for no benefit.
+
+    GUARANTEES: Firebase download unchanged (nothing new is fetched — this
+    release only REMOVES capture paths and reuses already-stored URLs);
+    boot/dashboard untouched (gallery renders only inside the drawer);
+    photos lazy-load per record. VERIFIED on staging: legacy base +
+    endline tiles render (91px real bounding boxes, desktop AND 375px),
+    lightbox opens with correct caption, new Cloudinary tile + Camera/
+    Gallery tiles coexist, cap counts only new photos (1/8 with 2 legacy
+    present), Before&After / Show Photos / Add Endline Photo all gone,
+    enroll form shows GPS-only block and fetchGPS auto-fires on open.
+
+  ============================================================================
+  V407-LIVE (2026-07-10 — new-account login self-heal · root-cause fix, verified live):
+
+    Fixes a real support case: a brand-new account ("1234567890") could not
+    log in on the SAME device used to create it, while working instantly on
+    every other device. User correctly rejected the manual per-device
+    workaround ("shouldn't have to do it") and asked for the real fix.
+
+    ROOT CAUSE: the users list is cached locally for up to 30 days for
+    bandwidth (V347/fbUsersHandleChild) — a plain page reload does NOT force
+    a re-fetch, only a true cache-miss or 30-day expiry does. So any device
+    that had already used the app BEFORE a new account was created keeps
+    reporting "Username or password is incorrect" for that account
+    indefinitely, even though it's valid — because doLogin() only ever
+    checked the LOCAL cached list, never Firebase directly, on a lookup miss.
+
+    FIX (in _doLoginInner, not a workaround): when the typed username isn't
+    found in the local cache, do ONE fresh fetch of the users collection
+    (small — ~570 records, ~150KB) straight from Firebase and retry the
+    lookup before failing. Also re-primes the local cache, so the device
+    self-heals permanently, not just for this one login.
+
+    CAPPED HARD to AT MOST ONE fresh fetch per browser tab, no matter how
+    many login attempts happen (user pushback: "I dont want firebase to
+    increase" — correct catch. A local miss isn't always a genuine new
+    account; it's just as often a plain typo, and refetching on every
+    distinct miss could mean several ~150KB fetches from one device, or
+    from a burst of bogus usernames). _v407UsersFreshCheckDone is set
+    BEFORE the await so rapid repeat submits can't race past it. A
+    typo-then-correct sequence still self-heals — the first miss refreshes
+    the cache, so the very next correct attempt finds it locally, no second
+    fetch. This is also a free backstop against fetch-cost amplification
+    from many bogus login attempts in one session. Existing users (already
+    in the local cache) are completely unaffected by any of this — zero
+    extra Firebase reads for a normal login, verified. Wrong-password
+    rejection, the lockout/rate-limit logic, and the audit trail are all
+    untouched.
+
+    VERIFIED LIVE on staging — reproduced the actual bug first, then proved
+    the fix: created a brand-new test user directly in Firebase (invisible
+    to this device's already-booted 571-user local cache, exactly
+    reproducing the reported scenario) → a typo'd login attempt triggered
+    exactly ONE fresh fetch and self-healed the cache → a SECOND, different
+    bogus username immediately after triggered ZERO additional fetches
+    (capped) → the genuine new account's correct credentials then logged in
+    successfully (found locally, zero further fetches) — TOTAL: 1 fetch for
+    the entire session regardless of attempt count. Reload confirmed to
+    reset the one-shot allowance for the next session. Also confirmed: a
+    known user typing the wrong password triggers ZERO fetches (untouched
+    fast path); wrong-password rejection for the new user still correct.
+    Test data cleaned from staging afterward.
+
   ============================================================================
   V406-LIVE (2026-07-10 — explicit Camera / Gallery add buttons · follow-up):
 
@@ -4053,33 +4151,19 @@ body[data-shell="coord"] #coord-app { display: block; }
       </div>
     </div>
     <div class="msec">
-      <div class="msec-title" data-en="📷 Beneficiary Photo & GPS Location" data-gu="📷 લાભાર્થીનો ફોટો અને GPS સ્થાન">📷 Beneficiary Photo & GPS Location</div>
-      <div class="photo-section" id="photo-section" style="padding:10px 12px;display:flex;align-items:center;gap:12px;text-align:left">
-        <!-- Live camera preview (full width when active) -->
-        <video id="cam-preview" class="camera-preview" autoplay playsinline muted style="display:none;width:100%;max-width:340px;margin:0 auto"></video>
-        <canvas id="cam-canvas" style="display:none"></canvas>
-        <!-- Thumbnail (small, left side) -->
-        <img id="photo-thumb" class="photo-thumb" alt="Captured photo">
-        <!-- Right side: status + buttons -->
-        <div style="flex:1;min-width:0">
-          <div id="photo-instructions" style="color:var(--gray2);font-size:12px;margin-bottom:8px;display:flex;align-items:center;gap:5px">
-            <span style="font-size:16px">📷</span><span data-en="No photo taken yet (optional)" data-gu="હજુ સુધી ફોટો લેવાયો નથી (વૈકલ્પિક)">No photo taken yet (optional)</span>
-          </div>
-          <div class="camera-btns" style="margin-top:0;justify-content:flex-start;flex-wrap:wrap;gap:6px;align-items:center">
-            <button type="button" class="btn btn-primary btn-sm" id="btn-open-cam" onclick="openCamera()" style="white-space:nowrap;display:inline-flex;align-items:center;gap:5px" data-en="📷 Open Camera" data-gu="📷 કેમેરા ખોલો">📷 Open Camera</button>
-            <button type="button" class="btn btn-sm" id="btn-capture" onclick="capturePhoto()" style="display:none;white-space:nowrap;align-items:center;gap:5px" data-en="📞 Capture" data-gu="📞 ફોટો લો">📞 Capture</button>
-            <button type="button" class="btn btn-sm" id="btn-retake" onclick="retakePhoto()" style="display:none;white-space:nowrap;align-items:center;gap:5px" data-en="↺ Retake" data-gu="↺ ફરીથી લો">↺ Retake</button>
-            <label class="btn btn-sm" style="cursor:pointer;margin:0;white-space:nowrap;display:inline-flex;align-items:center;gap:5px"><span data-en="📁 Upload" data-gu="📁 અપલોડ કરો">📁 Upload</span><input type="file" accept="image/*" style="display:none" onchange="handlePhotoUpload(this)"></label>
-          </div>
-          <div id="gps-status" style="margin-top:6px;min-height:16px;font-size:11px"></div>
-        </div>
+      <!-- V408: photo capture removed from enrollment (photos are added
+           anytime via the beneficiary's Photos gallery — Camera/Gallery
+           tiles). GPS capture STAYS — it powers the Field Map — and now
+           runs automatically when the form opens instead of only after a
+           photo was taken. -->
+      <div class="msec-title" data-en="📍 GPS Location" data-gu="📍 GPS સ્થાન">📍 GPS Location</div>
+      <div class="photo-section" id="photo-section" style="padding:10px 12px;text-align:left">
+        <div style="color:var(--gray2);font-size:12px;margin-bottom:6px" data-en="Captured automatically if location is allowed (optional). Photos can be added anytime from the beneficiary's record." data-gu="સ્થાનની પરવાનગી હોય તો આપમેળે લેવાય છે (વૈકલ્પિક). ફોટા લાભાર્થીના રેકોર્ડમાંથી ગમે ત્યારે ઉમેરી શકાય છે.">Captured automatically if location is allowed (optional). Photos can be added anytime from the beneficiary's record.</div>
+        <div id="gps-status" style="min-height:16px;font-size:11px"></div>
       </div>
     </div>
   </div>
   <div class="modal-foot" style="flex-direction:column;align-items:stretch;gap:10px">
-    <div id="photo-status-bar" style="font-size:12px;padding:8px 12px;border-radius:7px;background:var(--amber2);color:var(--amber);display:flex;align-items:center;gap:6px" data-en="📷 No photo taken yet (optional)" data-gu="📷 હજુ સુધી ફોટો લેવાયો નથી (વૈકલ્પિક)">
-      📷 No photo taken yet (optional)
-    </div>
     <div style="display:flex;gap:8px;justify-content:flex-end">
       <button class="btn" onclick="closeEnroll()" data-en="Cancel" data-gu="રદ કરો">Cancel</button>
       <button class="btn btn-primary" id="enroll-submit-btn" onclick="submitEnroll()" data-en="Enroll &amp; Generate ID" data-gu="નોંધણી કરો અને ID જનરેટ કરો">Enroll &amp; Generate ID</button>
@@ -4570,7 +4654,7 @@ function escHtml(s) {
 //
 // V16.0.2: switched to dedicated "Livelihood" Firebase project (asia-southeast1).
 const FB_CONFIG = {
-  // V405-LIVE: PRODUCTION project (krsf-impact-tracking).
+  // V408-LIVE: PRODUCTION project (krsf-impact-tracking).
   apiKey: "AIzaSyCgJpYmdEdvdvbi3kdXfgFL-N4KiDLbUlI",
   authDomain: "krsf-impact-tracking.firebaseapp.com",
   databaseURL: "https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app",
@@ -4594,7 +4678,7 @@ const V405_MAX_PHOTOS = 8;
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V406-LIVE';
+const APP_VERSION = 'V408-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -9113,12 +9197,39 @@ function _v405GalleryInnerHtml(b) {
       + '<input type="file" accept="image/*" style="display:none" onchange="_v405HandlePhotoFile(this,\'' + bidEsc + '\')">'
       + '</label>';
   }
-  const empty = (photos.length === 0 && !addTile) ? '<div style="font-size:12px;color:var(--gray2);padding:2px 0 4px">No photos yet.</div>' : '';
+  // V408: legacy baseline/endline photos (old Firebase-Storage system,
+  // ~2,000 records in production) render as READ-ONLY tiles in this same
+  // gallery, so nothing captured in the field becomes invisible. They stay
+  // exactly where they are (Firebase Storage / legacy base64) — nothing is
+  // moved or re-uploaded, no new Firebase reads (the URL is already on the
+  // record; the image loads lazily only when this drawer is open). They
+  // don't count toward the 8-photo cap and can't be deleted from here.
+  let legacyTiles = '';
+  const _legacy = [];
+  if (b.photoUrl || b.photo) _legacy.push({ kind: 'base', src: b.photoUrl || b.photo, label: 'OLD · Enrollment' });
+  if (b.endlinePhotoUrl || b.endlinePhoto) _legacy.push({ kind: 'end', src: b.endlinePhotoUrl || b.endlinePhoto, label: 'OLD · Endline' });
+  legacyTiles = _legacy.map(function(lp) {
+    return '<div onclick="_v408ViewLegacy(\'' + bidEsc + '\',\'' + lp.kind + '\')" title="' + lp.label + ' photo (older system, view only)" style="position:relative;aspect-ratio:1;border-radius:8px;overflow:hidden;cursor:zoom-in;background:var(--gray4);border:1px solid var(--gray3)">'
+      + '<img src="' + escHtml(lp.src) + '" loading="lazy" alt="' + lp.label + '" style="width:100%;height:100%;object-fit:cover;display:block">'
+      + '<span style="position:absolute;bottom:3px;left:3px;background:rgba(0,0,0,.55);color:#fff;font-size:9px;padding:1px 5px;border-radius:4px;line-height:1.5">' + (lp.kind === 'base' ? 'OLD' : 'OLD · END') + '</span>'
+      + '</div>';
+  }).join('');
+  const empty = (photos.length === 0 && !legacyTiles && !addTile) ? '<div style="font-size:12px;color:var(--gray2);padding:2px 0 4px">No photos yet.</div>' : '';
   return '<div class="ds-title" style="display:flex;justify-content:space-between;align-items:center">'
     + '<span>📷 Photos</span><span style="font-size:11px;color:var(--gray2);font-weight:500">' + photos.length + '/' + V405_MAX_PHOTOS + '</span>'
     + '</div>'
     + empty
-    + (tiles || addTile ? '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px">' + tiles + addTile + '</div>' : '');
+    + (tiles || legacyTiles || addTile ? '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px">' + legacyTiles + tiles + addTile + '</div>' : '');
+}
+// V408: lightbox viewer for a legacy (pre-gallery) photo. Read-only.
+function _v408ViewLegacy(bid, kind) {
+  const b = getData().find(function(x) { return x.id === bid; });
+  if (!b) return;
+  const src = kind === 'end' ? (b.endlinePhotoUrl || b.endlinePhoto) : (b.photoUrl || b.photo);
+  if (!src) return;
+  const caption = (kind === 'end' ? 'Endline photo (older system)' : 'Enrollment photo (older system)')
+    + ' · ' + (kind === 'end' ? (fmtD(b.endlineDate) || '—') : (fmtD(b.enrollDate) || '—'));
+  openLightbox(src, caption);
 }
 function _v405RefreshGallery(bid) {
   const b = getData().find(function(x) { return x.id === bid; });
@@ -10069,7 +10180,7 @@ let _genIdMutex = Promise.resolve();
 // After this fires once, the counter is canonical and no further scans
 // ever happen for that state in the entire Firebase project.
 async function _v353BootstrapScanMax(prefix) {
-  const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';  // V405-LIVE: production
+  const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';  // V408-LIVE: production
   const NS = 'krsf_tracker';
   let authToken = '';
   try {
@@ -10623,14 +10734,10 @@ function openDrawer(id) {
         <div class="tl-item"><div class="tl-dot ${b.endlineDate?'done':(b.status==='Intervention In Progress'?'now':'wait')}"></div><div class="tl-t">Endline Completed</div><div class="tl-d">${b.endlineDate?fmtD(b.endlineDate):'Pending'}</div></div>
       </div>
     </div>
-    <div class="ds">
-      <div class="ds-title" style="margin-bottom:12px">📷 Before &amp; After Photos</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div id="photo-box-enroll" style="border-radius:10px;overflow:hidden;min-height:170px;display:flex;flex-direction:column;border:2px dashed var(--gray3);background:var(--gray4);align-items:center;justify-content:center"></div>
-        <div id="photo-box-endline" style="border-radius:10px;overflow:hidden;min-height:170px;display:flex;flex-direction:column;border:2px dashed var(--gray3);background:var(--gray4);align-items:center;justify-content:center"></div>
-      </div>
-      <div style="font-size:11px;color:var(--gray2);margin-top:8px;text-align:center" id="photo-box-hint"></div>
-    </div>` : ''}
+    ` : ''}
+    <!-- V408: "Before & After Photos" section removed — the unified Photos
+         gallery above shows legacy baseline/endline photos as read-only
+         tiles alongside the new Cloudinary photos. -->
 
     <!-- V4.1: "Documentation & Schemes (Baseline)" grid removed.
          Aadhaar / Ration / PMJAY / MGNREGA / PM Kisan / Scheme Benefit
@@ -10663,64 +10770,14 @@ function openDrawer(id) {
     </div>` : ''}
   `;
 
-  // Populate photo boxes — use DOM methods to avoid escaping issues with base64
-  (function() {
-    var eBox = document.getElementById('photo-box-enroll');
-    var lBox = document.getElementById('photo-box-endline');
-    if (!eBox || !lBox) return;
+  // V408: photo-box populate IIFE removed — legacy photos now render as
+  // read-only tiles inside the unified Photos gallery (_v405GalleryInnerHtml).
 
-    function makeBox(box, photoSrc, label, date, gpsLabel, borderColor, labelColor) {
-      box.innerHTML = '';
-      box.style.flexDirection = 'column';
-      box.style.alignItems = '';
-      box.style.justifyContent = '';
-      if (photoSrc) {
-        box.style.border = '2px solid ' + borderColor;
-        box.style.background = '#000';
-        box.style.display = 'block';
-        box.style.cursor = 'pointer';
-        var img = document.createElement('img');
-        img.src = photoSrc;
-        img.style.cssText = 'width:100%;height:160px;object-fit:cover;display:block';
-        img.onclick = function() { openLightbox(photoSrc, label + ' · ' + date); };
-        var cap = document.createElement('div');
-        cap.style.cssText = 'padding:6px 8px;background:#fff';
-        cap.innerHTML = '<div style="font-size:10px;font-weight:700;text-transform:uppercase;color:' + labelColor + '">' + label + '</div>'
-          + '<div style="font-size:10px;color:#6B7280">' + date + (gpsLabel ? ' · 📍 GPS' : '') + '</div>';
-        box.appendChild(img);
-        box.appendChild(cap);
-      } else {
-        box.style.border = '2px dashed #D1D5DB';
-        box.style.background = '#F9FAFB';
-        box.style.display = 'flex';
-        box.style.alignItems = 'center';
-        box.style.justifyContent = 'center';
-        box.innerHTML = '<div style="text-align:center;padding:16px">'
-          + '<div style="font-size:28px;margin-bottom:6px">📷</div>'
-          + '<div style="font-size:11px;font-weight:600;color:#6B7280">' + label + '</div>'
-          + '<div style="font-size:10px;color:#9CA3AF;margin-top:3px">'
-          + (label === 'Enrollment' ? 'Not yet taken' : 'Taken at endline visit')
-          + '</div></div>';
-      }
-    }
-
-    // V310-S3: Prefer Storage URL when present (post-migration), fall back to
-    // base64 b.photo / b.endlinePhoto for records that haven't been migrated.
-    makeBox(eBox, b.photoUrl || b.photo,                'Enrollment', fmtD(b.enrollDate),  b.lat,         '#2E75B6', '#1B3A6B');
-    makeBox(lBox, b.endlinePhotoUrl || b.endlinePhoto,  'Endline',    fmtD(b.endlineDate), b.endlineLat,  '#10B981', '#146B38');
-
-    var hint = document.getElementById('photo-box-hint');
-    if (hint) hint.textContent = ((b.photoUrl || b.photo) || (b.endlinePhotoUrl || b.endlinePhoto)) ? 'Tap photo to view full size' : '';
-  })();
 
   document.getElementById('dr-actions').innerHTML = `
     <button class="btn btn-primary" onclick="openEdit('${b.id}')">Edit Details</button>
     ${!b.headId
       ? `<button class="btn" onclick="openEnrollAsFamilyMember('${b.id}')" title="Enroll a wife / daughter / other family member of this beneficiary for advocacy tracking only" style="color:var(--navy);border-color:var(--navy3)">+ Add Family Member</button>`
-      : ''}
-    <button class="btn" onclick="showBeneficiaryPhotos('${b.id}')" title="View baseline and endline photos full-size">📷 Show Photos</button>
-    ${hasLiv && b.status
-      ? `<button class="btn" onclick="openEndlinePhotoModal('${b.id}')" title="Capture or replace the endline (after) photo for this beneficiary" style="color:var(--green);border-color:var(--green2)">${(b.endlinePhotoUrl || b.endlinePhoto) ? '↺ Retake Endline Photo' : '+ Add Endline Photo'}</button>`
       : ''}
     ${hasLiv && (Array.isArray(b.incomeLog) && b.incomeLog.length > 0 || b.endIncome != null)
       ? `<button class="btn" onclick="openLogIncomeFor('${b.id}')">View / Manage Income Log</button>`
@@ -11249,6 +11306,12 @@ function openEnroll() {
     (_lang === 'gu' ? '— પહેલા રાજ્ય પસંદ કરો —' : '— Select State first —') +
     '</option>';
   resetPhotoSection();
+  // V408: GPS used to be captured only as a side-effect of taking a photo.
+  // With the enroll photo step removed, fetch it automatically on form open
+  // (best-effort — denied/timeout just leaves lat/lng empty, same as before).
+  // New enrollments only; openEdit does NOT auto-fetch, so editing a record
+  // from the office can never overwrite field-captured coordinates.
+  try { fetchGPS(); } catch(_) {}
   // Reset all chip groups (gender, sources, programme, livelihood types)
   document.querySelectorAll('.ichip').forEach(c => { c.classList.remove('on'); const bx = c.querySelector('.ichip-box'); if (bx) bx.textContent=''; });
   // Reset the livelihood "Other" text box.
@@ -22386,6 +22449,11 @@ async function doLogin() {
     _restoreSaveBtn(_loginBtnHandle);
   }
 }
+// V407: session-scoped guard — see the usage site inside _doLoginInner for
+// full rationale. Resets only on a fresh page load (new tab/reload), which
+// is the intended boundary: at most one extra users-collection fetch per
+// browser session, ever, regardless of how many login attempts happen.
+let _v407UsersFreshCheckDone = false;
 async function _doLoginInner() {
   const u = document.getElementById('login-username').value.trim();
   const p = document.getElementById('login-password').value;
@@ -22404,7 +22472,55 @@ async function _doLoginInner() {
   }
 
   const users = loadUsers();
-  const user = users.find(x => x.username.toLowerCase() === u.toLowerCase());
+  let user = users.find(x => x.username.toLowerCase() === u.toLowerCase());
+
+  // V407: the local users list is cached for up to 30 days for bandwidth
+  // (see fbUsersHandleChild / _usersPantryRead) — a plain reload does NOT
+  // force a re-fetch. So a device that used the app BEFORE a brand-new
+  // account was created won't have that account locally yet, and would
+  // wrongly report "Username or password is incorrect" even though the
+  // account is fine (confirmed live: works instantly on any device that
+  // hadn't cached an older users list, fails only on devices with a stale
+  // one). Root-cause fix, not a workaround: on a LOCAL miss only, do one
+  // fresh fetch of the users collection (small — ~570 records, ~150KB) and
+  // retry before giving up. This also re-primes the cache for next time.
+  //
+  // Capped hard to AT MOST ONE fresh fetch per browser tab, no matter how
+  // many login attempts happen — a miss isn't always a genuine new account,
+  // it's just as often a plain typo, and refetching on every distinct miss
+  // could mean several ~150KB fetches from one device (or from many bogus
+  // usernames tried in a row). _v407UsersFreshCheckDone is set BEFORE the
+  // await so rapid repeat submits can't race past it. A typo-then-correct
+  // sequence still self-heals: the first miss refreshes the cache, so the
+  // very next correct attempt finds it locally — no second fetch needed.
+  // Reload the page for one more check if truly needed. Normal logins
+  // (username already in the local cache) never touch this at all — zero
+  // extra Firebase reads, same as before this fix existed.
+  if (!user && FB && FB.db && !_v407UsersFreshCheckDone) {
+    _v407UsersFreshCheckDone = true;
+    try {
+      const freshSnap = await Promise.race([
+        fbRef('users').once('value'),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000))
+      ]);
+      const freshVal = freshSnap.val() || {};
+      const freshUsers = [];
+      if (!FB.lastUsers) FB.lastUsers = {};
+      for (const id in freshVal) {
+        const record = freshVal[id];
+        if (!record) continue;
+        RecordCache.users.set(id, record);
+        FB.lastUsers[id] = fbHash(record);
+        freshUsers.push(record);
+      }
+      try { await _usersPantryWrite(freshUsers); } catch(_) {}
+      user = freshUsers.find(x => x.username.toLowerCase() === u.toLowerCase());
+      if (user) console.log('[V407] username not in local cache — fresh re-check found it (cache self-healed)');
+    } catch (e) {
+      console.warn('[V407] fresh users re-check failed (offline/slow network) — falling back to cached list:', e && e.message);
+    }
+  }
+
   if (!user) {
     // Count this against the typed username's quota. Audit-log it so admins
     // can spot brute-force patterns even when the username is bogus.
