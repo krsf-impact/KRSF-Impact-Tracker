@@ -1,6 +1,117 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V403-LIVE
+  KRSF Beneficiary Impact Tracker  -  V406-LIVE
+  ============================================================================
+  V406-LIVE (2026-07-10 — explicit Camera / Gallery add buttons · follow-up):
+
+    Tiny follow-up to V405, per user question ("two options — live from
+    camera and from gallery, right?"). V405 had ONE "+ Add" tile that opened
+    the phone's file picker — on most Androids that offers Camera or Gallery,
+    but that choice belonged to the phone, not the app, and varies by device.
+    V406 replaces it with TWO explicit tiles, matching the enroll form's
+    Capture/Upload pattern:
+      📷 Camera  — input capture="environment": opens the rear camera
+                   directly on phones (desktop browsers ignore the attribute
+                   and fall back to the file picker).
+      🖼️ Gallery — plain image input: opens the gallery/file picker
+                   everywhere.
+    Both feed the SAME verified V405 handler (_v405HandlePhotoFile) —
+    compression, Cloudinary upload, GPS, cap, permissions, audit all
+    unchanged. No other code touched.
+
+  ============================================================================
+  V405-LIVE (2026-07-10 — Cloudinary photo gallery + GPS · verified end-to-end):
+
+    Per user spec (docs/SPEC.md, confirmed 2026-07-07, revised 2026-07-10:
+    no baseline/endline split — a flat gallery, addable anytime; + per-photo
+    GPS). No new Firebase reads/writes on the boot/dashboard/alerts paths —
+    b.photos[] is touched ONLY by the new V405 functions (verified by grep:
+    zero references in getAlerts, _v400ComputeAllSummaries, renderDashboard).
+
+    ARCHITECTURE (not a promise — a routing fact): photo bytes never
+    transit Firebase in either direction. Upload = phone → Cloudinary
+    directly (unsigned preset, no server, no secret in this client). View =
+    Cloudinary CDN → phone directly. Firebase carries only a compact
+    reference per photo: {p:cloudinaryPublicId, t:ms, by:userId, lat?, lng?,
+    acc?} — MEASURED (not estimated) on real Cloudinary uploads: 61 bytes
+    without GPS, 102 bytes with GPS. Cloudinary account: cloud name
+    `i5nsqluj`, unsigned preset `krsf_beneficiary_photos` (folder `krsf`),
+    set up 2026-07-10 — separate KRSF account, not Sristi's.
+
+    1. [gallery] Beneficiary drawer gains a "📷 Photos (n/8)" section —
+       thumbnail grid (Cloudinary transform w_200,h_200,c_fill,q_auto,f_auto),
+       tap to zoom via the existing photo-lightbox (w_1400 transform), "+ Add"
+       tile. Cap 8/beneficiary, enforced before any upload starts (no wasted
+       bandwidth on a blocked 9th photo). Independent of and unrelated to the
+       existing baseline/endline b.photo/b.photoUrl pair, which is untouched.
+    2. [capture] Reuses the existing _compressPhotoDataUrl compressor
+       (~1024px, ≈80-120KB) → direct unsigned POST to Cloudinary → on
+       success, push the {p,t,by,...} entry via the normal guarded
+       saveData() (whole-array diff, same as every other beneficiary write).
+    3. [GPS] Best-effort, reusing the app's existing fetchGPS() pattern
+       exactly (enableHighAccuracy, 15s timeout, maximumAge:0). Denied /
+       timeout / unavailable NEVER blocks the photo — it just saves without
+       lat/lng/acc (Firebase drops the keys entirely, so a GPS-less photo
+       costs strictly less, not more). GPS capture runs in PARALLEL with the
+       (slower) network upload, not before it.
+    4. [permissions] Add: FC to their own records (createdBy match), NGO/
+       admin to their scope (same rule as everywhere else in the app).
+       Delete: admin only — removes the Firebase reference; the Cloudinary
+       asset itself is retained (no signed delete from an unsigned client).
+    5. [audit] Every add/remove gets an auditLog entry.
+
+    VERIFIED END-TO-END on staging (real Cloudinary account, real network,
+    not mocked): uploaded a real photo → got back a real Cloudinary
+    public_id → thumbnail AND full-size URLs both resolved HTTP 200
+    image/jpeg from Cloudinary's CDN → entry appeared correctly in the
+    staging Firebase database → gallery UI refreshed in place showing the
+    new tile. GPS-present and GPS-denied paths both verified (61 vs 102
+    bytes, confirmed by reading the actual saved JSON). 8-photo cap verified
+    exact (8 succeed, 9th blocked pre-upload with a clear message). Permission
+    boundaries verified: non-owning FC sees no Add tile and is blocked at the
+    function level; owning FC can add; only admin can delete, verified
+    against the real staging database (8→7 after delete, Firebase matched).
+    All test data (7 test images' Firebase references + the synthetic
+    beneficiary record) cleaned from staging after testing; a handful of
+    tiny test images remain in the real Cloudinary account's media library
+    (harmless, free, deletable anytime from the Cloudinary dashboard — no
+    client-side delete API available from an unsigned preset).
+
+    HONEST SCALE NOTE: full adoption at 8 GPS photos × 120k beneficiaries ≈
+    +816 bytes/record ≈ collection size roughly 2.5x today's (measured
+    baseline ≈526 bytes/record) — meaningful only at that extreme; realistic
+    gradual adoption (a few photos on a fraction of records) adds low
+    single-digit percent to the admin's cold-fetch size. This growth is
+    LINEAR (existing fetch logic just reads more bytes) — not the kind of
+    hidden O(n²) hazard that caused the V400/V402 freezes, which is why this
+    ships without a repeat of that scale of load-testing.
+
+  ============================================================================
+  V404-LIVE (2026-07-07 — bulk FC transfer + login rename · staging-verified):
+
+    Per user spec (docs/SPEC.md, confirmed 2026-07-07). No new Firebase
+    reads/writes in normal operation; transfers use the existing guarded
+    saveData() diff (updates only — all V371/V383 guards apply unchanged).
+
+    1. [transfer tool] Admin-only "⇄ Transfer Beneficiaries" button on the
+       User Management page. Pick source FC → search/select their
+       beneficiaries (select-all supported, 400-row render cap) → pick a
+       target FC (SAME NGO only, by user decision) → count-explicit confirm →
+       one guarded saveData() call mutating createdBy/createdByName/coord —
+       the exact field semantics of the single-record saveReassign(). Per-
+       record + summary audit entries. Covers FC resignation (select all)
+       and beneficiary migration (select subset). Advocacy rows deliberately
+       untouched (matches single-reassign semantics; FC visibility keys off
+       beneficiary createdBy). Verified end-to-end on staging: Firebase
+       createdBy/coord updated, cache updated, audit written; the V321
+       reassign-guard protects against the resigning FC's stale device
+       pushing back old ownership.
+    2. [rename] Login screen title: "KRSF Livelihood Tracker" →
+       "KRSF Impact Tracker" (title/manifest/sidebar already said Impact).
+    3. [mid-edit guard] transfer-modal and the V401 More-sheet registered in
+       _isUserMidEdit() so incoming sync events can't re-render the view
+       under an open modal/sheet.
+
   ============================================================================
   V403-LIVE (2026-07-07 — Today card: advocacy counts PEOPLE · verified):
 
@@ -4235,6 +4346,38 @@ body[data-shell="coord"] #coord-app { display: block; }
   <span id="sync-pill-text">Offline</span>
 </div>
 
+<!-- V404: Bulk transfer beneficiaries FC1 → FC2 (admin only, same NGO).
+     Covers FC resignation (select all) and beneficiary migration (select some).
+     Persists via the SAME guarded saveData() diff path as single reassign. -->
+<div id="transfer-modal" class="overlay" style="display:none;align-items:center;justify-content:center">
+  <div class="modal" style="max-width:600px;width:94%;max-height:88vh;display:flex;flex-direction:column">
+    <div class="modal-head"><div class="modal-title">⇄ Transfer Beneficiaries</div><button class="modal-close" onclick="closeTransferTool()">✕</button></div>
+    <div class="modal-body" style="overflow-y:auto;flex:1">
+      <div id="transfer-err" style="display:none;background:#FEE2E2;color:#991B1B;padding:8px 11px;border-radius:6px;font-size:12px;margin-bottom:12px"></div>
+      <div class="fg" style="margin-bottom:10px"><label>From — source Field Coordinator</label>
+        <select id="transfer-src" onchange="_transferSrcChanged()" style="width:100%"></select>
+      </div>
+      <div id="transfer-body" style="display:none">
+        <div class="fg" style="margin-bottom:8px"><label>Their beneficiaries <span id="transfer-pool-count" style="font-weight:400;color:var(--gray2)"></span></label>
+          <input id="transfer-search" oninput="_transferRenderList()" placeholder="Search name / ID / village…" style="width:100%">
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:12px">
+          <label style="cursor:pointer;display:flex;align-items:center;gap:6px"><input type="checkbox" id="transfer-all" onchange="_transferToggleAll(this)"> Select all shown</label>
+          <span id="transfer-count" style="font-weight:600;color:var(--navy)">0 selected</span>
+        </div>
+        <div id="transfer-list" style="max-height:260px;overflow-y:auto;border:1px solid var(--gray3);border-radius:7px;margin-bottom:12px"></div>
+        <div class="fg" style="margin-bottom:6px"><label>To — target Field Coordinator <span style="font-weight:400;color:var(--gray2)">(same NGO)</span></label>
+          <select id="transfer-dst" style="width:100%"></select>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">
+        <button class="btn btn-sm" onclick="closeTransferTool()">Cancel</button>
+        <button class="btn btn-primary btn-sm" id="transfer-apply-btn" onclick="applyTransfer()">Transfer selected</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- A13: Reassign beneficiary modal -->
 <div id="reassign-modal" class="overlay" style="display:none;align-items:center;justify-content:center">
   <div class="modal" style="max-width:420px;width:92%">
@@ -4348,7 +4491,7 @@ body[data-shell="coord"] #coord-app { display: block; }
   <div class="login-card" style="background:rgba(255,255,255,0.96);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.22),0 2px 8px rgba(0,0,0,.08);padding:32px 36px;max-width:380px;width:90%;border:1px solid rgba(255,255,255,0.6)">
     <div style="text-align:center;margin-bottom:22px">
       <div style="font-size:11px;font-weight:700;color:var(--navy);letter-spacing:.1em;text-transform:uppercase">Dr. K. R. Shroff Foundation</div>
-      <h2 style="font-size:22px;font-weight:700;color:var(--navy);margin:6px 0 4px 0">KRSF Livelihood Tracker</h2>
+      <h2 style="font-size:22px;font-weight:700;color:var(--navy);margin:6px 0 4px 0">KRSF Impact Tracker</h2>
       <div style="font-size:12px;color:var(--gray2)">Sign in to continue</div>
     </div>
     <div id="login-err" role="alert" style="display:none;background:#FEE2E2;color:#991B1B;padding:8px 11px;border-radius:6px;font-size:12px;margin-bottom:12px"></div>
@@ -4427,7 +4570,7 @@ function escHtml(s) {
 //
 // V16.0.2: switched to dedicated "Livelihood" Firebase project (asia-southeast1).
 const FB_CONFIG = {
-  // V402-LIVE: PRODUCTION project (krsf-impact-tracking).
+  // V405-LIVE: PRODUCTION project (krsf-impact-tracking).
   apiKey: "AIzaSyCgJpYmdEdvdvbi3kdXfgFL-N4KiDLbUlI",
   authDomain: "krsf-impact-tracking.firebaseapp.com",
   databaseURL: "https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app",
@@ -4440,9 +4583,18 @@ const FB_NAMESPACE = 'krsf_tracker';  // top-level node, isolates from other app
 // V310-S2: SYNC_QUEUE_KEY removed (offline queue layer removed).
 const FB_SCHEMA_VERSION = 1;  // bump to force a full re-sync on schema change
 
+// V405: Cloudinary photo storage. Separate KRSF Cloudinary account (not
+// Sristi's). Unsigned upload preset — direct browser→Cloudinary POST, no
+// server, no signing secret in this client. Photo bytes NEVER touch Firebase
+// — only a compact {p:publicId, t, by, lat?, lng?, acc?} reference is stored
+// per photo (see b.photos[] in openDrawer / _v405* functions below).
+const CLOUDINARY_CLOUD_NAME = 'i5nsqluj';
+const CLOUDINARY_UPLOAD_PRESET = 'krsf_beneficiary_photos';
+const V405_MAX_PHOTOS = 8;
+
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V403-LIVE';
+const APP_VERSION = 'V406-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -7134,6 +7286,7 @@ function _isUserMidEdit() {
       'adv-overlay',             // advocacy log modal
       'bulkstatus-overlay',      // V322: bulk status update modal
       'reassign-modal',          // reassign beneficiary
+      'transfer-modal',          // V404: bulk FC→FC transfer
       'enroll-success-modal',    // "Add a family member?" prompt
       'myaccount-modal',         // user changes own profile/password
       'login-overlay',           // login screen
@@ -7151,6 +7304,9 @@ function _isUserMidEdit() {
     // the `.open` class — that's the only reliable test.
     const mobSheet = document.getElementById('mob-account-sheet');
     if (mobSheet && mobSheet.classList.contains('open')) return true;
+    // V404: the V401 admin "More" sheet uses the same slide-in pattern.
+    const moreSheet = document.getElementById('mob-more-sheet');
+    if (moreSheet && moreSheet.classList.contains('open')) return true;
     // Broader focus check: skip re-render if any form field has focus
     // AND that field lives inside a known overlay or modal. The `closest`
     // call walks up the DOM looking for an overlay container so we
@@ -8865,6 +9021,192 @@ async function _compressPhotoDataUrl(srcDataUrl) {
   return out;
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// V405: General photo gallery (b.photos[]) — up to 8 photos per beneficiary,
+// addable anytime (no baseline/endline split — that's the separate, unrelated
+// b.photo/b.photoUrl pair used by the enroll/endline flows above/below).
+//
+// Storage design: each entry is {p:cloudinaryPublicId, t:ms, by:userId,
+// lat?, lng?, acc?} — a Cloudinary public_id (~20 chars), NOT the full URL.
+// Display URLs are built client-side from CLOUDINARY_CLOUD_NAME. The actual
+// photo bytes go phone→Cloudinary directly (unsigned POST) and Cloudinary
+// CDN→phone directly on view — Firebase carries only this small reference,
+// so Firebase ingress is unaffected by how many photos exist or how large
+// they are.
+//
+// GPS is best-effort exactly like the existing fetchGPS()/enroll-photo flow:
+// denied/timeout/unavailable never blocks the photo, it just saves without
+// coordinates.
+// ────────────────────────────────────────────────────────────────────────────
+function _v405ThumbUrl(publicId) {
+  return 'https://res.cloudinary.com/' + CLOUDINARY_CLOUD_NAME + '/image/upload/w_200,h_200,c_fill,q_auto,f_auto/' + publicId + '.jpg';
+}
+function _v405FullUrl(publicId) {
+  return 'https://res.cloudinary.com/' + CLOUDINARY_CLOUD_NAME + '/image/upload/w_1400,q_auto,f_auto/' + publicId + '.jpg';
+}
+function _v405CanAddPhoto(b) {
+  const u = currentUser();
+  if (!u || !b) return false;
+  if (u.role === 'admin') return true;
+  if (u.role === 'ngo') return b.ngo === u.ngo;
+  if (u.role === 'coordinator') return b.createdBy === u.userId;
+  return false;
+}
+function _v405CanDeletePhoto() {
+  const u = currentUser();
+  return !!(u && u.role === 'admin');
+}
+// Best-effort GPS capture — same options as the app's existing fetchGPS().
+// ANY failure (denied, timeout, no geolocation API) resolves to null; never
+// rejects, so callers never need a catch just for this.
+function _v405CaptureGpsBestEffort() {
+  return new Promise(function(resolve) {
+    if (!navigator.geolocation) { resolve(null); return; }
+    navigator.geolocation.getCurrentPosition(
+      function(pos) {
+        resolve({
+          lat: parseFloat(pos.coords.latitude.toFixed(6)),
+          lng: parseFloat(pos.coords.longitude.toFixed(6)),
+          acc: Math.round(pos.coords.accuracy)
+        });
+      },
+      function() { resolve(null); },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  });
+}
+// Outer wrapper (stable across refreshes) + inner grid (re-rendered in place
+// after add/delete, via _v405RefreshGallery, so the drawer doesn't jump/reset).
+function _v405GalleryHtml(b) {
+  return '<div class="ds"><div id="v405-gallery-inner">' + _v405GalleryInnerHtml(b) + '</div></div>';
+}
+function _v405GalleryInnerHtml(b) {
+  const photos = Array.isArray(b.photos) ? b.photos : [];
+  const canAdd = _v405CanAddPhoto(b);
+  const canDel = _v405CanDeletePhoto();
+  const bidEsc = escHtml(b.id);
+  const tiles = photos.map(function(ph, i) {
+    const gpsBadge = (ph.lat != null && ph.lng != null)
+      ? '<span style="position:absolute;bottom:3px;left:3px;background:rgba(0,0,0,.55);color:#fff;font-size:10px;padding:1px 4px;border-radius:4px;line-height:1.4" title="Has GPS location">📍</span>'
+      : '';
+    const delBtn = canDel
+      ? '<button onclick="event.stopPropagation();_v405DeletePhoto(\'' + bidEsc + '\',' + i + ')" title="Remove photo" style="position:absolute;top:3px;right:3px;width:20px;height:20px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;border:none;font-size:11px;cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center;padding:0">✕</button>'
+      : '';
+    return '<div onclick="_v405ViewPhoto(\'' + bidEsc + '\',' + i + ')" style="position:relative;aspect-ratio:1;border-radius:8px;overflow:hidden;cursor:zoom-in;background:var(--gray4);border:1px solid var(--gray3)">'
+      + '<img src="' + _v405ThumbUrl(ph.p) + '" loading="lazy" alt="Beneficiary photo" style="width:100%;height:100%;object-fit:cover;display:block">'
+      + gpsBadge + delBtn
+      + '</div>';
+  }).join('');
+  let addTile = '';
+  if (canAdd && photos.length < V405_MAX_PHOTOS) {
+    // V406: TWO explicit add paths (matches the enroll form's Capture/Upload
+    // pair). capture="environment" opens the rear camera directly on phones;
+    // desktop browsers ignore the attribute and show the file picker. The
+    // plain input opens the gallery/file picker everywhere. Same handler.
+    const TILE = 'aspect-ratio:1;border-radius:8px;border:2px dashed var(--gray3);display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;color:var(--navy);background:var(--navy4);gap:3px;margin:0';
+    addTile = '<label title="Take a photo with the camera" style="' + TILE + '">'
+      + '<span style="font-size:20px;line-height:1">📷</span><span style="font-size:10px;font-weight:600">Camera</span>'
+      + '<input type="file" accept="image/*" capture="environment" style="display:none" onchange="_v405HandlePhotoFile(this,\'' + bidEsc + '\')">'
+      + '</label>'
+      + '<label title="Pick a photo from the gallery" style="' + TILE + '">'
+      + '<span style="font-size:20px;line-height:1">🖼️</span><span style="font-size:10px;font-weight:600">Gallery</span>'
+      + '<input type="file" accept="image/*" style="display:none" onchange="_v405HandlePhotoFile(this,\'' + bidEsc + '\')">'
+      + '</label>';
+  }
+  const empty = (photos.length === 0 && !addTile) ? '<div style="font-size:12px;color:var(--gray2);padding:2px 0 4px">No photos yet.</div>' : '';
+  return '<div class="ds-title" style="display:flex;justify-content:space-between;align-items:center">'
+    + '<span>📷 Photos</span><span style="font-size:11px;color:var(--gray2);font-weight:500">' + photos.length + '/' + V405_MAX_PHOTOS + '</span>'
+    + '</div>'
+    + empty
+    + (tiles || addTile ? '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px">' + tiles + addTile + '</div>' : '');
+}
+function _v405RefreshGallery(bid) {
+  const b = getData().find(function(x) { return x.id === bid; });
+  const wrap = document.getElementById('v405-gallery-inner');
+  if (!b || !wrap) return;
+  wrap.innerHTML = _v405GalleryInnerHtml(b);
+}
+function _v405ViewPhoto(bid, idx) {
+  const b = getData().find(function(x) { return x.id === bid; });
+  if (!b || !Array.isArray(b.photos) || !b.photos[idx]) return;
+  const ph = b.photos[idx];
+  let caption = new Date(ph.t).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  if (ph.lat != null && ph.lng != null) {
+    caption += ' · 📍 ' + ph.lat.toFixed(5) + ', ' + ph.lng.toFixed(5) + (ph.acc ? ' (±' + ph.acc + 'm)' : '');
+  }
+  openLightbox(_v405FullUrl(ph.p), caption);
+}
+async function _v405DeletePhoto(bid, idx) {
+  if (!_v405CanDeletePhoto()) { toast('Only Admin can remove photos.', 'error'); return; }
+  const ok = await showConfirmModal(
+    'Remove this photo from the record?\n\nThe photo file itself stays in cloud storage, but it will no longer show here — this cannot be undone from the app.',
+    { danger: true, okLabel: 'Remove photo', title: 'Remove photo' });
+  if (!ok) return;
+  const data = loadData();
+  const b = data.find(function(x) { return x.id === bid; });
+  if (!b || !Array.isArray(b.photos) || !b.photos[idx]) return;
+  b.photos.splice(idx, 1);
+  try {
+    await saveData(data);
+    auditLog('update', 'beneficiary', b.id, b.name, 'Removed a photo', null);
+    toast('Photo removed', 'success');
+    _v405RefreshGallery(bid);
+  } catch (e) {
+    toast('Could not remove photo: ' + (e && e.message || 'unknown error'), 'error');
+  }
+}
+async function _v405HandlePhotoFile(inputEl, bid) {
+  const file = inputEl.files && inputEl.files[0];
+  if (!file) return;
+  const u = currentUser();
+  if (!u) { inputEl.value = ''; return; }
+  const preCheck = loadData().find(function(x) { return x.id === bid; });
+  if (!preCheck) { toast('Beneficiary not found.', 'error'); inputEl.value = ''; return; }
+  if (!_v405CanAddPhoto(preCheck)) { toast('You do not have permission to add photos to this record.', 'error'); inputEl.value = ''; return; }
+  if ((preCheck.photos || []).length >= V405_MAX_PHOTOS) { toast('Photo limit reached (' + V405_MAX_PHOTOS + ' photos).', 'error'); inputEl.value = ''; return; }
+
+  toast('Uploading photo…', '');
+  try {
+    const rawDataUrl = await new Promise(function(resolve, reject) {
+      const reader = new FileReader();
+      reader.onload = function(e) { resolve(e.target.result); };
+      reader.onerror = function() { reject(new Error('Could not read the selected file.')); };
+      reader.readAsDataURL(file);
+    });
+    const compressed = await _compressPhotoDataUrl(rawDataUrl);
+    // GPS and the (larger, slower) network upload run in parallel — no
+    // reason to make the FC wait for one before starting the other.
+    const gpsPromise = _v405CaptureGpsBestEffort();
+    const blob = await (await fetch(compressed)).blob();
+    const form = new FormData();
+    form.append('file', blob, 'photo.jpg');
+    form.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+    const resp = await fetch('https://api.cloudinary.com/v1_1/' + CLOUDINARY_CLOUD_NAME + '/image/upload', { method: 'POST', body: form });
+    if (!resp.ok) throw new Error('Cloudinary upload failed (HTTP ' + resp.status + ')');
+    const json = await resp.json();
+    if (!json.public_id) throw new Error('Upload succeeded but no photo ID was returned.');
+    const gps = await gpsPromise;
+
+    const data = loadData();
+    const b = data.find(function(x) { return x.id === bid; });
+    if (!b) throw new Error('Beneficiary record no longer exists.');
+    if (!Array.isArray(b.photos)) b.photos = [];
+    if (b.photos.length >= V405_MAX_PHOTOS) throw new Error('Photo limit reached (' + V405_MAX_PHOTOS + ' photos) — someone else may have just added one.');
+    const entry = { p: json.public_id, t: Date.now(), by: u.userId };
+    if (gps) { entry.lat = gps.lat; entry.lng = gps.lng; entry.acc = gps.acc; }
+    b.photos.push(entry);
+    await saveData(data);
+    auditLog('update', 'beneficiary', b.id, b.name, 'Added a photo' + (gps ? ' (with GPS location)' : ''), null);
+    toast('✓ Photo added' + (gps ? ' with location' : ''), 'success');
+    _v405RefreshGallery(bid);
+  } catch (e) {
+    console.warn('[V405] photo upload failed:', e);
+    toast('Photo upload failed: ' + (e && e.message || 'unknown error') + '. Check your connection and try again.', 'error');
+  } finally {
+    inputEl.value = '';
+  }
+}
+
 // ── Camera & GPS ──────────────────────────────────────────────────────────
 let cameraStream = null;
 let capturedPhotoData = null;   // base64 JPEG string
@@ -9727,7 +10069,7 @@ let _genIdMutex = Promise.resolve();
 // After this fires once, the counter is canonical and no further scans
 // ever happen for that state in the entire Firebase project.
 async function _v353BootstrapScanMax(prefix) {
-  const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';  // V402-LIVE: production
+  const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';  // V405-LIVE: production
   const NS = 'krsf_tracker';
   let authToken = '';
   try {
@@ -10273,6 +10615,7 @@ function openDrawer(id) {
       <div style="margin-top:8px;font-size:12px;color:var(--gray2)">NGO: ${escHtml(b.ngo)} · Coordinator: ${escHtml(b.coord||'—')}</div>
     </div>
     ${_linkedFamilyHtml}
+    ${_v405GalleryHtml(b)}
     ${hasLiv ? `<div class="ds"><div class="ds-title">Timeline</div>
       <div class="tl">
         <div class="tl-item"><div class="tl-dot done"></div><div class="tl-t">Baseline Completed — Enrolled</div><div class="tl-d">${fmtD(b.enrollDate)}</div></div>
@@ -19091,7 +19434,10 @@ function renderAdminUsers() {
     <div class="card">
       <div class="card-head">
         <div class="card-title">Users <span style="font-size:12px;font-weight:400;color:var(--gray2)">${countLabel}</span></div>
-        <button class="btn btn-primary btn-sm" onclick="adminNewUser()">+ Add User</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-sm" onclick="openTransferTool()" title="Move selected beneficiaries from one FC to another (same NGO)">⇄ Transfer Beneficiaries</button>
+          <button class="btn btn-primary btn-sm" onclick="adminNewUser()">+ Add User</button>
+        </div>
       </div>
       ${filterRow}
       ${users.length===0?'<div class="empty">No users match the current filters.</div>':`<table class="tbl"><thead><tr><th style="width:52px;text-align:center">Sr. No.</th><th>User</th><th>Role</th><th>NGO</th><th style="text-align:center">Records Owned</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table>`}
@@ -21686,6 +22032,149 @@ async function saveMyAccount() {
 // Admin can pick any coordinator across any NGO (which, if the new coord is
 // from a different NGO, also reassigns the beneficiary's b.ngo field).
 let _reassignBid = null;
+// ────────────────────────────────────────────────────────────────────────────
+// V404: Bulk transfer beneficiaries FC1 → FC2. Admin only; same-NGO only
+// (both user decisions, 2026-07-07). Mirrors saveReassign()'s field semantics
+// (createdBy / createdByName / coord) and persists via ONE guarded saveData()
+// call — updates only, so every V371/V383 save guard applies unchanged.
+// Advocacy rows are deliberately untouched (same as single reassign): FC
+// visibility keys off the beneficiary's createdBy, not advocacy tags.
+// ────────────────────────────────────────────────────────────────────────────
+let _transferSel = new Set();
+let _transferPool = [];            // source FC's beneficiaries (raw refs, read-only)
+let _transferShown = [];           // ids currently rendered (search-filtered)
+function openTransferTool() {
+  const u = currentUser();
+  if (!u || u.role !== 'admin') return toast('Only Admin can transfer beneficiaries.', 'error');
+  const coords = loadUsers().filter(x => x.role === 'coordinator');
+  const byNgo = {};
+  coords.forEach(c => { (byNgo[c.ngo || '(no NGO)'] = byNgo[c.ngo || '(no NGO)'] || []).push(c); });
+  const groups = Object.keys(byNgo).sort().map(n =>
+    `<optgroup label="${escHtml(n)}">` + byNgo[n]
+      .sort((a, b) => (a.fullName || a.username).localeCompare(b.fullName || b.username))
+      .map(c => `<option value="${escHtml(c.id)}">${escHtml(c.fullName || c.username)}</option>`).join('') + '</optgroup>'
+  ).join('');
+  document.getElementById('transfer-src').innerHTML = `<option value="">— Select source FC —</option>${groups}`;
+  document.getElementById('transfer-body').style.display = 'none';
+  document.getElementById('transfer-err').style.display = 'none';
+  document.getElementById('transfer-search').value = '';
+  _transferSel = new Set(); _transferPool = []; _transferShown = [];
+  document.getElementById('transfer-modal').style.display = 'flex';
+}
+function closeTransferTool() {
+  document.getElementById('transfer-modal').style.display = 'none';
+}
+function _transferSrcChanged() {
+  const srcId = document.getElementById('transfer-src').value;
+  _transferSel = new Set();
+  document.getElementById('transfer-err').style.display = 'none';
+  if (!srcId) { document.getElementById('transfer-body').style.display = 'none'; return; }
+  // Read-only pool via the no-clone reader — no 120K clone per interaction.
+  const all = (typeof _loadDataRaw === 'function') ? _loadDataRaw() : loadData();
+  _transferPool = all.filter(b => b && b.createdBy === srcId);
+  document.getElementById('transfer-pool-count').textContent = '— ' + _transferPool.length + ' record' + (_transferPool.length === 1 ? '' : 's');
+  // Target pool: same-NGO coordinators, excluding the source.
+  const src = loadUsers().find(x => x.id === srcId);
+  const targets = loadUsers().filter(x => x.role === 'coordinator' && x.id !== srcId && x.ngo === (src && src.ngo))
+    .sort((a, b) => (a.fullName || a.username).localeCompare(b.fullName || b.username));
+  document.getElementById('transfer-dst').innerHTML = targets.length
+    ? `<option value="">— Select target FC —</option>` + targets.map(c => `<option value="${escHtml(c.id)}">${escHtml(c.fullName || c.username)}</option>`).join('')
+    : '<option value="">No other coordinators in ' + escHtml((src && src.ngo) || 'this NGO') + '</option>';
+  document.getElementById('transfer-dst').disabled = targets.length === 0;
+  document.getElementById('transfer-search').value = '';
+  document.getElementById('transfer-body').style.display = '';
+  _transferRenderList();
+}
+function _transferRenderList() {
+  const q = (document.getElementById('transfer-search').value || '').toLowerCase().trim();
+  const match = q
+    ? _transferPool.filter(b => ((b.name || '') + ' ' + (b.id || '') + ' ' + (b.village || '')).toLowerCase().includes(q))
+    : _transferPool;
+  const CAP = 400;
+  _transferShown = match.slice(0, CAP).map(b => b.id);
+  const rows = match.slice(0, CAP).map(b => `
+    <label style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--gray4);cursor:pointer;font-size:12.5px">
+      <input type="checkbox" ${_transferSel.has(b.id) ? 'checked' : ''} onchange="_transferToggle('${escHtml(b.id)}', this)">
+      <span style="font-weight:600;color:var(--navy);white-space:nowrap">${escHtml(b.id)}</span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(b.name || '—')}</span>
+      <span style="color:var(--gray2);white-space:nowrap">${escHtml(b.village || '')}</span>
+    </label>`).join('');
+  document.getElementById('transfer-list').innerHTML = rows ||
+    '<div style="padding:20px;text-align:center;color:var(--gray2);font-size:12px">No beneficiaries match.</div>';
+  if (match.length > CAP) {
+    document.getElementById('transfer-list').innerHTML += '<div style="padding:8px;text-align:center;color:var(--gray2);font-size:11px">Showing first ' + CAP + ' of ' + match.length + ' — refine the search, or use Select-all-shown in batches.</div>';
+  }
+  document.getElementById('transfer-all').checked = _transferShown.length > 0 && _transferShown.every(id => _transferSel.has(id));
+  _transferUpdateCount();
+}
+function _transferToggle(bid, cb) {
+  if (cb.checked) _transferSel.add(bid); else _transferSel.delete(bid);
+  _transferUpdateCount();
+}
+function _transferToggleAll(cb) {
+  _transferShown.forEach(id => { if (cb.checked) _transferSel.add(id); else _transferSel.delete(id); });
+  _transferRenderList();
+}
+function _transferUpdateCount() {
+  document.getElementById('transfer-count').textContent = _transferSel.size + ' selected';
+}
+let _transferInFlight = false;
+async function applyTransfer() {
+  if (_transferInFlight) return;
+  const err = document.getElementById('transfer-err');
+  const showErr = m => { err.textContent = m; err.style.display = 'block'; };
+  const u = currentUser();
+  if (!u || u.role !== 'admin') return showErr('Only Admin can transfer beneficiaries.');
+  const srcId = document.getElementById('transfer-src').value;
+  const dstId = document.getElementById('transfer-dst').value;
+  if (!srcId) return showErr('Select the source FC.');
+  if (!dstId) return showErr('Select the target FC.');
+  if (dstId === srcId) return showErr('Source and target are the same FC.');
+  if (_transferSel.size === 0) return showErr('Select at least one beneficiary.');
+  const users = loadUsers();
+  const src = users.find(x => x.id === srcId), dst = users.find(x => x.id === dstId);
+  if (!src || !dst) return showErr('Coordinator not found.');
+  if (src.ngo !== dst.ngo) return showErr('Transfers must stay within one NGO.');
+  const srcName = src.fullName || src.username, dstName = dst.fullName || dst.username;
+  const ok = await showConfirmModal(
+    'Transfer ' + _transferSel.size + ' beneficiar' + (_transferSel.size === 1 ? 'y' : 'ies') + ' from ' + srcName + ' to ' + dstName + ' (' + (dst.ngo || '') + ')?\n\n' +
+    'Ownership moves to ' + dstName + ' — they will see these records on their next sync; ' + srcName + ' will no longer see them. Every record gets an audit entry. This does not delete anything.',
+    { danger: true, okLabel: 'Transfer ' + _transferSel.size, title: 'Confirm transfer' });
+  if (!ok) return;
+  _transferInFlight = true;
+  const btn = document.getElementById('transfer-apply-btn');
+  const oldLabel = btn.textContent; btn.disabled = true; btn.textContent = 'Transferring…';
+  try {
+    // Same pattern as saveReassign: mutate the loaded array, one guarded save.
+    const data = loadData();
+    const moved = [];
+    for (const b of data) {
+      if (!b || !_transferSel.has(b.id) || b.createdBy !== srcId) continue;
+      b.createdBy = dst.id;
+      b.createdByName = dstName;
+      b.coord = dstName;               // keep display field in sync (same as saveReassign)
+      moved.push({ id: b.id, name: b.name });
+    }
+    if (moved.length === 0) { showErr('Nothing to transfer — records may have changed. Reopen the tool.'); return; }
+    await saveData(data);
+    for (const m of moved) {
+      auditLog('reassign', 'beneficiary', m.id, m.name,
+        `Bulk transfer: ${srcName} → ${dstName} (${dst.ngo || ''})`,
+        { createdByName: [srcName, dstName] });
+    }
+    auditLog('reassign', 'bulk', srcId, srcName,
+      `Bulk transfer of ${moved.length} beneficiaries: ${srcName} → ${dstName} (${dst.ngo || ''})`, { count: moved.length });
+    toast('✓ Transferred ' + moved.length + ' beneficiar' + (moved.length === 1 ? 'y' : 'ies') + ' to ' + dstName, 'success');
+    closeTransferTool();
+    try { if (typeof renderCurrent === 'function') renderCurrent(); } catch (_) {}
+  } catch (e) {
+    showErr((e instanceof SaveError) ? e.message : 'Transfer failed — nothing was changed. ' + (e && e.message || ''));
+  } finally {
+    _transferInFlight = false;
+    btn.disabled = false; btn.textContent = oldLabel;
+  }
+}
+
 function openReassign(bid) {
   const u = currentUser();
   if (!u || (u.role !== 'admin' && u.role !== 'ngo')) {
