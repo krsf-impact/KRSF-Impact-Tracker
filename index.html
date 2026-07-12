@@ -1,6 +1,72 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V408-LIVE
+  KRSF Beneficiary Impact Tracker  -  V409-LIVE
+  ============================================================================
+  V409-LIVE (2026-07-13 — lazy Firebase Auth migration, PHASE 1/2):
+
+    Adds real per-user Firebase Auth alongside the existing username/password
+    system, WITHOUT changing login behaviour or database rules yet. Every
+    user keeps typing the exact same username + password as always.
+
+    THE PROBLEM THIS STARTS TO CLOSE: the database currently trusts any
+    anonymous Firebase token — login is enforced by the app's own code, not
+    by the database. A leaked API key + a script can read everything. Real
+    per-user Auth (checked by database RULES, not app code) is the actual
+    fix; this build is step 1 of that migration.
+
+    WHY "LAZY" (on next login, not a bulk migration): passwords are stored
+    only as a salted SHA-256 HASH (V308.1) — there is no plaintext to
+    bulk-copy into Firebase Auth for all 573 users at once. So each user's
+    real Auth account is created transparently the moment they next log in
+    normally, using the plaintext their login form already has for that one
+    instant. Same shape as the existing legacy-hash upgrade just above it,
+    and the same pattern already proven live on Khedut Haat's farmer login.
+
+    1. [_getAuthMigrationApp/_lazyMigrateUserToFirebaseAuth] New helpers.
+       Auth accounts are created on a SEPARATE, secondary Firebase app
+       instance (name 'authMigration') — never on FB.auth, which holds the
+       anonymous session the rest of the app depends on for RTDB rule
+       gating. Creating a real-user session on FB.auth directly would
+       silently replace that anonymous session mid-app.
+    2. Synthetic email: "<username>@krsf-authmigration.internal" (never
+       shown to the user). Synthetic password: fixed "krsfauth-" prefix +
+       the user's real typed password (guarantees Firebase's 6-char
+       minimum regardless of the real password's length; invisible to the
+       user, who never types or sees the prefixed form).
+    3. Guarded by a new `authMigrated` flag on the user record — runs AT
+       MOST ONCE per user, ever. Every failure mode (network, secondary-app
+       init, already-exists from a partial prior attempt) is caught and
+       logged; it can NEVER block, delay, or fail an actual login, which by
+       this point has already succeeded via the existing hash check.
+    4. Zero rule changes. The database is exactly as open as before this
+       build — Auth accounts are being created in the background, but
+       nothing yet REQUIRES them. That's Phase 2 (closing the holes),
+       deliberately separate and not part of this build.
+
+    STATUS (2026-07-13, verified against PRODUCTION before this build shipped):
+    Email/Password sign-in provider enabled on krsf-impact-tracking (console,
+    by project owner). A disposable throwaway account (never a real user) was
+    used to run the exact migration logic against the real database:
+      - right password accepted, wrong password rejected (unchanged, sanity
+        check that nothing about the existing check was disturbed)
+      - first login created a real Firebase Auth account + saved the
+        authMigrated flag
+      - second login correctly did NOT duplicate it; forcing a duplicate
+        create anyway returned EMAIL_EXISTS, which the real code's
+        auth/email-already-in-use branch handles as a no-op, not an error
+      - the created Auth account signs in and works on its own
+    NOT YET independently exercised through the actual browser login screen
+    (only through code that mirrors it exactly) — this build's first real
+    logins are where that happens. Every failure path inside the migration
+    remains caught and non-blocking, so a real login proceeding exactly as
+    before is the worst case if anything unexpected turns up.
+    Only ONE role has been exercised so far — the disposable test account
+    was 'coordinator'. The migration code has no role-specific branching
+    (it runs identically regardless of role), but the other 5 roles
+    (admin/ngo/viewer/scopedViewer/scopedViewerByFc) have not each been
+    individually confirmed — that happens naturally as real users of each
+    role log in over the following days.
+
   ============================================================================
   V408-LIVE (2026-07-10 — one photo system: baseline/endline retired · verified):
 
@@ -2147,6 +2213,7 @@
       is a separate future project. Database Rules in the Firebase console
       remain the actual security boundary.
   ============================================================================
+
 -->
 <html lang="en">
 <head>
@@ -4654,7 +4721,7 @@ function escHtml(s) {
 //
 // V16.0.2: switched to dedicated "Livelihood" Firebase project (asia-southeast1).
 const FB_CONFIG = {
-  // V408-LIVE: PRODUCTION project (krsf-impact-tracking).
+  // V409-LIVE: PRODUCTION project (krsf-impact-tracking).
   apiKey: "AIzaSyCgJpYmdEdvdvbi3kdXfgFL-N4KiDLbUlI",
   authDomain: "krsf-impact-tracking.firebaseapp.com",
   databaseURL: "https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app",
@@ -4678,7 +4745,7 @@ const V405_MAX_PHOTOS = 8;
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V408-LIVE';
+const APP_VERSION = 'V409-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -10180,7 +10247,7 @@ let _genIdMutex = Promise.resolve();
 // After this fires once, the counter is canonical and no further scans
 // ever happen for that state in the entire Firebase project.
 async function _v353BootstrapScanMax(prefix) {
-  const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';  // V408-LIVE: production
+  const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';  // V409-LIVE: production
   const NS = 'krsf_tracker';
   let authToken = '';
   try {
@@ -22449,6 +22516,105 @@ async function doLogin() {
     _restoreSaveBtn(_loginBtnHandle);
   }
 }
+// =============================================================================
+// V409: LAZY FIREBASE AUTH MIGRATION (staging build — see changelog header)
+// =============================================================================
+// Real per-user Firebase Auth, added transparently as each user logs in
+// normally with their EXISTING username/password. Mirrors the proven
+// pattern already used for the legacy sc_* -> sha2_* hash upgrade below,
+// and the Khedut Haat farmer-auth migration (real, live precedent).
+//
+// Why "lazy" (on-login) rather than a one-shot bulk migration: KRSF stores
+// only a SALTED HASH of each password (V308.1), never the plaintext — so
+// there is no way to pre-create matching Firebase Auth accounts for all
+// existing users in one bulk pass. The plaintext exists ONLY for the
+// instant a user types it into the login form. So each user's Auth
+// account is created right here, right after their existing password
+// check succeeds, using the plaintext we already have on hand for this
+// one call — never stored, never logged, out of scope the instant this
+// function returns.
+//
+// Why a SEPARATE Firebase app instance: FB.auth (the primary app) holds
+// an ANONYMOUS session used only to satisfy ".read": "auth != null" rules
+// for the reads elsewhere in this file. Calling
+// createUserWithEmailAndPassword on that SAME app would silently replace
+// the anonymous session with the new real-user session, changing what
+// every other piece of code sees as "the current Firebase Auth user"
+// mid-app. A second, isolated app instance (name: 'authMigration') avoids
+// any interference — same project, same rules, completely separate auth
+// state.
+//
+// Synthetic email: real users have no email on file, so we mint one that
+// is deterministic and never shown to the user:
+// "<username>@krsf-authmigration.internal". Synthetic password: Firebase
+// Auth requires >=6 characters; some existing passwords are shorter, so
+// we apply a fixed, unconditional prefix ("krsfauth-" + password) before
+// handing it to Auth. The user's own typed password is completely
+// unchanged; the prefix only exists inside this one Auth-creation call.
+//
+// Idempotent + best-effort: guarded by user.authMigrated (runs at most
+// once per user, ever); any failure (network, secondary-app init,
+// already-exists from a partial prior run) is caught and logged — it
+// NEVER blocks or delays the actual login, which has already succeeded
+// via the existing hash check before this runs.
+// =============================================================================
+let _authMigrationApp = null;
+function _getAuthMigrationApp() {
+  if (_authMigrationApp) return _authMigrationApp;
+  try {
+    _authMigrationApp = (firebase.apps || []).find(a => a.name === 'authMigration')
+      || firebase.initializeApp(FB_CONFIG, 'authMigration');
+  } catch (e) {
+    console.warn('[V409 authMigration] secondary app init failed:', e);
+    return null;
+  }
+  return _authMigrationApp;
+}
+function _authMigrationEmail(username) {
+  return String(username || '').toLowerCase() + '@krsf-authmigration.internal';
+}
+async function _lazyMigrateUserToFirebaseAuth(userRecord, plaintextPassword) {
+  if (!userRecord || userRecord.authMigrated) return; // already done, or nothing to do
+  if (!FB || !FB.db) return; // offline / not initialised — try again next login
+  const app = _getAuthMigrationApp();
+  if (!app) return; // secondary app unavailable — skip silently, try again next login
+  try {
+    const auth = app.auth();
+    const email = _authMigrationEmail(userRecord.username);
+    const authPw = 'krsfauth-' + plaintextPassword;
+    try {
+      await auth.createUserWithEmailAndPassword(email, authPw);
+      console.log('[V409 authMigration] created Firebase Auth account for', userRecord.username);
+    } catch (e) {
+      if (e && e.code === 'auth/email-already-in-use') {
+        // Account already exists from a prior run whose flag-write failed
+        // afterwards — that's fine, the account is real; just record the
+        // flag below so we don't keep re-attempting.
+        console.log('[V409 authMigration] Auth account already existed for', userRecord.username);
+      } else {
+        throw e;
+      }
+    }
+    // We only needed the secondary auth instance to create the account —
+    // sign it back out immediately rather than holding a session on it.
+    try { await auth.signOut(); } catch(_) {}
+
+    // Persist the flag via the same single-record writer used for the
+    // hash upgrade below — touches only this one user's record.
+    const fresh = loadUsers();
+    const idx = fresh.findIndex(x => x.id === userRecord.id);
+    if (idx >= 0) {
+      fresh[idx].authMigrated = true;
+      try { await saveOneUser(fresh[idx]); }
+      catch (e2) { console.warn('[V409 authMigration] flag write failed (will retry next login):', e2); }
+    }
+  } catch (e) {
+    // Best-effort — login has ALREADY succeeded via the existing password
+    // check; this side-effect must never block or delay that.
+    console.warn('[V409 authMigration] migration attempt failed (will retry next login):', e);
+  }
+}
+
 // V407: session-scoped guard — see the usage site inside _doLoginInner for
 // full rationale. Resets only on a fresh page load (new tab/reload), which
 // is the intended boundary: at most one extra users-collection fetch per
@@ -22583,6 +22749,14 @@ async function _doLoginInner() {
       console.warn('[auth] hash upgrade failed:', e);
     }
   }
+
+  // V409: lazy Firebase Auth migration — see the function's own header
+  // comment for full rationale. Best-effort by construction (every failure
+  // mode is caught inside the function itself); login has already
+  // succeeded via the password check above and is never delayed by this
+  // beyond the one Auth-creation round trip, which happens at most once
+  // per user for the rest of that user's account lifetime.
+  try { await _lazyMigrateUserToFirebaseAuth(user, p); } catch(_) {}
 
   // Success — persist session, hide login, render app
   // V375 [Fix #1 — audit critical]: persist assignedNgos in the session so
