@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V4.3-LIVE
+  KRSF Beneficiary Impact Tracker  -  V4.4-LIVE
   ============================================================================
   VERSIONING SCHEME CHANGED (2026-07-13): the old plain-integer numbering
   (...V410, V411, V412, V413...) is retired as of this release. This build —
@@ -8,6 +8,35 @@
   every release increments the number after the dot: V4.3, V4.4, V4.5, and
   so on. Nothing about the app changed because of this — it's a labeling
   change only, made because "V413/V414" was hard to read at a glance.
+  ============================================================================
+  V4.4-LIVE (2026-07-14 — two V4.3 follow-up fixes the user caught live):
+
+    1. [.coord-search] V4.3's light-blue search box (#EFF6FF bg / #BFDBFE
+       border) turned out to be nearly the same shade as the page's own
+       background (#EEF2F7) — user reported it "blends very easily, cant
+       locate it." Bumped to a noticeably more saturated blue: #DBEAFE bg /
+       #60A5FA border. Rendered a side-by-side swatch against the real page
+       background before shipping to confirm the contrast is now obvious.
+    2. [coordCardHtml] The card's status pill was showing "Baseline
+       Completed" for every beneficiary whose status defaults to 'Enrolled'
+       — including advocacy-only beneficiaries who were never
+       baseline-surveyed (that wording comes from NEW_STAGE_LABEL, a
+       livelihood-stage vocabulary applied unconditionally to stageLabel()).
+       Now gated: only shows "Baseline Completed" when hasLiv is true;
+       advocacy-only + status 'Enrolled' shows plain "Enrolled" instead.
+       hasLiv/hasAdv were already computed in this function (for the V4.3
+       baseline-row fix) — this reuses the same values, just moved the
+       stagePill construction to after that computation instead of before.
+
+    Verified on a fresh isolated staging namespace with the same
+    Livelihood+Advocacy / Advocacy-only beneficiary pair used for V4.3: the
+    livelihood beneficiary's pill still correctly reads "Baseline Completed"
+    (uppercased by CSS), the advocacy-only beneficiary's pill now reads
+    "Enrolled". Search box background/border colors confirmed via computed
+    styles to differ clearly from the page background. Zero horizontal
+    overflow at phone width. Both changes are pure CSS/markup — no Firebase
+    reads/writes touched.
+
   ============================================================================
   V4.3-LIVE (2026-07-14 — FC list screen: search box color, currency icon fix,
              baseline row for advocacy-only):
@@ -3438,8 +3467,8 @@ body[data-shell="coord"] #coord-app { display: block; }
 .coord-search {
   display: flex;
   align-items: center;
-  background: #EFF6FF;              /* V4.3: light blue, matches the scheme/date filter pastel treatment */
-  border: 1px solid #BFDBFE;         /* V4.3: blue border for the same visual weight as the other filters */
+  background: #DBEAFE;              /* V4.4: bumped from #EFF6FF — that shade was nearly identical to the page's own #EEF2F7 background and disappeared. This is noticeably more saturated. */
+  border: 1px solid #60A5FA;         /* V4.4: bumped from #BFDBFE for a stronger, more visible edge */
   border-radius: 10px;
   padding: 0 12px;
   margin-bottom: 12px;
@@ -4976,7 +5005,7 @@ const V405_MAX_PHOTOS = 8;
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V4.3-LIVE';
+const APP_VERSION = 'V4.4-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -10651,7 +10680,7 @@ let _genIdMutex = Promise.resolve();
 // After this fires once, the counter is canonical and no further scans
 // ever happen for that state in the entire Firebase project.
 async function _v353BootstrapScanMax(prefix) {
-  const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';  // V4.3-LIVE: production
+  const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';  // V4.4-LIVE: production
   const NS = 'krsf_tracker';
   let authToken = '';
   try {
@@ -26073,7 +26102,6 @@ function coordCardHtml(b, advByBid) {
     'Completed': {bg:'#D1FAE5', fg:'#065F46'},
   };
   const sc = stageColors[stage] || {bg:'var(--gray4)', fg:'var(--gray1)'};
-  const stagePill = `<span class="coord-card-pill" style="background:${sc.bg};color:${sc.fg}">${stageLabel(stage)}</span>`;
   // Use the same classifier as the summary strip so the card's tags can't
   // disagree with the card-count categorization. advByBid is optional — if
   // not passed (legacy callers), fall back to loading advocacy records.
@@ -26083,6 +26111,13 @@ function coordCardHtml(b, advByBid) {
     return m;
   })();
   const { hasLiv, hasAdv } = _coordClassifyProg(b, _advMap);
+  // V4.4: "Baseline Completed" is livelihood-survey language — wrong for an
+  // advocacy-only beneficiary who was never baseline-surveyed. Only the
+  // default 'Enrolled' status maps to that wording (stageLabel/NEW_STAGE_LABEL);
+  // the other two stages ('Intervention In Progress'/'Completed') only ever
+  // occur on livelihood-tracked records anyway, so they're left untouched.
+  const stagePillLabel = (!hasLiv && stage === 'Enrolled') ? 'Enrolled' : stageLabel(stage);
+  const stagePill = `<span class="coord-card-pill" style="background:${sc.bg};color:${sc.fg}">${stagePillLabel}</span>`;
   const progPills = [];
   if (hasLiv) progPills.push(`<span class="coord-card-pill" style="background:#FEF3C7;color:#B45309">Livelihood</span>`);
   if (hasAdv) progPills.push(`<span class="coord-card-pill" style="background:#EDE9FE;color:#6D28D9">Advocacy</span>`);
