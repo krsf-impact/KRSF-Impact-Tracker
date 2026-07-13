@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V4.2-LIVE
+  KRSF Beneficiary Impact Tracker  -  V4.3-LIVE
   ============================================================================
   VERSIONING SCHEME CHANGED (2026-07-13): the old plain-integer numbering
   (...V410, V411, V412, V413...) is retired as of this release. This build —
@@ -8,6 +8,37 @@
   every release increments the number after the dot: V4.3, V4.4, V4.5, and
   so on. Nothing about the app changed because of this — it's a labeling
   change only, made because "V413/V414" was hard to read at a glance.
+  ============================================================================
+  V4.3-LIVE (2026-07-14 — FC list screen: search box color, currency icon fix,
+             baseline row for advocacy-only):
+
+    Three small fixes from the same UX review the boot-splash colors came
+    from, this time on the FC's own mobile beneficiary list:
+
+    1. [.coord-search] The search box was a flat neutral grey, which got lost
+       sitting right below the lavender scheme filter and amber date filter.
+       Recolored to a light blue (#EFF6FF bg, #BFDBFE border, #1D4ED8 icon) so
+       it reads as an equally obvious control. Cosmetic CSS only — the input
+       itself, its placeholder, and the search logic are untouched.
+    2. [coordCardHtml] The icon next to "Baseline: ₹X" was, on inspection,
+       literally a dollar-sign glyph path — wrong currency for an India-only
+       app, even though the text beside it already correctly used ₹ (fmt()).
+       Swapped for a neutral trending-up icon (no currency symbol at all).
+    3. [coordCardHtml] That whole "Baseline: ₹X → Endline ₹Y" row now only
+       renders when hasLiv is true. Beneficiaries who are advocacy-only
+       (never had a livelihood survey — hasAdv && !hasLiv) no longer show a
+       baseline line that never had real data behind it. hasLiv/hasAdv were
+       already computed earlier in the same function via the existing
+       _coordClassifyProg — no new computation added, just gated on it.
+
+    Verified on staging in an isolated seeded namespace with one Livelihood+
+    Advocacy beneficiary and one Advocacy-only beneficiary: the baseline row
+    renders correctly for the first, is completely absent for the second: no
+    icon, no "Baseline:" text, nothing left in its place. Colors and icon
+    swap confirmed via computed styles at both phone (375px) and desktop
+    width, zero horizontal overflow either way. All three changes are pure
+    CSS/markup — no Firebase reads/writes touched, no save-path involvement.
+
   ============================================================================
   V4.2-LIVE (2026-07-13 — boot splash artwork refresh):
 
@@ -3407,8 +3438,8 @@ body[data-shell="coord"] #coord-app { display: block; }
 .coord-search {
   display: flex;
   align-items: center;
-  background: #F9FAFB;              /* V360: slight grey tint, anchors as search affordance */
-  border: 1px solid #D1D5DB;         /* V360: stronger border for contrast */
+  background: #EFF6FF;              /* V4.3: light blue, matches the scheme/date filter pastel treatment */
+  border: 1px solid #BFDBFE;         /* V4.3: blue border for the same visual weight as the other filters */
   border-radius: 10px;
   padding: 0 12px;
   margin-bottom: 12px;
@@ -3416,7 +3447,7 @@ body[data-shell="coord"] #coord-app { display: block; }
 }
 .coord-search svg {
   width: 18px; height: 18px;
-  color: var(--gray2);
+  color: #1D4ED8;                    /* V4.3: blue to match the box, was neutral grey */
   flex-shrink: 0;
   margin-right: 8px;
 }
@@ -4945,7 +4976,7 @@ const V405_MAX_PHOTOS = 8;
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V4.2-LIVE';
+const APP_VERSION = 'V4.3-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -10620,7 +10651,7 @@ let _genIdMutex = Promise.resolve();
 // After this fires once, the counter is canonical and no further scans
 // ever happen for that state in the entire Firebase project.
 async function _v353BootstrapScanMax(prefix) {
-  const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';  // V4.2-LIVE: production
+  const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';  // V4.3-LIVE: production
   const NS = 'krsf_tracker';
   let authToken = '';
   try {
@@ -26071,13 +26102,13 @@ function coordCardHtml(b, advByBid) {
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
           ${esc(b.village || '—')}${b.district ? ', ' + esc((b.district.split(',')[0] || '').trim()) : ''}
         </div>
-        <div class="coord-card-row">
-          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+        ${hasLiv ? `<div class="coord-card-row">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
           Baseline: ${fmt(b.baseIncome)}
           ${b.endIncome != null
             ? ` → Endline ${fmt(b.endIncome)} <span style="color:${(b.endIncome - b.baseIncome)>=0?'var(--green)':'var(--red)'};font-weight:600">(${(b.endIncome - b.baseIncome)>=0?'+':''}${pct(b)}%)</span>`
             : ''}
-        </div>
+        </div>` : ''}
       </div>
       ${progPills.length ? `<div class="coord-card-pills">${progPills.join('')}</div>` : ''}
       ${(function(){
