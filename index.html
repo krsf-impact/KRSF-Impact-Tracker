@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V4.5-LIVE
+  KRSF Beneficiary Impact Tracker  -  V4.6-LIVE
   ============================================================================
   VERSIONING SCHEME CHANGED (2026-07-13): the old plain-integer numbering
   (...V410, V411, V412, V413...) is retired as of this release. This build —
@@ -8,6 +8,60 @@
   every release increments the number after the dot: V4.3, V4.4, V4.5, and
   so on. Nothing about the app changed because of this — it's a labeling
   change only, made because "V413/V414" was hard to read at a glance.
+  ============================================================================
+  V4.6-LIVE (2026-07-16 — 📊 Reports: decision-making insights, admin-only):
+
+    User request: "I need better reports somewhere. Like all the insights
+    which I may need in decision making. Which FC is doing best work. How
+    many beneficiaries are getting enrolled each day." Design approved via
+    an interactive mockup (4 tabs), with two user-driven corrections baked
+    in: (a) per-intervention income splits are dishonest when one beneficiary
+    has multiple interventions — so single-intervention beneficiaries get
+    clean attribution and 2+ get their own "Multiple interventions" row;
+    (b) income change shown in ₹ per year AND ≈ per month, not just %.
+
+    THE GROUND RULE, honored and measured: every number is computed
+    CLIENT-SIDE from data the admin app already downloads (filteredAll(),
+    loadAdv(), loadUsers()). No new Firebase node, listener, or fetch.
+    Verified during testing: 8 rapid tab/filter switches produced ZERO new
+    Firebase requests (performance-resource monitoring, not assumption).
+
+    What was added:
+    1. renderReports() — new admin-only view with 4 tabs:
+       • FC Performance: leaderboard (enrollments in window, advocacy
+         logged, all-time filed→benefits conversion, data-quality bar =
+         avg of %phone/%GPS/%photo, last-active), inactive-FC list (30+d).
+       • Enrollment Trends: per-day SVG line chart (weekly buckets when
+         range > 120d), best day, new-villages-reached, NGO comparison
+         with per-FC normalization.
+       • Advocacy Pipeline: status funnel from _advLatestRowsAll (latest
+         status per beneficiary-scheme, scoped to current filters), stuck
+         list (Applied, logged 60+ days ago, grouped by scheme with most-
+         affected NGO), scheme success rates (min 10 filed to appear).
+       • Livelihood Impact: avg income increase ₹/yr + ≈/month, aggregate
+         uplift %, "total measured income added" highlight (endlines only,
+         nothing estimated), stage funnel, per-intervention table with the
+         single-vs-multiple attribution rule, endline-overdue backlog
+         (12+ months, no endline) by NGO, NGO uplift table.
+    2. Route 'reports' in _navRoutes_v32; added to _v361HeavyViews (gets
+       the loading skeleton); rptTab/rptRange added to _v357ComputeSig so
+       the tab cache keys on report state (stale-cache bug avoided).
+    3. Sidebar "Reports" button under Dashboard (data-admin-only) + mobile
+       More-sheet entry (data-admin-only). renderReports itself also gates
+       on role==='admin' as defense in depth.
+
+    Scale check: synthetic 120,000 beneficiaries + 40,000 advocacy parents
+    in-memory → 1.0–1.9s per tab render, single-pass O(N) aggregation (no
+    V402-style quadratic scan), served behind the existing V361 skeleton
+    with instant V357-cached revisits.
+
+    Verified on staging (isolated seeded namespace): every number on all
+    4 tabs matched hand-computed expectations exactly — including the two
+    subtle cases (a beneficiary with one real intervention + Advocacy tag
+    counts as single-intervention; 2 real interventions goes to the
+    Multiple row). Zero horizontal overflow at 375px on all tabs; tables
+    scroll inside their own wrappers. Empty-state messages verified.
+
   ============================================================================
   V4.5-LIVE (2026-07-16 — Firebase App Check, registered but NOT enforced):
 
@@ -4009,6 +4063,10 @@ body[data-shell="coord"] #coord-app { display: block; }
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
       Dashboard
     </button>
+    <button data-admin-only class="nav-btn" data-v="reports" onclick="nav('reports')" style="display:none">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="3" y1="13" x2="3" y2="7"/><line x1="8" y1="13" x2="8" y2="3"/><line x1="13" y1="13" x2="13" y2="9"/><line x1="1" y1="15" x2="15" y2="15"/></svg>
+      Reports
+    </button>
     <div class="nav-group">Beneficiaries</div>
     <button class="nav-btn" data-v="beneficiaries" onclick="nav('beneficiaries')">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="5" r="3"/><path d="M1 13c0-3 2-5 5-5s5 2 5 5"/><circle cx="12.5" cy="4.5" r="2"/><path d="M10.5 12.5c0-1.5 1-2.5 2.5-3"/></svg>
@@ -4758,6 +4816,10 @@ body[data-shell="coord"] #coord-app { display: block; }
     <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="8" cy="12" r="6"/><circle cx="16" cy="12" r="6"/></svg>
     <span>Integrated View</span>
   </button>
+  <button data-admin-only class="mob-sheet-btn" onclick="closeMobMoreSheet();mobNav('reports')" style="display:none">
+    <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><line x1="6" y1="20" x2="6" y2="12"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="18" y1="20" x2="18" y2="14"/><line x1="2" y1="22" x2="22" y2="22"/></svg>
+    <span>Reports</span>
+  </button>
   <div style="font-size:11px;font-weight:600;letter-spacing:.5px;color:var(--gray2);padding:10px 6px 6px;border-top:1px solid var(--gray3);margin-top:6px">ADMIN PANEL</div>
   <button class="mob-sheet-btn" onclick="closeMobMoreSheet();mobNav('admin_partners')">
     <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
@@ -5062,7 +5124,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V4.5-LIVE';
+const APP_VERSION = 'V4.6-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -10751,7 +10813,7 @@ let _genIdMutex = Promise.resolve();
 // After this fires once, the counter is canonical and no further scans
 // ever happen for that state in the entire Firebase project.
 async function _v353BootstrapScanMax(prefix) {
-  const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';  // V4.5-LIVE: production
+  const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';  // V4.6-LIVE: production
   const NS = 'krsf_tracker';
   let authToken = '';
   try {
@@ -19303,8 +19365,475 @@ window.openDrawer = function(id) {
   }, 110);
 };
 
+// ── V4.6: Reports — decision-making insights (admin-only) ──────────────────
+// EVERY number here is computed CLIENT-SIDE from data the admin app already
+// holds in memory (filteredAll(), loadAdv(), loadUsers()) — no new Firebase
+// node, no new listener, no new fetch anywhere in this section. Zero
+// download increase (the standing ground rule).
+let rptTab = 'fc';          // fc | trend | adv | liv
+let rptRange = 30;          // day-window for FC + Trends tabs
+
+function _rptMoney(v) {
+  if (v == null || isNaN(v)) return '—';
+  const sign = v < 0 ? '−' : '';
+  v = Math.abs(v);
+  if (v >= 1e7) return sign + '₹' + (v / 1e7).toFixed(1) + ' Cr';
+  if (v >= 1e5) return sign + '₹' + (v / 1e5).toFixed(1) + ' L';
+  return sign + '₹' + Math.round(v).toLocaleString('en-IN');
+}
+function _rptDaysAgo(iso) {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return null;
+  return Math.floor((Date.now() - t) / 86400000);
+}
+function _rptAgoLabel(ms) {
+  if (!ms) return '<span class="pill" style="background:var(--red2);color:var(--red)">never</span>';
+  const d = Math.floor((Date.now() - ms) / 86400000);
+  if (d <= 0) return 'Today';
+  if (d === 1) return 'Yesterday';
+  if (d < 30) return d + ' days';
+  return '<span class="pill" style="background:var(--red2);color:var(--red)">' + d + ' days</span>';
+}
+window.rptSetTab   = function(t) { rptTab = t; renderReports(); };
+window.rptSetRange = function(d) { rptRange = d; renderReports(); };
+
+function renderReports() {
+  const u = currentUser();
+  if (!u || u.role !== 'admin') {
+    document.getElementById('content').innerHTML =
+      '<div style="padding:48px 20px;text-align:center;color:var(--gray2);font-size:14px">Reports are available to admin accounts only.</div>';
+    return;
+  }
+  const esc = s => escHtml(String(s == null ? '' : s));
+  const allB = filteredAll();                 // topbar State/NGO filters apply here
+  const bById = new Map();
+  allB.forEach(b => bById.set(b.id, b));
+  const users = loadUsers();
+  const fcs = users.filter(x => x.role === 'coordinator');
+  const advParents = loadAdv();
+  const latestRows = _advLatestRowsAll(advParents).filter(r => bById.has(r.__bid));
+  const now = Date.now(), winMs = rptRange * 86400000;
+  const inWin = iso => {
+    if (!iso) return false;
+    const t = new Date(iso).getTime();
+    return !isNaN(t) && (now - t) <= winMs;
+  };
+
+  // ── single pass: per-FC aggregation ──────────────────────────────────────
+  const fcAgg = new Map(), fcByName = new Map();
+  fcs.forEach(f => {
+    const a = { u: f, tot: 0, enrolledWin: 0, advWin: 0, filed: 0, recd: 0,
+                phone: 0, gps: 0, photo: 0, last: 0 };
+    fcAgg.set(f.id, a);
+    if (f.fullName) fcByName.set(f.fullName, a);
+  });
+  allB.forEach(b => {
+    const a = fcAgg.get(b.createdBy) || fcByName.get(b.coord);
+    if (!a) return;
+    a.tot++;
+    if (inWin(b.enrollDate)) a.enrolledWin++;
+    if (b.phone) a.phone++;
+    if (b.lat != null) a.gps++;
+    if ((b.photos || []).length) a.photo++;
+    const t1 = b.enrollDate ? new Date(b.enrollDate).getTime() : 0;
+    const t2 = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+    if (t1 > a.last) a.last = t1;
+    if (t2 > a.last) a.last = t2;
+  });
+  advParents.forEach(p => {
+    const a = fcAgg.get(p.createdBy);
+    if (!a) return;
+    const rows = (p.schemeRows || []).filter(r => r && !r._deleted);
+    if (inWin(p.createdAt)) a.advWin += rows.length;
+    rows.forEach(r => {
+      const s = _advNormStatus(r);
+      if (s !== 'Need to Apply') { a.filed++; if (s === 'Benefits Received') a.recd++; }
+    });
+    const t = p.createdAt ? new Date(p.createdAt).getTime() : 0;
+    if (t > a.last) a.last = t;
+  });
+  const fcList = Array.from(fcAgg.values());
+  const activeFcs   = fcList.filter(a => a.last && (now - a.last) <= 30 * 86400000);
+  const inactiveFcs = fcList.filter(a => a.tot > 0 && (!a.last || (now - a.last) > 30 * 86400000))
+                            .sort((x, y) => (x.last || 0) - (y.last || 0));
+  const convDen = fcList.reduce((s, a) => s + a.filed, 0);
+  const convNum = fcList.reduce((s, a) => s + a.recd, 0);
+
+  // ── single pass: trends + livelihood + villages ──────────────────────────
+  const ADVI = 'Advocacy (Govt. Schemes)';
+  const dayCounts = new Map(), ngoWin = new Map(), villageFirst = new Map();
+  let enrolledWinTotal = 0;
+  let livN = 0, endN = 0, sumBase = 0, sumEnd = 0, overdue = 0;
+  const stage = { 'Enrolled': 0, 'Intervention In Progress': 0, 'Completed': 0 };
+  const byInt = new Map(), byNgoLiv = new Map(), overdueNgo = new Map();
+  allB.forEach(b => {
+    const d = (b.enrollDate || '').slice(0, 10);
+    if (d && b.village) {
+      const vk = (b.village || '').trim().toLowerCase() + '|' + (b.district || '');
+      const cur = villageFirst.get(vk);
+      if (!cur || d < cur) villageFirst.set(vk, d);
+    }
+    if (inWin(b.enrollDate)) {
+      enrolledWinTotal++;
+      dayCounts.set(d, (dayCounts.get(d) || 0) + 1);
+      const g = ngoWin.get(b.ngo) || { n: 0, fcs: new Set() };
+      g.n++;
+      if (b.createdBy) g.fcs.add(b.createdBy);
+      ngoWin.set(b.ngo, g);
+    }
+    const ints = (b.interventions || []).filter(i => i && i !== ADVI);
+    if (!ints.length) return;
+    livN++;
+    const st = b.status || 'Enrolled';
+    stage[st] = (stage[st] || 0) + 1;
+    const hasEnd = b.endIncome != null && b.baseIncome != null;
+    const eDays = _rptDaysAgo(b.enrollDate);
+    if (!hasEnd && eDays != null && eDays >= 365) {
+      overdue++;
+      const g = overdueNgo.get(b.ngo) || { n: 0, oldest: 0 };
+      g.n++;
+      if (eDays > g.oldest) g.oldest = eDays;
+      overdueNgo.set(b.ngo, g);
+    }
+    if (hasEnd) {
+      endN++; sumBase += b.baseIncome; sumEnd += b.endIncome;
+      const key = ints.length === 1 ? ints[0] : '__multi';
+      const g = byInt.get(key) || { n: 0, base: 0, end: 0 };
+      g.n++; g.base += b.baseIncome; g.end += b.endIncome;
+      byInt.set(key, g);
+      const gn = byNgoLiv.get(b.ngo) || { n: 0, base: 0, end: 0 };
+      gn.n++; gn.base += b.baseIncome; gn.end += b.endIncome;
+      byNgoLiv.set(b.ngo, gn);
+    }
+  });
+  const newVillages = Array.from(villageFirst.values()).filter(d => inWin(d)).length;
+
+  // ── single pass: advocacy pipeline (scoped latest rows) ──────────────────
+  const statusCount = { 'Need to Apply': 0, 'Applied': 0, 'Benefits Received': 0, 'Rejected': 0 };
+  const stuckByScheme = new Map(), schemeStats = new Map();
+  latestRows.forEach(r => {
+    const s = _advNormStatus(r);
+    statusCount[s]++;
+    const sch = r.scheme || '—';
+    const st = schemeStats.get(sch) || { filed: 0, recd: 0, rej: 0 };
+    if (s !== 'Need to Apply') {
+      st.filed++;
+      if (s === 'Benefits Received') st.recd++;
+      if (s === 'Rejected') st.rej++;
+    }
+    schemeStats.set(sch, st);
+    if (s === 'Applied') {
+      const days = _rptDaysAgo(r.__createdAt);
+      if (days != null && days >= 60) {
+        const b = bById.get(r.__bid);
+        const g = stuckByScheme.get(sch) || { n: 0, daysSum: 0, ngos: new Map() };
+        g.n++; g.daysSum += days;
+        const ng = b && b.ngo ? b.ngo : '—';
+        g.ngos.set(ng, (g.ngos.get(ng) || 0) + 1);
+        stuckByScheme.set(sch, g);
+      }
+    }
+  });
+  const stuckTotal = Array.from(stuckByScheme.values()).reduce((s, g) => s + g.n, 0);
+  const advTotal = latestRows.length;
+
+  // ── shared HTML helpers ───────────────────────────────────────────────────
+  const kpi = (label, val, sub, color) =>
+    `<div style="background:#fff;border:1px solid var(--gray3);border-radius:12px;padding:12px 14px">
+      <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--gray2);font-weight:600">${label}</div>
+      <div style="font-size:22px;font-weight:700;color:${color || 'var(--navy)'};margin-top:2px">${val}</div>
+      <div style="font-size:11px;color:var(--gray2);margin-top:2px">${sub || ''}</div>
+    </div>`;
+  const card = (title, hint, body) =>
+    `<div style="background:#fff;border:1px solid var(--gray3);border-radius:12px;padding:16px;margin-bottom:14px">
+      <div style="font-size:14px;font-weight:600;margin-bottom:3px">${title}</div>
+      ${hint ? `<div style="font-size:11px;color:var(--gray2);margin-bottom:12px">${hint}</div>` : ''}
+      ${body}
+    </div>`;
+  const pill = (txt, bg, fg) =>
+    `<span style="display:inline-block;font-size:10.5px;font-weight:600;padding:2px 9px;border-radius:10px;background:${bg};color:${fg}">${txt}</span>`;
+  const pctPill = p => {
+    if (p == null || isNaN(p)) return '—';
+    p = Math.round(p);
+    const cls = p >= 50 ? ['var(--green2)', 'var(--green)'] : p >= 30 ? ['var(--amber2)', 'var(--amber)'] : ['var(--red2)', 'var(--red)'];
+    return pill(p + '%', cls[0], cls[1]);
+  };
+  const qBar = p =>
+    `<div style="height:8px;border-radius:4px;background:var(--gray3);overflow:hidden;min-width:64px"><div style="height:100%;border-radius:4px;background:var(--navy2);width:${Math.round(p)}%"></div></div>`;
+  const tblWrap = inner => `<div style="overflow-x:auto">${inner}</div>`;
+  const TH = 'text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--gray2);padding:7px 8px;border-bottom:1px solid var(--gray3);white-space:nowrap';
+  const THR = TH + ';text-align:right';
+  const TD = 'padding:8px;border-bottom:1px solid #F3F4F6;font-size:12.5px;vertical-align:middle';
+  const TDR = TD + ';text-align:right;font-variant-numeric:tabular-nums';
+
+  let body = '';
+
+  // ══ TAB 1 : FC PERFORMANCE ═══════════════════════════════════════════════
+  if (rptTab === 'fc') {
+    const board = fcList.filter(a => a.tot > 0)
+      .sort((x, y) => y.enrolledWin - x.enrolledWin || y.tot - x.tot).slice(0, 15);
+    const medals = ['🥇', '🥈', '🥉'];
+    const rows = board.map((a, i) => {
+      const q = a.tot ? ((a.phone / a.tot + a.gps / a.tot + a.photo / a.tot) / 3) * 100 : 0;
+      const conv = a.filed ? (a.recd / a.filed) * 100 : null;
+      return `<tr>
+        <td style="${TD};font-size:14px">${medals[i] || ''}</td>
+        <td style="${TD}"><b>${esc(a.u.fullName || a.u.username)}</b></td>
+        <td style="${TD}">${esc(a.u.ngo || '—')}</td>
+        <td style="${TDR}"><b>${a.enrolledWin.toLocaleString('en-IN')}</b></td>
+        <td style="${TDR}">${a.tot.toLocaleString('en-IN')}</td>
+        <td style="${TDR}">${a.advWin.toLocaleString('en-IN')}</td>
+        <td style="${TDR}">${conv == null ? '—' : pctPill(conv)}</td>
+        <td style="${TD}">${qBar(q)}</td>
+        <td style="${TDR}">${_rptAgoLabel(a.last)}</td>
+      </tr>`;
+    }).join('');
+    const inactiveRows = inactiveFcs.slice(0, 10).map(a => `<tr>
+      <td style="${TD}"><b>${esc(a.u.fullName || a.u.username)}</b></td>
+      <td style="${TD}">${esc(a.u.ngo || '—')}</td>
+      <td style="${TDR}">${_rptAgoLabel(a.last)}</td>
+      <td style="${TDR}">${a.tot.toLocaleString('en-IN')}</td>
+    </tr>`).join('');
+    body =
+      `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px">
+        ${kpi('Active FCs (30d)', activeFcs.length, 'of ' + fcList.length + ' with records: ' + fcList.filter(a => a.tot > 0).length)}
+        ${kpi('Inactive 30+ days', inactiveFcs.length, 'needs follow-up', inactiveFcs.length ? 'var(--red)' : 'var(--green)')}
+        ${kpi('Enrolled (window)', enrolledWinTotal.toLocaleString('en-IN'), 'last ' + rptRange + ' days')}
+        ${kpi('Overall conversion', convDen ? Math.round(convNum / convDen * 100) + '%' : '—', 'filed → benefits received')}
+      </div>` +
+      card('FC Leaderboard — last ' + rptRange + ' days',
+        'Sorted by enrollments in the window. Conversion is all-time: of scheme entries they filed, % that reached "Benefits Received". Data quality = average of % with phone, % with GPS, % with photo.',
+        tblWrap(`<table style="width:100%;border-collapse:collapse">
+          <tr><th style="${TH}"></th><th style="${TH}">FC</th><th style="${TH}">NGO</th><th style="${THR}">Enrolled (win)</th><th style="${THR}">Total</th><th style="${THR}">Advocacy (win)</th><th style="${THR}">Conversion</th><th style="${TH}">Data quality</th><th style="${THR}">Last active</th></tr>
+          ${rows || `<tr><td colspan="9" style="${TD};text-align:center;color:var(--gray2)">No FC activity found for the current filters.</td></tr>`}
+        </table>`)
+        + (fcList.filter(a => a.tot > 0).length > 15 ? `<div style="font-size:11px;color:var(--gray2);margin-top:8px">Showing top 15 of ${fcList.filter(a => a.tot > 0).length} FCs with records.</div>` : '')) +
+      card('⚠ Inactive FCs — no enrollment or advocacy update in 30+ days',
+        'These FCs may have left, be on leave, or need support. Their beneficiaries may need reassignment (User Management → Transfer).',
+        tblWrap(`<table style="width:100%;border-collapse:collapse">
+          <tr><th style="${TH}">FC</th><th style="${TH}">NGO</th><th style="${THR}">Last activity</th><th style="${THR}">Their beneficiaries</th></tr>
+          ${inactiveRows || `<tr><td colspan="4" style="${TD};text-align:center;color:var(--green)">None — every FC with records has been active in the last 30 days. 🎉</td></tr>`}
+        </table>`));
+  }
+
+  // ══ TAB 2 : ENROLLMENT TRENDS ════════════════════════════════════════════
+  if (rptTab === 'trend') {
+    const days = rptRange;
+    const buckets = [];
+    const bucketDays = days > 120 ? 7 : 1;
+    for (let i = days - 1; i >= 0; i -= bucketDays) {
+      let n = 0, label = '';
+      for (let j = 0; j < bucketDays; j++) {
+        const dt = new Date(now - (i - j) * 86400000);
+        if ((i - j) < 0) break;
+        const key = dt.toISOString().slice(0, 10);
+        n += dayCounts.get(key) || 0;
+        if (!label) label = key;
+      }
+      buckets.push({ label, n });
+    }
+    const maxN = Math.max(1, ...buckets.map(b => b.n));
+    const W = 700, H = 180, L = 40, B = 150;
+    const pts = buckets.map((b, i) => {
+      const x = L + (i / Math.max(1, buckets.length - 1)) * (W - L - 20);
+      const y = B - (b.n / maxN) * 120;
+      return { x, y, b };
+    });
+    const poly = pts.map(p => p.x.toFixed(1) + ',' + p.y.toFixed(1)).join(' ');
+    const best = buckets.reduce((m, b) => b.n > m.n ? b : m, { n: 0, label: '—' });
+    const bestPt = pts.find(p => p.b === best);
+    const fmtD2 = s => { try { return new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }); } catch (_) { return s; } };
+    const chart =
+      `<svg viewBox="0 0 ${W} 205" style="width:100%;min-width:520px">
+        <line x1="${L}" y1="${B}" x2="${W - 20}" y2="${B}" stroke="#E5E7EB"/>
+        <line x1="${L}" y1="${B - 60}" x2="${W - 20}" y2="${B - 60}" stroke="#F3F4F6"/>
+        <line x1="${L}" y1="${B - 120}" x2="${W - 20}" y2="${B - 120}" stroke="#F3F4F6"/>
+        <text x="${L - 6}" y="${B + 4}" font-size="10" fill="#9CA3AF" text-anchor="end">0</text>
+        <text x="${L - 6}" y="${B - 56}" font-size="10" fill="#9CA3AF" text-anchor="end">${Math.round(maxN / 2)}</text>
+        <text x="${L - 6}" y="${B - 116}" font-size="10" fill="#9CA3AF" text-anchor="end">${maxN}</text>
+        <polyline fill="none" stroke="#2E75B6" stroke-width="2.5" points="${poly}"/>
+        ${bestPt && best.n > 0 ? `<circle cx="${bestPt.x.toFixed(1)}" cy="${bestPt.y.toFixed(1)}" r="4" fill="#2E75B6"/><text x="${bestPt.x.toFixed(1)}" y="${(bestPt.y - 8).toFixed(1)}" font-size="10" fill="#1B3A6B" text-anchor="middle" font-weight="600">${best.n}</text>` : ''}
+        <text x="${L}" y="${B + 22}" font-size="10" fill="#9CA3AF">${buckets.length ? fmtD2(buckets[0].label) : ''}</text>
+        <text x="${W - 20}" y="${B + 22}" font-size="10" fill="#9CA3AF" text-anchor="end">${buckets.length ? fmtD2(buckets[buckets.length - 1].label) : ''}</text>
+      </svg>`;
+    const ngoRows = Array.from(ngoWin.entries()).sort((a, b) => b[1].n - a[1].n).slice(0, 12);
+    const maxNgo = Math.max(1, ...ngoRows.map(([, g]) => g.n));
+    body =
+      `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px">
+        ${kpi('Enrolled (window)', enrolledWinTotal.toLocaleString('en-IN'), 'last ' + rptRange + ' days')}
+        ${kpi('Daily average', (enrolledWinTotal / Math.max(1, rptRange)).toFixed(1), 'per day across the window')}
+        ${kpi('Best ' + (bucketDays === 1 ? 'day' : 'week'), best.n.toLocaleString('en-IN'), best.n ? fmtD2(best.label) : '—')}
+        ${kpi('New villages reached', newVillages, 'first-ever enrollment in window')}
+      </div>` +
+      card('Enrollments per ' + (bucketDays === 1 ? 'day' : 'week') + ' — last ' + rptRange + ' days', '', tblWrap(chart)) +
+      card('NGO comparison — window', 'Per FC = enrollments ÷ FCs who enrolled at least one beneficiary in the window.',
+        tblWrap(`<table style="width:100%;border-collapse:collapse">
+          <tr><th style="${TH}">NGO</th><th style="${THR}">Enrolled</th><th style="${THR}">Active FCs</th><th style="${THR}">Per FC</th><th style="${TH}">Share</th></tr>
+          ${ngoRows.map(([ngo, g]) => `<tr>
+            <td style="${TD}"><b>${esc(ngo || '—')}</b></td>
+            <td style="${TDR}">${g.n.toLocaleString('en-IN')}</td>
+            <td style="${TDR}">${g.fcs.size}</td>
+            <td style="${TDR}">${g.fcs.size ? Math.round(g.n / g.fcs.size) : '—'}</td>
+            <td style="${TD}">${qBar(g.n / maxNgo * 100)}</td>
+          </tr>`).join('') || `<tr><td colspan="5" style="${TD};text-align:center;color:var(--gray2)">No enrollments in this window.</td></tr>`}
+        </table>`));
+  }
+
+  // ══ TAB 3 : ADVOCACY PIPELINE ════════════════════════════════════════════
+  if (rptTab === 'adv') {
+    const maxStatus = Math.max(1, ...Object.values(statusCount));
+    const frow = (label, n, color) =>
+      `<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <div style="width:150px;font-size:12.5px;font-weight:500;flex-shrink:0">${label}</div>
+        <div style="flex:1;background:var(--gray4);border-radius:8px;height:32px">
+          <div style="height:100%;border-radius:8px;display:flex;align-items:center;padding:0 10px;color:#fff;font-weight:600;font-size:12px;white-space:nowrap;background:${color};width:${Math.max(7, Math.round(n / maxStatus * 100))}%">${n.toLocaleString('en-IN')}</div>
+        </div>
+      </div>`;
+    const stuckRows = Array.from(stuckByScheme.entries()).sort((a, b) => b[1].n - a[1].n).slice(0, 10)
+      .map(([sch, g]) => {
+        let topNgo = '—', topN = 0;
+        g.ngos.forEach((n, k) => { if (n > topN) { topN = n; topNgo = k; } });
+        return `<tr>
+          <td style="${TD}">${esc(sch)}</td>
+          <td style="${TDR}"><b>${g.n.toLocaleString('en-IN')}</b></td>
+          <td style="${TDR}">${Math.round(g.daysSum / g.n)}</td>
+          <td style="${TD}">${esc(topNgo)}</td>
+        </tr>`;
+      }).join('');
+    const succRows = Array.from(schemeStats.entries()).filter(([, s]) => s.filed >= 10)
+      .sort((a, b) => b[1].filed - a[1].filed).slice(0, 12)
+      .map(([sch, s]) => `<tr>
+        <td style="${TD}">${esc(sch)}</td>
+        <td style="${TDR}">${s.filed.toLocaleString('en-IN')}</td>
+        <td style="${TDR}">${s.recd.toLocaleString('en-IN')}</td>
+        <td style="${TDR}">${s.rej.toLocaleString('en-IN')}</td>
+        <td style="${TDR}">${pctPill(s.filed ? s.recd / s.filed * 100 : null)}</td>
+      </tr>`).join('');
+    body =
+      `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px">
+        ${kpi('Scheme records', advTotal.toLocaleString('en-IN'), 'latest status per beneficiary-scheme')}
+        ${kpi('Benefits received', statusCount['Benefits Received'].toLocaleString('en-IN'), advTotal ? Math.round(statusCount['Benefits Received'] / advTotal * 100) + '% of all' : '', 'var(--green)')}
+        ${kpi('Stuck 60+ days', stuckTotal.toLocaleString('en-IN'), 'applied, no status change since logging', stuckTotal ? 'var(--amber)' : 'var(--green)')}
+        ${kpi('Rejected', statusCount['Rejected'].toLocaleString('en-IN'), advTotal ? Math.round(statusCount['Rejected'] / advTotal * 100) + '% of all' : '', 'var(--red)')}
+      </div>` +
+      card('The pipeline — where every scheme application stands', 'Counts of beneficiary-scheme records at each stage right now (latest status only, respecting the State/NGO filters above).',
+        frow('Need to Apply', statusCount['Need to Apply'], '#9CA3AF') +
+        frow('Applied', statusCount['Applied'], '#2E75B6') +
+        frow('✓ Benefits Received', statusCount['Benefits Received'], '#146B38') +
+        frow('✗ Rejected', statusCount['Rejected'], '#B91C1C')) +
+      card('⏳ Stuck applications — "Applied" logged 60+ days ago, still no outcome',
+        'Age is measured from when the entry was logged (the app does not store per-status-change dates). Follow up with the FC or the block office.',
+        tblWrap(`<table style="width:100%;border-collapse:collapse">
+          <tr><th style="${TH}">Scheme</th><th style="${THR}">Stuck</th><th style="${THR}">Avg days since logged</th><th style="${TH}">Most affected NGO</th></tr>
+          ${stuckRows || `<tr><td colspan="4" style="${TD};text-align:center;color:var(--green)">Nothing stuck 60+ days. 🎉</td></tr>`}
+        </table>`)) +
+      card('Scheme success rates', 'Of entries filed (applied / received / rejected), how many reached benefits. Schemes with fewer than 10 filed entries are hidden.',
+        tblWrap(`<table style="width:100%;border-collapse:collapse">
+          <tr><th style="${TH}">Scheme</th><th style="${THR}">Filed</th><th style="${THR}">✓ Received</th><th style="${THR}">✗ Rejected</th><th style="${THR}">Success</th></tr>
+          ${succRows || `<tr><td colspan="5" style="${TD};text-align:center;color:var(--gray2)">Not enough data yet.</td></tr>`}
+        </table>`));
+  }
+
+  // ══ TAB 4 : LIVELIHOOD IMPACT ════════════════════════════════════════════
+  if (rptTab === 'liv') {
+    const added = sumEnd - sumBase;
+    const avgInc = endN ? added / endN : null;
+    const uplift = sumBase ? (added / sumBase) * 100 : null;
+    const maxStage = Math.max(1, ...Object.values(stage));
+    const frow = (label, n, color) =>
+      `<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <div style="width:170px;font-size:12.5px;font-weight:500;flex-shrink:0">${label}</div>
+        <div style="flex:1;background:var(--gray4);border-radius:8px;height:32px">
+          <div style="height:100%;border-radius:8px;display:flex;align-items:center;padding:0 10px;color:#fff;font-weight:600;font-size:12px;white-space:nowrap;background:${color};width:${Math.max(7, Math.round(n / maxStage * 100))}%">${n.toLocaleString('en-IN')}</div>
+        </div>
+      </div>`;
+    const intRows = Array.from(byInt.entries())
+      .sort((a, b) => (a[0] === '__multi' ? 1 : b[0] === '__multi' ? -1 : (b[1].end - b[1].base) / b[1].n - (a[1].end - a[1].base) / a[1].n))
+      .map(([key, g]) => {
+        const inc = (g.end - g.base) / g.n;
+        const up = g.base ? (g.end - g.base) / g.base * 100 : null;
+        const isMulti = key === '__multi';
+        return `<tr${isMulti ? ' style="background:var(--navy4)"' : ''}>
+          <td style="${TD}">${isMulti ? '<b>Multiple interventions (2+)</b>' : esc(key) + ' <span style="font-size:10px;color:var(--gray2)">(only)</span>'}</td>
+          <td style="${TDR}">${g.n.toLocaleString('en-IN')}</td>
+          <td style="${TDR}"><b>${inc >= 0 ? '+' : ''}${_rptMoney(inc)}</b></td>
+          <td style="${TDR}">${_rptMoney(inc / 12)}</td>
+          <td style="${TDR}">${pctPill(up)}</td>
+        </tr>`;
+      }).join('');
+    const ngoRows = Array.from(byNgoLiv.entries()).sort((a, b) => (b[1].end - b[1].base) / b[1].n - (a[1].end - a[1].base) / a[1].n).slice(0, 12)
+      .map(([ngo, g]) => {
+        const inc = (g.end - g.base) / g.n;
+        const up = g.base ? (g.end - g.base) / g.base * 100 : null;
+        return `<tr>
+          <td style="${TD}"><b>${esc(ngo || '—')}</b></td>
+          <td style="${TDR}">${g.n.toLocaleString('en-IN')}</td>
+          <td style="${TDR}"><b>${inc >= 0 ? '+' : ''}${_rptMoney(inc)}</b></td>
+          <td style="${TDR}">${_rptMoney(inc / 12)}</td>
+          <td style="${TDR}">${pctPill(up)}</td>
+        </tr>`;
+      }).join('');
+    const odRows = Array.from(overdueNgo.entries()).sort((a, b) => b[1].n - a[1].n).slice(0, 10)
+      .map(([ngo, g]) => `<tr>
+        <td style="${TD}"><b>${esc(ngo || '—')}</b></td>
+        <td style="${TDR}"><b>${g.n.toLocaleString('en-IN')}</b></td>
+        <td style="${TDR}">${Math.round(g.oldest / 30)} months ago</td>
+      </tr>`).join('');
+    body =
+      `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px">
+        ${kpi('Livelihood beneficiaries', livN.toLocaleString('en-IN'), 'enrolled in a program')}
+        ${kpi('Avg income increase', avgInc == null ? '—' : (avgInc >= 0 ? '+' : '') + _rptMoney(avgInc), avgInc == null ? 'no endlines yet' : 'per year ≈ ' + _rptMoney(avgInc / 12) + ' / month', 'var(--green)')}
+        ${kpi('Avg uplift', uplift == null ? '—' : (uplift >= 0 ? '+' : '') + Math.round(uplift) + '%', 'baseline → endline', 'var(--green)')}
+        ${kpi('Endline overdue', overdue.toLocaleString('en-IN'), 'enrolled 12+ months, no endline', overdue ? 'var(--amber)' : 'var(--green)')}
+      </div>` +
+      (endN ? `<div style="background:var(--green2);border:1px solid #A7F3D0;border-radius:12px;padding:16px;margin-bottom:14px">
+        <div style="font-size:15px;font-weight:700;color:var(--green)">Total measured income added: ${_rptMoney(added)} / year</div>
+        <div style="font-size:11px;color:#065F46;margin-top:3px">Across the ${endN.toLocaleString('en-IN')} beneficiaries with completed baseline + endline surveys. Counts only measured, surveyed income change — nothing estimated.</div>
+      </div>` : '') +
+      card('Program stages — where every livelihood beneficiary stands', 'Baseline survey at enrollment → intervention → endline survey measures the change.',
+        frow('Baseline Completed', stage['Enrolled'] || 0, '#2E75B6') +
+        frow('Intervention In Progress', stage['Intervention In Progress'] || 0, '#7C3AED') +
+        frow('✓ Endline Completed', stage['Completed'] || 0, '#146B38')) +
+      card('Income impact by intervention — completed endlines only',
+        'A household income is one number — if someone has 2+ interventions the gain cannot honestly be split between them, so they get their own row. ₹ figures are real survey data.',
+        tblWrap(`<table style="width:100%;border-collapse:collapse">
+          <tr><th style="${TH}">Intervention</th><th style="${THR}">Endlines</th><th style="${THR}">Avg increase / yr</th><th style="${THR}">≈ / month</th><th style="${THR}">Uplift</th></tr>
+          ${intRows || `<tr><td colspan="5" style="${TD};text-align:center;color:var(--gray2)">No completed endlines under the current filters.</td></tr>`}
+        </table>`)) +
+      card('⏰ Endline backlog — enrolled 12+ months ago, still no endline survey',
+        'Without the endline, their income impact can never be counted. Assign FCs to close these out.',
+        tblWrap(`<table style="width:100%;border-collapse:collapse">
+          <tr><th style="${TH}">NGO</th><th style="${THR}">Overdue endlines</th><th style="${THR}">Oldest enrollment</th></tr>
+          ${odRows || `<tr><td colspan="3" style="${TD};text-align:center;color:var(--green)">No overdue endlines. 🎉</td></tr>`}
+        </table>`)) +
+      card('Income uplift by NGO — completed endlines only', '',
+        tblWrap(`<table style="width:100%;border-collapse:collapse">
+          <tr><th style="${TH}">NGO</th><th style="${THR}">Endlines</th><th style="${THR}">Avg increase / yr</th><th style="${THR}">≈ / month</th><th style="${THR}">Avg uplift</th></tr>
+          ${ngoRows || `<tr><td colspan="5" style="${TD};text-align:center;color:var(--gray2)">No completed endlines under the current filters.</td></tr>`}
+        </table>`));
+  }
+
+  // ── chrome: tabs + range chips ────────────────────────────────────────────
+  const tab = (id, label) =>
+    `<button onclick="rptSetTab('${id}')" style="padding:9px 16px;font-size:13px;font-weight:${rptTab === id ? '600' : '500'};border:none;background:none;cursor:pointer;font-family:var(--font);color:${rptTab === id ? 'var(--navy)' : 'var(--gray2)'};border-bottom:${rptTab === id ? '2px solid var(--navy)' : '2px solid transparent'};margin-bottom:-2px;white-space:nowrap">${label}</button>`;
+  const chipBtn = d =>
+    `<button onclick="rptSetRange(${d})" style="font-size:12px;padding:6px 12px;border-radius:16px;border:1px solid ${rptRange === d ? 'var(--navy)' : 'var(--gray3)'};background:${rptRange === d ? 'var(--navy)' : '#fff'};color:${rptRange === d ? '#fff' : 'var(--gray1)'};cursor:pointer;font-family:var(--font);font-weight:${rptRange === d ? '600' : '400'}">${d === 365 ? '12 months' : d + ' days'}</button>`;
+  const showChips = (rptTab === 'fc' || rptTab === 'trend');
+  document.getElementById('content').innerHTML =
+    `<div style="max-width:1080px">
+      <div style="font-size:19px;font-weight:700;margin-bottom:2px">📊 Reports</div>
+      <div style="font-size:12px;color:var(--gray2);margin-bottom:14px">Decision-making insights · computed on this device from already-loaded data · zero extra Firebase download · respects the State/NGO filters above</div>
+      <div style="display:flex;gap:0;border-bottom:2px solid var(--gray3);margin-bottom:14px;overflow-x:auto">
+        ${tab('fc', '👥 FC Performance')}${tab('trend', '📈 Enrollment Trends')}${tab('adv', '🏛 Advocacy Pipeline')}${tab('liv', '🌾 Livelihood Impact')}
+      </div>
+      ${showChips ? `<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap">${chipBtn(7)}${chipBtn(30)}${chipBtn(90)}${chipBtn(365)}</div>` : ''}
+      ${body}
+    </div>`;
+}
+
 // ── Nav ───────────────────────────────────────────────────────────────────
-const _navRoutes_v32={dashboard:renderDashboard,beneficiaries:renderAllBeneficiaries,list:renderLivelihood,ngo:renderNGO,alerts:renderAlerts,map:renderMap,integrated:renderIntegrated,advocacy:renderAdvocacy,admin_partners:renderAdminPartners,admin_users:renderAdminUsers,admin_livelihoods:renderAdminLivelihoods,admin_schemes:renderAdminSchemes,admin_audit:renderAdminAuditLog,admin_import:renderAdminImport,admin_photo_migration:renderAdminPhotoMigration,admin_advocacy_backfill:renderAdminAdvocacyBackfill,admin_dedup_ids:renderAdminDedupIds,admin_delete_dupes:renderAdminDeleteDupes,admin_scheme_rename:renderAdminSchemeRename,admin_bandwidth:renderAdminBandwidth};
+const _navRoutes_v32={reports:renderReports,dashboard:renderDashboard,beneficiaries:renderAllBeneficiaries,list:renderLivelihood,ngo:renderNGO,alerts:renderAlerts,map:renderMap,integrated:renderIntegrated,advocacy:renderAdvocacy,admin_partners:renderAdminPartners,admin_users:renderAdminUsers,admin_livelihoods:renderAdminLivelihoods,admin_schemes:renderAdminSchemes,admin_audit:renderAdminAuditLog,admin_import:renderAdminImport,admin_photo_migration:renderAdminPhotoMigration,admin_advocacy_backfill:renderAdminAdvocacyBackfill,admin_dedup_ids:renderAdminDedupIds,admin_delete_dupes:renderAdminDeleteDupes,admin_scheme_rename:renderAdminSchemeRename,admin_bandwidth:renderAdminBandwidth};
 
 // ── V357: tab-render cache (admin Lite Mode) ──────────────────────────────
 // Memoises each _navRoutes_v32 renderer's output keyed on
@@ -19343,7 +19872,8 @@ function _v357ComputeSig(view) {
   const filterVars = [
     'stateFilter','ngoFilter','fcFilter',
     'baselineFrom','baselineTo','endlineFrom','endlineTo',
-    'allBCurrentPage','livCurrentPage','advBCurrentPage'
+    'allBCurrentPage','livCurrentPage','advBCurrentPage',
+    'rptTab','rptRange'   // V4.6: Reports tab/range must be part of the cache key
   ];
   for (const name of filterVars) {
     let v = null;
@@ -19376,7 +19906,7 @@ window._v357CacheStats = function() {
 // avoid pointless skeleton flicker.
 const _v361HeavyViews = new Set([
   'dashboard', 'beneficiaries', 'integrated', 'advocacy',
-  'admin_audit', 'admin_bandwidth', 'list', 'ngo'
+  'admin_audit', 'admin_bandwidth', 'list', 'ngo', 'reports'
 ]);
 function _v361LoadingSkeleton(viewName) {
   const labels = {
