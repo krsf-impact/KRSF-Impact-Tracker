@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V4.6-LIVE
+  KRSF Beneficiary Impact Tracker  -  V4.9-LIVE
   ============================================================================
   VERSIONING SCHEME CHANGED (2026-07-13): the old plain-integer numbering
   (...V410, V411, V412, V413...) is retired as of this release. This build —
@@ -8,6 +8,172 @@
   every release increments the number after the dot: V4.3, V4.4, V4.5, and
   so on. Nothing about the app changed because of this — it's a labeling
   change only, made because "V413/V414" was hard to read at a glance.
+  ============================================================================
+  V4.9-LIVE (2026-07-17 — Reports: tap tooltips + click-to-drill-down):
+
+    User request: "Can you make the reports more interactive. Show tooltip
+    or make it more meaningful." The V4.6 Reports section (4 tabs) had zero
+    hover/click interactivity anywhere — every number was a flat stat with
+    no explanation, and none of the leaderboard/comparison/pipeline tables
+    could be clicked into.
+
+    1. New small "ⓘ" tooltip component (_rptTip/_rptShowTip) — tap/click
+       triggered, not hover-only, because this app already learned (see the
+       comment near line 11925) that native title= attributes never fire on
+       touch devices. The visible icon is a small 15px circle but the tap
+       target is padded to ~25px. Appended to document.body (same pattern as
+       _advShowStatusPop) so it's immune to the _v357TabCache innerHTML swap
+       on the next Reports render; tab/range switching explicitly dismisses
+       any open tooltip so it never floats disconnected after the view under
+       it changes.
+    2. Every KPI card across all 4 tabs (16 total) now explains in plain
+       language what the number means and how it's computed — e.g. "Data
+       quality" -> "% of this FC's records with a phone, GPS, or photo on
+       file." A few non-obvious table headers (Conversion, Data quality,
+       Success, Uplift x2) got the same treatment.
+    3. Enrollment Trends chart: previously one flat SVG polyline with only
+       the single "best day" as a real, hoverable element. Every point now
+       gets an invisible tap-target circle + a small visible dot, showing
+       its exact date and count on tap.
+    4. Click-to-drill-down, reusing filter plumbing that already existed
+       elsewhere in the app (no new state, no _v357ComputeSig changes
+       needed since these all navigate AWAY from Reports): FC leaderboard
+       rows and NGO comparison rows jump to that FC's/NGO's filtered
+       beneficiary list (fcFilter/ngoFilter + nav('list'), the same pattern
+       the NGO Partners FC-wise table already used); stuck-application rows
+       and scheme-success rows jump to the Advocacy view pre-filtered to
+       that scheme (advSchemeFilter/advStageF + nav('advocacy'), the same
+       pattern the live Advocacy view's own clickable KPI cards use).
+
+    Verified on staging (isolated seeded namespace, deleted after): tooltip
+    tap-to-open/tap-to-close confirmed on a KPI card and a chart point (exact
+    "19 Jun: 1 enrolled" text matched the seeded data); all 4 drill-down
+    click types verified against real filtered counts (FC row -> exactly
+    that FC's 14 beneficiaries; NGO row -> exactly that NGO's 8; stuck row ->
+    advStageF/advSchemeFilter set correctly; success row -> advSchemeFilter
+    set correctly); confirmed the suspicious-endline and endline-overdue
+    edge cases seeded on purpose still surfaced correctly; tab-cache switch
+    behavior re-verified (tooltip now correctly dismisses on tab/range
+    switch instead of floating, a bug caught during this same testing pass);
+    375px width confirmed zero horizontal overflow and a 25x25px tooltip tap
+    target. Zero Firebase impact — this is pure client-side rendering logic
+    layered onto data the admin app already holds in memory; no new reads,
+    listeners, or writes anywhere in the diff.
+
+  ============================================================================
+  V4.8-LIVE (2026-07-17 — locked baseline + multi-entry additional income):
+
+    Operational problem the user reported: baseline and endline income were
+    both being entered as raw TOTALS, so the endline field showed the
+    delta subtracted from itself — e.g. baseline ₹2,00,000, vermi-compost
+    gain ₹10,000 recorded as endline ₹10,000, which reads as income
+    CRASHING from 2,00,000 to 10,000 instead of rising to 2,10,000. The
+    real live entry point for this (openLogIncomeFor / _renderLogIncomeBody
+    — NOT the V4.7-guarded single-field openEndlineFor/submitEndline, which
+    is confirmed dead code with zero live callers) had the exact same root
+    bug: b.endIncome was recomputed as sum(incomeLog) only, never including
+    baseline.
+
+    User-approved design (iterated through 3 mockups): baseline income is
+    shown LOCKED; FCs log one or more ADDITIONAL-income entries on top of
+    it, each tagged to the intervention(s) it came from (supports both a
+    2000+8000 split across two entries and a combined 15000 across two
+    interventions in one entry); a dedicated "No additional income —
+    record ₹0" button covers "no gain to report" without a decrease UI
+    (the user was explicit: genuine income drops aren't a case to design
+    for here — 0 is the floor).
+
+    1. New `_incomeLogGrandTotal(b)` = baseline + sum(incomeLog) — the
+       single source of truth for what b.endIncome should be. Applied at
+       all 7 write-sites: lazy migration (_ensureIncomeLogMigrated, now
+       migrates the DELTA instead of the raw legacy total), restore-
+       reverted-endline, add entry, edit entry, delete entry, and both
+       bulk-import tools (their CSV columns still mean an absolute total —
+       only the internal incomeLog representation changed to store the
+       delta; external admin-facing behavior is unchanged).
+    2. Drawer + Log Income modal: baseline shown as a locked, read-only
+       card; endline card relabeled "New Total Income" = baseline + sum of
+       logged entries, with entry count and Δ shown beneath.
+    3. Log Income modal add-form: new intervention multi-select chip row
+       (reuses the existing .ichip pattern from the enrollment form) —
+       every entry must be tagged to ≥1 intervention this beneficiary is
+       actually enrolled in. Chips use direct DOM toggling (not a
+       re-render) so in-progress Date/Amount/Note values are never wiped
+       by a chip tap. New entries table column "Source(s)" shows the
+       tagged intervention(s), joined with " + " for multi-tag entries.
+    4. New "No additional income — record ₹0" button: skips the source-
+       chip requirement, creates a real ₹0 entry (still flips status to
+       Completed on first entry — a ₹0 result is a valid, deliberate
+       survey completion, not a non-answer).
+    5. Old openEndlineFor/submitEndline/calcDelta/closeEndline block
+       (including the V4.7 guard) marked with an explicit "CONFIRMED DEAD"
+       comment — verified zero onclick="openEndlineFor callers anywhere in
+       the app. Left in place (out of scope to excise the surrounding DOM)
+       but should not be extended further.
+
+    Verified on staging (isolated seeded namespace, deleted after): legacy
+    record with a correctly-entered raw endIncome (baseline 2,00,000 /
+    endIncome 2,10,000, no incomeLog) lazily migrated to a single +10,000
+    entry on first modal open, matching the drawer's pre-migration display
+    exactly; multi-intervention beneficiary — 2-source combined entry
+    (Vermi-composting + Poultry, +15,000) saved and round-tripped through
+    a direct Firebase REST read (not just local state) with the correct
+    sources array and endIncome = baseline+15,000; fresh record + ₹0
+    button left endIncome at baseline and flipped status to Completed;
+    edit (amount + added a second source) and delete (both a middle entry
+    and the last remaining entry, confirming the full status/endlineDate
+    revert) all recomputed correctly; Log Income modal fits 375px (335px
+    wide, chips hit the 44px touch-target rule). Zero change to Firebase
+    read/write patterns — same one-write-per-submit shape as the pre-V4.8
+    feature, only the math changed.
+
+  ============================================================================
+  V4.7-LIVE (2026-07-17 — endline income guard + suspicious-endlines report):
+
+    Operational problem the user reported: FCs sometimes enter only the
+    ADDITIONAL income from an intervention into the endline field (e.g.
+    baseline ₹2,00,000, vermi-compost gain ₹10,000 → they type 10,000).
+    The endline field means TOTAL income now, so the app then reports a
+    95% income CRASH instead of a +5% gain. The field meaning stays
+    unchanged (flipping it would corrupt every correctly-entered record);
+    instead the form now catches the mistake at entry.
+
+    1. [i18n] endline.endlinePh / endline.endlineHint sharpened in BOTH
+       languages: "Enter TOTAL income now (not just the gain)" / "old
+       income + new income together. Do NOT enter only the additional
+       income." + 7 new endline.guard* strings (en+gu).
+    2. [submitEndline] If the entered total is < 50% of baseline, a
+       bilingual guard dialog appears (document.body-appended, same
+       pattern as showPromptModal). Three explicit ways out, nothing
+       saved silently:
+         • "Yes — it is additional. Save TOTAL as ₹(baseline+entered)" —
+           sets the input to the sum, re-runs submitEndline through the
+           untouched normal save path.
+         • "No — income really fell. Save ₹entered" — one-shot bypass
+           flag (window._v47EndlineGuardBypass, cleared on every submit
+           entry), saves as entered. Genuine drops are never blocked.
+         • "Go back and correct the amount" — cancel, refocus the field.
+       Entries ≥ 50% of baseline never see the dialog.
+    3. [Reports → Livelihood] New "🔍 Suspicious endlines" review card:
+       records where endline < HALF of baseline (the signature of this
+       mistake), sorted most-severe first, capped at 50 rows, with an
+       "If additional: total" column showing baseline+entered. REVIEW
+       list only — nothing is auto-changed (real income drops exist).
+
+    Verified on staging (isolated seeded namespace): the user's exact
+    scenario (2,00,000 / 10,000) triggered the guard with correct math;
+    "additional" path saved 2,10,000 and status Completed (confirmed via
+    loadData after Firebase round-trip); "really fell" path saved the
+    entered value with the bypass flag correctly cleared after; a normal
+    entry (60,000 vs 50,000 baseline) saved with NO dialog; the suspects
+    card listed exactly the 2 seeded suspect records severity-sorted with
+    correct FC names and if-additional totals while the corrected records
+    stayed absent; full Gujarati dialog verified under the coordinator
+    role (admin correctly stays English by the existing _effectiveLang
+    rule); guard modal fits 375px (343px wide, buttons 44-62px tall).
+    Zero Firebase impact: pure form-side logic + a card computed inside
+    the existing Reports pass.
+
   ============================================================================
   V4.6-LIVE (2026-07-16 — 📊 Reports: decision-making insights, admin-only):
 
@@ -5124,7 +5290,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V4.6-LIVE';
+const APP_VERSION = 'V4.9-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -8724,8 +8890,16 @@ const I18N = {
   'endline.baselineLbl':      {en: 'Baseline Annual Income', gu: 'પ્રારંભિક સર્વે દરમિયાનની વાર્ષિક આવક'},
   'endline.baselineOn':       {en: 'Recorded on', gu: 'નોંધાયેલ તારીખ'},
   'endline.endlineLbl':       {en: 'Endline Annual Income (Rs/yr) *', gu: 'અંતિમ સર્વે દરમિયાનની વાર્ષિક આવક'},
-  'endline.endlinePh':        {en: 'Enter updated total', gu: 'કુલ આવક દાખલ કરો'},
-  'endline.endlineHint':      {en: 'Total annual household income at follow-up', gu: 'Follow up સમયે પરિવારની વાર્ષિક આવક'},
+  'endline.endlinePh':        {en: 'Enter TOTAL income now (not just the gain)', gu: 'હાલની કુલ આવક દાખલ કરો (માત્ર વધારો નહીં)'},
+  'endline.endlineHint':      {en: 'TOTAL annual household income now — old income + new income together. Do NOT enter only the additional income from the intervention.', gu: 'હાલની કુલ વાર્ષિક આવક — જૂની આવક + નવી આવક બંને મળીને. માત્ર વધારાની (નવી) આવક જ દાખલ કરશો નહીં.'},
+  // V4.7: guard dialog — catches the "entered only the ADDITIONAL income" mistake
+  'endline.guardTitle':       {en: '⚠ Please check this amount', gu: '⚠ મહેરબાની કરીને આ રકમ તપાસો'},
+  'endline.guardBase':        {en: 'Baseline income was', gu: 'પ્રારંભિક આવક હતી'},
+  'endline.guardEntered':     {en: 'You entered', gu: 'તમે દાખલ કરી'},
+  'endline.guardQ':           {en: 'Is the amount you entered only the ADDITIONAL (new) income from the intervention?', gu: 'શું તમે દાખલ કરેલી રકમ માત્ર વધારાની (નવી) આવક છે?'},
+  'endline.guardAdd':         {en: 'Yes — it is additional. Save TOTAL as', gu: 'હા — આ વધારાની આવક છે. કુલ આવક તરીકે સાચવો'},
+  'endline.guardKeep':        {en: 'No — income really fell. Save', gu: 'ના — આવક ખરેખર ઘટી છે. સાચવો'},
+  'endline.guardCancel':      {en: 'Go back and correct the amount', gu: 'પાછા જઈને રકમ સુધારો'},
   'endline.photoSection':     {en: '📷 Endline Photo & GPS Location', gu: 'અંતિમ સર્વે દરમિયાનનો ફોટો અને GPS સ્થાન'},
   'endline.photoIntro':       {en: 'Take a photo of the beneficiary at their farm or workplace to verify the endline visit. GPS coordinates captured automatically.', gu: 'અંતિમ સર્વેની આવક ચકાસવા માટે લાભાર્થીનો તેમના ખેતર અથવા કાર્યસ્થળે મુલાકાતનો ફોટો લો. GPS કોઓર્ડિનેટ્સ આપોઆપ કેપ્ચર થાય છે.'},
   'endline.noPhoto':          {en: 'No endline photo taken yet', gu: 'હજુ સુધી અંતિમ સર્વેનો ફોટો લેવાયો નથી'},
@@ -10813,7 +10987,7 @@ let _genIdMutex = Promise.resolve();
 // After this fires once, the counter is canonical and no further scans
 // ever happen for that state in the entire Firebase project.
 async function _v353BootstrapScanMax(prefix) {
-  const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';  // V4.6-LIVE: production
+  const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';  // V4.9-LIVE: production
   const NS = 'krsf_tracker';
   let authToken = '';
   try {
@@ -11077,18 +11251,21 @@ function _ensureIncomeLogMigrated(b) {
     if (!Array.isArray(b.incomeLog)) b.incomeLog = [];
     return false;
   }
-  // Migrate the single-shot value into a synthetic first entry. Date
-  // preference: existing endlineDate → inProgressDate → today.
   const dt = b.endlineDate || b.inProgressDate || new Date().toISOString().split('T')[0];
+  const migratedAmount = (parseFloat(b.endIncome) || 0) - (b.baseIncome || 0);
   b.incomeLog = [{
     date: dt,
-    amount: parseFloat(b.endIncome) || 0,
-    note: 'Migrated from previous endline entry',
+    amount: migratedAmount,
+    sources: [],
+    note: 'Migrated from previous endline entry (total was ' + fmt(b.endIncome) + ')',
     addedBy: 'system',
     addedByName: 'System (auto-migration)',
     addedAt: new Date().toISOString(),
   }];
   return true;
+}
+function _incomeLogGrandTotal(b) {
+  return (b && b.baseIncome || 0) + _incomeLogTotal(b);
 }
 
 
@@ -11281,22 +11458,28 @@ function openDrawer(id) {
 
 
     ${hasLiv ? (() => {
-      // #5: Two-up Baseline | Endline (locked). Endline = sum of incomeLog
-      // entries (with lazy migration from old single-shot endIncome). The
-      // box is intentionally read-only; the only way to mutate it is via
-      // the [+ Log Income] button below.
-      const logEntries = Array.isArray(b.incomeLog) ? b.incomeLog
-                       : (b.endIncome != null ? [{date: b.endlineDate||b.enrollDate, amount: b.endIncome, note:'(legacy entry — click Log Income to migrate)'}] : []);
-      const endTotal = logEntries.reduce((s,e) => s + (parseFloat(e.amount)||0), 0);
-      const hasEnd = logEntries.length > 0;
-      const dlta = hasEnd ? (endTotal - (b.baseIncome||0)) : 0;
-      const pctL = (hasEnd && b.baseIncome) ? Math.round(dlta/b.baseIncome*100) : 0;
-      const deltaColor = dlta >= 0 ? 'var(--green)' : 'var(--red)';
+      // V4.8: Two-up Baseline | Endline (locked). Endline = baseline PLUS
+      // sum of incomeLog entries — each entry is ADDITIONAL income, never a
+      // fresh total. Legacy records with a raw endIncome but no incomeLog
+      // yet (not opened in Log Income since V4.8 shipped) are shown via a
+      // synthetic delta = endIncome - baseline, matching exactly what
+      // _ensureIncomeLogMigrated will persist the first time this record's
+      // Log Income modal is opened — the drawer number and the post-migration
+      // number never disagree.
+      const hasRealLog = Array.isArray(b.incomeLog) && b.incomeLog.length > 0;
+      const hasLegacyOnly = !hasRealLog && b.endIncome != null;
+      const hasEnd = hasRealLog || hasLegacyOnly;
+      const entryCount = hasRealLog ? b.incomeLog.length : (hasLegacyOnly ? 1 : 0);
+      const additionalTotal = hasRealLog ? _incomeLogTotal(b)
+                             : (hasLegacyOnly ? (b.endIncome - (b.baseIncome||0)) : 0);
+      const grandTotal = (b.baseIncome||0) + additionalTotal;
+      const pctL = (hasEnd && b.baseIncome) ? Math.round(additionalTotal/b.baseIncome*100) : 0;
+      const deltaColor = additionalTotal >= 0 ? 'var(--green)' : 'var(--red)';
       // Fix 2: 3-state color scheme. Red for income DROP below baseline
       // (signals a bad outcome the user should notice), green for any
       // improvement, amber only when no entries yet.
       const hasBaseForCompare = (b.baseIncome || 0) > 0;
-      const isDecrease = hasEnd && hasBaseForCompare && endTotal < b.baseIncome;
+      const isDecrease = hasEnd && hasBaseForCompare && additionalTotal < 0;
       const endBg = !hasEnd ? 'var(--amber2)' : (isDecrease ? '#FEF2F2' : 'var(--green2)');
       const endBorder = !hasEnd ? '#F59E0B' : (isDecrease ? 'var(--red)' : 'var(--green)');
       const endValColor = !hasEnd ? 'var(--amber)' : (isDecrease ? 'var(--red)' : 'var(--green)');
@@ -11314,10 +11497,10 @@ function openDrawer(id) {
             <span>Endline Income</span>
             <span style="font-size:9px;background:var(--gray3);color:var(--gray1);padding:1px 6px;border-radius:3px;letter-spacing:.04em;text-transform:uppercase;font-weight:700">🔒 Locked</span>
           </div>
-          <div class="delta-val" style="color:${endValColor}">${hasEnd ? fmt(endTotal) : '—'}</div>
+          <div class="delta-val" style="color:${endValColor}">${hasEnd ? fmt(grandTotal) : '—'}</div>
           <div style="font-size:12px;color:var(--gray2);margin-top:4px">
             ${hasEnd
-              ? `${logEntries.length} log ${logEntries.length===1?'entry':'entries'} · Δ <span style="color:${deltaColor};font-weight:700">${dlta>=0?'+':''}${fmt(dlta)} (${dlta>=0?'+':''}${pctL}%)</span>`
+              ? `${entryCount} log ${entryCount===1?'entry':'entries'} · Δ <span style="color:${deltaColor};font-weight:700">${additionalTotal>=0?'+':''}${fmt(additionalTotal)} (${additionalTotal>=0?'+':''}${pctL}%)</span>`
               : 'No income logged yet'}
           </div>
         </div>
@@ -11559,10 +11742,11 @@ async function restoreRevertedEndline(id) {
   const nEntries = Array.isArray(arc.incomeLog) ? arc.incomeLog.length : 0;
   if (!await showConfirmModal(`Restore the archived endline for "${b.name}"?\n\nThis re-applies ${nEntries} income-log entr${nEntries===1?'y':'ies'} and the endline date, and marks the record Completed again.`, { okLabel: 'Restore', title: 'Restore endline' })) return;
   b.incomeLog = Array.isArray(arc.incomeLog) ? arc.incomeLog.slice() : [];
-  // endIncome is a computed mirror of sum(incomeLog); recompute from the
-  // restored log, falling back to the archived total for legacy single-shot data.
-  b.endIncome = (b.incomeLog.length > 0 && typeof _incomeLogTotal === 'function')
-    ? _incomeLogTotal(b)
+  // V4.8: endIncome is baseline + sum(incomeLog) (see _incomeLogGrandTotal),
+  // recomputed from the restored log; falls back to the archived total for
+  // legacy single-shot data with no log.
+  b.endIncome = (b.incomeLog.length > 0 && typeof _incomeLogGrandTotal === 'function')
+    ? _incomeLogGrandTotal(b)
     : (arc.endIncome != null ? arc.endIncome : null);
   b.endlineDate = arc.endlineDate || b.endlineDate || new Date().toISOString().split('T')[0];
   b.status = 'Completed';
@@ -14584,6 +14768,15 @@ async function submitEndlinePhotoOnly() {
 // Endline flow is accessed via the Livelihood tab + drawer "Complete
 // Endline" button. openEndlineFor() below is still active; helper
 // functions and the render page were deleted for clarity. ──────────────
+//
+// V4.8 CONFIRMED DEAD: openEndlineFor/submitEndline/calcDelta/closeEndline
+// and the V4.7 guard (_v47ShowEndlineGuard) below have zero live callers —
+// grepped the whole app for onclick="openEndlineFor and found none. The
+// real, live single-field-total endline entry point is the "+ Log Income"
+// modal (openLogIncomeFor / _renderLogIncomeBody), which V4.8 reworked to
+// a locked-baseline + multi-entry additional-income model instead. Left
+// this block in place (out of scope to excise the surrounding DOM/CSS)
+// but it is not reachable from any UI and should not be extended further.
 
 function openEndlineFor(id) {
   currentEndlineBid = id;
@@ -14705,6 +14898,61 @@ function closeEndline() {
   }
 }
 
+// ── V4.7: endline sanity guard ──────────────────────────────────────────────
+// Shown by submitEndline() when the entered total is < 50% of baseline.
+// Three ways out, all explicit — nothing is ever saved silently:
+//   1. "It is ADDITIONAL income" → input becomes baseline + entered, delta
+//      preview refreshes, and submitEndline() re-runs (now above the
+//      threshold, so it saves normally through the untouched save path).
+//   2. "Income really fell" → one-shot bypass flag, submitEndline() re-runs
+//      and saves the entered value as-is.
+//   3. Cancel → back to the form to correct the amount.
+// document.body-appended like showPromptModal/showSchemeStatesModal — its own
+// DOM subtree, bilingual via t() at build time.
+window._v47EndlineGuardBypass = false;
+function _v47ShowEndlineGuard(b, entered) {
+  const old = document.getElementById('v47-endline-guard');
+  if (old) old.remove();
+  const sum = (b.baseIncome || 0) + entered;
+  const fmtR = v => '₹' + Math.round(v).toLocaleString('en-IN');
+  const wrap = document.createElement('div');
+  wrap.id = 'v47-endline-guard';
+  wrap.style.cssText = 'position:fixed;inset:0;z-index:10050;background:rgba(17,24,39,.55);display:flex;align-items:center;justify-content:center;padding:16px';
+  wrap.innerHTML =
+    '<div style="background:#fff;border-radius:14px;max-width:430px;width:100%;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.3)">' +
+      '<div style="font-size:16px;font-weight:700;color:var(--amber);margin-bottom:10px">' + t('endline.guardTitle') + '</div>' +
+      '<div style="background:var(--amber2);border:1px solid #FCD34D;border-radius:10px;padding:12px;font-size:13.5px;line-height:1.6;margin-bottom:12px">' +
+        t('endline.guardBase') + ': <b>' + fmtR(b.baseIncome) + '</b><br>' +
+        t('endline.guardEntered') + ': <b>' + fmtR(entered) + '</b>' +
+      '</div>' +
+      '<div style="font-size:14px;font-weight:600;margin-bottom:14px;line-height:1.5">' + t('endline.guardQ') + '</div>' +
+      '<button onclick="_v47GuardAdd()" style="display:block;width:100%;min-height:52px;background:var(--green);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;margin-bottom:10px;padding:10px 14px;line-height:1.4">' +
+        t('endline.guardAdd') + ' <span style="font-size:16px">' + fmtR(sum) + '</span></button>' +
+      '<button onclick="_v47GuardKeep()" style="display:block;width:100%;min-height:52px;background:#fff;color:var(--red);border:2px solid var(--red);border-radius:10px;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;margin-bottom:10px;padding:10px 14px;line-height:1.4">' +
+        t('endline.guardKeep') + ' <span style="font-size:16px">' + fmtR(entered) + '</span></button>' +
+      '<button onclick="_v47GuardCancel()" style="display:block;width:100%;min-height:44px;background:none;color:var(--gray2);border:none;font-size:13px;font-family:var(--font);cursor:pointer;text-decoration:underline">' +
+        t('endline.guardCancel') + '</button>' +
+    '</div>';
+  document.body.appendChild(wrap);
+  window._v47GuardAdd = function() {
+    const el = document.getElementById('el-total');
+    if (el) el.value = String(sum);
+    try { calcDelta(); } catch(_) {}
+    wrap.remove();
+    submitEndline();   // now >= baseline, guard passes, normal save path
+  };
+  window._v47GuardKeep = function() {
+    window._v47EndlineGuardBypass = true;   // one-shot; cleared on next submit entry
+    wrap.remove();
+    submitEndline();
+  };
+  window._v47GuardCancel = function() {
+    wrap.remove();
+    const el = document.getElementById('el-total');
+    if (el) { try { el.focus(); } catch(_) {} }
+  };
+}
+
 async function submitEndline() {
   const totalRaw = document.getElementById('el-total')?.value;
   // V4.1: Blank endline income BLOCKS submit — no more default-to-baseline.
@@ -14727,6 +14975,19 @@ async function submitEndline() {
   if (!hasLiv) {
     toast('Cannot complete endline for advocacy-only records.', 'error');
     return;
+  }
+  // V4.7: catch the "entered only the ADDITIONAL income" mistake. Real field
+  // incident: FC logs vermi-compost gain of ₹10,000 into the endline field
+  // while baseline was ₹2,00,000 — the app then reports a 95% income CRASH.
+  // If the entered total is less than HALF of baseline, pause and ask what
+  // was meant. Genuine income drops stay one tap away (never blocked).
+  {
+    const _bypass = window._v47EndlineGuardBypass;
+    window._v47EndlineGuardBypass = false;
+    if (!_bypass && b.baseIncome != null && b.baseIncome > 0 && total < b.baseIncome * 0.5) {
+      _v47ShowEndlineGuard(b, total);
+      return;
+    }
   }
   const wasEdit = b.endIncome != null;
   b.endIncome = total;
@@ -14851,11 +15112,22 @@ function closeLogIncome() {
 //   2. Add/Edit form (date, amount, optional note)
 function _renderLogIncomeBody(b) {
   const log = Array.isArray(b.incomeLog) ? b.incomeLog : [];
-  const total = _incomeLogTotal(b);
-  const delta = total - (b.baseIncome || 0);
-  const pct = b.baseIncome ? Math.round(delta / b.baseIncome * 100) : 0;
+  // V4.8: each entry's amount is ADDITIONAL income on top of baseline —
+  // additionalTotal is the sum of entries, grandTotal is what actually gets
+  // saved to b.endIncome (see _incomeLogGrandTotal). "delta" and
+  // "additionalTotal" are the same number now (the log itself IS the delta),
+  // kept as separate names only for readability at each call site.
+  const additionalTotal = _incomeLogTotal(b);
+  const grandTotal = (b.baseIncome || 0) + additionalTotal;
+  const pct = b.baseIncome ? Math.round(additionalTotal / b.baseIncome * 100) : 0;
   const isAdmin = (currentUser() || {}).role === 'admin';
   const today = new Date().toISOString().split('T')[0];
+  // Source chips pool: this beneficiary's own livelihood interventions
+  // (excludes the Advocacy tag — that's a different programme). Matches
+  // the approved mockup: FCs can only tag a log entry to interventions this
+  // beneficiary is actually enrolled in, never a free-text source.
+  const srcPool = (b.interventions || []).filter(i => i !== 'Advocacy (Govt. Schemes)');
+  const chipPool = srcPool.length ? srcPool : getLivTypes();
 
   // Existing-entries list. Admin sees inline edit + delete buttons; everyone
   // else sees the entry as read-only with the "added by" attribution.
@@ -14867,8 +15139,8 @@ function _renderLogIncomeBody(b) {
          <thead style="background:var(--gray4)">
            <tr>
              <th style="padding:8px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--gray2);letter-spacing:.04em">Date</th>
-             <th style="padding:8px;text-align:right;font-size:11px;text-transform:uppercase;color:var(--gray2);letter-spacing:.04em">Amount</th>
-             <th style="padding:8px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--gray2);letter-spacing:.04em">Note</th>
+             <th style="padding:8px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--gray2);letter-spacing:.04em">Source(s)</th>
+             <th style="padding:8px;text-align:right;font-size:11px;text-transform:uppercase;color:var(--gray2);letter-spacing:.04em">Additional ₹</th>
              <th style="padding:8px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--gray2);letter-spacing:.04em">Added by</th>
              ${isAdmin ? '<th style="padding:8px;text-align:right;font-size:11px;text-transform:uppercase;color:var(--gray2);letter-spacing:.04em">Actions</th>' : ''}
            </tr>
@@ -14879,10 +15151,14 @@ function _renderLogIncomeBody(b) {
              const editedSuffix = e.editedAt
                ? `<div style="font-size:10px;color:var(--gray2);margin-top:2px">Edited by ${escHtml(e.editedByName||e.editedBy||'?')} · ${fmtD(e.editedAt.split('T')[0])}</div>`
                : '';
+             const srcTxt = Array.isArray(e.sources) && e.sources.length
+               ? e.sources.map(escHtml).join(' + ')
+               : '<span style="color:var(--gray2);font-style:italic">—</span>';
+             const amtColor = (parseFloat(e.amount) || 0) < 0 ? 'var(--red)' : 'var(--text)';
              return `<tr style="border-top:1px solid var(--gray3);${isEditing?'background:var(--amber2,#FFF7E6)':''}">
                <td style="padding:8px">${fmtD(e.date)}</td>
-               <td style="padding:8px;text-align:right;font-weight:600">₹${(parseFloat(e.amount)||0).toLocaleString('en-IN')}</td>
-               <td style="padding:8px;color:var(--gray1);font-size:12px">${escHtml(e.note||'—')}</td>
+               <td style="padding:8px;color:var(--gray1);font-size:12px">${srcTxt}${e.note ? `<div style="font-size:10.5px;color:var(--gray2);margin-top:2px">${escHtml(e.note)}</div>` : ''}</td>
+               <td style="padding:8px;text-align:right;font-weight:600;color:${amtColor}">${(parseFloat(e.amount)||0)>=0?'+':''}₹${(parseFloat(e.amount)||0).toLocaleString('en-IN')}</td>
                <td style="padding:8px;font-size:11px;color:var(--gray2)">
                  ${escHtml(e.addedByName||e.addedBy||'?')}<br>
                  <span style="font-size:10px">${e.addedAt ? fmtD(e.addedAt.split('T')[0]) : ''}</span>
@@ -14903,7 +15179,8 @@ function _renderLogIncomeBody(b) {
   const formDate   = editing ? editing.date   : today;
   const formAmount = editing ? editing.amount : '';
   const formNote   = editing ? editing.note   : '';
-  const formTitle  = editing ? `Edit entry from ${fmtD(editing.date)}` : 'Add new income entry';
+  const formSources = editing && Array.isArray(editing.sources) ? editing.sources : [];
+  const formTitle  = editing ? `Edit entry from ${fmtD(editing.date)}` : 'Add additional income';
   const submitLabel = editing ? 'Save Changes' : '+ Add Entry';
   // Form is hidden for non-admins when in edit mode (shouldn't be reachable
   // anyway since edit buttons are admin-only, defence-in-depth).
@@ -14918,35 +15195,33 @@ function _renderLogIncomeBody(b) {
     <!-- Two-up Baseline | Endline summary, mirroring the drawer card -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
       <div style="background:#fff;border:1px solid var(--gray3);border-radius:8px;padding:10px">
-        <div style="font-size:11px;color:var(--gray2);text-transform:uppercase;letter-spacing:.05em;font-weight:600">Baseline Income</div>
+        <div style="font-size:11px;color:var(--gray2);text-transform:uppercase;letter-spacing:.05em;font-weight:600">🔒 Existing (Baseline) Income</div>
         <div style="font-size:18px;font-weight:700;margin-top:4px">₹${(b.baseIncome||0).toLocaleString('en-IN')}</div>
-        <div style="font-size:10px;color:var(--gray2);margin-top:2px">Recorded ${fmtD(b.enrollDate)}</div>
+        <div style="font-size:10px;color:var(--gray2);margin-top:2px">Recorded ${fmtD(b.enrollDate)} — locked, cannot be changed here</div>
       </div>
       ${(() => {
-        // Fix 2: 3-state color scheme for the endline box:
+        // Fix 2 (kept from pre-V4.8): 3-state color scheme for the endline box:
         //   - No entries yet → amber/yellow (attention needed)
-        //   - Entries present AND endline >= baseline → green (improvement)
-        //   - Entries present AND endline < baseline → red (income dropped)
-        // The comparison only fires when baseIncome > 0 — if baseline is
-        // missing we can't say "up vs down", so fall back to green on log
-        // presence (same as before).
+        //   - Entries present AND additional total >= 0 → green (improvement)
+        //   - Entries present AND additional total < 0 → red (rare — only
+        //     possible on legacy/migrated data; the V4.8 UI itself never lets
+        //     an FC create a negative entry, only ₹0 or positive).
         const hasLog = log.length > 0;
-        const hasBaseForCompare = (b.baseIncome || 0) > 0;
-        const isDecrease = hasLog && hasBaseForCompare && total < b.baseIncome;
+        const isDecrease = hasLog && additionalTotal < 0;
         const bg     = !hasLog ? '#FFFBEB' : (isDecrease ? '#FEF2F2' : '#F0FDF4');
         const border = !hasLog ? '#FBBF24' : (isDecrease ? '#FCA5A5' : '#86EFAC');
         const valCol = !hasLog ? 'var(--amber)' : (isDecrease ? 'var(--red)' : 'var(--green)');
         return `
       <div style="background:${bg};border:1px solid ${border};border-radius:8px;padding:10px">
-        <div style="font-size:11px;color:var(--gray2);text-transform:uppercase;letter-spacing:.05em;font-weight:600">Endline Income (LOCKED — sum of log)</div>
-        <div style="font-size:18px;font-weight:700;margin-top:4px;color:${valCol}">₹${total.toLocaleString('en-IN')}</div>
-        <div style="font-size:10px;color:var(--gray2);margin-top:2px">${log.length} entr${log.length===1?'y':'ies'}${log.length ? ` · Δ ${delta>=0?'+':''}₹${Math.abs(delta).toLocaleString('en-IN')} (${delta>=0?'+':''}${pct}%)` : ''}</div>
+        <div style="font-size:11px;color:var(--gray2);text-transform:uppercase;letter-spacing:.05em;font-weight:600">New Total Income</div>
+        <div style="font-size:18px;font-weight:700;margin-top:4px;color:${valCol}">${hasLog ? '₹'+grandTotal.toLocaleString('en-IN') : '—'}</div>
+        <div style="font-size:10px;color:var(--gray2);margin-top:2px">${log.length} entr${log.length===1?'y':'ies'}${log.length ? ` · Additional ${additionalTotal>=0?'+':''}₹${Math.abs(additionalTotal).toLocaleString('en-IN')} (${additionalTotal>=0?'+':''}${pct}%)` : ''}</div>
       </div>`;
       })()}
     </div>
 
     <!-- Existing entries list -->
-    <div class="msec-title" style="margin-bottom:8px">Income log</div>
+    <div class="msec-title" style="margin-bottom:8px">Additional income logged</div>
     ${(isAdmin && b._preBulkEndlineSnapshot) ? `
       <div style="background:#FFFBEB;border:1px solid #FBBF24;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12px">
         <div style="font-weight:600;color:#92400E;margin-bottom:4px">⏪ Last bulk endline update available to undo</div>
@@ -14967,19 +15242,24 @@ function _renderLogIncomeBody(b) {
     <div class="msec" style="margin-top:18px;background:#EFF6FF;border:1px solid #BFDBFE;border-left:4px solid var(--navy);padding:14px">
       <div class="msec-title" style="color:var(--navy);font-size:13px">${formTitle}</div>
       ${(!editing && log.length === 0 && b.status !== 'Completed') ? `<div style="font-size:12px;color:var(--navy);margin-top:6px;display:flex;align-items:flex-start;gap:6px;line-height:1.4"><span style="font-weight:700">&#9432;</span><span>Saving will mark this beneficiary <b>Completed</b>.</span></div>` : ''}
+      <label style="font-size:12px;font-weight:600;color:var(--gray1);display:block;margin-bottom:6px;margin-top:6px">Which intervention(s)? (tap one or more) *</label>
+      <div id="li-src-chips" style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:12px">
+        ${chipPool.map(s => `<div class="ichip li-src-chip${formSources.includes(s)?' on':''}" data-src="${escHtml(s)}" onclick="toggleLiSourceChip(this)"><span class="ichip-box">${formSources.includes(s)?'✓':''}</span><span>${escHtml(s)}</span></div>`).join('')}
+      </div>
       <div class="frow">
         <div class="fg">
           <label>Date *</label>
           <input type="date" id="li-date" value="${formDate}" max="${today}">
         </div>
         <div class="fg">
-          <label style="color:var(--navy);font-weight:600">Amount (₹) *</label>
+          <label style="color:var(--navy);font-weight:600">Additional Amount (₹) *</label>
           <input type="number" id="li-amount" min="0" placeholder="e.g. 3000" value="${formAmount}"
                  style="font-size:17px;font-weight:600;padding:10px 12px;border:2px solid var(--navy3);background:#fff"
                  onfocus="this.style.borderColor='var(--navy)';this.style.boxShadow='0 0 0 3px rgba(46,90,160,0.15)'"
                  onblur="this.style.borderColor='var(--navy3)';this.style.boxShadow='none'">
         </div>
       </div>
+      <div style="font-size:11px;color:var(--gray2);margin-top:-6px;margin-bottom:10px">How much MORE does the family earn now, from the intervention(s) ticked above? Not the total — just the gain.</div>
       <div class="fg">
         <label>Note (optional)</label>
         <input type="text" id="li-note" placeholder="e.g. Monthly milk sales, vermicompost batch 3, festival earnings…" value="${(formNote||'').replace(/"/g,'&quot;')}" maxlength="200">
@@ -14989,7 +15269,8 @@ function _renderLogIncomeBody(b) {
         ${editing
           ? `<button class="btn" onclick="_cancelEditLogEntry()">Cancel edit</button>
              <button class="btn btn-primary" onclick="_submitEditLogEntry()">${submitLabel}</button>`
-          : `<button class="btn btn-primary" onclick="_submitNewLogEntry()">${submitLabel}</button>`}
+          : `<button class="btn btn-primary" onclick="_submitNewLogEntry()">${submitLabel}</button>
+             <button class="btn" onclick="_submitZeroIncomeEntry()" style="color:var(--gray1)">No additional income — record ₹0</button>`}
       </div>
     </div>
     ` : ''}
@@ -15044,10 +15325,23 @@ async function _submitNewLogEntry() {
     _restoreSaveBtn(_liBtnHandle);
   }
 }
+// V4.8: source chips use direct DOM toggling (not a re-render) so the
+// date/amount/note fields the FC already typed are never wiped out by a
+// chip tap. Mirrors the existing .ichip pattern used on the enrollment form.
+function toggleLiSourceChip(el) {
+  el.classList.toggle('on');
+  const box = el.querySelector('.ichip-box');
+  if (box) box.textContent = el.classList.contains('on') ? '✓' : '';
+}
+function _liSelectedSources() {
+  return Array.from(document.querySelectorAll('.li-src-chip.on')).map(el => el.getAttribute('data-src'));
+}
+
 async function _submitNewLogEntryInner() {
   const dateRaw = document.getElementById('li-date')?.value;
   const amountRaw = document.getElementById('li-amount')?.value;
   const noteRaw = (document.getElementById('li-note')?.value || '').trim();
+  const sources = _liSelectedSources();
   const err = document.getElementById('li-err');
   const showErr = msg => { if (err) { err.textContent = msg; err.classList.add('show'); } };
   if (!dateRaw) { showErr('Please pick a date.'); return; }
@@ -15056,6 +15350,10 @@ async function _submitNewLogEntryInner() {
   if (amountRaw === '' || amountRaw == null) { showErr('Please enter an amount.'); return; }
   const amount = parseFloat(amountRaw);
   if (isNaN(amount) || amount < 0) { showErr('Amount must be a valid non-negative number.'); return; }
+  // V4.8: every entry through this form must be tagged to at least one
+  // intervention — use the dedicated "No additional income" button below
+  // for a zero entry with no source (that path skips this requirement).
+  if (sources.length === 0) { showErr('Please tap at least one intervention this income came from.'); return; }
   // Sanity check: a single income entry over ₹10,00,000 is almost certainly
   // a typo. Don't block, just confirm.
   if (amount > 1000000 && !confirm(`₹${amount.toLocaleString('en-IN')} is unusually high for a single income entry. Are you sure?`)) {
@@ -15069,6 +15367,7 @@ async function _submitNewLogEntryInner() {
   const newEntry = {
     date: dateRaw,
     amount: amount,
+    sources: sources,
     note: noteRaw,
     addedBy: me.userId || 'u-admin',
     addedByName: me.fullName || me.username || 'Admin',
@@ -15080,9 +15379,9 @@ async function _submitNewLogEntryInner() {
   const _prevStatus = b.status;
   const _prevEndlineDate = b.endlineDate;
   b.incomeLog.push(newEntry);
-  // Keep b.endIncome in sync as a computed mirror — every dashboard, KPI,
-  // and CSV export reads this directly, so we maintain it here.
-  b.endIncome = _incomeLogTotal(b);
+  // V4.8: b.endIncome = baseline + sum(incomeLog) — every dashboard, KPI,
+  // and CSV export reads endIncome directly, so we maintain it here.
+  b.endIncome = _incomeLogGrandTotal(b);
   // First entry: stamp endlineDate (kept for legacy display) and flip
   // status to Completed. Mirrors the original single-shot endline behavior.
   if (wasFirst) {
@@ -15096,20 +15395,73 @@ async function _submitNewLogEntryInner() {
   } catch (e) {
     // Roll back: remove the entry we just pushed.
     b.incomeLog.pop();
-    b.endIncome = _incomeLogTotal(b);
+    b.endIncome = _incomeLogGrandTotal(b);
     if (wasFirst) { b.endlineDate = _prevEndlineDate; b.status = _prevStatus; }  // V391 [3.2]: restore ORIGINAL, not hardcoded
     const msg = (e instanceof SaveError) ? e.message : 'Could not save income entry';
     if (typeof toast === 'function') toast(msg, 'error', 8000);
     return;
   }
   auditLog('income_log_add', 'beneficiary', b.id, b.name,
-    `Added income entry: ₹${amount.toLocaleString('en-IN')} on ${fmtD(dateRaw)}${noteRaw?' · '+noteRaw:''}. New total: ₹${b.endIncome.toLocaleString('en-IN')}.`,
+    `Added additional income: ₹${amount.toLocaleString('en-IN')} on ${fmtD(dateRaw)} (${sources.join(' + ')})${noteRaw?' · '+noteRaw:''}. New total: ₹${b.endIncome.toLocaleString('en-IN')}.`,
     null);
   toast('Income entry added. New total: ₹' + b.endIncome.toLocaleString('en-IN'), 'success');
   // Re-render the modal with the new entry visible
   _renderLogIncomeBody(b);
   // Refresh the underlying view so the drawer/card reflects the new total
   // when the user closes the modal.
+  renderCurrent();
+  updateAlertBadge();
+}
+
+// V4.8: one-tap "no gain to report" — the FC's answer when a visit found no
+// additional income. Skips the source-chip requirement (there's nothing to
+// attribute); still creates a real ₹0 entry so the endline is genuinely
+// marked Completed rather than left hanging.
+async function _submitZeroIncomeEntry() {
+  const dateRaw = document.getElementById('li-date')?.value || new Date().toISOString().split('T')[0];
+  if (dateRaw > new Date().toISOString().split('T')[0]) {
+    const err = document.getElementById('li-err');
+    if (err) { err.textContent = 'Date cannot be in the future.'; err.classList.add('show'); }
+    return;
+  }
+  const data = loadData();
+  const b = data.find(x => x.id === _currentLogIncomeBid);
+  if (!b) return;
+  if (!Array.isArray(b.incomeLog)) b.incomeLog = [];
+  const me = currentUser() || {};
+  const newEntry = {
+    date: dateRaw,
+    amount: 0,
+    sources: [],
+    note: 'No additional income from the intervention',
+    addedBy: me.userId || 'u-admin',
+    addedByName: me.fullName || me.username || 'Admin',
+    addedAt: new Date().toISOString(),
+  };
+  const wasFirst = b.incomeLog.length === 0;
+  const _prevStatus = b.status;
+  const _prevEndlineDate = b.endlineDate;
+  b.incomeLog.push(newEntry);
+  b.endIncome = _incomeLogGrandTotal(b);
+  if (wasFirst) {
+    b.endlineDate = dateRaw;
+    if (b.status !== 'Completed') b.status = 'Completed';
+  }
+  try {
+    await saveData(data);
+  } catch (e) {
+    b.incomeLog.pop();
+    b.endIncome = _incomeLogGrandTotal(b);
+    if (wasFirst) { b.endlineDate = _prevEndlineDate; b.status = _prevStatus; }
+    const msg = (e instanceof SaveError) ? e.message : 'Could not save income entry';
+    if (typeof toast === 'function') toast(msg, 'error', 8000);
+    return;
+  }
+  auditLog('income_log_add', 'beneficiary', b.id, b.name,
+    `Logged ₹0 additional income on ${fmtD(dateRaw)} (no gain to report). Total unchanged: ₹${b.endIncome.toLocaleString('en-IN')}.`,
+    null);
+  toast('Recorded — no additional income. Total: ₹' + b.endIncome.toLocaleString('en-IN'), 'success');
+  _renderLogIncomeBody(b);
   renderCurrent();
   updateAlertBadge();
 }
@@ -15141,6 +15493,7 @@ async function _submitEditLogEntry() {
   const dateRaw = document.getElementById('li-date')?.value;
   const amountRaw = document.getElementById('li-amount')?.value;
   const noteRaw = (document.getElementById('li-note')?.value || '').trim();
+  const sources = _liSelectedSources();
   const err = document.getElementById('li-err');
   const showErr = msg => { if (err) { err.textContent = msg; err.classList.add('show'); } };
   if (!dateRaw) { showErr('Please pick a date.'); return; }
@@ -15149,6 +15502,9 @@ async function _submitEditLogEntry() {
   if (amountRaw === '' || amountRaw == null) { showErr('Please enter an amount.'); return; }
   const amount = parseFloat(amountRaw);
   if (isNaN(amount) || amount < 0) { showErr('Amount must be a valid non-negative number.'); return; }
+  // V4.8: a positive edited amount still needs at least one source tagged.
+  // A ₹0 entry (e.g. editing a "no gain" entry) doesn't require one.
+  if (amount > 0 && sources.length === 0) { showErr('Please tap at least one intervention this income came from.'); return; }
   const data = loadData();
   const b = data.find(x => x.id === _currentLogIncomeBid);
   if (!b || !Array.isArray(b.incomeLog) || _editingLogIdx < 0 || _editingLogIdx >= b.incomeLog.length) return;
@@ -15158,13 +15514,14 @@ async function _submitEditLogEntry() {
     ...oldEntry,
     date: dateRaw,
     amount: amount,
+    sources: sources,
     note: noteRaw,
     editedBy: me.userId || 'u-admin',
     editedByName: me.fullName || me.username || 'Admin',
     editedAt: new Date().toISOString(),
   };
-  // Recompute the mirror.
-  b.endIncome = _incomeLogTotal(b);
+  // V4.8: recompute the mirror as baseline + sum(incomeLog).
+  b.endIncome = _incomeLogGrandTotal(b);
   // If the user edited the FIRST entry's date, refresh endlineDate to match
   // (keeps the legacy display field consistent).
   if (_editingLogIdx === 0) b.endlineDate = dateRaw;
@@ -15193,8 +15550,9 @@ async function _deleteLogEntry(idx) {
   // V388: themed modal.
   if (!await showConfirmModal(`Delete this income entry?\n\n${fmtD(removed.date)} — ₹${(removed.amount||0).toLocaleString('en-IN')}\n\nThis cannot be undone.`, { danger: true, okLabel: 'Delete', title: 'Delete income entry' })) return;
   b.incomeLog.splice(idx, 1);
-  // Recompute mirror.
-  b.endIncome = b.incomeLog.length > 0 ? _incomeLogTotal(b) : null;
+  // V4.8: recompute mirror as baseline + sum(incomeLog); null once no
+  // entries remain (matches pre-V4.8 "no endline yet" semantics).
+  b.endIncome = b.incomeLog.length > 0 ? _incomeLogGrandTotal(b) : null;
   // If we just deleted the LAST entry, revert status & endlineDate.
   if (b.incomeLog.length === 0) {
     b.endlineDate = null;
@@ -19395,8 +19753,56 @@ function _rptAgoLabel(ms) {
   if (d < 30) return d + ' days';
   return '<span class="pill" style="background:var(--red2);color:var(--red)">' + d + ' days</span>';
 }
-window.rptSetTab   = function(t) { rptTab = t; renderReports(); };
-window.rptSetRange = function(d) { rptRange = d; renderReports(); };
+// V4.9: dismiss any open tooltip on tab/range switch — it lives outside
+// #content (so the cache-hit innerHTML swap doesn't touch it), but that also
+// means it would otherwise float on screen, disconnected, after the tab it
+// was anchored to has already been replaced.
+function _rptDismissTip() {
+  document.getElementById('_rpt-tip-pop')?.remove();
+  _rptTipOpenEl = null;
+}
+window.rptSetTab   = function(t) { _rptDismissTip(); rptTab = t; renderReports(); };
+window.rptSetRange = function(d) { _rptDismissTip(); rptRange = d; renderReports(); };
+
+// V4.9: small "ⓘ" info-tooltip, tap/click-triggered (not hover-only — title=
+// alone never fires on touch devices, a known gotcha elsewhere in this app).
+// Appended to document.body like _advShowStatusPop, so it's immune to the
+// _v357TabCache innerHTML-replace on the next Reports render.
+let _rptTipOpenEl = null;
+function _rptTip(text) {
+  // The visible icon stays a small 15px circle (doesn't crowd the label),
+  // but the actual tap target is padded out to ~25px — a bare 15px circle
+  // is too small to reliably tap on a phone (same "small dot, bigger
+  // invisible hit-zone" idea used for the trend-chart points below).
+  return `<span onclick="event.stopPropagation();_rptShowTip(this.firstElementChild)" style="display:inline-flex;align-items:center;justify-content:center;padding:5px;margin:-5px -5px -5px 0;cursor:pointer;vertical-align:middle"><span class="rpt-tip" data-tip="${escHtml(text)}" title="${escHtml(text)}" style="display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;background:var(--gray3);color:var(--gray1);font-size:10px;font-weight:700;font-style:italic;flex-shrink:0">i</span></span>`;
+}
+function _rptShowTip(el) {
+  const POP_ID = '_rpt-tip-pop';
+  const existing = document.getElementById(POP_ID);
+  const reopening = _rptTipOpenEl === el;
+  if (existing) { existing.remove(); _rptTipOpenEl = null; }
+  if (reopening) return; // second tap on the same icon just closes it
+  const text = el.getAttribute('data-tip') || '';
+  const pop = document.createElement('div');
+  pop.id = POP_ID;
+  pop.style.cssText = 'position:fixed;z-index:9999;background:#1B3A6B;color:#fff;'
+    + 'border-radius:8px;box-shadow:0 4px 18px rgba(0,0,0,.22);padding:9px 12px;max-width:260px;'
+    + 'font-size:12px;line-height:1.45;font-family:var(--font)';
+  pop.textContent = text;
+  const rect = el.getBoundingClientRect();
+  const spaceBelow = window.innerHeight - rect.bottom;
+  if (spaceBelow < 90) { pop.style.bottom = (window.innerHeight - rect.top + 6) + 'px'; }
+  else { pop.style.top = (rect.bottom + 6) + 'px'; }
+  pop.style.left = Math.min(Math.max(8, rect.left - 100), window.innerWidth - 268) + 'px';
+  document.body.appendChild(pop);
+  _rptTipOpenEl = el;
+  setTimeout(() => {
+    const dismiss = e => {
+      if (!pop.contains(e.target) && e.target !== el) { pop.remove(); _rptTipOpenEl = null; document.removeEventListener('click', dismiss, true); }
+    };
+    document.addEventListener('click', dismiss, true);
+  }, 0);
+}
 
 function renderReports() {
   const u = currentUser();
@@ -19467,6 +19873,12 @@ function renderReports() {
   let livN = 0, endN = 0, sumBase = 0, sumEnd = 0, overdue = 0;
   const stage = { 'Enrolled': 0, 'Intervention In Progress': 0, 'Completed': 0 };
   const byInt = new Map(), byNgoLiv = new Map(), overdueNgo = new Map();
+  // V4.7: endlines less than HALF of baseline — the signature of the
+  // "entered only the additional income" data-entry mistake (real drops
+  // exist too, which is why this is a REVIEW list, never an auto-fix).
+  const suspects = [];
+  const uName = new Map();
+  users.forEach(x => uName.set(x.id, x.fullName || x.username));
   allB.forEach(b => {
     const d = (b.enrollDate || '').slice(0, 10);
     if (d && b.village) {
@@ -19498,6 +19910,7 @@ function renderReports() {
     }
     if (hasEnd) {
       endN++; sumBase += b.baseIncome; sumEnd += b.endIncome;
+      if (b.baseIncome > 0 && b.endIncome < b.baseIncome * 0.5) suspects.push(b);
       const key = ints.length === 1 ? ints[0] : '__multi';
       const g = byInt.get(key) || { n: 0, base: 0, end: 0 };
       g.n++; g.base += b.baseIncome; g.end += b.endIncome;
@@ -19539,9 +19952,9 @@ function renderReports() {
   const advTotal = latestRows.length;
 
   // ── shared HTML helpers ───────────────────────────────────────────────────
-  const kpi = (label, val, sub, color) =>
+  const kpi = (label, val, sub, color, tip) =>
     `<div style="background:#fff;border:1px solid var(--gray3);border-radius:12px;padding:12px 14px">
-      <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--gray2);font-weight:600">${label}</div>
+      <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--gray2);font-weight:600;display:flex;align-items:center">${label}${tip ? _rptTip(tip) : ''}</div>
       <div style="font-size:22px;font-weight:700;color:${color || 'var(--navy)'};margin-top:2px">${val}</div>
       <div style="font-size:11px;color:var(--gray2);margin-top:2px">${sub || ''}</div>
     </div>`;
@@ -19577,7 +19990,11 @@ function renderReports() {
     const rows = board.map((a, i) => {
       const q = a.tot ? ((a.phone / a.tot + a.gps / a.tot + a.photo / a.tot) / 3) * 100 : 0;
       const conv = a.filed ? (a.recd / a.filed) * 100 : null;
-      return `<tr>
+      // V4.9: click-through to this FC's beneficiary list — reuses the same
+      // fcFilter + nav('list') pattern already used by the NGO Partners
+      // FC-wise drill-down table, no new filter plumbing needed.
+      const fcClick = `stateFilter='';ngoFilter='';fcFilter='${(a.u.id || '').replace(/'/g, "\\'")}';currentView='list';nav('list')`;
+      return `<tr style="cursor:pointer" onclick="${fcClick}" title="Click to see ${esc(a.u.fullName || a.u.username)}'s beneficiaries">
         <td style="${TD};font-size:14px">${medals[i] || ''}</td>
         <td style="${TD}"><b>${esc(a.u.fullName || a.u.username)}</b></td>
         <td style="${TD}">${esc(a.u.ngo || '—')}</td>
@@ -19597,15 +20014,15 @@ function renderReports() {
     </tr>`).join('');
     body =
       `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px">
-        ${kpi('Active FCs (30d)', activeFcs.length, 'of ' + fcList.length + ' with records: ' + fcList.filter(a => a.tot > 0).length)}
-        ${kpi('Inactive 30+ days', inactiveFcs.length, 'needs follow-up', inactiveFcs.length ? 'var(--red)' : 'var(--green)')}
-        ${kpi('Enrolled (window)', enrolledWinTotal.toLocaleString('en-IN'), 'last ' + rptRange + ' days')}
-        ${kpi('Overall conversion', convDen ? Math.round(convNum / convDen * 100) + '%' : '—', 'filed → benefits received')}
+        ${kpi('Active FCs (30d)', activeFcs.length, 'of ' + fcList.length + ' with records: ' + fcList.filter(a => a.tot > 0).length, null, 'Field Coordinators who enrolled a beneficiary or logged an advocacy update in the last 30 days.')}
+        ${kpi('Inactive 30+ days', inactiveFcs.length, 'needs follow-up', inactiveFcs.length ? 'var(--red)' : 'var(--green)', 'FCs with zero enrollments or advocacy updates for 30+ days straight — worth a check-in call.')}
+        ${kpi('Enrolled (window)', enrolledWinTotal.toLocaleString('en-IN'), 'last ' + rptRange + ' days', null, 'New beneficiaries enrolled in the selected date range, across all FCs.')}
+        ${kpi('Overall conversion', convDen ? Math.round(convNum / convDen * 100) + '%' : '—', 'filed → benefits received', null, 'Of every scheme application ever filed (Applied, Received, or Rejected), the % that reached Benefits Received. All-time, not limited to the selected window.')}
       </div>` +
       card('FC Leaderboard — last ' + rptRange + ' days',
         'Sorted by enrollments in the window. Conversion is all-time: of scheme entries they filed, % that reached "Benefits Received". Data quality = average of % with phone, % with GPS, % with photo.',
         tblWrap(`<table style="width:100%;border-collapse:collapse">
-          <tr><th style="${TH}"></th><th style="${TH}">FC</th><th style="${TH}">NGO</th><th style="${THR}">Enrolled (win)</th><th style="${THR}">Total</th><th style="${THR}">Advocacy (win)</th><th style="${THR}">Conversion</th><th style="${TH}">Data quality</th><th style="${THR}">Last active</th></tr>
+          <tr><th style="${TH}"></th><th style="${TH}">FC</th><th style="${TH}">NGO</th><th style="${THR}">Enrolled (win)</th><th style="${THR}">Total</th><th style="${THR}">Advocacy (win)</th><th style="${THR}">Conversion${_rptTip('All-time: of the scheme entries this FC filed, the % that reached Benefits Received.')}</th><th style="${TH}">Data quality${_rptTip('Average of: % of their beneficiaries with a phone number, % with a GPS location, and % with at least one photo on file.')}</th><th style="${THR}">Last active</th></tr>
           ${rows || `<tr><td colspan="9" style="${TD};text-align:center;color:var(--gray2)">No FC activity found for the current filters.</td></tr>`}
         </table>`)
         + (fcList.filter(a => a.tot > 0).length > 15 ? `<div style="font-size:11px;color:var(--gray2);margin-top:8px">Showing top 15 of ${fcList.filter(a => a.tot > 0).length} FCs with records.</div>` : '')) +
@@ -19644,6 +20061,15 @@ function renderReports() {
     const best = buckets.reduce((m, b) => b.n > m.n ? b : m, { n: 0, label: '—' });
     const bestPt = pts.find(p => p.b === best);
     const fmtD2 = s => { try { return new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }); } catch (_) { return s; } };
+    // V4.9: every point gets a tap/click target (invisible r=10 hit-circle +
+    // a small visible dot) showing its exact date and count — previously
+    // only the single "best" point was a real element; the rest of the line
+    // was one flat <polyline> with no way to read an individual day's number.
+    const pointEls = pts.map(p => {
+      const tipText = fmtD2(p.b.label) + ': ' + p.b.n.toLocaleString('en-IN') + (p.b.n === 1 ? ' enrolled' : ' enrolled');
+      return `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="10" fill="transparent" style="cursor:pointer" data-tip="${escHtml(tipText)}" onclick="event.stopPropagation();_rptShowTip(this)"/>`
+        + `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3" fill="#2E75B6" style="pointer-events:none"/>`;
+    }).join('');
     const chart =
       `<svg viewBox="0 0 ${W} 205" style="width:100%;min-width:520px">
         <line x1="${L}" y1="${B}" x2="${W - 20}" y2="${B}" stroke="#E5E7EB"/>
@@ -19653,24 +20079,26 @@ function renderReports() {
         <text x="${L - 6}" y="${B - 56}" font-size="10" fill="#9CA3AF" text-anchor="end">${Math.round(maxN / 2)}</text>
         <text x="${L - 6}" y="${B - 116}" font-size="10" fill="#9CA3AF" text-anchor="end">${maxN}</text>
         <polyline fill="none" stroke="#2E75B6" stroke-width="2.5" points="${poly}"/>
-        ${bestPt && best.n > 0 ? `<circle cx="${bestPt.x.toFixed(1)}" cy="${bestPt.y.toFixed(1)}" r="4" fill="#2E75B6"/><text x="${bestPt.x.toFixed(1)}" y="${(bestPt.y - 8).toFixed(1)}" font-size="10" fill="#1B3A6B" text-anchor="middle" font-weight="600">${best.n}</text>` : ''}
+        ${pointEls}
+        ${bestPt && best.n > 0 ? `<text x="${bestPt.x.toFixed(1)}" y="${(bestPt.y - 8).toFixed(1)}" font-size="10" fill="#1B3A6B" text-anchor="middle" font-weight="600" style="pointer-events:none">${best.n}</text>` : ''}
         <text x="${L}" y="${B + 22}" font-size="10" fill="#9CA3AF">${buckets.length ? fmtD2(buckets[0].label) : ''}</text>
         <text x="${W - 20}" y="${B + 22}" font-size="10" fill="#9CA3AF" text-anchor="end">${buckets.length ? fmtD2(buckets[buckets.length - 1].label) : ''}</text>
-      </svg>`;
+      </svg>
+      <div style="font-size:10.5px;color:var(--gray2);margin-top:4px;text-align:center">Tap any point for its exact date and count.</div>`;
     const ngoRows = Array.from(ngoWin.entries()).sort((a, b) => b[1].n - a[1].n).slice(0, 12);
     const maxNgo = Math.max(1, ...ngoRows.map(([, g]) => g.n));
     body =
       `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px">
-        ${kpi('Enrolled (window)', enrolledWinTotal.toLocaleString('en-IN'), 'last ' + rptRange + ' days')}
-        ${kpi('Daily average', (enrolledWinTotal / Math.max(1, rptRange)).toFixed(1), 'per day across the window')}
-        ${kpi('Best ' + (bucketDays === 1 ? 'day' : 'week'), best.n.toLocaleString('en-IN'), best.n ? fmtD2(best.label) : '—')}
-        ${kpi('New villages reached', newVillages, 'first-ever enrollment in window')}
+        ${kpi('Enrolled (window)', enrolledWinTotal.toLocaleString('en-IN'), 'last ' + rptRange + ' days', null, 'New beneficiaries enrolled in the selected date range.')}
+        ${kpi('Daily average', (enrolledWinTotal / Math.max(1, rptRange)).toFixed(1), 'per day across the window', null, 'Total enrolled in the window ÷ number of days in the window.')}
+        ${kpi('Best ' + (bucketDays === 1 ? 'day' : 'week'), best.n.toLocaleString('en-IN'), best.n ? fmtD2(best.label) : '—', null, 'The single ' + (bucketDays === 1 ? 'day' : 'week') + ' with the most enrollments in this window. Tap any point on the chart below to see its exact date and count.')}
+        ${kpi('New villages reached', newVillages, 'first-ever enrollment in window', null, 'Villages that had their very first enrollment ever inside this window — not just their first enrollment recently.')}
       </div>` +
       card('Enrollments per ' + (bucketDays === 1 ? 'day' : 'week') + ' — last ' + rptRange + ' days', '', tblWrap(chart)) +
       card('NGO comparison — window', 'Per FC = enrollments ÷ FCs who enrolled at least one beneficiary in the window.',
         tblWrap(`<table style="width:100%;border-collapse:collapse">
           <tr><th style="${TH}">NGO</th><th style="${THR}">Enrolled</th><th style="${THR}">Active FCs</th><th style="${THR}">Per FC</th><th style="${TH}">Share</th></tr>
-          ${ngoRows.map(([ngo, g]) => `<tr>
+          ${ngoRows.map(([ngo, g]) => `<tr style="cursor:pointer" onclick="stateFilter='';ngoFilter='${(ngo || '').replace(/'/g, "\\'")}';fcFilter='';currentView='list';nav('list')" title="Click to see ${esc(ngo || '—')}'s beneficiaries">
             <td style="${TD}"><b>${esc(ngo || '—')}</b></td>
             <td style="${TDR}">${g.n.toLocaleString('en-IN')}</td>
             <td style="${TDR}">${g.fcs.size}</td>
@@ -19690,11 +20118,16 @@ function renderReports() {
           <div style="height:100%;border-radius:8px;display:flex;align-items:center;padding:0 10px;color:#fff;font-weight:600;font-size:12px;white-space:nowrap;background:${color};width:${Math.max(7, Math.round(n / maxStatus * 100))}%">${n.toLocaleString('en-IN')}</div>
         </div>
       </div>`;
+    // V4.9: click-through to the Advocacy view, pre-filtered to this scheme
+    // (and, for the stuck table, to the "Applied" stage) — reuses the same
+    // advSchemeFilter/advStageF + renderAdvocacy() plumbing already used by
+    // the live Advocacy view's own clickable KPI cards.
     const stuckRows = Array.from(stuckByScheme.entries()).sort((a, b) => b[1].n - a[1].n).slice(0, 10)
       .map(([sch, g]) => {
         let topNgo = '—', topN = 0;
         g.ngos.forEach((n, k) => { if (n > topN) { topN = n; topNgo = k; } });
-        return `<tr>
+        const schEsc = sch.replace(/'/g, "\\'");
+        return `<tr style="cursor:pointer" onclick="advStageF='Applied';advSchemeFilter='${schEsc}';advBCurrentPage=1;currentView='advocacy';nav('advocacy')" title="Click to see these stuck ${esc(sch)} applications">
           <td style="${TD}">${esc(sch)}</td>
           <td style="${TDR}"><b>${g.n.toLocaleString('en-IN')}</b></td>
           <td style="${TDR}">${Math.round(g.daysSum / g.n)}</td>
@@ -19703,7 +20136,7 @@ function renderReports() {
       }).join('');
     const succRows = Array.from(schemeStats.entries()).filter(([, s]) => s.filed >= 10)
       .sort((a, b) => b[1].filed - a[1].filed).slice(0, 12)
-      .map(([sch, s]) => `<tr>
+      .map(([sch, s]) => `<tr style="cursor:pointer" onclick="advStageF='';advSchemeFilter='${sch.replace(/'/g, "\\'")}';advBCurrentPage=1;currentView='advocacy';nav('advocacy')" title="Click to see all ${esc(sch)} applications">
         <td style="${TD}">${esc(sch)}</td>
         <td style="${TDR}">${s.filed.toLocaleString('en-IN')}</td>
         <td style="${TDR}">${s.recd.toLocaleString('en-IN')}</td>
@@ -19712,10 +20145,10 @@ function renderReports() {
       </tr>`).join('');
     body =
       `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px">
-        ${kpi('Scheme records', advTotal.toLocaleString('en-IN'), 'latest status per beneficiary-scheme')}
-        ${kpi('Benefits received', statusCount['Benefits Received'].toLocaleString('en-IN'), advTotal ? Math.round(statusCount['Benefits Received'] / advTotal * 100) + '% of all' : '', 'var(--green)')}
-        ${kpi('Stuck 60+ days', stuckTotal.toLocaleString('en-IN'), 'applied, no status change since logging', stuckTotal ? 'var(--amber)' : 'var(--green)')}
-        ${kpi('Rejected', statusCount['Rejected'].toLocaleString('en-IN'), advTotal ? Math.round(statusCount['Rejected'] / advTotal * 100) + '% of all' : '', 'var(--red)')}
+        ${kpi('Scheme records', advTotal.toLocaleString('en-IN'), 'latest status per beneficiary-scheme', null, 'One row per beneficiary-scheme pair, counting only its latest status — not every status change along the way.')}
+        ${kpi('Benefits received', statusCount['Benefits Received'].toLocaleString('en-IN'), advTotal ? Math.round(statusCount['Benefits Received'] / advTotal * 100) + '% of all' : '', 'var(--green)', 'Scheme applications that reached the final "Benefits Received" stage.')}
+        ${kpi('Stuck 60+ days', stuckTotal.toLocaleString('en-IN'), 'applied, no status change since logging', stuckTotal ? 'var(--amber)' : 'var(--green)', 'Marked "Applied" and logged 60 or more days ago, with no status update since. Tap a row below to see which beneficiaries.')}
+        ${kpi('Rejected', statusCount['Rejected'].toLocaleString('en-IN'), advTotal ? Math.round(statusCount['Rejected'] / advTotal * 100) + '% of all' : '', 'var(--red)', 'Scheme applications marked "Rejected".')}
       </div>` +
       card('The pipeline — where every scheme application stands', 'Counts of beneficiary-scheme records at each stage right now (latest status only, respecting the State/NGO filters above).',
         frow('Need to Apply', statusCount['Need to Apply'], '#9CA3AF') +
@@ -19730,7 +20163,7 @@ function renderReports() {
         </table>`)) +
       card('Scheme success rates', 'Of entries filed (applied / received / rejected), how many reached benefits. Schemes with fewer than 10 filed entries are hidden.',
         tblWrap(`<table style="width:100%;border-collapse:collapse">
-          <tr><th style="${TH}">Scheme</th><th style="${THR}">Filed</th><th style="${THR}">✓ Received</th><th style="${THR}">✗ Rejected</th><th style="${THR}">Success</th></tr>
+          <tr><th style="${TH}">Scheme</th><th style="${THR}">Filed</th><th style="${THR}">✓ Received</th><th style="${THR}">✗ Rejected</th><th style="${THR}">Success${_rptTip('Of entries filed for this scheme (Applied + Received + Rejected), the % that reached Benefits Received.')}</th></tr>
           ${succRows || `<tr><td colspan="5" style="${TD};text-align:center;color:var(--gray2)">Not enough data yet.</td></tr>`}
         </table>`));
   }
@@ -19782,15 +20215,30 @@ function renderReports() {
       </tr>`).join('');
     body =
       `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px">
-        ${kpi('Livelihood beneficiaries', livN.toLocaleString('en-IN'), 'enrolled in a program')}
-        ${kpi('Avg income increase', avgInc == null ? '—' : (avgInc >= 0 ? '+' : '') + _rptMoney(avgInc), avgInc == null ? 'no endlines yet' : 'per year ≈ ' + _rptMoney(avgInc / 12) + ' / month', 'var(--green)')}
-        ${kpi('Avg uplift', uplift == null ? '—' : (uplift >= 0 ? '+' : '') + Math.round(uplift) + '%', 'baseline → endline', 'var(--green)')}
-        ${kpi('Endline overdue', overdue.toLocaleString('en-IN'), 'enrolled 12+ months, no endline', overdue ? 'var(--amber)' : 'var(--green)')}
+        ${kpi('Livelihood beneficiaries', livN.toLocaleString('en-IN'), 'enrolled in a program', null, 'Beneficiaries enrolled in at least one livelihood intervention (Advocacy-only records are excluded).')}
+        ${kpi('Avg income increase', avgInc == null ? '—' : (avgInc >= 0 ? '+' : '') + _rptMoney(avgInc), avgInc == null ? 'no endlines yet' : 'per year ≈ ' + _rptMoney(avgInc / 12) + ' / month', 'var(--green)', 'Average of (endline income − baseline income), across everyone with both a baseline and a completed endline survey. This is the ADDITIONAL income logged, per V4.8 — never the household\'s total income.')}
+        ${kpi('Avg uplift', uplift == null ? '—' : (uplift >= 0 ? '+' : '') + Math.round(uplift) + '%', 'baseline → endline', 'var(--green)', 'Average income increase as a % of baseline, across the same completed-endline group.')}
+        ${kpi('Endline overdue', overdue.toLocaleString('en-IN'), 'enrolled 12+ months, no endline', overdue ? 'var(--amber)' : 'var(--green)', 'Enrolled 12+ months ago but still no endline survey on file — their income impact can\'t be counted until one is done.')}
       </div>` +
       (endN ? `<div style="background:var(--green2);border:1px solid #A7F3D0;border-radius:12px;padding:16px;margin-bottom:14px">
         <div style="font-size:15px;font-weight:700;color:var(--green)">Total measured income added: ${_rptMoney(added)} / year</div>
         <div style="font-size:11px;color:#065F46;margin-top:3px">Across the ${endN.toLocaleString('en-IN')} beneficiaries with completed baseline + endline surveys. Counts only measured, surveyed income change — nothing estimated.</div>
       </div>` : '') +
+      (suspects.length ? card('🔍 Suspicious endlines — endline less than HALF of baseline (' + suspects.length.toLocaleString('en-IN') + ' records)',
+        'Classic sign of the "entered only the ADDITIONAL income" mistake — though genuine income drops happen too, so nothing here is auto-changed. Review each: open the record → Endline Survey and re-save (the V4.7 form now catches this mistake at entry). The last column shows what the total would be IF the entered amount was actually the additional income.',
+        tblWrap(`<table style="width:100%;border-collapse:collapse">
+          <tr><th style="${TH}">Beneficiary</th><th style="${TH}">NGO</th><th style="${TH}">FC</th><th style="${THR}">Baseline</th><th style="${THR}">Endline entered</th><th style="${THR}">Shows as</th><th style="${THR}">If additional: total</th></tr>
+          ${suspects.sort((a, b2) => (a.endIncome / a.baseIncome) - (b2.endIncome / b2.baseIncome)).slice(0, 50).map(s => `<tr>
+            <td style="${TD}"><b>${esc(s.name)}</b><br><span style="font-size:10.5px;color:var(--gray2)">${esc(s.id)}</span></td>
+            <td style="${TD}">${esc(s.ngo || '—')}</td>
+            <td style="${TD}">${esc(uName.get(s.createdBy) || s.coord || '—')}</td>
+            <td style="${TDR}">${fmt(s.baseIncome)}</td>
+            <td style="${TDR}"><b>${fmt(s.endIncome)}</b></td>
+            <td style="${TDR}">${pill('−' + Math.round((1 - s.endIncome / s.baseIncome) * 100) + '%', 'var(--red2)', 'var(--red)')}</td>
+            <td style="${TDR}">${fmt(s.baseIncome + s.endIncome)}</td>
+          </tr>`).join('')}
+        </table>`)
+        + (suspects.length > 50 ? `<div style="font-size:11px;color:var(--gray2);margin-top:8px">Showing the 50 most severe of ${suspects.length.toLocaleString('en-IN')} suspicious records.</div>` : '')) : '') +
       card('Program stages — where every livelihood beneficiary stands', 'Baseline survey at enrollment → intervention → endline survey measures the change.',
         frow('Baseline Completed', stage['Enrolled'] || 0, '#2E75B6') +
         frow('Intervention In Progress', stage['Intervention In Progress'] || 0, '#7C3AED') +
@@ -19798,7 +20246,7 @@ function renderReports() {
       card('Income impact by intervention — completed endlines only',
         'A household income is one number — if someone has 2+ interventions the gain cannot honestly be split between them, so they get their own row. ₹ figures are real survey data.',
         tblWrap(`<table style="width:100%;border-collapse:collapse">
-          <tr><th style="${TH}">Intervention</th><th style="${THR}">Endlines</th><th style="${THR}">Avg increase / yr</th><th style="${THR}">≈ / month</th><th style="${THR}">Uplift</th></tr>
+          <tr><th style="${TH}">Intervention</th><th style="${THR}">Endlines</th><th style="${THR}">Avg increase / yr</th><th style="${THR}">≈ / month</th><th style="${THR}">Uplift${_rptTip('Average income increase as a % of baseline, for beneficiaries with this intervention only.')}</th></tr>
           ${intRows || `<tr><td colspan="5" style="${TD};text-align:center;color:var(--gray2)">No completed endlines under the current filters.</td></tr>`}
         </table>`)) +
       card('⏰ Endline backlog — enrolled 12+ months ago, still no endline survey',
@@ -19809,7 +20257,7 @@ function renderReports() {
         </table>`)) +
       card('Income uplift by NGO — completed endlines only', '',
         tblWrap(`<table style="width:100%;border-collapse:collapse">
-          <tr><th style="${TH}">NGO</th><th style="${THR}">Endlines</th><th style="${THR}">Avg increase / yr</th><th style="${THR}">≈ / month</th><th style="${THR}">Avg uplift</th></tr>
+          <tr><th style="${TH}">NGO</th><th style="${THR}">Endlines</th><th style="${THR}">Avg increase / yr</th><th style="${THR}">≈ / month</th><th style="${THR}">Avg uplift${_rptTip('Average income increase as a % of baseline, for this NGO\'s beneficiaries.')}</th></tr>
           ${ngoRows || `<tr><td colspan="5" style="${TD};text-align:center;color:var(--gray2)">No completed endlines under the current filters.</td></tr>`}
         </table>`));
   }
@@ -28041,9 +28489,15 @@ async function confirmBulkImport() {
       // #5: If the import provided an endIncome, seed the income log with it
       // as a single entry so the new Log Income modal shows it correctly
       // without needing a lazy-migration click.
+      // V4.8: the CSV column "endIncome" is (and stays) the TOTAL income —
+      // that admin-facing behavior is unchanged. But incomeLog entries now
+      // always mean ADDITIONAL income on top of the locked baseline, so the
+      // stored amount here must be the delta (endIncome - baseline), using
+      // the same effective baseline this record is seeded with above.
       incomeLog: (p.endIncome != null && p.endIncome !== '') ? [{
         date: p.endlineDate || today,
-        amount: parseFloat(p.endIncome) || 0,
+        amount: (parseFloat(p.endIncome) || 0) - (v.isFamilyMember ? 0 : (parseFloat(p.baseIncome) || 0)),
+        sources: [],
         note: 'Imported via bulk upload',
         addedBy: me.userId || 'u-admin',
         addedByName: 'Bulk Import (' + (me.fullName || me.username || 'admin') + ')',
@@ -29604,17 +30058,22 @@ async function confirmEndlineBulkUpdate() {
       endlineDate: b.endlineDate || null,
       status: b.status || null,
     };
-    // Per #4.5: REPLACE existing income log with single new entry
+    // Per #4.5: REPLACE existing income log with single new entry.
+    // V4.8: the CSV column "newEndIncome" is (and stays) the admin-typed
+    // TOTAL income — that behavior is unchanged. But incomeLog entries now
+    // always mean ADDITIONAL income, so the stored amount here must be the
+    // delta (newEndIncome - baseline), not the raw total.
     b.incomeLog = [{
       date: dt,
-      amount: p.newEndIncome,
+      amount: p.newEndIncome - (b.baseIncome || 0),
+      sources: [],
       note: p.note ? `Bulk update: ${p.note}` : 'Bulk endline update',
       addedBy: me.userId || 'u-admin',
       addedByName: 'Bulk Endline Update (' + (me.fullName || me.username || 'admin') + ')',
       addedAt: nowIso,
       _bulkBatchId: bulkBatchId,
     }];
-    // Mirror to b.endIncome for legacy consumers
+    // b.endIncome is the absolute total the admin typed — unchanged.
     b.endIncome = p.newEndIncome;
     b.endlineDate = dt;
     // Conflict detection for undo uses the app-wide _lastEditedAt stamp
