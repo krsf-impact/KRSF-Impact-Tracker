@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V4.9-LIVE
+  KRSF Beneficiary Impact Tracker  -  V4.10-LIVE
   ============================================================================
   VERSIONING SCHEME CHANGED (2026-07-13): the old plain-integer numbering
   (...V410, V411, V412, V413...) is retired as of this release. This build —
@@ -8,6 +8,68 @@
   every release increments the number after the dot: V4.3, V4.4, V4.5, and
   so on. Nothing about the app changed because of this — it's a labeling
   change only, made because "V413/V414" was hard to read at a glance.
+  ============================================================================
+  V4.10-LIVE (2026-07-18 — Update Benefits: fix stale view after write):
+
+    User report (live production, same night as the V4.8+V4.9 push): set a
+    scheme's Default Amount in Advocacy Management to ₹12,000, clicked the
+    existing "Update Benefits" button (pushes the default to every record
+    already marked Benefits Received for that scheme), got a success toast
+    — but the beneficiary list kept showing "—" for every one of the 101
+    affected records.
+
+    Root-caused with the user directly, live, via read-only diagnostic
+    scripts run in their own browser console (no data touched during
+    diagnosis): the underlying write was byte-for-byte correct the whole
+    time — verified via a full paginated REST read of the raw `advocacy`
+    collection, matched against the app's own key-derivation logic. Zero
+    mismatched keys, zero orphaned duplicate records. The real bug:
+    `adminUpdateSchemeBenefits()` writes directly via `FB.db.ref().update()`,
+    bypassing `saveAdv()`'s normal cache-refresh pipeline entirely — so
+    nothing tells the app's own view that a write just happened. Specifically
+    `_advLatestRowsAll()` (which the Advocacy beneficiary list reads through)
+    memoizes on "is the record array the same LENGTH as last time" — and
+    this write adds or removes zero records, only mutates `benefitAmt` in
+    place, so that memo kept serving the pre-update result no matter how
+    many times the screen re-rendered. Only a full page reload (which resets
+    the in-memory memo variables from scratch) ever showed the correct data
+    — exactly the "why do I have to refresh every time" the user pushed back
+    on.
+
+    Fix: after a successful `Update Benefits` write, three things now happen
+    before the toast fires: (1) the affected entries are patched in place
+    inside `RecordCache.adv` so `loadAdv()` reflects the new amount
+    immediately, without waiting on the real-time listener's own round trip;
+    (2) `_advLatestRowsCache`/`_advLatestRowsCacheLen` are reset so the next
+    read recomputes instead of trusting its stale length-based memo; (3) the
+    V361 dashboard/beneficiary/advocacy aggregate caches are invalidated the
+    same way every other write path in the app already does. A
+    `renderCurrentView()` call then repaints whatever screen is currently
+    open with the fresh data — no manual reload needed going forward.
+
+    Separate, deeper issue flagged but deliberately NOT touched in this
+    release: the mechanism this bug traces back to (`fbStampAdvKey`'s
+    synthetic `${bid}__unknown` key, recomputed client-side instead of using
+    the real stored Firebase key) is a real, pre-existing latent risk shared
+    by `saveAdv()` itself and 3 other admin tools — for records that have
+    never been re-saved since this key convention took over, a computed key
+    could still diverge from the real one. It happened not to bite this
+    time (these 101 records had all been touched recently enough that their
+    real key already matched). This is the app's core save path
+    (`saveAdv()`), so per the standing rule it gets its own dedicated fix
+    with a purpose-built staging test, not folded into a same-night patch.
+
+    Verified on staging (isolated seeded namespace `krsf_tracker_v4_10test`,
+    deleted after): seeded 5 advocacy records marked Benefits Received with
+    `benefitAmt: 0`, set a Default Amount, primed the beneficiary list's
+    cache by rendering it once (reproducing the exact stale-memo
+    precondition), then ran "Update Benefits" — the list showed ₹5,000 for
+    all 5 records immediately, zero reload, zero manual cache-clear.
+    Cross-checked the raw Firebase data via REST afterward: exactly 5
+    records, correct amount, zero orphaned nodes. Zero Firebase read/write
+    pattern change — same writes as before, only the local post-write
+    refresh behavior changed.
+
   ============================================================================
   V4.9-LIVE (2026-07-17 — Reports: tap tooltips + click-to-drill-down):
 
@@ -5290,7 +5352,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V4.9-LIVE';
+const APP_VERSION = 'V4.10-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -10987,7 +11049,7 @@ let _genIdMutex = Promise.resolve();
 // After this fires once, the counter is canonical and no further scans
 // ever happen for that state in the entire Firebase project.
 async function _v353BootstrapScanMax(prefix) {
-  const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';  // V4.9-LIVE: production
+  const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';  // V4.10-LIVE: production
   const NS = 'krsf_tracker';
   let authToken = '';
   try {
@@ -21768,10 +21830,37 @@ async function adminUpdateSchemeBenefits(idx) {
   });
   try {
     await FB.db.ref().update(updates);
+    // V4.10: this is a raw ref().update() write \u2014 it bypasses saveAdv()'s
+    // normal cache-refresh pipeline entirely, so nothing here tells the app
+    // its own view is now stale. Three separate things need clearing:
+    //   1. RecordCache.adv itself (loadAdv() reads from this) \u2014 patch the
+    //      affected entries in place so a fresh loadAdv() call sees the
+    //      new amount immediately, without waiting on the real-time
+    //      listener's own round trip.
+    //   2. _advLatestRowsAll's memo (_advLatestRowsCache/-Len) \u2014 its cache
+    //      check is "same array LENGTH as last time", and this write adds
+    //      or removes zero records (only benefitAmt changes), so that memo
+    //      would otherwise keep serving pre-update data forever, no matter
+    //      how many times the screen re-renders \u2014 only a full page reload
+    //      resets it today, which is exactly the "why do I have to refresh
+    //      every time" problem being fixed here.
+    //   3. The V361 dashboard/benef/adv aggregate caches, same reasoning.
+    affected.forEach(({ fbKey }) => {
+      const cached = RecordCache.adv.get(fbKey);
+      if (cached && Array.isArray(cached.schemeRows)) {
+        cached.schemeRows.forEach(r => {
+          if (r.scheme === name && _advNormStatus(r) === 'Benefits Received') r.benefitAmt = newAmt;
+        });
+      }
+    });
+    _advLatestRowsCache = null;
+    _advLatestRowsCacheLen = -1;
+    if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache();
     auditLog('update', 'scheme', name, name,
       `Update Benefits: pushed \u20B9${newAmt.toLocaleString('en-IN')} to ${rowCount} "${name}" row(s) across ${affected.length} record(s)`,
       { defaultAmount: [null, newAmt] });
     toast(`Updated \u20B9${newAmt.toLocaleString('en-IN')} across ${rowCount} row(s) in ${affected.length} record(s).`, 'success', 5000);
+    try { renderCurrentView(); } catch(_){}
   } catch(e) {
     toast(`Update Benefits failed: ${e.message}`, 'error', 5000);
     console.error('[adminUpdateSchemeBenefits]', e);
