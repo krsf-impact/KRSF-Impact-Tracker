@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V4.10-LIVE
+  KRSF Beneficiary Impact Tracker  -  V4.11-LIVE
   ============================================================================
   VERSIONING SCHEME CHANGED (2026-07-13): the old plain-integer numbering
   (...V410, V411, V412, V413...) is retired as of this release. This build —
@@ -8,6 +8,71 @@
   every release increments the number after the dot: V4.3, V4.4, V4.5, and
   so on. Nothing about the app changed because of this — it's a labeling
   change only, made because "V413/V414" was hard to read at a glance.
+  ============================================================================
+  V4.11-LIVE (2026-07-18 — fix cross-device stale view, same night as V4.10):
+
+    User report, minutes after V4.10 went live: pushed a benefit amount
+    for "Vidhva Sahay" — didn't reflect. Separately: laptop showed the
+    Advocacy "Benefit Amount" KPI as ₹12,63,000, phone showed ₹1,11,000 for
+    what should be the same number.
+
+    V4.10 fixed the ONE code path that performs the "Update Benefits" write
+    itself, so the device that clicks the button now sees its own result
+    instantly. It did not fix the other ~8 code paths that populate the same
+    `RecordCache.adv`/`_advLatestRowsCache` when a DIFFERENT device (or the
+    same device on a later boot) fetches or receives advocacy data — every
+    one of which had the identical gap: they refresh the raw record cache
+    correctly, but never reset `_advLatestRowsCache`/`_advLatestRowsCacheLen`
+    (the length-only memo), so a device that didn't itself make the edit
+    keeps showing whatever total it had computed before, indefinitely, even
+    across an explicit refresh — exactly the laptop-vs-phone symptom.
+
+    Audited via a dedicated Explore pass across the whole file: every single
+    `RecordCache.adv` mutation site, and every call site of the aggregate
+    invalidator, cross-referenced against the memo reset. Found a second,
+    unused-but-already-written helper (`_invalidateAdvCache()`, resets both
+    `_advLatestRowsCache`/-Len AND a matching `_allBEnrichedCache`/-Key memo
+    on the All Beneficiaries list — same failure shape, never wired in
+    either) sitting dead in the code with zero callers.
+
+    Fix, in two parts:
+    1. `_v361InvalidateAggCache()` — already the most widely-called
+       invalidator in the app (10+ call sites: every incremental sync, REST
+       refetch, and listener flush) — now also calls `_invalidateAdvCache()`
+       internally. This one change cascades to fix `_advFlushNow` and
+       `_benefFlushNow` (both call `_v357InvalidateTabCache()`, which
+       already called this function), `_advAdminIncrementalSync`, the
+       pantry-hit branch of `_adminAdvRestFetch`, and the manual admin
+       "Refresh" button — all for free, zero risk of missing one.
+    2. Five sites that called NEITHER invalidator at all before now
+       explicitly call it: `_v337AdvOneShotFetch` (both branches — the
+       coordinator/NGO one-shot fetch), `_v375ScopedAdvMultiFetch` (both
+       branches — donor/scopedViewer multi-NGO fetch), `_advNgoIncrementalSync`
+       (NGO-role live sync), and `migrateAdvSchemeNames` (the legacy
+       scheme-name one-shot migration).
+
+    Verified: unit-level proof that reproduces the exact bug shape directly
+    — poisoned `_advLatestRowsCache` with a sentinel value at the SAME
+    array length as real data (the precise condition the old length-only
+    check would wrongly trust), confirmed `_advLatestRowsAll()` would have
+    served the stale sentinel; called `_v361InvalidateAggCache()` (as every
+    patched site now does on success) and confirmed the very next call
+    recomputes fresh instead. The underlying "reset this memo fixes the
+    symptom" mechanism was already proven end-to-end with real Firebase
+    round-trips in V4.10's own test; this release is the same proven fix
+    applied everywhere it was missing, not a new unverified mechanism.
+
+    Known, deliberate limitation NOT changed by this release: admin
+    sessions only react live to brand-new advocacy records (`child_added`)
+    — an in-place edit made by one admin session does not instantly push to
+    another admin's open tab (`child_changed` events are intentionally
+    ignored for admin, a bandwidth-saving design choice given ~122k
+    records). A device that didn't make the edit still needs SOME refresh
+    trigger (reload, the Refresh button, re-login) to see someone else's
+    change — this release guarantees that once it does refresh, it reliably
+    shows the correct number, not that edits appear instantly everywhere
+    without asking.
+
   ============================================================================
   V4.10-LIVE (2026-07-18 — Update Benefits: fix stale view after write):
 
@@ -5352,7 +5417,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V4.10-LIVE';
+const APP_VERSION = 'V4.11-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -5897,6 +5962,11 @@ async function _advNgoIncrementalSync() {
     }
     if (added > 0 || removed > 0) {
       try { await _advPantryWrite(u.userId, Array.from(RecordCache.adv.values())); } catch(_){}
+      // V4.11: `added` also counts in-place edits to records already in the
+      // cache (this query is by _lastEditedAt, not just new keys) — without
+      // this, RecordCache.adv is correctly updated but _advLatestRowsCache's
+      // length-only memo doesn't know anything changed.
+      try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
       try { renderCurrentView(); } catch(_){}
     }
     console.log('[V347] NGO adv sync: +' + added + ' / -' + removed);
@@ -7662,6 +7732,9 @@ async function _v337AdvOneShotFetch(query, opts) {
         fbUpdatePill();
         console.log('[V347] adv from pantry:', RecordCache.adv.size, 'records');
         if (u.role === 'ngo') _advNgoIncrementalSync();
+        // V4.11: neither invalidation call existed on this path before —
+        // see the note on _v361InvalidateAggCache for why this matters.
+        try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
         try { renderCurrentView(); } catch(_){}
         return;
       }
@@ -7687,6 +7760,7 @@ async function _v337AdvOneShotFetch(query, opts) {
     if (u && u.userId) {
       try { await _advPantryWrite(u.userId, Array.from(RecordCache.adv.values())); } catch(_){}
     }
+    try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
     try { renderCurrentView(); } catch(_){}
   } catch (e) {
     console.warn('[V337] adv one-shot fetch failed:', e);
@@ -7802,6 +7876,8 @@ async function _v375ScopedAdvMultiFetch(ngos, opts) {
         FB.advReplayComplete = true;
         fbUpdatePill();
         console.log('[V375 scoped] adv from pantry:', RecordCache.adv.size, 'records');
+        // V4.11: neither invalidation call existed on this path before.
+        try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
         try { renderCurrentView(); } catch(_){}
         return;
       }
@@ -7844,6 +7920,7 @@ async function _v375ScopedAdvMultiFetch(ngos, opts) {
     if (u && u.userId) {
       try { await _advPantryWrite(u.userId, Array.from(RecordCache.adv.values())); } catch(_){}
     }
+    try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
     try { renderCurrentView(); } catch(_){}
   } catch (e) {
     console.warn('[V375 scoped] adv multi-fetch failed:', e);
@@ -11049,7 +11126,7 @@ let _genIdMutex = Promise.resolve();
 // After this fires once, the counter is canonical and no further scans
 // ever happen for that state in the entire Firebase project.
 async function _v353BootstrapScanMax(prefix) {
-  const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';  // V4.10-LIVE: production
+  const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';  // V4.11-LIVE: production
   const NS = 'krsf_tracker';
   let authToken = '';
   try {
@@ -17476,6 +17553,10 @@ async function _saveAdvocacyInner() {
               'V320 scheme-name migration',
               `Normalised legacy scheme names on ${n} advocacy record(s)`,
               null);
+            // V4.11: same in-place-edit-doesn't-change-length issue as
+            // adminUpdateSchemeBenefits had — see that fix's changelog entry.
+            try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
+            try { renderCurrentView(); } catch(_){}
           }
         })
         .catch(e => console.warn('[V320] migrateAdvSchemeNames write failed:', e));
@@ -18911,6 +18992,18 @@ function _v361InvalidateAggCache() {
   _v361AdvAgg = null;
   _v361BenefAgg = null;
   _v361DashAgg = null;
+  // V4.11: this is already the most widely-called invalidator in the app
+  // (every incremental sync, REST refetch, and listener flush calls it) —
+  // fold _invalidateAdvCache()'s resets in here too, so every one of those
+  // existing call sites also clears _advLatestRowsCache/-Len (the
+  // length-only memo behind the "Update Benefits looked like it worked but
+  // didn't show up" bug — an in-place field edit never changes the record
+  // COUNT, so that memo kept serving pre-edit data indefinitely) and
+  // _allBEnrichedCache/-Key (the same failure shape on the All Beneficiaries
+  // list) WITHOUT needing every call site edited individually. See V4.10's
+  // changelog entry and _invalidateAdvCache's own (previously unused)
+  // definition for the full history.
+  try { if (typeof _invalidateAdvCache === 'function') _invalidateAdvCache(); } catch(_) {}
 }
 window._v361InvalidateAggCache = _v361InvalidateAggCache;
 
