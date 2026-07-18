@@ -1,6 +1,50 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V5-LIVE
+  KRSF Beneficiary Impact Tracker  -  V5.1-LIVE
+  ============================================================================
+  V5.1-LIVE (2026-07-18 — real bug fix: NGO Partners name column was
+  invisible on mobile in production):
+
+    User sent a real device screenshot of V5's compact single-line NGO
+    Partners table: rank, beneficiary count, and Total Impact all showed
+    correctly — but the NGO NAME was completely missing from every row,
+    just blank space where it should be. "Not acceptable" (correctly so —
+    V5 had been verified with synthetic hand-built test tables, not the
+    app's own real render function, and that gap is exactly what let this
+    through).
+
+    Root cause, found by calling the real `_renderDashboardTopNGOs()`
+    function directly (not a synthetic table) and inspecting its actual
+    output: forcing `.ngo-partners-tbl tbody tr` to `display:flex` was not
+    enough on its own, because the `<table>` and `<tbody>` ancestors were
+    still left in native table-layout mode (`table-layout:fixed` +
+    the desktop `<colgroup>` column percentages). With the row's own
+    display overridden but its ancestors still governed by the table
+    layout algorithm, the row never received real width to hand its flex
+    children — measured at ~30px wide instead of the ~373px viewport.
+    The name cell (`flex:1`, nothing to grow into) collapsed to exactly
+    0px and vanished entirely behind its own `overflow:hidden`. The
+    other three fields (rank, beneficiaries, total) all have fixed or
+    content-driven widths, so they kept rendering — which is exactly why
+    only the name looked broken and everything else looked fine.
+
+    Fix: `.ngo-partners-tbl` and `.ngo-partners-tbl tbody` are now also
+    forced to `display:block` on mobile, taking the whole ancestor chain
+    out of table-layout mode, so the flex row genuinely fills its
+    container's width and the name column has real space to occupy.
+
+    VERIFIED against the real function output this time (not synthetic
+    markup): row width computes to ~373px (full viewport, was ~30px), the
+    name cell's visible width computes to ~248px with real text present
+    and legible, a long NGO name ("Sristi Krishi Vigyan Foundation
+    Trust") truncates cleanly with no visible overflow rather than
+    breaking the row, Total Impact stays fully inside the viewport
+    (right edge at 361px of 375px), and every row holds at the same 45px
+    height regardless of name length. Lesson applied going forward:
+    verify layout CSS against the actual render function's real output,
+    not hand-typed test markup that can silently omit whatever structural
+    detail (here, the table/tbody ancestor chain) turns out to matter.
+
   ============================================================================
   V5 MILESTONE PACKAGE (2026-07-18): per explicit user request, this release
   bundles V4.12 + V4.13 + the mobile dashboard fix below into one combined
@@ -4457,10 +4501,19 @@ body[data-shell="coord"] #coord-app { display: block; }
      !important on the display swaps themselves for certainty (see the
      mid-build CSS-specificity mistake documented in memory for why that
      caution is now the default here rather than assumed). */
+  /* table-layout:fixed + the colgroup's column percentages otherwise keep
+     governing width even after a row is forced to display:flex — the
+     <table>/<tbody> ancestors must ALSO leave table-display mode, or the
+     row never gets real width to hand its flex children (confirmed via
+     the real render function: the row measured ~30px wide instead of the
+     full viewport, and the name column, flex-grow:1 with nothing to grow
+     into, collapsed to 0px and vanished behind overflow:hidden). */
+  .ngo-partners-tbl { display: block !important; }
+  .ngo-partners-tbl tbody { display: block !important; }
   .ngo-partners-tbl tbody tr {
-    display: flex !important; align-items: center; gap: 8px;
+    display: flex !important; width: 100%; align-items: center; gap: 8px;
     background: #fff; border: 1px solid var(--gray3); border-radius: 10px;
-    padding: 10px 12px; margin: 0 0 8px;
+    padding: 10px 12px; margin: 0 0 8px; box-sizing: border-box;
   }
   .ngo-partners-tbl tbody td { display: block !important; padding: 0 !important; border: none !important; }
   .ngo-partners-tbl tbody td:before { content: none !important; }
@@ -5690,7 +5743,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V5-LIVE';
+const APP_VERSION = 'V5.1-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -11399,7 +11452,7 @@ let _genIdMutex = Promise.resolve();
 // After this fires once, the counter is canonical and no further scans
 // ever happen for that state in the entire Firebase project.
 async function _v353BootstrapScanMax(prefix) {
-  const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';  // V5-LIVE: production
+  const DB_URL = 'https://krsf-impact-tracking-default-rtdb.asia-southeast1.firebasedatabase.app';  // V5.1-LIVE: production
   const NS = 'krsf_tracker';
   let authToken = '';
   try {
