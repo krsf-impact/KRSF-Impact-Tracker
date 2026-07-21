@@ -1,6 +1,196 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V5.4-LIVE
+  KRSF Beneficiary Impact Tracker  -  V5.7-LIVE
+  ============================================================================
+  V5.7-LIVE (2026-07-22 — baseline income two-way sync + closed the
+  Reassign/Transfer family-tree gap V5.6 flagged):
+
+    Direct follow-up to V5.6, same day. User asked two things after seeing
+    V5.6 land: (1) "baseline income should be two-way, since it is a
+    family... it should be locked. when I click on the lock. It should
+    unlock and I can edit. and should sync", and (2) "Also need to do
+    cascading family tree" — closing the exact gap V5.6's own changelog
+    flagged (Reassign/Transfer/Move FC to NGO/NGO rename not cascading to
+    family members).
+
+    BASELINE INCOME — now the one field that's genuinely TWO-WAY (every
+    other synced field stays one-directional, head → family, unchanged
+    from V5.6). Editing baseline income on ANY member of a family unit —
+    the head OR a family member — pushes it to every other linked member.
+    Also newly LOCKED on the "Add Livelihood Intervention" promotion form
+    (f-total added to the same lock/unlock mechanism V5.5 already uses for
+    the other 8 fields), so it now behaves consistently with the rest of
+    the household-fact set instead of sitting there freely editable.
+
+    GUARD, confirmed with the user before building (AskUserQuestion — chose
+    "warn, don't auto-overwrite"): baseline income is the anchor every
+    progress number is measured against (endline − baseline drives income-
+    added totals, "flat result" and "income dropped/doubled" alerts,
+    benefit-amount calcs). If a member already has real progress logged
+    (an endline income or an income-log entry) and a sync would change her
+    baseline, the sync is SKIPPED for her specifically and reported via a
+    dedicated audit entry + toast — never silently overwritten. Verified
+    end-to-end on staging: editing the head's income correctly propagated
+    to a member with no progress while correctly skipping (and reporting)
+    a sibling who already had an endline logged; editing a family member's
+    own income (after unlocking) correctly propagated back to the head.
+
+    FAMILY-TREE CASCADE — Reassign and Transfer Beneficiaries now bring a
+    reassigned/transferred HEAD's linked family members along (same new
+    FC/coordinator/NGO), so they no longer get orphaned on the old FC when
+    only the head is selected. Deliberately does NOT cascade the other
+    direction — reassigning a single family member on her own (a real, if
+    unusual, case) does not drag the head and siblings with her. Move FC to
+    NGO and NGO rename were checked and found to already be correct: both
+    already iterate every matching beneficiary unconditionally (by
+    createdBy / by ngo respectively), not a hand-picked subset, so family
+    members were never actually excluded there — the real gap was only in
+    the two admin-hand-picks-specific-IDs tools. Verified end-to-end on
+    staging: reassigning a head moved 2 linked family members automatically;
+    reassigning a family member alone left her head and sibling untouched;
+    bulk-transferring only a checked head still pulled in her unchecked
+    family member, while a family member already on a different FC (an
+    inconsistent pre-existing state) was correctly left alone rather than
+    guessed at.
+
+    Both the two-way income sync and the reassign/transfer cascade share
+    one helper, _cascadeFamilySync(), unit-tested against 4 scenarios
+    (head edit, family-member income edit, standalone beneficiary, and an
+    unrelated-field edit that should cascade nothing) before being wired
+    into the real save paths and re-verified against real Firebase writes.
+  ============================================================================
+  V5.6-LIVE (2026-07-22 — household-fact fields now stay identical between
+  a head and all linked family members going forward, not just at the
+  moment they were first copied):
+
+    Direct follow-up to V5.5. User asked what happens if a head's baseline
+    income is corrected AFTER a family member has already been promoted to
+    livelihood — answer, confirmed by reading the actual code: nothing.
+    The baseline was a one-time snapshot copy, never a live link, and the
+    same was true of every field V5.5 locks (state/district/village/
+    taluka/category/phone/NGO/coordinator) — locking prevents an FC from
+    changing them, but does nothing to keep them in sync if the HEAD's own
+    values change later via a normal edit. User's explicit instruction:
+    "I want identical numbers everywhere in family members."
+
+    SCOPE, confirmed with the user before building: the full field set
+    V5.5 already locks, PLUS baseline income. Land, livestock, and sources
+    of livelihood stay independent per person — those describe each
+    person's own economic activity (a wife's dairy income and her
+    husband's organic-farming income are genuinely different facts), not a
+    shared household fact.
+
+    DESIGN, stated plainly rather than assumed: one-directional only (head
+    → every linked family member), triggered only when the HEAD's own
+    record is edited via the normal Edit Details form. Editing a family
+    member's own copy of these fields (via the V5.5 "Unlock household
+    fields" escape hatch) does NOT push back to the head or to her
+    siblings — verified this explicitly on staging, not just assumed.
+    Unconditional once triggered: per the user's literal instruction, a
+    family member's field is NOT preserved if it had been manually
+    unlocked and deliberately diverged from the head — the next relevant
+    head edit brings it back in line with no exception. Diff-based: only
+    fields that ACTUALLY changed on the head get pushed, so an unrelated
+    edit (land holding, status, etc.) touches zero other records — cheap,
+    correctly scoped, no wasted writes. Bundled into the SAME saveData()
+    call the head's own edit already makes — one atomic write, not a
+    second Firebase round-trip, so this is zero bandwidth increase over
+    today's baseline.
+
+    KNOWN, DELIBERATE GAP — not built this round, flagged rather than
+    silently left unaddressed: this cascade only fires through the plain
+    Edit Details save path. The dedicated Reassign, Transfer Beneficiaries,
+    Move FC to NGO, and NGO-rename tools ALL can also change some of these
+    same fields (NGO, Field Coordinator) on a head's record, through their
+    own separate code paths — none of them go through this cascade, so a
+    head reassigned via those tools does NOT currently bring family
+    members along automatically. Whether that's worth closing too is a
+    separate scope decision for the user, not assumed here.
+
+    TESTED on staging with real writes, driving the actual edit form: a
+    head with TWO family members — one already promoted to livelihood
+    (with her own land/livestock/sources/interventions), one still
+    advocacy-only. Edited the head's phone + baseline income + village +
+    district in one save — confirmed BOTH family members' matching fields
+    updated to the head's new values, while the promoted member's own
+    livelihood fields (land, livestock, sources, interventions) stayed
+    completely untouched — the exact boundary this feature needs to
+    respect. Edited the head again changing ONLY land (not a synced field)
+    — confirmed zero cascade fired, zero extra writes, only the expected
+    single "Changes saved" toast (not the cascade toast). Edited a family
+    member's own phone directly — confirmed it saved correctly on her own
+    record while the head's and her sibling's phones stayed completely
+    unaffected, proving no reverse or cross-sibling leakage. Edited a
+    standalone beneficiary with zero linked family — confirmed identical,
+    unchanged behavior to every prior version, zero cascade cost. All test
+    fixtures deleted afterward; staging left clean.
+
+  ============================================================================
+  V5.5-LIVE (2026-07-21 — real bug caught by the user's own eye while
+  actually using "+ Add Livelihood Intervention" live: household-context
+  fields were fully editable when they should have been locked):
+
+    User was trying the V5.3/V5.4 feature themselves and asked a sharp,
+    simple question from a real screenshot: "Shouldn't most of the things
+    in the table be locked already? Most of it is editable."
+
+    They were right. This app already has a real, working "household field
+    lock" mechanism (_applyFamilyMemberLockTo / _clearFamilyMemberLocks,
+    with a "🔒 Unlock household fields" escape hatch in the banner) that
+    the ORIGINAL "+ Add Family Member" flow uses to lock State, District,
+    Village, Taluka, Category, Phone, NGO, and Field Coordinator once
+    they're pre-filled from the head — so an FC can't accidentally drift a
+    family member's household details away from her own head's. The V5.3
+    "Add Livelihood Intervention" flow was built on top of openEdit()
+    (which correctly restores these fields from her own stored record, but
+    — correctly, for a PLAIN edit — leaves them fully editable, since an
+    ordinary Edit Details session should allow real corrections). What was
+    missing: the promotion flow never separately re-applied the SAME
+    locking behavior on top, even though it's conceptually the exact same
+    "still linked to a head, don't casually change this" situation the
+    original flow already solves correctly. All 8 fields sat there
+    editable with zero visual indication they shouldn't normally be
+    touched — exactly what the user's screenshot showed.
+
+    FIX: _applyAddLivelihoodToFamilyUI now locks the same 8 fields,
+    reusing the existing, already-proven lock function rather than
+    inventing a new one — same 🔒 marks on the labels, same unlock link,
+    same visual language the app already uses elsewhere. Locks WHATEVER IS
+    ALREADY on her own record (not re-derived from the head — her stored
+    values are the real source of truth at this point; an admin may have
+    already corrected them separately via Edit Details).
+
+    A SECOND, real bug surfaced while testing this fix on staging, before
+    it ever reached the user: a field only gets locked if it actually has
+    a value. Naively locking all 8 fields unconditionally broke on the
+    District field specifically — setDistrictValue() silently leaves the
+    dropdown blank if the stored district string doesn't exactly match a
+    real option currently in that list (confirmed harmless for genuine
+    production records, which can only ever have been saved via the real
+    form's own district dropdown — this was caught via a synthetic test
+    district string, not a real one). But the FIX still matters for the
+    real world: if a district list is ever edited later and an old
+    record's district string stops matching, or ANY field's pre-fill fails
+    for any reason, blindly locking it would trap the FC with a genuinely
+    blank field and no way to fix it — worse than the original bug. Now
+    each field is only locked if openEdit()'s restore actually gave it a
+    real value; anything that came back blank stays editable, mirroring
+    the exact same safety rule "+ Add Family Member" already uses
+    (preFilledLabels — "never claim a field is pre-filled if the value
+    didn't stick").
+
+    TESTED on staging with real writes: opened the real form on a real
+    family member, confirmed all 8 fields correctly show as locked (🔒
+    marks, disabled/read-only, matching values) except district (correctly
+    left editable, per the fix above, since the synthetic test district
+    didn't resolve); confirmed the "Unlock household fields" link
+    correctly reveals every field again with values preserved and marks
+    removed; then completed a full submission with the mixed locked/
+    unlocked state — beneficiary saved correctly, locked fields (NGO,
+    village) kept their exact values, the one manually-corrected field
+    (district) saved the FC's real input, livelihood intervention added
+    correctly. All test fixtures deleted afterward; staging left clean.
+
   ============================================================================
   V5.4-LIVE (2026-07-21 — user-requested critical review of V5.3's real-FC
   path found and fixed a genuine pre-existing bug; plus a clean-up of the
@@ -6112,7 +6302,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V5.4-LIVE';
+const APP_VERSION = 'V5.7-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -12938,6 +13128,54 @@ function _clearFamilyMemberLocks(showToast) {
   }
 }
 
+// V5.7: cascade household-fact changes between a head and her linked family
+// members (data.filter(x => x.headId === headId)). Two different rules for
+// two different kinds of field, per explicit user direction:
+//   - The 7 context fields (district/village/taluka/category/phone/ngo/
+//     coord) stay ONE-DIRECTIONAL, head → family only (V5.6's original
+//     behavior, unchanged) — only fires when the record just saved IS a
+//     head (no headId of its own).
+//   - Baseline income is TWO-WAY: changing it on ANY member of a family
+//     unit (head or family member) pushes it to every other linked member.
+//     Guard: a member who already has real progress recorded (endline
+//     income or an income-log entry) is skipped rather than silently
+//     rewritten — overwriting an already-reported progress baseline would
+//     retroactively change her historical income-delta numbers for no real
+//     field reason. Blocked ids are returned so the caller can surface it.
+// `data` is mutated in place (the same array the caller is about to
+// saveData() with) — no extra write. Returns {touchedCount, blockedIds}.
+function _cascadeFamilySync(data, recordId, before, after) {
+  const _familySyncFields = ['district', 'village', 'taluka', 'category', 'phone', 'ngo', 'coord'];
+  const _familyRootId = after.headId || recordId;
+  const _familyUnit = data.filter(x => x && x.id !== recordId && (x.id === _familyRootId || x.headId === _familyRootId));
+  const _touched = new Set();
+  const _blockedIds = [];
+  if (_familyUnit.length === 0) return { touchedCount: 0, blockedIds: [] };
+
+  if (!after.headId) {
+    const _changedSyncFields = _familySyncFields.filter(f => before[f] !== after[f]);
+    if (_changedSyncFields.length > 0) {
+      _familyUnit.forEach(fm => {
+        _changedSyncFields.forEach(f => { fm[f] = after[f]; });
+        _touched.add(fm.id);
+      });
+    }
+  }
+  if (before.baseIncome !== after.baseIncome) {
+    _familyUnit.forEach(fm => {
+      if (fm.baseIncome === after.baseIncome) return;
+      const hasProgress = fm.endIncome != null || (Array.isArray(fm.incomeLog) && fm.incomeLog.length > 0);
+      if (hasProgress) {
+        _blockedIds.push(fm.id);
+      } else {
+        fm.baseIncome = after.baseIncome;
+        _touched.add(fm.id);
+      }
+    });
+  }
+  return { touchedCount: _touched.size, blockedIds: _blockedIds };
+}
+
 function openEnroll() {
   editingId = null;
   // Always reset family-member mode at the start. openEnrollAsFamilyMember()
@@ -13048,16 +13286,8 @@ function openAddLivelihoodToFamilyMember(id) {
   const head = loadData().find(x => x.id === b.headId) || { id: b.headId, name: '(head record removed)' };
   _addLivToFamilyId = id;
   openEdit(id);
-  _applyAddLivelihoodToFamilyUI(head);
+  _applyAddLivelihoodToFamilyUI(head, b);
   document.getElementById('modal-title-text').textContent = 'Add Livelihood Intervention — ' + b.id;
-  // Pre-fill baseline from the head's household income — this is the whole
-  // point of the flow. Only pre-fill if her own field is currently blank/0
-  // (defensive — should always be true for a not-yet-livelihood family
-  // member, but never overwrite a real existing value if one somehow exists).
-  const totalEl = document.getElementById('f-total');
-  if (totalEl && (!b.baseIncome || b.baseIncome === 0)) {
-    totalEl.value = (head && head.baseIncome) ? head.baseIncome : '';
-  }
 }
 
 // Open the enrollment form in "Add Family Member" mode — a shortcut for the
@@ -13396,7 +13626,7 @@ function _applyFamilyMemberModeUI(head) {
 // household-level fact already captured once, on the head's record, and
 // re-asking it here would just invite a second, possibly-different number
 // for the same household.
-function _applyAddLivelihoodToFamilyUI(head) {
+function _applyAddLivelihoodToFamilyUI(head, b) {
   const banner    = document.getElementById('family-member-banner');
   const bannerMsg = document.getElementById('family-member-banner-msg');
   const relWrap   = document.getElementById('family-relation-wrap');
@@ -13417,11 +13647,21 @@ function _applyAddLivelihoodToFamilyUI(head) {
   // normal, non-family form. hhsize-wrap is deliberately left untouched
   // (still hidden from _applyFamilyMemberModeUI above).
 
+  // Pre-fill baseline from the head's household income — this is the whole
+  // point of the flow. Only pre-fill if her own field is currently blank/0
+  // (defensive — should always be true for a not-yet-livelihood family
+  // member, but never overwrite a real existing value if one somehow
+  // exists). Must run BEFORE the lock loop below so f-total has picked up
+  // its value by the time we decide whether to lock it (V5.7).
+  const totalEl = document.getElementById('f-total');
+  if (totalEl && b && (!b.baseIncome || b.baseIncome === 0)) {
+    totalEl.value = (head && head.baseIncome) ? head.baseIncome : '';
+  }
+
   // Baseline-income hint: explains the pre-fill so the FC isn't left
   // guessing why a number is already sitting in an otherwise-blank field.
   // Re-created each time this opens (removed in closeEnroll) rather than
   // left in the DOM permanently, since it doesn't apply to any other form.
-  const totalEl = document.getElementById('f-total');
   let hint = document.getElementById('liv-baseline-hint');
   if (!hint && totalEl && totalEl.parentNode) {
     hint = document.createElement('div');
@@ -13431,9 +13671,44 @@ function _applyAddLivelihoodToFamilyUI(head) {
   }
   if (hint) {
     hint.textContent = (head && head.baseIncome)
-      ? `Pre-filled from ${head.name || head.id}'s household income (₹${head.baseIncome.toLocaleString('en-IN')}) — edit if the verified figure differs.`
+      ? `Pre-filled from ${head.name || head.id}'s household income (₹${head.baseIncome.toLocaleString('en-IN')}) — locked, since the family shares one household income figure. Tap "Unlock household fields" if the verified figure differs.`
       : `${(head && (head.name || head.id)) || 'The head'} has no household income on record yet — please enter it here.`;
   }
+
+  // V5.4 FIX: lock the household-context fields, matching the SAME behavior
+  // "+ Add Family Member" already uses (_applyFamilyMemberLockTo /
+  // _clearFamilyMemberLocks, with the "Unlock household fields" escape
+  // hatch in the banner). openEdit() — which this flow is layered on top
+  // of — populates these from her own stored record but leaves them fully
+  // editable, same as any ordinary edit. That's correct for openEdit()
+  // itself, but wrong here: this flow exists to add a livelihood
+  // intervention, not to casually change which village/NGO/FC she's under
+  // — an FC could otherwise drift her address away from her own head's
+  // without meaning to, purely because the fields happened to be sitting
+  // right there. Lock what's already correctly on her record; don't
+  // re-derive from the head — her own stored values are the source of
+  // truth at this point (an admin may have already corrected them via a
+  // separate Edit Details pass).
+  // Only lock a field that actually resolved to a real value — mirrors
+  // "+ Add Family Member"'s own preFilledLabels safety rule ("never claim a
+  // field is pre-filled if the value didn't stick"). Caught live on
+  // staging: a district string that doesn't exactly match a current
+  // dropdown option (e.g. a district list edited since she was first
+  // enrolled) leaves f-district-sel blank — locking a blank field would
+  // trap the FC with no way to fix it. Skipping the lock when empty means
+  // the field stays editable so they can just pick the right one.
+  // V5.7: f-total (baseline income) is now locked here too, using the SAME
+  // unlock escape hatch as the other 7 — per explicit user request. Saving
+  // it while still locked (the common case) or after unlocking + editing it
+  // both flow through the normal submitEnroll edit path, which two-way
+  // syncs baseline income across the family unit (see _cascadeFamilySync).
+  const _familyLockIds = ['f-state', 'f-district-sel', 'f-village', 'f-taluka', 'f-cat', 'f-phone', 'f-ngo', 'f-coord', 'f-total'];
+  _familyLockIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el && el.value) _applyFamilyMemberLockTo(el);
+  });
+  const unlockWrap = document.getElementById('family-member-unlock-wrap');
+  if (unlockWrap) unlockWrap.style.display = (_familyMemberLockedFields.length > 0) ? '' : 'none';
 }
 
 // Inline warning state for the >₹5L baseline sanity check (replaces native
@@ -14834,6 +15109,15 @@ async function _submitEnrollInner() {
     if (idx >= 0) {
       const before = {...data[idx]};
       data[idx] = { ...data[idx], ...fields };
+      // V5.6/V5.7: cascade household-fact changes between a head and every
+      // linked family member — see _cascadeFamilySync for the exact rules
+      // (7 context fields one-directional head→family, baseline income
+      // two-way with a progress guard). Bundled into the SAME saveData(data)
+      // call below rather than a second write — one atomic save, no extra
+      // Firebase round-trip. Cheap no-op for the common case (no linked
+      // family at all).
+      const { touchedCount: _familyCascadeCount, blockedIds: _incomeBlockedIds } =
+        _cascadeFamilySync(data, editingId, before, data[idx]);
       // V310-S3 Step 2: If the FC took a NEW photo this session
       // (capturedPhotoData is a base64 data URL), upload it to Storage
       // BEFORE writing the record. The upload path is keyed by editingId
@@ -14871,6 +15155,30 @@ async function _submitEnrollInner() {
         auditLog('update', 'beneficiary', editingId, data[idx].name,
           `Edited ${changedKeys.length} field${changedKeys.length===1?'':'s'}: ${changedKeys.slice(0,5).join(', ')}${changedKeys.length>5?' ':''}`,
           diff);
+      }
+      // V5.6: one summary audit entry for the household-field cascade (not
+      // one per family member) — matches the pattern Move FC to NGO / NGO
+      // rename already use for bulk cascades, keeps the audit log readable.
+      if (_familyCascadeCount > 0) {
+        auditLog('update', 'beneficiary', editingId, data[idx].name,
+          `Household field update cascaded to ${_familyCascadeCount} linked family member${_familyCascadeCount===1?'':'s'}`,
+          null);
+        if (typeof toast === 'function') {
+          toast(`Also updated ${_familyCascadeCount} linked family member${_familyCascadeCount===1?'':'s'} to match`, 'success', 5000);
+        }
+      }
+      // V5.7: baseline income was two-way synced but skipped for one or more
+      // linked members because they already have real progress (endline or
+      // an income-log entry) recorded against their own baseline — flag it
+      // instead of silently leaving them out of sync, so an admin knows to
+      // reconcile manually if the divergence is real.
+      if (_incomeBlockedIds.length > 0) {
+        auditLog('update', 'beneficiary', editingId, data[idx].name,
+          `Baseline income change NOT synced to ${_incomeBlockedIds.length} linked member(s) with existing progress: ${_incomeBlockedIds.join(', ')}`,
+          null);
+        if (typeof toast === 'function') {
+          toast(`Baseline income NOT synced to ${_incomeBlockedIds.length} linked member${_incomeBlockedIds.length===1?'':'s'} who already ${_incomeBlockedIds.length===1?'has':'have'} progress logged — reconcile manually if needed`, 'error', 8000);
+        }
       }
       // For advocacy edits: only append a new advocacy record if the scheme
       // plan actually changed. Without this check, every save (even just
@@ -25053,15 +25361,42 @@ async function applyTransfer() {
       moved.push({ id: b.id, name: b.name });
     }
     if (moved.length === 0) { showErr('Nothing to transfer — records may have changed. Reopen the tool.'); return; }
+    // V5.7: bring along family members linked to a transferred head who
+    // weren't individually checked in the tool — otherwise a transferred
+    // head leaves her family behind on the old FC. Only cascades from a
+    // moved HEAD (b.headId falsy already implied — moved only ever contains
+    // whatever was checked, heads or family members alike); a family member
+    // who happens to be checked without her head is left as a normal single
+    // move, same as today.
+    const movedIds = new Set(moved.map(m => m.id));
+    const familyMoved = [];
+    for (const b of data) {
+      if (!b || !b.headId || movedIds.has(b.id) || !movedIds.has(b.headId)) continue;
+      if (b.createdBy !== srcId) continue; // wasn't with this FC — leave alone rather than guess
+      b.createdBy = dst.id;
+      b.createdByName = dstName;
+      b.coord = dstName;
+      familyMoved.push({ id: b.id, name: b.name });
+    }
     await saveData(data);
     for (const m of moved) {
       auditLog('reassign', 'beneficiary', m.id, m.name,
         `Bulk transfer: ${srcName} → ${dstName} (${dst.ngo || ''})`,
         { createdByName: [srcName, dstName] });
     }
+    if (familyMoved.length > 0) {
+      for (const m of familyMoved) {
+        auditLog('reassign', 'beneficiary', m.id, m.name,
+          `Bulk transfer (cascaded from linked head): ${srcName} → ${dstName} (${dst.ngo || ''})`,
+          { createdByName: [srcName, dstName] });
+      }
+    }
     auditLog('reassign', 'bulk', srcId, srcName,
-      `Bulk transfer of ${moved.length} beneficiaries: ${srcName} → ${dstName} (${dst.ngo || ''})`, { count: moved.length });
-    toast('✓ Transferred ' + moved.length + ' beneficiar' + (moved.length === 1 ? 'y' : 'ies') + ' to ' + dstName, 'success');
+      `Bulk transfer of ${moved.length} beneficiaries${familyMoved.length ? ` + ${familyMoved.length} cascaded family member${familyMoved.length===1?'':'s'}` : ''}: ${srcName} → ${dstName} (${dst.ngo || ''})`,
+      { count: moved.length + familyMoved.length });
+    toast('✓ Transferred ' + moved.length + ' beneficiar' + (moved.length === 1 ? 'y' : 'ies') +
+      (familyMoved.length ? ` + ${familyMoved.length} linked family member${familyMoved.length===1?'':'s'}` : '') +
+      ' to ' + dstName, 'success');
     closeTransferTool();
     try { if (typeof renderCurrent === 'function') renderCurrent(); } catch (_) {}
   } catch (e) {
@@ -25281,6 +25616,19 @@ async function saveReassign() {
   if (newOwner.ngo && newOwner.ngo !== b.ngo) {
     b.ngo = newOwner.ngo;
   }
+  // V5.7: if b is a HEAD, bring her linked family members along too — same
+  // FC/NGO change — so reassigning her doesn't orphan them on the old FC.
+  // Only fires for a head (b.headId falsy); reassigning a single family
+  // member on her own (a real, if unusual, case — e.g. she's moved away
+  // from the rest of the household) intentionally does NOT drag the head
+  // and siblings with her.
+  const linkedFamily = !b.headId ? data.filter(x => x && x.headId === b.id) : [];
+  linkedFamily.forEach(fm => {
+    fm.createdBy = b.createdBy;
+    fm.createdByName = b.createdByName;
+    fm.coord = b.coord;
+    fm.ngo = b.ngo;
+  });
   // V310-S2: await Firebase. On failure, keep modal open with error.
   try { await saveData(data); } catch (e) {
     err.textContent = (e instanceof SaveError) ? e.message : 'Could not reassign.';
@@ -25290,8 +25638,12 @@ async function saveReassign() {
   auditLog('reassign', 'beneficiary', b.id, b.name,
     `Reassigned: ${oldOwnerName}${oldNgo?' ('+oldNgo+')':''} → ${b.createdByName}${b.ngo?' ('+b.ngo+')':''}`,
     {createdByName:[oldOwnerName, b.createdByName], ngo:[oldNgo, b.ngo]});
+  if (linkedFamily.length > 0) {
+    auditLog('reassign', 'beneficiary', b.id, b.name,
+      `Reassign cascaded to ${linkedFamily.length} linked family member${linkedFamily.length===1?'':'s'}`, null);
+  }
   document.getElementById('reassign-modal').style.display = 'none';
-  toast(`Reassigned from ${oldOwnerName} to ${b.createdByName}`, 'success');
+  toast(`Reassigned from ${oldOwnerName} to ${b.createdByName}` + (linkedFamily.length ? ` (+ ${linkedFamily.length} family member${linkedFamily.length===1?'':'s'})` : ''), 'success');
   // Refresh current view + drawer if open
   if (typeof renderCurrent === 'function') renderCurrent();
   if (document.getElementById('drawer').classList.contains('open')) {
