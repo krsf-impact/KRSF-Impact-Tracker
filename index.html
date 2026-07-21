@@ -1,6 +1,318 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V5.1-LIVE
+  KRSF Beneficiary Impact Tracker  -  V5.4-LIVE
+  ============================================================================
+  V5.4-LIVE (2026-07-21 — user-requested critical review of V5.3's real-FC
+  path found and fixed a genuine pre-existing bug; plus a clean-up of the
+  FC mobile header, which the user flagged as cluttered from a real
+  screenshot):
+
+    TWO ASKS, same message: (1) "critically evaluate the latest fix [V5.3's
+    Add Livelihood Intervention]... close any corner cases" — same standing
+    instruction as the V5.2 review; (2) a real device screenshot of the FC
+    mobile header showing the language toggle, Alerts button, and the
+    account avatar all crowding into — and in the screenshot, visibly
+    overlapping with — the fixed-position sync-status badge.
+
+    PART 1 — V5.3 re-review, FC role tested for the first time:
+    Every V5.3 test (build session and adversarial-review session both) had
+    been run as ADMIN. The drawer code the new button lives in is shared
+    with the coordinator (FC) shell, so this session set up a real
+    coordinator login on staging and drove the actual button → form →
+    confirm → save sequence as that FC, not just as admin. The feature
+    itself worked correctly end-to-end (confirm text, save, marker, head
+    record untouched) — no bug in the promotion logic itself.
+
+    BUT setting up that FC-role test surfaced a real, unrelated,
+    PRE-EXISTING bug while investigating the header (see Part 2): a
+    coordinator's browser tab NEVER gets body[data-role="coordinator"] set
+    at all. mountManagerApp() (admin/NGO/viewer shell) sets it via
+    _applyRoleVisibility(); mountCoordApp() (the FC shell) never called
+    that function, or anything else that sets it. Any current or future
+    body[data-role="coordinator"] CSS rule would silently never match on a
+    coordinator's REAL first login (fresh page, no prior admin session in
+    the same tab to leave a stale value behind) — which is exactly the
+    header fix below needed to work. Fixed: mountCoordApp() now sets
+    document.body.dataset.role directly (not by calling the full
+    _applyRoleVisibility(), which does several admin/NGO-only things whose
+    DOM elements don't exist in this shell).
+
+    PART 2 — FC mobile header clean-up, from the real screenshot:
+    Root cause of the overlap: #sync-pill is position:fixed, floating
+    independently of the coordinator header's own normal-flow flex layout.
+    On a narrow phone, the header's own right-side cluster — a full
+    "English"/"ગુજરાતી" segmented toggle, an "Alerts" button with a text
+    label, an "Account" button with a text label — already used most of
+    the available width, and the fixed pill then stacked on top of
+    whatever else was sitting at that same fixed screen position,
+    producing exactly the overlap in the screenshot. (This is the same
+    root-cause SHAPE as the V5 admin-dashboard mobile fix — a fixed-
+    position badge colliding with squeezed-but-visible header content —
+    just never applied to this header before.)
+
+    Fix, all per explicit user direction:
+      - Language toggle: "English"/"ગુજરાતી" → "EN"/"GJ" (full name kept
+        as the title attribute).
+      - Alerts: dropped the text label — bell icon + red badge count only
+        (unchanged badge logic, just no more "Alerts" span).
+      - Account: dropped the text label too (icon-only avatar) — not
+        explicitly named by the user, but done for the same "one clean
+        line" goal; flagged to the user rather than silently assumed.
+      - Sync status: replaced the fixed, overlapping #sync-pill for this
+        shell with a small inline dot (.coord-sync-dot) built into the
+        header's own flex row — same color language (synced/pending/
+        offline/error) as the pill, full status text on the title
+        attribute. #sync-pill itself is suppressed for the coordinator
+        role via the new body[data-role="coordinator"] CSS rule (which
+        needed the mountCoordApp() fix above to actually fire).
+        fbUpdatePill() extended to mirror its own just-computed
+        class/title onto the dot — reads the pill's result rather than
+        re-deriving the state machine a second time, so the proven pill
+        logic itself is untouched.
+
+    VERIFIED on staging (krsf-impact-staging), mobile viewport (375×812),
+    logged in as a real coordinator (not admin) doing a genuine fresh
+    login — not just a same-tab role switch, which would have hidden the
+    data-role bug entirely (a stale value from a prior admin session in
+    the same tab would have accidentally looked correct). Measured every
+    header element's real bounding rect: brand, sync dot, EN/GJ toggle,
+    alerts button, and account button all sit in one row with no
+    horizontal overlap between any two adjacent elements, and the whole
+    cluster ends at 361px inside the 375px viewport. Confirmed body's
+    data-role is now genuinely "coordinator" after a fresh login (was
+    null/stale before the fix), #sync-pill computes to display:none, and
+    the new dot shows the correct "synced" state with the correct title.
+
+  ============================================================================
+  V5.3-LIVE (2026-07-21 — new "+ Add Livelihood Intervention" for family
+  members: lets an existing advocacy-only family member — typically the
+  wife — start a real livelihood intervention on her own record):
+
+    Real program scenario, worked through with the user before building:
+    households were enrolled with the man as head (full beneficiary,
+    livelihood + advocacy) and the woman added as a family member (which
+    the app locks to advocacy-only, both on create and on every future
+    Edit Details, permanently — by design). Now a livelihood intervention
+    (e.g. dairy) is starting WITH the woman as the actual beneficiary doing
+    the work, and the app had no way to record that on her — the livelihood
+    section is hidden for any record with headId set, no exceptions.
+
+    THREE OPTIONS were weighed with the user: (1) put the new intervention
+    on the husband's record — invisible women's contribution, rejected;
+    (2) re-enroll her as a brand new, unlinked beneficiary — same person
+    twice in the system, data split across two IDs forever, rejected;
+    (3) unlock the livelihood section on her EXISTING record, keeping her
+    ID, her scheme history, and her family link intact — chosen.
+
+    BASELINE INCOME MODEL — the trickiest part, iterated with the user
+    across several rounds:
+      - First proposal: her own personal income (usually ₹0), separate
+        from the household figure. User found this confusing — FCs are
+        trained for months that the income field means HOUSEHOLD income,
+        and would likely re-enter it out of habit, double-counting the
+        household's money across two records.
+      - User's actual instruction: treat her baseline as LOCKED to the
+        head's household income, editable if a verified figure differs,
+        with subsequent gains tracked purely through + Log Income.
+      - VERIFIED before building, not assumed: every income-added
+        aggregation in the app (Dashboard, Reports, Integrated View, CSV
+        exports) is computed as (endline − baseline), never the baseline
+        alone — so a shared baseline copied onto two records cancels out
+        of every rupee total. Confirmed no double-counting risk for Total
+        or Average income added, the two metrics the user actually uses.
+        (One % metric — pooled uplift — would read low for split
+        households since the shared base appears twice in the
+        denominator; the user confirmed they don't use % metrics at all,
+        so no compensating change was needed or made.)
+      - Replayed the user's own real numbers end-to-end before shipping:
+        head baseline ₹30,000 (organic farming, Jan 2026), wife's baseline
+        copied ₹30,000, wife starts vermicompost + animal husbandry 4
+        months later. After endlines (head +₹20,000, wife +₹10,000):
+        Total income added = ₹30,000, Average = ₹15,000 — both exactly
+        right, verified against the app's own real aggregation formula.
+
+    IMPLEMENTATION: new "+ Add Livelihood Intervention" button appears on
+    a family member's drawer only while she has no livelihood intervention
+    yet (advocacy-only). Opens the existing edit form via openEdit()
+    (proven field/chip restoration reused, not reimplemented) with a new
+    hybrid UI mode: livelihood fields (land, livestock, sources, income,
+    intervention type picker) unlocked, while the family banner + relation
+    dropdown STAY visible — she remains linked to her head throughout.
+    Household size stays hidden/inherited (that's a household-level fact
+    already captured once, on the head's record — not re-asked for her).
+    Baseline income is pre-filled from the head's own baseIncome, editable.
+    A themed confirm shows exactly what will be added and where the
+    baseline came from before anything saves. headId is preserved via the
+    existing edit-save spread — never touched, never re-set. A cheap
+    internal marker (_baselineInheritedFromHeadId) is stored on save,
+    unread by any code today, kept for a possible future report
+    refinement without needing to guess which records were promoted.
+
+    A record can only go through this flow ONCE — the button disappears
+    the moment a real livelihood intervention exists — and a direct call
+    (bypassing the UI) is independently blocked with a clear message,
+    matching the app's belt-and-braces pattern elsewhere.
+
+    ADVERSARIAL RE-REVIEW (same day, before this reached the user, per
+    explicit "critically evaluate, close corner cases" instruction — same
+    discipline that caught the V5.2 gating bug): re-read the new code
+    hunting for failure-path bugs, found two:
+      1. The flow let an FC "complete" it without ever ticking Livelihood
+         (e.g. if they opened it but only meant to touch an advocacy
+         scheme) — silently writing the inherited baseline onto a record
+         that stayed advocacy-only: pointless, confusing data that defeats
+         the button's own purpose. Fixed: blocked with a plain message
+         pointing at Edit Details for advocacy-only changes.
+      2. If the head record had been deleted between her original
+         enrollment and this promotion, the banner would show a blank
+         "(no name)" — openEdit() already has a graceful
+         "(head record removed)" fallback for exactly this case; the new
+         function just wasn't using the same fallback. Fixed to match.
+
+    TESTED on staging (krsf-impact-staging) against real writes, driving
+    the actual UI form (chip clicks, field fills, the real submitEnroll())
+    rather than only checking data shapes:
+      - Full case replay as above — confirmed via the app's own real
+        chip-restoration and confirm-dialog text, not synthetic markup.
+      - Head record's own fields verified byte-for-byte untouched after
+        the wife's promotion.
+      - Already-promoted record cannot be promoted twice (button gone +
+        direct call blocked).
+      - A second, NOT-promoted family member confirmed to stay fully
+        locked — the pre-existing advocacy-only behavior is completely
+        unaffected by this addition.
+      - Head-with-no-income-on-record case: baseline field correctly left
+        BLANK (not falsely defaulted to ₹0) with a clear hint, and the
+        required-baseline validation still blocks an empty submission.
+      - Double-submit guard (two overlapping submits — the pre-existing
+        app-wide guard covers this flow with zero special-casing needed).
+      - Forced save failure (saveData mocked to throw): form stays open,
+        record left completely unchanged, clear error shown — no
+        corruption, no partial write.
+      - Both review-fix bugs re-verified after the fix, on staging, before
+        shipping.
+      - Confirmed via full codebase search that NO other code path (any
+        dashboard, report, CSV export, the endline flow, + Log Income) has
+        any headId-based exclusion — the advocacy-only restriction was
+        purely a form-level lock, never a data-model one, so a promoted
+        record behaves exactly like any normal livelihood beneficiary
+        everywhere downstream, with zero other changes required.
+      - Zero bandwidth impact: reuses the existing guarded save path,
+        adds no new Firebase reads or listeners.
+
+    All test fixtures deleted afterward; staging left clean.
+
+  ============================================================================
+  V5.2-LIVE (2026-07-21 — NGO rename cascade gaps closed + new "Move FC to
+  another NGO" admin tool):
+
+    Two admin requests, both about moving data cleanly between NGOs without
+    losing anything or breaking visibility for anyone downstream:
+
+    1. NGO RENAME — two real gaps found while investigating, both fixed:
+       a. Rename already cascaded to users.ngo and beneficiaries.ngo, but
+          NEVER to advocacy.ngo. An NGO-role login reads its scheme records
+          via orderByChild('ngo').equalTo(u.ngo) — so after a rename, that
+          login would keep seeing its beneficiaries but silently lose every
+          one of their scheme/advocacy records. This exact class of bug was
+          already found and fixed for the separate Merge Partner flow (the
+          V329 fix, still in this file) — it just never got carried over to
+          the simpler rename flow. Now it does, same pattern.
+       b. Viewer / Scoped Viewer (donor) accounts store their NGO scope as
+          an assignedNgos[] array, not the single .ngo field the existing
+          cascade updated. A donor scoped to a renamed NGO would silently
+          lose visibility into it. Now cascaded too, including the current
+          session's own copy if the admin renaming the NGO is themselves
+          scoped to it.
+
+    2. MOVE FC TO ANOTHER NGO — new admin tool (Users screen → "⇄ Move FC
+       to NGO"). Previously the only way to move an FC's login to a
+       different NGO was the plain Edit User form's NGO field, which had
+       ZERO cascade: the FC's beneficiaries stayed tagged with the OLD NGO,
+       becoming orphaned from the FC's new NGO scope (the FC still saw them
+       via createdBy, but any NGO-level view/report of the new NGO
+       wouldn't). The new tool shows a live preview of exactly how many
+       beneficiaries + scheme/advocacy records will move before asking for
+       confirmation, then moves the FC's own login, every beneficiary they
+       created, and those beneficiaries' advocacy records to the target NGO
+       in one guarded operation. The FC keeps every beneficiary — only the
+       NGO tag changes. Fully audit-logged (one summary entry, matching
+       Merge Partner's pattern, to keep the audit log readable at FC scale
+       rather than one entry per record). Distinct from the existing
+       "Transfer Beneficiaries" tool, which moves a hand-picked subset of
+       records between two FCs within the SAME NGO — this tool moves an
+       FC's entire book of work across NGOs.
+
+    Both cascades write through the app's existing guarded save functions
+    (saveData/saveAdv/saveOneUser) — no new Firebase read paths or
+    listeners were added, so this is zero change to steady-state bandwidth.
+
+    TESTED on staging (krsf-impact-staging) against real writes, not
+    synthetic data: created two throwaway test NGOs, an FC, a scoped
+    viewer, two beneficiaries, and two advocacy records; renamed the NGO
+    and confirmed all four cascade targets (partner name, FC login, both
+    beneficiaries, both advocacy records, and the viewer's assignedNgos)
+    updated correctly; then moved the FC to the second NGO and confirmed
+    the preview counts matched, both beneficiaries stayed with the same FC
+    but re-tagged to the new NGO, and — the real end-to-end proof, mirroring
+    exactly the kind of visibility bug this was meant to prevent — logged in
+    as a live NGO-role user of the target NGO and confirmed they could see
+    both moved beneficiaries AND both of their scheme records. All test
+    fixtures deleted afterward; staging left clean.
+
+  [Addendum, same day, before this ever reached the user] ADVERSARIAL
+  RE-REVIEW: re-read both cascades specifically hunting for failure-path
+  bugs, and found one real one.
+
+    The advocacy cascade above was NOT gated on the beneficiary cascade's
+    success. If the beneficiary saveData() call failed partway through —
+    a network blip, or a trip of the pre-existing "NGO integrity gate"
+    inside saveData() itself (which blocks the ENTIRE save if ANY
+    beneficiary anywhere in the whole ~112K-record collection has an
+    unregistered ngo value, not just the ones being renamed) — the
+    advocacy cascade would still run anyway, tagging scheme records with
+    the NEW name while their beneficiaries stayed on the OLD one. A fresh
+    mismatch, created by the very fix meant to prevent mismatches. Fixed:
+    advocacy now only runs if the beneficiary save actually succeeded.
+
+    VERIFIED by deliberately forcing saveData() to throw during a real
+    staging rename (monkey-patched the function to simulate a write
+    failure, not a hypothetical): confirmed beneficiaries and advocacy now
+    stay consistent with each other on failure — both stuck together on
+    the old name, not split apart — where before this fix they would have
+    drifted.
+
+    Also corrected THREE "Re-run the rename to finish the rest" toast
+    messages (the two new ones from this release, plus one pre-existing
+    message for the users cascade) that don't actually work: once
+    savePartners() succeeds, the partner's name field IS the new name, so
+    re-opening Edit Partner and clicking Save again is a no-op (oldName
+    equals name, the whole cascade block is skipped) — it can never
+    re-trigger the cascade. Messages now say plainly this needs a manual
+    data fix instead of pointing at a retry that cannot succeed.
+
+    Move FC to NGO's own retry messages were checked too and found
+    ACCURATE — that tool matches beneficiaries by createdBy, not by NGO
+    name, so a retry after a partial failure genuinely picks up where it
+    left off. VERIFIED empirically: forced saveAdv() to throw mid-move,
+    confirmed beneficiaries moved but the FC's own login correctly did NOT
+    advance past the failure point (the function returns early on
+    failure), then retried for real with saveAdv() restored and confirmed
+    everything — advocacy and the FC's login — caught up correctly.
+
+    Further staging tests this round: added a Team Leader account (not
+    covered in the first test pass) — renamed the NGO and confirmed the
+    TL's .ngo field cascaded correctly, then logged in as that live TL and
+    confirmed they could see the FC's beneficiaries under the renamed NGO.
+    Moved an FC with ZERO beneficiaries — confirmed clean handling, no
+    crash, no needless writes. Fired two overlapping applyMoveFc() calls
+    to confirm the in-flight guard prevents a double-move. Confirmed a
+    partner edit that only touches state/focus (not name) triggers ZERO
+    cascade calls to saveData/saveAdv/saveOneUser — no wasted work on
+    ordinary edits. Ran the app's own window._checkOrphanNgos() diagnostic
+    against staging's real beneficiary collection (relevant given the
+    integrity-gate finding above) — zero pre-existing orphans found.
+
   ============================================================================
   V5.1-LIVE (2026-07-18 — real bug fix: NGO Partners name column was
   invisible on mobile in production):
@@ -3417,6 +3729,13 @@ html,body{height:100%;font-family:var(--font);background:#EEF2F7;color:var(--tex
    and transitions for users who opt out (vestibular safety + battery on phones). */
 @media (prefers-reduced-motion: reduce){*,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}}
 @media (max-width:640px){#sync-pill{top:8px;right:8px;padding:5px 10px;font-size:11px}}
+/* V5.4: the coordinator (FC) shell has its own compact inline sync dot
+   (.coord-sync-dot below) built into the header's own flex row, so the
+   separate fixed-position #sync-pill — which floats independently of the
+   header's layout and was colliding with the FC header's own right-side
+   content on narrow phones — is suppressed entirely for that role. Admin/
+   NGO desktop views are unaffected; they never had this collision. */
+body[data-role="coordinator"] #sync-pill { display: none !important; }
 /* V377 [Fix #2]: prefix removed. The ✓ and ⚠ glyphs rendered as
    missing-glyph boxes on Windows + non-emoji fonts, showing as weird
    characters before the message text. Green/red background already
@@ -4087,12 +4406,28 @@ body[data-shell="coord"] #coord-app { display: block; }
   flex-shrink: 0;
 }
 .coord-header-account:hover { background: rgba(255,255,255,0.2); }
+/* V5.4: icon-only variant for the header's right-side cluster (alerts,
+   account) — same pill shape, tighter/roughly-square padding since there's
+   no text label taking up horizontal room anymore. */
+.coord-header-account.icon-only { padding: 7px 9px; }
 .coord-header-avatar {
   width: 26px; height: 26px; border-radius: 50%;
   background: #fff; color: var(--navy);
   display: flex; align-items: center; justify-content: center;
   font-weight: 700; font-size: 12px;
 }
+/* V5.4: compact inline sync-status dot for the coordinator header — same
+   color language as #sync-pill (synced/pending/offline/error) but a single
+   small dot instead of a text pill, so the full sync status still reaches
+   the FC (via title/tap) without competing for horizontal space. */
+.coord-sync-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  flex-shrink: 0; cursor: default;
+  background: #9CA3AF; /* default/offline */
+}
+.coord-sync-dot.synced  { background: #10B981; animation: syncPulse 2s infinite; }
+.coord-sync-dot.pending { background: #F59E0B; animation: syncSpin .9s linear infinite; }
+.coord-sync-dot.error   { background: #EF4444; }
 
 .coord-body {
   flex: 1;
@@ -4554,37 +4889,47 @@ body[data-shell="coord"] #coord-app { display: block; }
         <span class="coord-header-logo">KRSF</span>
         <span class="coord-header-title" id="coord-greeting">Beneficiary Tracker</span>
       </div>
-      <div style="display:flex;align-items:center;gap:8px">
+      <div style="display:flex;align-items:center;gap:6px">
+        <!-- V5.4: compact inline sync-status dot, replacing the fixed-position
+             #sync-pill for this shell (see body[data-role="coordinator"]
+             #sync-pill CSS rule) — full status text is still on the title
+             attribute (tap-and-hold / hover), fbUpdatePill() keeps it in sync. -->
+        <span id="coord-sync-dot" class="coord-sync-dot" title="Cloud sync status" aria-label="Cloud sync status"></span>
         <!-- Language toggle — segmented switch that always shows both languages.
              The ACTIVE language has a filled white background; the inactive one
              is transparent. No ambiguity about current vs target. Tapping the
              inactive segment switches to that language. Hidden for admin/NGO
              by virtue of only the coord shell mounting this header. Choice
-             persists per-device via LANG_KEY in localStorage. -->
+             persists per-device via LANG_KEY in localStorage. V5.4: labels
+             shortened to EN/GJ (from "English"/"ગુજરાતી") to fit one clean
+             row on narrow phones — full language name kept as the title
+             attribute for clarity. -->
         <div id="coord-lang-toggle" role="tablist"
              style="display:inline-flex;background:rgba(255,255,255,0.15);border-radius:20px;padding:3px;font-size:12px;font-weight:600"
              aria-label="Form language">
           <button type="button" id="coord-lang-en" onclick="setLanguageTo('en')"
-                  role="tab" aria-selected="false"
-                  style="border:0;background:transparent;color:#fff;padding:5px 12px;border-radius:17px;cursor:pointer;font-family:var(--font);font-weight:600;font-size:12px;transition:all 0.15s">
-            English
+                  role="tab" aria-selected="false" title="English"
+                  style="border:0;background:transparent;color:#fff;padding:5px 10px;border-radius:17px;cursor:pointer;font-family:var(--font);font-weight:600;font-size:12px;transition:all 0.15s">
+            EN
           </button>
           <button type="button" id="coord-lang-gu" onclick="setLanguageTo('gu')"
-                  role="tab" aria-selected="false"
-                  style="border:0;background:transparent;color:#fff;padding:5px 12px;border-radius:17px;cursor:pointer;font-family:var(--font);font-weight:600;font-size:12px;transition:all 0.15s">
-            ગુજરાતી
+                  role="tab" aria-selected="false" title="ગુજરાતી"
+                  style="border:0;background:transparent;color:#fff;padding:5px 10px;border-radius:17px;cursor:pointer;font-family:var(--font);font-weight:600;font-size:12px;transition:all 0.15s">
+            GJ
           </button>
         </div>
-        <button class="coord-header-account" onclick="nav('alerts')" aria-label="Alerts and flags"
+        <!-- V5.4: icon-only — "Alerts" text label dropped, bell + badge count
+             carry the same meaning in far less width. -->
+        <button class="coord-header-account icon-only" onclick="nav('alerts')" aria-label="Alerts and flags" title="Alerts and flags"
           id="coord-alerts-btn"
           style="position:relative">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px"><path d="M8 2a4.5 4.5 0 0 1 4.5 4.5c0 2.5.5 3.5 1.5 4.5H2c1-1 1.5-2 1.5-4.5A4.5 4.5 0 0 1 8 2zm-1.5 9.5a1.5 1.5 0 0 0 3 0"/></svg>
-          <span>Alerts</span>
           <span id="coord-alert-badge" style="display:none;position:absolute;top:2px;right:2px;background:#EF4444;color:#fff;font-size:9px;font-weight:700;border-radius:8px;padding:1px 4px;min-width:14px;text-align:center"></span>
         </button>
-        <button class="coord-header-account" onclick="openMobAccountSheet()" aria-label="Account and sign out">
+        <!-- V5.4: icon-only — "Account" text label dropped, matching Alerts,
+             for a consistently compact right-side cluster. -->
+        <button class="coord-header-account icon-only" onclick="openMobAccountSheet()" aria-label="Account and sign out" title="Account and sign out">
           <span class="coord-header-avatar" id="coord-avatar">?</span>
-          <span>Account</span>
         </button>
       </div>
     </header>
@@ -5522,6 +5867,30 @@ body[data-shell="coord"] #coord-app { display: block; }
   </div>
 </div>
 
+<!-- V5.2: Move FC + all their beneficiaries (+ advocacy) to another NGO -->
+<div id="movefc-modal" class="overlay" style="display:none;align-items:center;justify-content:center">
+  <div class="modal" style="max-width:460px;width:92%">
+    <div class="modal-head"><div class="modal-title">⇄ Move FC to another NGO</div><button class="modal-close" onclick="closeMoveFcTool()">✕</button></div>
+    <div class="modal-body">
+      <div id="movefc-err" style="display:none;background:#FEE2E2;color:#991B1B;padding:8px 11px;border-radius:6px;font-size:12px;margin-bottom:12px"></div>
+      <div class="fg" style="margin-bottom:12px"><label>Field Coordinator</label>
+        <select id="movefc-src" onchange="_moveFcSrcChanged()" style="width:100%"></select>
+      </div>
+      <div id="movefc-body" style="display:none">
+        <div id="movefc-preview" style="padding:10px 12px;border:1px solid var(--gray3);border-radius:7px;background:var(--gray4);font-size:12.5px;line-height:1.6;margin-bottom:12px"></div>
+        <div class="fg" style="margin-bottom:6px"><label>Move to NGO *</label>
+          <select id="movefc-dst" style="width:100%"><option value="">— Select target NGO —</option></select>
+        </div>
+        <div style="font-size:11px;color:var(--gray2);line-height:1.5">This moves the FC's own login, every beneficiary they created, and those beneficiaries' scheme/advocacy records to the new NGO. The FC keeps every beneficiary — nothing is reassigned to anyone else. Fully audit-logged, nothing deleted.</div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">
+        <button class="btn btn-sm" onclick="closeMoveFcTool()">Cancel</button>
+        <button class="btn btn-primary btn-sm" id="movefc-apply-btn" onclick="applyMoveFc()">Move</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- A13: Reassign beneficiary modal -->
 <div id="reassign-modal" class="overlay" style="display:none;align-items:center;justify-content:center">
   <div class="modal" style="max-width:420px;width:92%">
@@ -5743,7 +6112,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V5.1-LIVE';
+const APP_VERSION = 'V5.4-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -6835,6 +7204,18 @@ function fbUpdatePill() {
   } else {
     pill.classList.add('offline');
     txt.textContent = 'Connecting...';
+  }
+  // V5.4: mirror the resulting state onto the coordinator header's compact
+  // inline sync dot. Reads the pill's own just-computed class/title rather
+  // than re-deriving the state machine a second time — lowest-risk way to
+  // extend this without touching the proven logic above. No-ops for
+  // admin/NGO shells, which don't render #coord-sync-dot at all.
+  const dot = document.getElementById('coord-sync-dot');
+  if (dot) {
+    dot.classList.remove('synced','pending','offline','error');
+    const activeClass = ['error','offline','pending','synced'].find(c => pill.classList.contains(c));
+    if (activeClass) dot.classList.add(activeClass);
+    dot.title = pill.title || txt.textContent || 'Cloud sync status';
   }
 }
 
@@ -8462,6 +8843,7 @@ function _isUserMidEdit() {
       'bulkstatus-overlay',      // V322: bulk status update modal
       'reassign-modal',          // reassign beneficiary
       'transfer-modal',          // V404: bulk FC→FC transfer
+      'movefc-modal',            // V5.2: move FC + their beneficiaries to another NGO
       'enroll-success-modal',    // "Add a family member?" prompt
       'myaccount-modal',         // user changes own profile/password
       'login-overlay',           // login screen
@@ -9467,7 +9849,10 @@ function _refreshLangToggleLabel() {
   if (!en || !gu) return;
   const activeStyle   = 'background:#fff;color:var(--navy);box-shadow:0 1px 3px rgba(0,0,0,0.15)';
   const inactiveStyle = 'background:transparent;color:#fff';
-  const baseStyle = 'border:0;padding:5px 12px;border-radius:17px;cursor:pointer;font-family:var(--font);font-weight:600;font-size:12px;transition:all 0.15s;';
+  // V5.4: padding tightened from 5px 12px to match the shorter EN/GJ labels
+  // (was sized for "English"/"ગુજરાતી") — kept in sync with the initial
+  // inline style in the coord-header markup itself.
+  const baseStyle = 'border:0;padding:5px 10px;border-radius:17px;cursor:pointer;font-family:var(--font);font-weight:600;font-size:12px;transition:all 0.15s;';
   if (cur === 'gu') {
     gu.style.cssText = baseStyle + activeStyle;
     en.style.cssText = baseStyle + inactiveStyle;
@@ -12060,6 +12445,9 @@ function openDrawer(id) {
     ${!b.headId
       ? `<button class="btn" onclick="openEnrollAsFamilyMember('${b.id}')" title="Enroll a wife / daughter / other family member of this beneficiary for advocacy tracking only" style="color:var(--navy);border-color:var(--navy3)">+ Add Family Member</button>`
       : ''}
+    ${b.headId && !hasLiv
+      ? `<button class="btn" onclick="openAddLivelihoodToFamilyMember('${b.id}')" title="Start a livelihood intervention (dairy, vermicompost, etc.) for this family member" style="color:var(--green);border-color:var(--green2)">+ Add Livelihood Intervention</button>`
+      : ''}
     ${hasLiv && (Array.isArray(b.incomeLog) && b.incomeLog.length > 0 || b.endIncome != null)
       ? `<button class="btn" onclick="openLogIncomeFor('${b.id}')">View / Manage Income Log</button>`
       : ''}
@@ -12443,6 +12831,14 @@ let editingId = null;
 // other row. The relationship surfaces only on the detail drawer.
 let familyMemberHeadId = null;
 
+// V5.3: id of a family-member record currently going through the "+ Add
+// Livelihood Intervention" flow (openAddLivelihoodToFamilyMember). Distinct
+// from familyMemberHeadId (which only drives NEW family-member creates) and
+// from a plain edit (openEdit) — this flag tells _submitEnrollInner to treat
+// the record as a normal livelihood beneficiary for validation/field-capture
+// purposes while still preserving headId/relation. Reset in closeEnroll().
+let _addLivToFamilyId = null;
+
 // V326: Double-submit guard. submitEnroll() sets this true the moment the
 // button is tapped and clears it only when the function exits (success or
 // error). Any re-entrant call from a rapid second tap is silently dropped —
@@ -12624,6 +13020,44 @@ function openEnroll() {
   // Apply current language to the enroll modal (and its just-injected dynamic
   // chips, scheme rows, district placeholder). Safe no-op in English.
   try { _applyLanguage(document.getElementById('enroll-overlay')); } catch(_){}
+}
+
+// V5.3: "+ Add Livelihood Intervention" for an existing family-member
+// record (b.headId set, advocacy-only so far). Unlike the advocacy-only
+// lock every other family-member path enforces, this deliberately opens
+// the door to a real livelihood intervention — for the case where the
+// family member (typically the wife) starts her own income-generating
+// activity (dairy, vermicompost, etc.) some time after the head's own
+// enrollment. Reuses openEdit() for all the standard field/chip
+// restoration (proven code, not reimplemented), then layers the
+// family+livelihood hybrid UI on top and pre-fills the baseline from the
+// head's own household income — editable, per explicit user instruction,
+// since a later-verified figure may differ from what's on the head's record.
+function openAddLivelihoodToFamilyMember(id) {
+  const b = loadData().find(x => x.id === id);
+  if (!b) return;
+  if (!b.headId) { toast('Not a family-member record.', 'error'); return; }
+  if ((b.interventions||[]).some(i => i !== 'Advocacy (Govt. Schemes)')) {
+    toast('This person already has a livelihood intervention — use Edit Details to change it.', 'error');
+    return;
+  }
+  // V5.3: same "(head record removed)" fallback openEdit() already uses
+  // internally for its own _applyFamilyMemberModeUI call, so the banner
+  // reads consistently instead of showing a blank name if the head was
+  // deleted between her original enrollment and this promotion.
+  const head = loadData().find(x => x.id === b.headId) || { id: b.headId, name: '(head record removed)' };
+  _addLivToFamilyId = id;
+  openEdit(id);
+  _applyAddLivelihoodToFamilyUI(head);
+  document.getElementById('modal-title-text').textContent = 'Add Livelihood Intervention — ' + b.id;
+  // Pre-fill baseline from the head's household income — this is the whole
+  // point of the flow. Only pre-fill if her own field is currently blank/0
+  // (defensive — should always be true for a not-yet-livelihood family
+  // member, but never overwrite a real existing value if one somehow exists).
+  const totalEl = document.getElementById('f-total');
+  if (totalEl && (!b.baseIncome || b.baseIncome === 0)) {
+    totalEl.value = (head && head.baseIncome) ? head.baseIncome : '';
+  }
 }
 
 // Open the enrollment form in "Add Family Member" mode — a shortcut for the
@@ -12949,6 +13383,56 @@ function _applyFamilyMemberModeUI(head) {
     // session so the regular Enroll form doesn't open with read-only
     // village/state/etc. Silent — no toast.
     _clearFamilyMemberLocks(false);
+  }
+}
+
+// V5.3: hybrid UI mode for "+ Add Livelihood Intervention" on an existing
+// family-member record. Called AFTER openEdit() (which runs
+// _applyFamilyMemberModeUI(head) internally and hides the livelihood
+// section, since the record has headId set) — this reveals what that just
+// hid, while KEEPING the family banner + relation dropdown visible, because
+// the person is still linked to their head. Unlike a normal (non-family)
+// beneficiary, household size (hhsize-wrap) stays hidden — that's a
+// household-level fact already captured once, on the head's record, and
+// re-asking it here would just invite a second, possibly-different number
+// for the same household.
+function _applyAddLivelihoodToFamilyUI(head) {
+  const banner    = document.getElementById('family-member-banner');
+  const bannerMsg = document.getElementById('family-member-banner-msg');
+  const relWrap   = document.getElementById('family-relation-wrap');
+  const livWrap   = document.getElementById('family-livelihood-fields');
+  const progWrap  = document.getElementById('programme-chip-wrap');
+
+  if (banner) banner.style.display = 'block';
+  if (bannerMsg) {
+    const headLabel = ((head && head.name) || '(no name)').replace(/</g,'&lt;');
+    const headId    = ((head && head.id) || '').replace(/</g,'&lt;');
+    bannerMsg.innerHTML = `Linked to <b>${headLabel}</b> <span style="color:var(--gray2)">(${headId})</span> — adding a livelihood intervention`;
+  }
+  if (relWrap)  relWrap.style.display = '';  // relation stays visible + required
+  if (livWrap)  livWrap.style.display = '';  // UNLOCK: land / livestock / sources / income
+  if (progWrap) progWrap.style.display = ''; // UNLOCK: Livelihood/Advocacy programme chips
+  // livelihood-types-wrap + advocacy-note-wrap are left to
+  // advSyncProgrammeVisibility (already called by openEdit) — same as the
+  // normal, non-family form. hhsize-wrap is deliberately left untouched
+  // (still hidden from _applyFamilyMemberModeUI above).
+
+  // Baseline-income hint: explains the pre-fill so the FC isn't left
+  // guessing why a number is already sitting in an otherwise-blank field.
+  // Re-created each time this opens (removed in closeEnroll) rather than
+  // left in the DOM permanently, since it doesn't apply to any other form.
+  const totalEl = document.getElementById('f-total');
+  let hint = document.getElementById('liv-baseline-hint');
+  if (!hint && totalEl && totalEl.parentNode) {
+    hint = document.createElement('div');
+    hint.id = 'liv-baseline-hint';
+    hint.style.cssText = 'font-size:11px;color:var(--gray2);margin-top:4px';
+    totalEl.parentNode.appendChild(hint);
+  }
+  if (hint) {
+    hint.textContent = (head && head.baseIncome)
+      ? `Pre-filled from ${head.name || head.id}'s household income (₹${head.baseIncome.toLocaleString('en-IN')}) — edit if the verified figure differs.`
+      : `${(head && (head.name || head.id)) || 'The head'} has no household income on record yet — please enter it here.`;
   }
 }
 
@@ -13449,6 +13933,12 @@ function closeEnroll() {
   // Enroll button would still see the banner / hidden livelihood section
   // until the next page render.
   familyMemberHeadId = null;
+  // V5.3: reset the Add-Livelihood-to-family-member flag + its dynamically
+  // added baseline hint, so a cancelled attempt doesn't leak into the next
+  // form the FC opens.
+  _addLivToFamilyId = null;
+  const _livHint = document.getElementById('liv-baseline-hint');
+  if (_livHint) _livHint.remove();
   _applyFamilyMemberModeUI(null);
   // Only remove modal-open if no other overlay/drawer is still open.
   if (!document.querySelector('.overlay.open, .drawer.open')) {
@@ -13875,20 +14365,32 @@ async function _submitEnrollInner() {
   // livestock, 1.10 sources, 1.11 income) are hidden on the form, so we must
   // skip their validation here — otherwise blank values would cause errors.
   const isFamilyMemberCreate = !editingId && !!familyMemberHeadId;
+  // V5.3: adding a REAL livelihood intervention to an existing family
+  // member (openAddLivelihoodToFamilyMember). Deliberately kept OUT of
+  // isFamilyMemberMode below — this record needs the full normal
+  // livelihood/land/livestock/sources/income validation and field capture
+  // to run, not be skipped. It still needs headId preserved and relation
+  // captured, which is why _editingFamilyHeadId/_editingFamilyRelation are
+  // still populated for it below.
+  const isAddingLivelihoodToFamily = !!editingId && editingId === _addLivToFamilyId;
   let isFamilyMemberEdit = false;
   let _editingFamilyHeadId = null;
   let _editingFamilyRelation = '';
   if (editingId) {
     const _existing = loadData().find(x => x.id === editingId);
     if (_existing && _existing.headId) {
-      isFamilyMemberEdit = true;
       _editingFamilyHeadId = _existing.headId;
       _editingFamilyRelation = _existing.relation || '';
+      if (!isAddingLivelihoodToFamily) isFamilyMemberEdit = true;
     }
   }
   // Combined gate: use this everywhere we want to skip livelihood validation
   // / data capture, regardless of whether we're creating or editing.
   const isFamilyMemberMode = isFamilyMemberCreate || isFamilyMemberEdit;
+  // V5.3: broader gate for "still linked to a head" concerns (relation
+  // required, headId preserved) that apply to the add-livelihood flow TOO,
+  // even though isFamilyMemberMode itself must stay false for it.
+  const isStillFamilyLinked = isFamilyMemberMode || isAddingLivelihoodToFamily;
 
   // Show an error and scroll/focus the offending field into view. On mobile
   // the error is rendered at the top of the modal body; without scrolling
@@ -13983,10 +14485,11 @@ async function _submitEnrollInner() {
   if (!gender) { showError('Please select Gender (field 1.3).', 'gender-chips'); return; }
 
   // Family-member: relation to head is required. Skipped for normal flow
-  // because the field wrapper is hidden. Required on both create and edit
-  // for family-member records.
+  // because the field wrapper is hidden. Required on create, edit, AND the
+  // V5.3 add-livelihood flow — all three keep the record linked to a head,
+  // hence isStillFamilyLinked rather than isFamilyMemberMode here.
   let relation = '';
-  if (isFamilyMemberMode) {
+  if (isStillFamilyLinked) {
     relation = (document.getElementById('f-relation')?.value || '').trim();
     if (!relation) { showError('Please select the relation to the head of family.', 'f-relation'); return; }
   }
@@ -14029,6 +14532,16 @@ async function _submitEnrollInner() {
   if (!livOn && !advOn) { showError('Please select at least one programme — Livelihood, Advocacy, or both.', 'prog-chips'); return; }
   if (livOn && livChips.length === 0) { showError('Livelihood is selected — please pick at least one intervention type.', 'ichips'); return; }
   if (livOn && livOtherOn && !livOtherText) { showError('"Other" is ticked — please type the intervention name in the text box, or untick it.', 'liv-other-text'); return; }
+  // V5.3: this whole flow exists to add a REAL livelihood intervention — if
+  // the FC opened it but left Livelihood unticked (e.g. only meant to touch
+  // an advocacy scheme), completing the save would silently write the
+  // inherited baseline onto a record that's still advocacy-only, which is
+  // pointless data and defeats the button's own purpose. Block it plainly
+  // instead of letting it through inert.
+  if (isAddingLivelihoodToFamily && !livOn) {
+    showError('Please select at least one livelihood intervention type — that\'s what this form is for. To edit only her advocacy schemes, use Edit Details instead.', 'prog-chips');
+    return;
+  }
 
   // V4.1: phone is now numeric-only on input. Still validate length on submit.
   const phoneRaw = document.getElementById('f-phone').value.trim();
@@ -14209,6 +14722,31 @@ async function _submitEnrollInner() {
     // `interventions` from the form will already be ['Advocacy (Govt. Schemes)'].
     // Pass it through so any custom-scheme additions / removals propagate.
     fields.interventions = interventions;
+  } else if (isAddingLivelihoodToFamily) {
+    // V5.3: family member gaining a REAL livelihood intervention. headId is
+    // preserved via the edit-save spread below, same mechanism the
+    // isFamilyMemberEdit branch above already relies on — this branch
+    // never sets fields.headId, so {...data[idx], ...fields} keeps the
+    // existing value untouched. hhSize stays inherited (household-level
+    // fact already captured once, on the head's record) — everything else
+    // describing HER OWN activity is captured exactly like a normal
+    // beneficiary, because isFamilyMemberMode is false for this branch, so
+    // none of the land/livestock/sources/income validation above was
+    // skipped for her.
+    fields.relation      = relation;
+    fields.hhSize        = 1;
+    fields.sources       = sources;
+    fields.land          = landVal;
+    fields.livestock     = livestockVal;
+    fields.baseIncome    = isNaN(total) ? 0 : total;
+    fields.interventions = interventions;
+    // Cheap marker: this record's baseline concept originated from the
+    // head's household income rather than her own independent history.
+    // Never read by any save/validation path today — costs nothing to
+    // store, and lets a future report change (e.g. "count each household's
+    // starting income once, not per promoted member") identify these
+    // records without guessing from the data alone.
+    fields._baselineInheritedFromHeadId = _editingFamilyHeadId;
   } else {
     // Normal beneficiary (livelihood and/or advocacy).
     fields.hhSize       = hhSizeVal;
@@ -14273,6 +14811,24 @@ async function _submitEnrollInner() {
   }));
 
   if (editingId) {
+    // V5.3: confirm before adding a real livelihood intervention to a
+    // family member — this is a deliberate, less-routine action (unlike an
+    // ordinary Edit Details save, which saves silently like everywhere
+    // else in the app), so it gets one themed confirm showing exactly what
+    // will change before it's written.
+    if (isAddingLivelihoodToFamily) {
+      const headForConfirm = _editingFamilyHeadId ? data.find(x => x.id === _editingFamilyHeadId) : null;
+      const livLabel = interventions.filter(i => i !== 'Advocacy (Govt. Schemes)').join(', ') || '(none selected)';
+      const baseForConfirm = isNaN(total) ? 0 : total;
+      const ok = await showConfirmModal(
+        `Add livelihood intervention "${livLabel}" for ${name}?\n\n` +
+        `Baseline income: ₹${baseForConfirm.toLocaleString('en-IN')}` +
+        (headForConfirm ? ` (from ${headForConfirm.name || headForConfirm.id}'s record)` : '') + `.\n\n` +
+        `${name} will now be tracked as a livelihood beneficiary — + Log Income and Endline become available. ` +
+        `This does not change ${headForConfirm ? (headForConfirm.name || 'the head') : 'the head'}'s own record.`,
+        { okLabel: 'Add Intervention', title: 'Add Livelihood Intervention' });
+      if (!ok) return;
+    }
     // EDIT mode — update existing record, preserve status/dates/endline
     const idx = data.findIndex(b => b.id === editingId);
     if (idx >= 0) {
@@ -21243,6 +21799,12 @@ async function adminSavePartner() {
       // On partial failure, already-renamed users stay on the new name; the
       // remaining users still hold oldName and are picked up by re-running
       // the rename (cascade is naturally idempotent across retries).
+      // NOTE on retry: once savePartners() above succeeds, partners[idx].name
+      // is already the NEW name — re-opening Edit Partner and clicking Save
+      // again (unchanged) computes oldName===name and skips this whole block.
+      // There is no working "just re-run the rename" recovery path through the
+      // UI once the name itself has changed, so every partial-failure message
+      // below says so plainly instead of pointing at a retry that won't help.
       let renamed = 0;
       for (const u of affected) {
         try { await saveOneUser(u); renamed++; }
@@ -21251,15 +21813,58 @@ async function adminSavePartner() {
             'Partial rename: ' + renamed + ' of ' + affected.length +
             ' users updated. Failed at ' + u.username + ': ' +
             ((e instanceof SaveError)?e.message:e) +
-            '. Re-run the rename to finish the rest.',
+            '. The partner name has already changed, so re-running the rename won\'t catch the rest — flag this for a manual data fix.',
             'error', 12000);
           break;
         }
       }
+      // V5.2 FIX: advocacy cascade below is now gated on this succeeding.
+      // Advocacy tracks the SAME beneficiaries this step renames — if this
+      // fails, leaving advocacy free to rename anyway would tag scheme
+      // records with the NEW name while their beneficiaries are still on
+      // the OLD one, a fresh mismatch this whole release exists to prevent.
+      let benefCascadeOk = true;
       const data = loadData();
       data.forEach(b => { if (b.ngo === oldName) b.ngo = name; });
       try { await saveData(data); } catch (e) {
-        if (typeof toast === 'function') toast('Partner renamed but beneficiary-cascade failed: ' + ((e instanceof SaveError)?e.message:e), 'error', 8000);
+        benefCascadeOk = false;
+        if (typeof toast === 'function') toast('Partner renamed but beneficiary-cascade failed: ' + ((e instanceof SaveError)?e.message:e) + '. Advocacy records were left untouched to avoid a fresh mismatch — flag this for a manual data fix.', 'error', 8000);
+      }
+      // V5.2 FIX: also reassign advocacy.ngo — same gap the V329 merge-partner
+      // fix already closed for the Merge flow, but rename never got it. Without
+      // this, an NGO-role login (orderByChild('ngo').equalTo(u.ngo)) keeps
+      // seeing the beneficiaries (renamed above) but none of their scheme
+      // records, because advocacy rows are still tagged with oldName.
+      if (benefCascadeOk) {
+        const advForRename = loadAdv();
+        const advAffected = advForRename.filter(a => a.ngo === oldName);
+        advAffected.forEach(a => { a.ngo = name; });
+        if (advAffected.length > 0) {
+          try { await saveAdv(advForRename); } catch (e) {
+            if (typeof toast === 'function') toast('Partner renamed but advocacy-cascade failed: ' + ((e instanceof SaveError)?e.message:e) + '. The partner name has already changed, so re-running the rename won\'t catch it — flag this for a manual data fix.', 'error', 8000);
+          }
+        }
+      }
+      // V5.2 FIX: rename oldName inside viewer/scopedViewer assignedNgos[]
+      // arrays too. Those roles use a multi-NGO list instead of the single
+      // .ngo field the loop above already updates, so a donor or scoped
+      // viewer whose scope includes the renamed NGO would otherwise keep
+      // pointing at a name that no longer exists on any record — silently
+      // losing visibility into that NGO after the rename.
+      const scopedUsers = users.filter(u =>
+        (u.role === 'viewer' || u.role === 'scopedViewer') &&
+        Array.isArray(u.assignedNgos) && u.assignedNgos.includes(oldName));
+      let scopedRenamed = 0;
+      for (const u of scopedUsers) {
+        u.assignedNgos = u.assignedNgos.map(n => n === oldName ? name : n);
+        try { await saveOneUser(u); scopedRenamed++; }
+        catch (e) {
+          if (typeof toast === 'function') toast(
+            'Partial viewer-scope rename: ' + scopedRenamed + ' of ' + scopedUsers.length +
+            ' updated. Failed at ' + u.username + '. The partner name has already changed, so re-running the rename won\'t catch the rest — flag this for a manual data fix.',
+            'error', 12000);
+          break;
+        }
       }
       // Also refresh the current session if the logged-in user's NGO was
       // renamed — otherwise currentUser().ngo keeps the old name and
@@ -21267,6 +21872,13 @@ async function adminSavePartner() {
       const me = currentUser();
       if (me && me.ngo === oldName) {
         saveSession({...me, ngo: name});
+        if (typeof _renderUserPill === 'function') _renderUserPill();
+      }
+      // V5.2: if the current session is a scopedViewer/viewer whose own
+      // assignedNgos was just renamed, refresh the session copy too.
+      if (me && (me.role === 'viewer' || me.role === 'scopedViewer') &&
+          Array.isArray(me.assignedNgos) && me.assignedNgos.includes(oldName)) {
+        saveSession({...me, assignedNgos: me.assignedNgos.map(n => n === oldName ? name : n)});
         if (typeof _renderUserPill === 'function') _renderUserPill();
       }
     }
@@ -21583,6 +22195,7 @@ function renderAdminUsers() {
         <div class="card-title">Users <span style="font-size:12px;font-weight:400;color:var(--gray2)">${countLabel}</span></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-sm" onclick="openTransferTool()" title="Move selected beneficiaries from one FC to another (same NGO)">⇄ Transfer Beneficiaries</button>
+          <button class="btn btn-sm" onclick="openMoveFcTool()" title="Move an FC + all their beneficiaries + advocacy records to a different NGO">⇄ Move FC to NGO</button>
           <button class="btn btn-primary btn-sm" onclick="adminNewUser()">+ Add User</button>
         </div>
       </div>
@@ -24459,6 +25072,140 @@ async function applyTransfer() {
   }
 }
 
+// V5.2: Move an FC + every beneficiary they created (+ those beneficiaries'
+// advocacy records) to a different NGO. Distinct from Transfer Beneficiaries
+// (same-NGO, FC→FC, admin picks a subset) and from plain Edit User's NGO
+// field (which moved the FC's login only, with zero cascade — the exact gap
+// that motivated this tool). The FC keeps every beneficiary; only the NGO
+// tag on the FC + their records changes.
+function openMoveFcTool() {
+  const u = currentUser();
+  if (!u || u.role !== 'admin') return toast('Only Admin can move an FC to another NGO.', 'error');
+  const coords = loadUsers().filter(x => x.role === 'coordinator');
+  const byNgo = {};
+  coords.forEach(c => { (byNgo[c.ngo || '(no NGO)'] = byNgo[c.ngo || '(no NGO)'] || []).push(c); });
+  const groups = Object.keys(byNgo).sort().map(n =>
+    `<optgroup label="${escHtml(n)}">` + byNgo[n]
+      .sort((a, b) => (a.fullName || a.username).localeCompare(b.fullName || b.username))
+      .map(c => `<option value="${escHtml(c.id)}">${escHtml(c.fullName || c.username)}</option>`).join('') + '</optgroup>'
+  ).join('');
+  document.getElementById('movefc-src').innerHTML = `<option value="">— Select Field Coordinator —</option>${groups}`;
+  document.getElementById('movefc-body').style.display = 'none';
+  document.getElementById('movefc-err').style.display = 'none';
+  document.getElementById('movefc-modal').style.display = 'flex';
+}
+function closeMoveFcTool() {
+  document.getElementById('movefc-modal').style.display = 'none';
+}
+function _moveFcSrcChanged() {
+  const srcId = document.getElementById('movefc-src').value;
+  document.getElementById('movefc-err').style.display = 'none';
+  if (!srcId) { document.getElementById('movefc-body').style.display = 'none'; return; }
+  const src = loadUsers().find(x => x.id === srcId);
+  if (!src) { document.getElementById('movefc-body').style.display = 'none'; return; }
+  // Read-only pools via the no-clone readers — cheap even at full scale.
+  const allB = (typeof _loadDataRaw === 'function') ? _loadDataRaw() : loadData();
+  const allAdv = (typeof _loadAdvRaw === 'function') ? _loadAdvRaw() : loadAdv();
+  const benefIds = new Set();
+  let benefCount = 0;
+  allB.forEach(b => { if (b && b.createdBy === srcId) { benefCount++; benefIds.add(b.id); } });
+  let advCount = 0;
+  allAdv.forEach(a => { if (a && benefIds.has(a.bid)) advCount++; });
+
+  const partners = loadPartners().filter(p => p.name !== src.ngo).sort((a, b) => a.name.localeCompare(b.name));
+  document.getElementById('movefc-dst').innerHTML = `<option value="">— Select target NGO —</option>` +
+    partners.map(p => `<option value="${escHtml(p.name)}">${escHtml(p.name)}</option>`).join('');
+
+  document.getElementById('movefc-preview').innerHTML =
+    `<b>${escHtml(src.fullName || src.username)}</b> is currently with <b>${escHtml(src.ngo || '(no NGO)')}</b><br>` +
+    `Will move: <b>${benefCount}</b> beneficiar${benefCount === 1 ? 'y' : 'ies'} and <b>${advCount}</b> scheme/advocacy record${advCount === 1 ? '' : 's'}.<br>` +
+    `The FC's login itself also moves to the new NGO.`;
+  document.getElementById('movefc-body').style.display = '';
+}
+let _moveFcInFlight = false;
+async function applyMoveFc() {
+  if (_moveFcInFlight) return;
+  const err = document.getElementById('movefc-err');
+  const showErr = m => { err.textContent = m; err.style.display = 'block'; };
+  const u = currentUser();
+  if (!u || u.role !== 'admin') return showErr('Only Admin can move an FC to another NGO.');
+  const srcId = document.getElementById('movefc-src').value;
+  const dstName = document.getElementById('movefc-dst').value;
+  if (!srcId) return showErr('Select the Field Coordinator to move.');
+  if (!dstName) return showErr('Select the target NGO.');
+  const users = loadUsers();
+  const src = users.find(x => x.id === srcId);
+  if (!src) return showErr('Field Coordinator not found.');
+  if (src.ngo === dstName) return showErr('That FC is already with this NGO.');
+  const srcName = src.fullName || src.username;
+  const oldNgo = src.ngo;
+
+  const data = loadData();
+  const movedBenef = data.filter(b => b && b.createdBy === srcId);
+  const benefIds = new Set(movedBenef.map(b => b.id));
+  const advAll = loadAdv();
+  const movedAdvCount = advAll.filter(a => a && benefIds.has(a.bid)).length;
+
+  const ok = await showConfirmModal(
+    `Move ${srcName} from ${oldNgo || '(no NGO)'} to ${dstName}?\n\n` +
+    `This moves the FC's login, ${movedBenef.length} beneficiar${movedBenef.length === 1 ? 'y' : 'ies'}, and ${movedAdvCount} scheme/advocacy record${movedAdvCount === 1 ? '' : 's'} to ${dstName}. ` +
+    `${srcName} keeps every beneficiary — this only changes which NGO they're tagged under. Fully audit-logged. This does not delete anything.`,
+    { danger: true, okLabel: 'Move', title: 'Confirm NGO move' });
+  if (!ok) return;
+
+  _moveFcInFlight = true;
+  const btn = document.getElementById('movefc-apply-btn');
+  const oldLabel = btn.textContent; btn.disabled = true; btn.textContent = 'Moving…';
+  try {
+    // 1. Beneficiaries — one guarded collection save, same pattern as the
+    // rename/merge cascades above. createdBy/coord untouched: same FC.
+    movedBenef.forEach(b => { b.ngo = dstName; });
+    if (movedBenef.length > 0) {
+      if (!await _trySave(() => saveData(data), 'move FC: beneficiaries')) return;
+    }
+
+    // 2. Advocacy — same targeted re-tag as the rename/merge fix above.
+    const movedAdv = advAll.filter(a => a && benefIds.has(a.bid));
+    movedAdv.forEach(a => { a.ngo = dstName; });
+    if (movedAdv.length > 0) {
+      if (!await _trySave(() => saveAdv(advAll), 'move FC: advocacy')) {
+        toast('Beneficiaries moved but advocacy re-tag failed. Retry the move to finish (already-moved beneficiaries are idempotent).', 'error', 8000);
+        return;
+      }
+    }
+
+    // 3. The FC's own login.
+    src.ngo = dstName;
+    if (!await _trySave(() => saveOneUser(src), 'move FC: user')) {
+      toast('Beneficiaries and advocacy moved but the FC login itself failed to update. Retry the move — already-moved records are idempotent.', 'error', 8000);
+      return;
+    }
+
+    // 4. Refresh current session if the admin is (unusually) the FC itself
+    // moving their own login mid-session — mirrors the rename/merge pattern.
+    const me = currentUser();
+    if (me && me.userId === src.id) {
+      saveSession({...me, ngo: dstName});
+      if (typeof _renderUserPill === 'function') _renderUserPill();
+    }
+
+    // One summary audit entry (not one per record) — matches Merge Partner's
+    // pattern for bulk cascades, keeps the audit log readable at FC scale.
+    auditLog('reassign', 'user', src.id, srcName,
+      `Moved FC ${srcName} + ${movedBenef.length} beneficiaries + ${movedAdv.length} advocacy records: ${oldNgo || '(no NGO)'} → ${dstName}`,
+      { ngo: [oldNgo, dstName] });
+
+    toast(`✓ Moved ${srcName} and ${movedBenef.length} beneficiar${movedBenef.length === 1 ? 'y' : 'ies'} to ${dstName}`, 'success');
+    closeMoveFcTool();
+    renderAdminUsers();
+  } catch (e) {
+    showErr((e instanceof SaveError) ? e.message : 'Move failed — check the counts and retry. ' + (e && e.message || ''));
+  } finally {
+    _moveFcInFlight = false;
+    btn.disabled = false; btn.textContent = oldLabel;
+  }
+}
+
 function openReassign(bid) {
   const u = currentUser();
   if (!u || (u.role !== 'admin' && u.role !== 'ngo')) {
@@ -27037,6 +27784,16 @@ function mountCoordApp() {
   document.body.dataset.shell = 'coord';
   const u = currentUser();
   if (!u) return;
+  // V5.4 FIX: mountManagerApp() sets body.dataset.role via
+  // _applyRoleVisibility(), but mountCoordApp() never set it at all — so on
+  // a coordinator's actual first login (fresh page, no prior session),
+  // body[data-role="coordinator"] CSS selectors (e.g. the #sync-pill
+  // suppression rule added this version) silently never matched. Set it
+  // directly here rather than calling the full _applyRoleVisibility(),
+  // which does several admin/NGO-shell-specific things (date-range filter
+  // row, delete-button visibility, topbar filter locking) that don't apply
+  // to — and whose DOM elements mostly don't exist in — this shell.
+  document.body.dataset.role = u.role;
   // Header greeting + avatar
   const name = u.fullName || u.username || 'Coordinator';
   const firstName = name.split(' ')[0] || name;
