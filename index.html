@@ -1,7 +1,214 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V5.7-LIVE
+  KRSF Beneficiary Impact Tracker  -  V6.1-LIVE
   ============================================================================
+  V6.1-LIVE (2026-07-22 — second adversarial re-review of V5.8/V5.9/V6):
+
+    User asked for a SECOND critical pass, this time also covering V6's own
+    fix, not just V5.8/V5.9. Went through the V6 fix logically (not just
+    "does it work" but "what else could go wrong") and empirically re-tested
+    on staging. No new functional bugs found this round — the areas
+    scrutinized held up:
+
+      - All 8 household-context locks (not just baseline income) correctly
+        lock with the family member's REAL stored values for the new
+        "editing an already-livelihood member" path — verified on a record
+        with real state/district/village/category/phone/NGO/coordinator data.
+        (One field, Field Coordinator, appeared "unlocked" in a first pass —
+        turned out to be a pre-existing, CORRECT role-based lock via
+        `.disabled` rather than my family-lock's `.readOnly`, which my own
+        family-lock code already correctly detects and defers to, per its
+        documented "don't take ownership of another lock" rule. Verified
+        this is the actual mechanism, not a gap.)
+      - The "Unlock household fields" escape hatch works correctly for the
+        new edit path — unlocks, allows a real edit (phone number changed),
+        saves silently with the new value captured.
+      - A family member with BOTH Livelihood AND Advocacy (not just one)
+        saves correctly through the new edit path — both intervention tags,
+        her own land/livestock/baseline, AND her advocacy scheme rows all
+        round-tripped correctly through a real edit.
+      - Considered whether a family member could be silently "demoted" back
+        out of Livelihood by unticking the programme chip mid-edit, leaving
+        stale land/livestock/income data attached to a record whose
+        `interventions` no longer claims livelihood. Confirmed this is NOT
+        a new gap: (a) fully orphaning a record (zero programmes) is already
+        blocked by the existing "select at least one programme" validation,
+        confirmed identically blocked for a plain normal beneficiary too;
+        (b) a partial demotion (keeping Advocacy, dropping Livelihood) is
+        consistent with how the rest of the app already treats similar
+        transitions (e.g. removing a livelihood TYPE from the catalog keeps
+        it on historical records rather than deleting data) — the app
+        already always trusts `interventions` as the classification source
+        of truth everywhere it matters, never land/livestock/income
+        directly, so no other feature gets confused by this. Left as-is,
+        deliberately, not a bug.
+      - Added one purely defensive fix with no observed exploit: reset
+        `_editingExistingFamilyLivelihood = false` at the top of `openEdit()`
+        so the flag can never theoretically survive stale across a second
+        `openEdit()` call that doesn't need it — closes a class of future
+        risk for free, even though `isAddingLivelihoodToFamily`'s own
+        `editingId === _addLivToFamilyId` check already prevented any
+        currently-reachable bug from the staleness.
+
+    Verified end-to-end on staging with real Firebase writes (dual-programme
+    family member created, edited via plain Edit Details with the unlock
+    hatch, saved, confirmed via direct Firebase read); confirmed the
+    "zero programmes" block applies identically to a plain normal
+    beneficiary (pre-existing behavior, not something V5.8/V6 changed). All
+    test fixtures deleted afterward; staging confirmed clean via fresh reads.
+
+  ----------------------------------------------------------------------------
+  V6-LIVE (2026-07-22 — adversarial re-review of V5.8/V5.9, real bug found+fixed):
+
+    User asked for a critical re-review of V5.8 and V5.9 before trusting them
+    further — "close any corner cases or bugs. test them. verify them." Found
+    ONE real, significant bug and two smaller polish issues, all in V5.8's
+    territory (V5.9 held up on re-inspection, only a minor diagnostic-accuracy
+    fix needed).
+
+    THE REAL BUG: a family member created with a real livelihood intervention
+    (via V5.8's new create-time unlock, or the pre-existing "+ Add Livelihood
+    Intervention" promotion) hit a DEAD END the moment anyone tried to edit
+    her land, livestock, sources, or baseline income afterward. Plain "Edit
+    Details" unconditionally hid the entire livelihood section for ANY family
+    member — livelihood or not — a leftover assumption from before V5.8. Worse,
+    even if those fields had somehow been visible, the isFamilyMemberEdit save
+    branch never read them into the save payload at all, so any edit would
+    have been silently discarded, not just hidden. And the dedicated
+    "+ Add Livelihood Intervention" button actively refused to help
+    ("This person already has a livelihood intervention — use Edit Details to
+    change it") — pointing the FC at the one path that didn't work.
+
+    FIX: openEdit() now detects when a family member already has a real
+    livelihood intervention and routes her through the SAME reveal + prefill
+    + lock UI and the SAME save-path field-capture the promotion button
+    already uses (_applyAddLivelihoodToFamilyUI, _addLivToFamilyId) — proven
+    code, reused, not reimplemented. A new flag
+    (_editingExistingFamilyLivelihood) distinguishes "ordinary edit of
+    existing data" from "genuine new promotion," so the "Add Intervention"
+    confirm modal only fires for a real promotion — an ordinary edit now
+    saves silently, same as every other Edit Details save in the app.
+
+    A SECOND bug surfaced while building the fix: calling the reveal/lock
+    logic too early in openEdit() — before the field-population `set()`
+    calls further down in the same function — would have locked fields
+    against whatever STALE value happened to already be sitting in the DOM
+    from a previous form session, not the record's real data. Fixed by
+    moving that call to the true end of openEdit(), after every field is
+    populated — mirroring exactly how the existing promotion button already
+    sequences openEdit() first, reveal/lock second.
+
+    Two smaller fixes found in the same pass: the "+ Add Family Member"
+    button's tooltip still said "for advocacy tracking only" (stale since
+    V5.8 offered both programmes); and V5.9's Refresh-button hover
+    diagnostic ("Last synced HH:MM") was stamped even when the check itself
+    had just errored — now only claims a fresh sync time on genuine success.
+
+    VERIFIED on staging with real Firebase writes: created a livelihood-only
+    family member (V5.8 create-flow, confirmed still correct — no orphan
+    advocacy record), then opened her via plain Edit Details and confirmed
+    the section is now visible with her REAL stored values (not stale DOM
+    leftovers) — baseline correctly locked, land/livestock genuinely hers to
+    edit. Changed her land value and saved: confirmed via a direct Firebase
+    read that the new value was actually captured (not discarded) and no
+    confirm modal interrupted the save. Confirmed the classic Advocacy-only
+    family-member edit path is completely unaffected (still hides the
+    section, as before). Confirmed a GENUINE new promotion (via the
+    dedicated button, on a different record) still correctly shows the "Add
+    Intervention" confirm modal with the right wording — the silent-save fix
+    didn't accidentally swallow the real promotion flow. Re-verified V5.9's
+    "+N updated" delta-sync fix still works correctly after these changes.
+    All test fixtures deleted afterward; the one real staging record touched
+    to simulate an external edit was reverted to its exact original state.
+
+  ----------------------------------------------------------------------------
+  V5.9-LIVE (2026-07-22 — admin Refresh no longer lies when it can't check):
+
+    Real production bug, found while investigating why an admin's second
+    laptop kept showing stale Scheme Benefits / Total Impact totals even
+    after repeatedly tapping the topbar Refresh button. Root cause: the
+    delta-sync functions Refresh calls (_adminIncrementalSync /
+    _advAdminIncrementalSync) had several early-out guards (empty local
+    record cache, no admin role, no _lastEditedAt watermark found) that
+    just `return`ed with no signal — so the button's "Up to date" message
+    was indistinguishable from "silently skipped the entire check". A
+    device whose cold-boot sync never fully completed would show a
+    confidently green "Up to date" forever, no matter how many times
+    Refresh was clicked.
+
+    A SEPARATE bug in the same area, found while fixing the first: the
+    Refresh button inferred "did anything change?" from RecordCache size
+    deltas — blind to in-place EDITS on already-cached records (e.g. an
+    advocacy scheme's status/amount changing doesn't add a new key), which
+    is exactly the kind of change that moves Scheme Benefits / Total
+    Impact. A refresh that only pulled edits, no new records, still said
+    "Up to date" even when it had genuinely just refreshed real data.
+
+    FIX: both sync functions now return a real {ok, added, removed, reason}
+    status instead of silently returning undefined. The Refresh button:
+      - reports the real added+removed count as "+N updated" (not "new" —
+        most real deltas here are edits, not brand-new records)
+      - on a broken/empty local cache, shows "Cache empty — reload needed"
+        and offers a themed confirm to reload the app (re-running the
+        already-proven cold-boot pipeline is safer than hand-rolling a
+        parallel "fetch everything" recovery path inside the refresh
+        handler, which risked doubling Firebase reads if the underlying
+        stuck state was still present)
+      - stamps a small on-hover diagnostic on the button itself ("Last
+        synced HH:MM — N beneficiaries, N advocacy records cached
+        locally") so a stale device is visible at a glance in future
+        without a console check
+
+    Verified on staging: simulated an external device editing an existing
+    advocacy record's scheme fields directly in Firebase (bypassing this
+    session's own save path) — Refresh correctly detected it, pulled the
+    fresh data into the local cache, and reported "+1 updated" instead of
+    the old "Up to date". Separately simulated a broken/empty local cache —
+    Refresh correctly detected it and offered the reload prompt instead of
+    silently no-op'ing. No Firebase read/write cost change — same delta-
+    query mechanism as before, just made observable.
+
+  ----------------------------------------------------------------------------
+  V5.8-LIVE (2026-07-22 — "+ Add Family Member" no longer forces Advocacy):
+
+    User: Ramjibhai is enrolled in Livelihood; his wife Ramilaben should
+    start her OWN livelihood work, but the existing "+ Add Family Member"
+    form hard-forced Advocacy on (hidden chip, pre-ticked) and required at
+    least one scheme row just to save her — there was no way to enroll a
+    family member for Livelihood only without first faking a placeholder
+    advocacy scheme, then separately using "+ Add Livelihood Intervention"
+    to promote her. User asked for both real programmes to be offered up
+    front: Advocacy open/unticked as before, Livelihood visible but LOCKED
+    (🔒) until the FC deliberately taps it to unlock — explicitly NOT
+    ticked by default, so nothing is chosen without an active decision.
+
+    Both chips are now shown on the create form (previously hidden
+    entirely). Tapping the locked Livelihood chip unlocks it, ticks it, and
+    reveals the same land/livestock/sources/income section the post-hoc
+    "+ Add Livelihood Intervention" flow already uses — baseline income
+    pre-fills from the head's household figure and locks (same "Unlock
+    household fields" escape hatch V5.5-V5.7 already established). At
+    least one programme is now REQUIRED to save a family member — the
+    existing "select at least one programme" validation was already
+    generic but used to pass trivially since Advocacy was force-ticked;
+    with that removed, it now genuinely blocks orphaned family members.
+
+    The dedicated "+ Add Livelihood Intervention" button (V5.3) is
+    untouched — it remains the only promotion path for a family member who
+    was already created as Advocacy-only and later starts real livelihood
+    work. This release only changes the fresh-create form.
+
+    Verified on staging (real Firebase writes, real UI-equivalent clicks):
+    the exact Ramjibhai/Ramilaben scenario end-to-end — Livelihood unlocked
+    and ticked, Advocacy left off, baseline correctly inherited (₹80,000)
+    and locked, saved with interventions=["Animal Husbandry"] and NO
+    advocacy record created (confirmed via a direct Firebase read — no
+    orphan). Confirmed the "neither programme selected" case is correctly
+    blocked before save. Confirmed the classic Advocacy-only family-member
+    path (most common real FC usage) still works exactly as before —
+    unaffected regression check.
+
+  ----------------------------------------------------------------------------
   V5.7-LIVE (2026-07-22 — baseline income two-way sync + closed the
   Reassign/Transfer family-tree gap V5.6 flagged):
 
@@ -3839,6 +4046,12 @@ html,body{height:100%;font-family:var(--font);background:#EEF2F7;color:var(--tex
 .ichip.on{border-color:var(--navy);background:var(--navy3);color:var(--navy)}
 .ichip-box{width:14px;height:14px;border-radius:3px;border:1.5px solid var(--gray3);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff}
 .ichip.on .ichip-box{background:var(--navy);border-color:var(--navy)}
+/* V5.8: locked programme chip (Livelihood, on the fresh "+ Add Family Member"
+   form) — visually distinct from a plain unticked chip so it reads as
+   "tap to unlock", not "already considered and declined". */
+.ichip.locked{background:var(--gray4);border-style:dashed;color:var(--gray2)}
+.ichip.locked:hover{border-color:var(--gray3);background:var(--gray4)}
+.fm-prog-lock-mark{font-size:12px}
 .error-msg{color:var(--red);font-size:12px;background:var(--red2);padding:8px 12px;border-radius:6px;margin-bottom:12px;display:none}
 .error-msg.show{display:block}
 
@@ -6302,7 +6515,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V5.7-LIVE';
+const APP_VERSION = 'V6.1-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -6756,11 +6969,22 @@ async function _ngoIncrementalSync() {
   } finally { _ngoIncrementalSync_inFlight = false; }
 }
 
+// V5.9: returns a status object instead of silently returning undefined on
+// every early-out. Root cause of "Refresh button says Up to date but the
+// dashboard is genuinely stale": every guard below used to `return` with no
+// signal, so a broken/empty local cache made every future Refresh click a
+// complete no-op that LOOKED successful. Also, the caller (_v373AdminRefresh)
+// used to infer "anything new?" from RecordCache.benef.size delta — which is
+// blind to in-place EDITS to existing records (e.g. a scheme's status/amount
+// changing doesn't add a new key), so a refresh that only pulled edits still
+// reported "Up to date". Returning the real {added, removed} this function
+// already computes internally fixes both: the caller no longer has to guess.
 async function _adminIncrementalSync() {
-  if (_adminIncrementalSync_inFlight) return;
+  if (_adminIncrementalSync_inFlight) return { ok: false, reason: 'in-flight' };
   const u = (typeof currentUser === 'function') ? currentUser() : null;
-  if (!u || u.role !== 'admin') return;
-  if (!FB.db || RecordCache.benef.size === 0) return;
+  if (!u || u.role !== 'admin') return { ok: false, reason: 'not-admin' };
+  if (!FB.db) return { ok: false, reason: 'no-db' };
+  if (RecordCache.benef.size === 0) return { ok: false, reason: 'empty-cache' };
   _adminIncrementalSync_inFlight = true;
   try {
     let highWater = 0;
@@ -6768,7 +6992,7 @@ async function _adminIncrementalSync() {
       const t = (r && typeof r._lastEditedAt === 'number') ? r._lastEditedAt : 0;
       if (t > highWater) highWater = t;
     }
-    if (highWater === 0) return;
+    if (highWater === 0) return { ok: false, reason: 'no-watermark' };
     const snap = await fbRef('beneficiaries').orderByChild('_lastEditedAt').startAt(highWater + 1).once('value');
     const val = snap.val() || {};
     let added = 0;
@@ -6805,7 +7029,10 @@ async function _adminIncrementalSync() {
       try { renderCurrentView(); } catch(_){}
     }
     console.log('[V347] admin benef sync: +' + added + ' / -' + removed);
-  } catch (e) { console.warn('[V347] admin benef sync failed:', e);
+    return { ok: true, added, removed };
+  } catch (e) {
+    console.warn('[V347] admin benef sync failed:', e);
+    return { ok: false, reason: 'error', error: e };
   } finally { _adminIncrementalSync_inFlight = false; }
 }
 
@@ -6859,11 +7086,17 @@ async function _advNgoIncrementalSync() {
   } finally { _advNgoIncrementalSync_inFlight = false; }
 }
 
+// V5.9: same status-object contract as _adminIncrementalSync above. This is
+// the function most directly responsible for stale "Scheme Benefits" /
+// "Total Impact" totals — those numbers are advocacy-derived, and a scheme
+// row's status/amount changing on an EXISTING record is exactly the kind of
+// in-place edit the old size-delta-based caller couldn't see.
 async function _advAdminIncrementalSync() {
-  if (_advAdminIncrementalSync_inFlight) return;
+  if (_advAdminIncrementalSync_inFlight) return { ok: false, reason: 'in-flight' };
   const u = (typeof currentUser === 'function') ? currentUser() : null;
-  if (!u || u.role !== 'admin') return;
-  if (!FB.db || RecordCache.adv.size === 0) return;
+  if (!u || u.role !== 'admin') return { ok: false, reason: 'not-admin' };
+  if (!FB.db) return { ok: false, reason: 'no-db' };
+  if (RecordCache.adv.size === 0) return { ok: false, reason: 'empty-cache' };
   _advAdminIncrementalSync_inFlight = true;
   try {
     let highWater = 0;
@@ -6871,7 +7104,7 @@ async function _advAdminIncrementalSync() {
       const t = (r && typeof r._lastEditedAt === 'number') ? r._lastEditedAt : 0;
       if (t > highWater) highWater = t;
     }
-    if (highWater === 0) return;
+    if (highWater === 0) return { ok: false, reason: 'no-watermark' };
     const snap = await fbRef('advocacy').orderByChild('_lastEditedAt').startAt(highWater + 1).once('value');
     const val = snap.val() || {};
     let added = 0;
@@ -6904,7 +7137,10 @@ async function _advAdminIncrementalSync() {
       try { renderCurrentView(); } catch(_){}
     }
     console.log('[V347] admin adv sync: +' + added + ' / -' + removed);
-  } catch (e) { console.warn('[V347] admin adv sync failed:', e);
+    return { ok: true, added, removed };
+  } catch (e) {
+    console.warn('[V347] admin adv sync failed:', e);
+    return { ok: false, reason: 'error', error: e };
   } finally { _advAdminIncrementalSync_inFlight = false; }
 }
 
@@ -12633,7 +12869,7 @@ function openDrawer(id) {
   document.getElementById('dr-actions').innerHTML = `
     <button class="btn btn-primary" onclick="openEdit('${b.id}')">Edit Details</button>
     ${!b.headId
-      ? `<button class="btn" onclick="openEnrollAsFamilyMember('${b.id}')" title="Enroll a wife / daughter / other family member of this beneficiary for advocacy tracking only" style="color:var(--navy);border-color:var(--navy3)">+ Add Family Member</button>`
+      ? `<button class="btn" onclick="openEnrollAsFamilyMember('${b.id}')" title="Enroll a wife / daughter / other family member of this beneficiary — for advocacy, her own livelihood work, or both" style="color:var(--navy);border-color:var(--navy3)">+ Add Family Member</button>`
       : ''}
     ${b.headId && !hasLiv
       ? `<button class="btn" onclick="openAddLivelihoodToFamilyMember('${b.id}')" title="Start a livelihood intervention (dairy, vermicompost, etc.) for this family member" style="color:var(--green);border-color:var(--green2)">+ Add Livelihood Intervention</button>`
@@ -13028,6 +13264,14 @@ let familyMemberHeadId = null;
 // the record as a normal livelihood beneficiary for validation/field-capture
 // purposes while still preserving headId/relation. Reset in closeEnroll().
 let _addLivToFamilyId = null;
+// V6: true when _addLivToFamilyId was set by openEdit() for a family member
+// who ALREADY has a real livelihood intervention (an ordinary edit), NOT by
+// openAddLivelihoodToFamilyMember() for a genuinely NEW promotion. Both
+// cases need the same field-capture behavior (isAddingLivelihoodToFamily),
+// but only the genuine promotion should show the "Add Intervention" confirm
+// modal — an ordinary edit should save silently like everywhere else.
+// Reset in closeEnroll().
+let _editingExistingFamilyLivelihood = false;
 
 // V326: Double-submit guard. submitEnroll() sets this true the moment the
 // button is tapped and clears it only when the function exits (success or
@@ -13292,11 +13536,14 @@ function openAddLivelihoodToFamilyMember(id) {
 
 // Open the enrollment form in "Add Family Member" mode — a shortcut for the
 // common case where an FC has just enrolled the head of household and now
-// needs to add the wife / daughter / etc. for advocacy tracking only. Inherits
-// state/district/village/taluka/NGO/FC/category from the head, hides the
-// livelihood section, forces programme=Advocacy, and surfaces a Relation
-// dropdown so the household relationship is captured. The new record is saved
-// as a normal beneficiary row with headId set to the head's id.
+// needs to add the wife / daughter / etc. Inherits state/district/village/
+// taluka/NGO/FC/category from the head, and surfaces a Relation dropdown so
+// the household relationship is captured. V5.8: BOTH programmes are offered —
+// Advocacy (unticked, normal) and Livelihood (unticked, locked until the FC
+// taps it to unlock — she may start her own income-generating activity
+// independent of the head's). At least one programme is required; a family
+// member can no longer be saved with neither. The new record is saved as a
+// normal beneficiary row with headId set to the head's id.
 function openEnrollAsFamilyMember(headId) {
   // Look up the head record FIRST. We need its details to pre-fill, and a
   // missing head means we shouldn't open this flow at all.
@@ -13324,10 +13571,11 @@ function openEnrollAsFamilyMember(headId) {
   openEnroll();
 
   // Step 2: Mark the form so submitEnroll knows to take the family-member
-  // path. _applyFamilyMemberModeUI hides livelihood fields and the programme
-  // chip selector, shows the Relation dropdown and the banner.
+  // path. _applyFamilyMemberModeUI(head, true) hides the hhSize wrapper but
+  // shows BOTH programme chips (V5.8) — Advocacy unticked/normal, Livelihood
+  // unticked/locked — plus the Relation dropdown and the banner.
   familyMemberHeadId = actualHeadId;
-  _applyFamilyMemberModeUI(actualHead);
+  _applyFamilyMemberModeUI(actualHead, true);
 
   // Step 3: Pre-fill shared household fields from the head. The FC can still
   // edit these (e.g. if the family member happens to live in a different
@@ -13553,16 +13801,11 @@ function openEnrollAsFamilyMember(headId) {
   document.getElementById('enroll-submit-btn').textContent =
     _lang === 'gu' ? 'કુટુંબના સભ્યની નોંધણી કરો' : 'Add Family Member';
 
-  // Step 5: Re-run programme chip auto-set so the Schemes panel renders.
-  // In family-member mode the Advocacy programme is implicit — we tick the
-  // hidden Advocacy chip so advSyncProgrammeVisibility reveals the schemes
-  // section. The chip is hidden anyway, so the tick is invisible to the FC.
-  const advChip = document.querySelector('#prog-chips .ichip[data-prog="Advocacy"]');
-  if (advChip) {
-    advChip.classList.add('on');
-    const bx = advChip.querySelector('.ichip-box'); if (bx) bx.textContent = '✓';
-  }
-  if (typeof advSyncProgrammeVisibility === 'function') advSyncProgrammeVisibility();
+  // Step 5: V5.8 — neither programme is pre-ticked (_applyFamilyMemberModeUI
+  // already reset both chips to a clean off state). The FC deliberately picks
+  // Advocacy and/or unlocks Livelihood; advSyncProgrammeVisibility already ran
+  // inside _applyFamilyMemberModeUI so the schemes/livelihood sections start
+  // correctly hidden until a chip is actually on.
   _checkProgrammePlanning();
 
   // Step 6: re-apply language to pick up the just-injected banner / Relation
@@ -13572,9 +13815,22 @@ function openEnrollAsFamilyMember(headId) {
 
 // Toggle Add Family Member mode UI on/off. Receives the head record (or null
 // to clear). Hides livelihood-only fields (1.7 family members, 1.8 land, 1.9
-// livestock, 1.10 sources, 1.11 income), hides the Programme chip selector
-// (Advocacy is forced), and shows the Relation dropdown + banner.
-function _applyFamilyMemberModeUI(head) {
+// livestock, 1.10 sources, 1.11 income) and shows the Relation dropdown +
+// banner. `allowProgrammeChoice` (V5.8) controls the Programme selector:
+//   - true  (fresh "+ Add Family Member" create only): BOTH chips shown.
+//            Advocacy starts unticked, normal. Livelihood starts unticked
+//            AND locked (🔒) — tapping it unlocks + reveals the livelihood
+//            section in one motion (see toggleProgChip). This replaces the
+//            old "Advocacy is forced, chips hidden" behavior — a family
+//            member is no longer required to carry a placeholder advocacy
+//            scheme just to exist; she can be enrolled Livelihood-only.
+//   - false (default; used for editing an EXISTING family-member record):
+//            unchanged legacy behavior — chip group hidden, whatever the
+//            stored record's interventions already are stays as-is. The
+//            dedicated "+ Add Livelihood Intervention" button remains the
+//            only promotion path for already-existing records — this
+//            function does not change that flow.
+function _applyFamilyMemberModeUI(head, allowProgrammeChoice) {
   const banner    = document.getElementById('family-member-banner');
   const bannerMsg = document.getElementById('family-member-banner-msg');
   const relWrap   = document.getElementById('family-relation-wrap');
@@ -13583,6 +13839,8 @@ function _applyFamilyMemberModeUI(head) {
   const progWrap  = document.getElementById('programme-chip-wrap');
   const livTypes  = document.getElementById('livelihood-types-wrap');
   const relSel    = document.getElementById('f-relation');
+  const advChip   = document.querySelector('#prog-chips .ichip[data-prog="Advocacy"]');
+  const livChip   = document.querySelector('#prog-chips .ichip[data-prog="Livelihood"]');
 
   if (head) {
     // Family-member mode ON
@@ -13595,10 +13853,28 @@ function _applyFamilyMemberModeUI(head) {
     if (relWrap)    relWrap.style.display = '';
     if (livWrap)    livWrap.style.display = 'none';
     if (hhsizeWrap) hhsizeWrap.style.display = 'none';
-    if (progWrap)   progWrap.style.display = 'none';
     if (livTypes)   livTypes.style.display = 'none';
     // Reset relation dropdown to a clean state
     if (relSel) relSel.value = '';
+    if (allowProgrammeChoice) {
+      // V5.8: both programmes visible, neither pre-ticked. Reset any leftover
+      // 'on'/'locked' state from a previous session before applying fresh.
+      [advChip, livChip].forEach(c => {
+        if (!c) return;
+        c.classList.remove('on', 'locked');
+        const box = c.querySelector('.ichip-box'); if (box) box.textContent = '';
+        const mark = c.querySelector('.fm-prog-lock-mark'); if (mark) mark.remove();
+      });
+      if (progWrap) progWrap.style.display = '';
+      if (livChip) {
+        livChip.classList.add('locked');
+        livChip.insertAdjacentHTML('beforeend',
+          '<span class="fm-prog-lock-mark" title="Tap to unlock and add a livelihood intervention" style="margin-left:6px">🔒</span>');
+      }
+      if (typeof advSyncProgrammeVisibility === 'function') advSyncProgrammeVisibility();
+    } else {
+      if (progWrap) progWrap.style.display = 'none';
+    }
   } else {
     // Family-member mode OFF — restore default enrollment layout
     if (banner)     banner.style.display = 'none';
@@ -13606,6 +13882,14 @@ function _applyFamilyMemberModeUI(head) {
     if (livWrap)    livWrap.style.display = '';
     if (hhsizeWrap) hhsizeWrap.style.display = '';
     if (progWrap)   progWrap.style.display = '';
+    // Defensive cleanup: strip any leftover lock state from the chips in
+    // case the form is closed mid-family-create-flow, so the normal
+    // (non-family) enrollment form never shows a stray 🔒.
+    [advChip, livChip].forEach(c => {
+      if (!c) return;
+      c.classList.remove('locked');
+      const mark = c.querySelector('.fm-prog-lock-mark'); if (mark) mark.remove();
+    });
     // livelihood-types-wrap and advocacy-note-wrap are managed by
     // advSyncProgrammeVisibility — we don't force them here, that function
     // owns their visibility based on which programme chips are ticked.
@@ -13637,7 +13921,12 @@ function _applyAddLivelihoodToFamilyUI(head, b) {
   if (bannerMsg) {
     const headLabel = ((head && head.name) || '(no name)').replace(/</g,'&lt;');
     const headId    = ((head && head.id) || '').replace(/</g,'&lt;');
-    bannerMsg.innerHTML = `Linked to <b>${headLabel}</b> <span style="color:var(--gray2)">(${headId})</span> — adding a livelihood intervention`;
+    // V6: "adding a livelihood intervention" is only accurate for a genuine
+    // NEW promotion — an ordinary edit of someone who already has one (via
+    // openEdit's editingFamilyMemberHasLivelihood path) shouldn't claim
+    // that. _editingExistingFamilyLivelihood distinguishes the two.
+    bannerMsg.innerHTML = `Linked to <b>${headLabel}</b> <span style="color:var(--gray2)">(${headId})</span>` +
+      (_editingExistingFamilyLivelihood ? '' : ' — adding a livelihood intervention');
   }
   if (relWrap)  relWrap.style.display = '';  // relation stays visible + required
   if (livWrap)  livWrap.style.display = '';  // UNLOCK: land / livestock / sources / income
@@ -13955,12 +14244,55 @@ function openEdit(id) {
   // creates; edits preserve the existing record's headId via b.headId and
   // reattach it on save (see submitEnroll edit branch for the spread).
   familyMemberHeadId = null;
+  // V6.1: defensive reset. _editingExistingFamilyLivelihood is only ever
+  // MEANT to be true for the CURRENT edit session — it's re-derived fresh
+  // below whenever relevant. Resetting it here closes off a theoretical
+  // staleness window (e.g. some future caller opening openEdit() on a
+  // second record without going through closeEnroll() first) even though
+  // isAddingLivelihoodToFamily's own `editingId === _addLivToFamilyId`
+  // check already prevents any observable cross-record bug today. Does NOT
+  // reset _addLivToFamilyId — openAddLivelihoodToFamilyMember() deliberately
+  // sets that BEFORE calling openEdit() and depends on it surviving this call.
+  _editingExistingFamilyLivelihood = false;
   // For an editable family-member record (b.headId present), still show the
   // family-member UI mode: hide livelihood section, show Relation dropdown.
   // The save path stays in the normal edit branch and preserves b.headId via
   // the {...data[idx], ...fields} spread.
   const editingFamilyMember = !!b.headId;
-  if (editingFamilyMember) {
+  // V6 fix (found via adversarial re-review of V5.8): a family member who
+  // ALREADY has a real livelihood intervention (created directly via V5.8,
+  // or previously promoted via "+ Add Livelihood Intervention") used to hit
+  // a dead end here. _applyFamilyMemberModeUI(head) unconditionally hides
+  // BOTH the programme chips and the whole land/livestock/sources/income
+  // section for ANY family member, livelihood or not — so her real data
+  // became invisible on a plain Edit Details. Worse: even if you could see
+  // those fields, the isFamilyMemberEdit save branch below never reads
+  // land/livestock/sources/baseIncome into `fields` at all (it only sets
+  // relation + interventions), so any edit to them would be silently
+  // discarded. And openAddLivelihoodToFamilyMember() actively refuses to
+  // run for her ("This person already has a livelihood intervention — use
+  // Edit Details to change it") — pointing the FC at the one path that
+  // didn't work. Fix: route her through the SAME reveal+prefill UI and SAME
+  // save-path field-capture (_addLivToFamilyId) the promotion button uses —
+  // she already has real livelihood data, this is just an ordinary edit of
+  // it. _editingExistingFamilyLivelihood distinguishes this from a genuine
+  // NEW promotion so the "Add Intervention" confirm modal doesn't fire.
+  const editingFamilyMemberHasLivelihood = editingFamilyMember &&
+    (b.interventions || []).some(i => i !== 'Advocacy (Govt. Schemes)');
+  if (editingFamilyMemberHasLivelihood) {
+    const headRec = loadData().find(x => x.id === b.headId);
+    const head = headRec || { id: b.headId, name: '(head record removed)' };
+    _addLivToFamilyId = id;
+    _editingExistingFamilyLivelihood = true;
+    _applyFamilyMemberModeUI(head, false);
+    // _applyAddLivelihoodToFamilyUI(head, b) is called at the END of this
+    // function, NOT here — it must run AFTER the field-population `set()`
+    // calls below (f-total etc.), the same way openAddLivelihoodToFamilyMember
+    // already calls openEdit() FIRST and only applies its reveal/lock/prefill
+    // SECOND. Calling it here, before those fields are populated, would let
+    // it lock f-total/f-state/etc. against whatever STALE value happened to
+    // be sitting in the DOM from a previous form session, not her real data.
+  } else if (editingFamilyMember) {
     const headRec = loadData().find(x => x.id === b.headId);
     _applyFamilyMemberModeUI(headRec || { id: b.headId, name: '(head record removed)' });
   } else {
@@ -14197,6 +14529,14 @@ function openEdit(id) {
   // V4.1: refresh Section 2 title (Programme vs Programme Planning)
   _checkProgrammePlanning();
   _applyEnrollFieldLocks();
+  // V6: for a family member who already has a real livelihood intervention,
+  // reveal + prefill + lock the livelihood section NOW — after every field
+  // above has been populated from her real stored record. See the ordering
+  // note earlier in this function for why this can't run any sooner.
+  if (editingFamilyMemberHasLivelihood) {
+    const headRec2 = loadData().find(x => x.id === b.headId);
+    _applyAddLivelihoodToFamilyUI(headRec2 || { id: b.headId, name: '(head record removed)' }, b);
+  }
   closeDrawer();
 }
 function closeEnroll() {
@@ -14212,6 +14552,7 @@ function closeEnroll() {
   // added baseline hint, so a cancelled attempt doesn't leak into the next
   // form the FC opens.
   _addLivToFamilyId = null;
+  _editingExistingFamilyLivelihood = false;
   const _livHint = document.getElementById('liv-baseline-hint');
   if (_livHint) _livHint.remove();
   _applyFamilyMemberModeUI(null);
@@ -14275,10 +14616,54 @@ function toggleLivOtherChip(el) {
 }
 
 // Programme chip toggles — show/hide the livelihood sub-chips and advocacy note.
+// V5.8: a chip carrying the 'locked' class (only the Livelihood chip, only in
+// the fresh "+ Add Family Member" create flow) doesn't toggle on first tap —
+// it unlocks + ticks + reveals the livelihood section in one motion instead.
 function toggleProgChip(el) {
+  if (el.classList.contains('locked')) { _unlockFamilyMemberLivelihood(el); return; }
   el.classList.toggle('on');
   el.querySelector('.ichip-box').textContent = el.classList.contains('on') ? '✓' : '';
   advSyncProgrammeVisibility();
+}
+
+// V5.8: unlock the Livelihood chip on the "+ Add Family Member" create form.
+// Removes the lock, ticks the chip, reveals the livelihood data block (land /
+// livestock / sources / income — same DOM the post-hoc "+ Add Livelihood
+// Intervention" flow uses), and pre-fills + locks baseline income from the
+// head's own household figure (same convention as V5.7's promotion flow —
+// "the family shares one household income figure"), with the same
+// "Unlock household fields" escape hatch if a verified figure differs.
+function _unlockFamilyMemberLivelihood(chipEl) {
+  chipEl.classList.remove('locked');
+  const mark = chipEl.querySelector('.fm-prog-lock-mark');
+  if (mark) mark.remove();
+  chipEl.classList.add('on');
+  const box = chipEl.querySelector('.ichip-box'); if (box) box.textContent = '✓';
+  advSyncProgrammeVisibility();
+
+  const livWrap = document.getElementById('family-livelihood-fields');
+  if (livWrap) livWrap.style.display = '';
+
+  const head = familyMemberHeadId ? loadData().find(x => x.id === familyMemberHeadId) : null;
+  const totalEl = document.getElementById('f-total');
+  if (totalEl && head && head.baseIncome) {
+    totalEl.value = head.baseIncome;
+    _applyFamilyMemberLockTo(totalEl);
+  }
+  let hint = document.getElementById('liv-baseline-hint');
+  if (!hint && totalEl && totalEl.parentNode) {
+    hint = document.createElement('div');
+    hint.id = 'liv-baseline-hint';
+    hint.style.cssText = 'font-size:11px;color:var(--gray2);margin-top:4px';
+    totalEl.parentNode.appendChild(hint);
+  }
+  if (hint) {
+    hint.textContent = (head && head.baseIncome)
+      ? `Pre-filled from ${head.name || head.id}'s household income (₹${head.baseIncome.toLocaleString('en-IN')}) — locked, since the family shares one household income figure. Tap "Unlock household fields" if the verified figure differs.`
+      : `${(head && (head.name || head.id)) || 'The head'} has no household income on record yet — please enter it here.`;
+  }
+  const unlockWrap = document.getElementById('family-member-unlock-wrap');
+  if (unlockWrap) unlockWrap.style.display = (_familyMemberLockedFields.length > 0) ? '' : 'none';
 }
 
 function advSyncProgrammeVisibility() {
@@ -14709,13 +15094,22 @@ async function _submitEnrollInner() {
   const district = getDistrictValue();
   // In family-member mode, total/hhsize aren't user-entered (the wrappers are
   // hidden) — fall back to 0 / inherited values. The validation block below
-  // is gated on isFamilyMemberMode so we don't reject blank totals.
+  // is gated on familySkipsLivelihoodFields so we don't reject blank totals.
   const total = parseFloat(document.getElementById('f-total').value);
-  // Build interventions array from the programme selection + sub-chips. In
-  // family-member mode the programme chips are hidden but Advocacy is
-  // pre-ticked by openEnrollAsFamilyMember, so advOn will be true.
+  // Build interventions array from the programme selection + sub-chips.
+  // V5.8: in family-member CREATE mode both chips are now real and visible
+  // (Advocacy unticked/normal, Livelihood unticked/locked until tapped) — no
+  // chip is pre-ticked automatically anymore, so livOn/advOn genuinely
+  // reflect what the FC chose.
   const livOn = !!document.querySelector('#prog-chips .ichip[data-prog="Livelihood"].on');
   const advOn = !!document.querySelector('#prog-chips .ichip[data-prog="Advocacy"].on');
+  // V5.8: family-member mode only skips the livelihood fields (hhSize is
+  // always skipped — household size is a household-level fact captured once
+  // on the head's record) when Livelihood is NOT on. If the FC unlocked and
+  // ticked Livelihood on the create form, this is false and the normal
+  // livelihood validation below runs — same as the post-hoc "+ Add
+  // Livelihood Intervention" flow (isAddingLivelihoodToFamily) already does.
+  const familySkipsLivelihoodFields = isFamilyMemberMode && !livOn;
   // Livelihood chips excluding the "Other" chip — Other gets replaced with
   // the user-typed value below.
   const livChipsRaw = livOn
@@ -14733,18 +15127,18 @@ async function _submitEnrollInner() {
   if (!document.getElementById('f-state').value) { showError('Please select a state (field 1.4a).', 'f-state'); return; }
   if (!document.getElementById('f-district-sel').value) { showError('Please select a district (field 1.4b).', 'f-district-sel'); return; }
   // Income + family-members fields are skipped for family-member create AND
-  // edit — the wrappers for 1.7 / 1.11 are hidden in both cases. Stored as
-  // 0 / 1 in the create branch below; preserved as-is on edit (the spread
-  // {...data[idx], ...fields} keeps existing values when fields omits them).
+  // edit whenever Livelihood isn't on — the wrappers for 1.7 / 1.11 are
+  // hidden in that case. Stored as 0 / 1 in the create branch below;
+  // preserved as-is on edit (the spread {...data[idx], ...fields} keeps
+  // existing values when fields omits them).
   // V319: Annual Household Income is the baseline for impact measurement, so
   // it's required for any beneficiary on a livelihood programme. Advocacy-only
   // beneficiaries (Advocacy ticked, no Livelihood) have no baseline→endline
   // income lifecycle, so the field is optional for them — a blank total is
   // stored as baseIncome = 0 in the create branch below (same convention used
-  // for family-member records). Family-member mode still skips this entirely
-  // (the 1.11 wrapper is hidden in that mode).
+  // for family-member records).
   const isAdvocacyOnly = advOn && !livOn;
-  if (!isFamilyMemberMode && !isAdvocacyOnly) {
+  if (!familySkipsLivelihoodFields && !isAdvocacyOnly) {
     if (!total || isNaN(total)) { showError('Annual Household Income (field 1.11) is required — this is the baseline for impact measurement.', 'f-total'); return; }
   }
   const hhSizeVal = isFamilyMemberMode
@@ -14770,12 +15164,12 @@ async function _submitEnrollInner() {
   }
 
   // V4.1: Current Sources of Livelihood — at least one chip required (skipped
-  // for family members; the whole sources chip group is hidden in that mode).
+  // when familySkipsLivelihoodFields; the sources chip group is hidden then).
   const sourceChipsOn = [...document.querySelectorAll('#sources-chips .ichip.on')];
   const sourceLabels  = sourceChipsOn.map(c => c.dataset.src);
   const sourcesOtherOn   = sourceLabels.includes('Other');
   const sourcesOtherText = sourcesOtherOn ? (document.getElementById('f-sources-other')?.value || '').trim() : '';
-  if (!isFamilyMemberMode) {
+  if (!familySkipsLivelihoodFields) {
     if (sourceLabels.length === 0) { showError('Please tick at least one Current Source of Livelihood (field 1.10).', 'sources-chips'); return; }
     if (sourcesOtherOn && !sourcesOtherText) { showError('"Other" source is ticked — please type the source name in the text box, or untick it.', 'f-sources-other'); return; }
   }
@@ -14800,10 +15194,11 @@ async function _submitEnrollInner() {
     }
   } catch(_){}
 
-  // Programme validation. In family-member mode advOn is forced true and the
-  // chip group is hidden, so the "select at least one programme" check would
-  // otherwise pass silently — but the livelihood-related checks below need
-  // to be skipped.
+  // Programme validation. V5.8: in family-member CREATE mode neither chip is
+  // pre-ticked anymore (Advocacy starts off, Livelihood starts locked+off),
+  // so this check now genuinely enforces "no orphaned family members" —
+  // a family member can no longer be saved without being enrolled in at
+  // least one real programme (Livelihood, Advocacy, or both).
   if (!livOn && !advOn) { showError('Please select at least one programme — Livelihood, Advocacy, or both.', 'prog-chips'); return; }
   if (livOn && livChips.length === 0) { showError('Livelihood is selected — please pick at least one intervention type.', 'ichips'); return; }
   if (livOn && livOtherOn && !livOtherText) { showError('"Other" is ticked — please type the intervention name in the text box, or untick it.', 'liv-other-text'); return; }
@@ -14911,24 +15306,27 @@ async function _submitEnrollInner() {
 
   // V4.1: removed aadhaar/pmjay vs hhSize checks — those fields are gone.
 
-  // Land + livestock + baseline-income sanity caps. Skipped for family-member
-  // mode (create AND edit): those fields are hidden in the form, stored as 0
-  // on create and preserved as-is on edit.
-  const landVal = isFamilyMemberMode ? 0 : (parseFloat(document.getElementById('f-land').value) || 0);
-  if (!isFamilyMemberMode && landVal > 50) {
+  // Land + livestock + baseline-income sanity caps. Skipped when
+  // familySkipsLivelihoodFields (family-member mode with Livelihood not on):
+  // those fields are hidden in the form, stored as 0 on create and preserved
+  // as-is on edit. When a family member has Livelihood unlocked+ticked
+  // (V5.8 create, or the pre-existing isAddingLivelihoodToFamily promotion),
+  // these run exactly like a normal beneficiary.
+  const landVal = familySkipsLivelihoodFields ? 0 : (parseFloat(document.getElementById('f-land').value) || 0);
+  if (!familySkipsLivelihoodFields && landVal > 50) {
     showError(`Land holding (${landVal} acres) seems unusually high. Please check — the typical KRSF beneficiary holds under 5 acres.`, 'f-land');
     return;
   }
   // V4.1: Single livestock total cap
-  const livestockVal = isFamilyMemberMode ? 0 : (parseInt(document.getElementById('f-livestock').value) || 0);
-  if (!isFamilyMemberMode && livestockVal > 500) {
+  const livestockVal = familySkipsLivelihoodFields ? 0 : (parseInt(document.getElementById('f-livestock').value) || 0);
+  if (!familySkipsLivelihoodFields && livestockVal > 500) {
     showError(`Livestock count (${livestockVal}) looks unusually high. Please check.`, 'f-livestock');
     return;
   }
 
-  // Baseline >₹5L sanity check (kept from V2 #13 — value-scoped). Skipped for
-  // family-member mode: total is 0 (create) or preserved (edit).
-  if (!isFamilyMemberMode && total > 500000 && _baselineConfirmedFor !== total) {
+  // Baseline >₹5L sanity check (kept from V2 #13 — value-scoped). Skipped
+  // when familySkipsLivelihoodFields: total is 0 (create) or preserved (edit).
+  if (!familySkipsLivelihoodFields && total > 500000 && _baselineConfirmedFor !== total) {
     const warn = document.getElementById('baseline-warn');
     const msg = document.getElementById('baseline-warn-msg');
     if (warn && msg) {
@@ -14976,16 +15374,22 @@ async function _submitEnrollInner() {
   };
   if (isFamilyMemberCreate) {
     // New family-member record. headId links back to the head; relation is
-    // the household role; livelihood-only fields are zeroed; interventions
-    // are forced to Advocacy.
+    // the household role. hhSize always stays 1 (household-level fact,
+    // captured once on the head's record). V5.8: livelihood fields and
+    // `interventions` are no longer hardcoded to Advocacy-only — they follow
+    // whatever the FC actually picked on the chips (livOn/advOn), same as
+    // every other branch. If Livelihood was unlocked+ticked, this captures
+    // her real land/livestock/sources/income exactly like the post-hoc
+    // "+ Add Livelihood Intervention" flow does.
     fields.headId       = familyMemberHeadId;
     fields.relation     = relation;
     fields.hhSize       = 1;
-    fields.sources      = [];
-    fields.land         = 0;
-    fields.livestock    = 0;
-    fields.baseIncome   = 0;
-    fields.interventions= ['Advocacy (Govt. Schemes)'];
+    fields.sources      = familySkipsLivelihoodFields ? [] : sources;
+    fields.land         = landVal;
+    fields.livestock    = livestockVal;
+    fields.baseIncome   = isNaN(total) ? 0 : total;
+    fields.interventions= interventions;
+    if (livOn) fields._baselineInheritedFromHeadId = familyMemberHeadId;
   } else if (isFamilyMemberEdit) {
     // Editing an existing family-member record. Livelihood fields stay at
     // whatever they were stored as (0/empty for records created via the
@@ -15090,8 +15494,11 @@ async function _submitEnrollInner() {
     // family member — this is a deliberate, less-routine action (unlike an
     // ordinary Edit Details save, which saves silently like everywhere
     // else in the app), so it gets one themed confirm showing exactly what
-    // will change before it's written.
-    if (isAddingLivelihoodToFamily) {
+    // will change before it's written. V6: skip this for
+    // _editingExistingFamilyLivelihood — she already has the intervention,
+    // this is an ordinary edit of it (via plain Edit Details), not a new
+    // promotion, so it should save silently like everywhere else in the app.
+    if (isAddingLivelihoodToFamily && !_editingExistingFamilyLivelihood) {
       const headForConfirm = _editingFamilyHeadId ? data.find(x => x.id === _editingFamilyHeadId) : null;
       const livLabel = interventions.filter(i => i !== 'Advocacy (Govt. Schemes)').join(', ') || '(none selected)';
       const baseForConfirm = isNaN(total) ? 0 : total;
@@ -15429,8 +15836,11 @@ async function _submitEnrollInner() {
       // tab). Falls back to "(unknown head)" for resilience.
       const headRec = data.find(x => x.id === b.headId);
       const headLbl = headRec ? headRec.name : '(unknown head)';
+      // V5.8: programme label now reflects what was actually picked — a
+      // family member is no longer necessarily advocacy-only.
+      const progLbl = livOn && advOn ? 'livelihood + advocacy' : livOn ? 'livelihood only' : 'advocacy only';
       auditLog('create', 'beneficiary', id, b.name,
-        `Added as family member (${b.relation || 'relative'}) of ${headLbl} [${b.headId}], NGO ${b.ngo || '(none)'} — advocacy only`,
+        `Added as family member (${b.relation || 'relative'}) of ${headLbl} [${b.headId}], NGO ${b.ngo || '(none)'} — ${progLbl}`,
         null);
     } else {
       auditLog('create', 'beneficiary', id, b.name,
@@ -20670,16 +21080,58 @@ async function _v373AdminRefresh() {
     if (btn) { btn.disabled = true; btn.style.opacity = '0.7'; btn.style.cursor = 'wait'; }
     if (icon) { icon.style.display = 'inline-block'; icon.style.animation = 'syncSpin 0.9s linear infinite'; }
     if (label) label.textContent = 'Syncing…';
-    const benefBefore = (typeof RecordCache !== 'undefined' && RecordCache.benef) ? RecordCache.benef.size : 0;
-    const advBefore   = (typeof RecordCache !== 'undefined' && RecordCache.adv)   ? RecordCache.adv.size   : 0;
-    // Run both syncs in parallel (each typically <1 sec at ~0-30 record deltas)
-    await Promise.all([
-      (typeof _adminIncrementalSync === 'function') ? _adminIncrementalSync() : null,
-      (typeof _advAdminIncrementalSync === 'function') ? _advAdminIncrementalSync() : null,
+    // Run both syncs in parallel (each typically <1 sec at ~0-30 record deltas).
+    // V5.9: read the real {ok, added, removed, reason} each sync now returns
+    // instead of inferring "anything new?" from RecordCache.size deltas — the
+    // old approach was blind to in-place edits (e.g. a scheme's status/amount
+    // changing on an existing record adds nothing to .size) and silently
+    // reported "Up to date" whenever the cache itself was empty/broken,
+    // because both sync functions used to just `return` with no signal.
+    const [benefResult, advResult] = await Promise.all([
+      (typeof _adminIncrementalSync === 'function') ? _adminIncrementalSync() : { ok: false, reason: 'unavailable' },
+      (typeof _advAdminIncrementalSync === 'function') ? _advAdminIncrementalSync() : { ok: false, reason: 'unavailable' },
     ]);
-    const benefAdded = (RecordCache.benef.size || 0) - benefBefore;
-    const advAdded   = (RecordCache.adv.size   || 0) - advBefore;
+    const brokenCache = [benefResult, advResult].some(r => r && !r.ok && r.reason === 'empty-cache');
+    if (brokenCache) {
+      // The local record cache is empty while a real Firebase connection and
+      // an admin session both exist — that only happens when the original
+      // cold-boot sync never completed. Don't try to hand-roll a parallel
+      // "fetch everything" recovery here: re-running the ALREADY-proven
+      // cold-boot pipeline via a full reload is safer and cheaper (a stuck
+      // partial state could otherwise combine with new fetch code to double
+      // Firebase reads instead of fixing anything). Ask before reloading —
+      // never discard an in-progress form silently.
+      if (icon) icon.style.animation = '';
+      if (label) label.textContent = 'Cache empty — reload needed';
+      if (btn) { btn.style.background = '#FEE2E2'; btn.style.color = '#991B1B'; btn.style.borderColor = '#FCA5A5'; }
+      const doReload = (typeof showConfirmModal === 'function')
+        ? await showConfirmModal(
+            'This device\'s local data cache is empty, which means Refresh has nothing to check against — that\'s likely why the numbers here have looked stale no matter how many times you tapped Refresh.\n\n' +
+            'Reloading the app will re-run the normal startup sync and fix this. Reload now?',
+            { okLabel: 'Reload now', title: 'Local cache is empty' })
+        : confirm('Local data cache is empty — Refresh can\'t work until you reload the app. Reload now?');
+      if (doReload) { location.reload(); return; }
+      setTimeout(function() {
+        if (btn) { btn.style.background = '#DBEAFE'; btn.style.color = '#1E40AF'; btn.style.borderColor = '#93C5FD'; btn.disabled = false; btn.style.opacity = ''; btn.style.cursor = 'pointer'; }
+        if (label) label.textContent = origLabel;
+      }, 2500);
+      _v373AdminRefreshInFlight = false;
+      return;
+    }
+    const benefAdded = (benefResult && benefResult.ok) ? (benefResult.added + benefResult.removed) : 0;
+    const advAdded    = (advResult   && advResult.ok)   ? (advResult.added   + advResult.removed)   : 0;
     const total = benefAdded + advAdded;
+    const eitherErrored = [benefResult, advResult].some(r => r && !r.ok && (r.reason === 'error' || r.reason === 'no-watermark'));
+    // V5.9: small on-hover diagnostic — record counts + when this actually
+    // last succeeded, so a stale device is visible at a glance instead of
+    // requiring a console check to explain. V6 fix: only claim "Last synced"
+    // on a GENUINE success — the original version set this unconditionally,
+    // which would falsely claim a fresh sync time even when the check itself
+    // had just errored out.
+    if (btn && !eitherErrored) {
+      const nowStr = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+      btn.title = `Last synced ${nowStr} — ${RecordCache.benef.size.toLocaleString('en-IN')} beneficiaries, ${RecordCache.adv.size.toLocaleString('en-IN')} advocacy records cached locally`;
+    }
     // V375 [Fix — Recent Updates staleness]: the boot fetched audit log via
     // .limitToLast(50).once() — a one-shot. So events written by other users
     // (e.g. FC clicking an advocacy status pill in the field) NEVER reached
@@ -20710,12 +21162,17 @@ async function _v373AdminRefresh() {
     try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
     try { if (typeof renderCurrent === 'function') renderCurrent(); } catch(_){}
     if (icon) icon.style.animation = '';
+    // eitherErrored computed earlier (before the title-diagnostic block above).
     if (label) {
       label.textContent = total > 0
-        ? ('+' + total.toLocaleString('en-IN') + ' new')
-        : 'Up to date';
+        ? ('+' + total.toLocaleString('en-IN') + ' updated')   // V5.9: "updated" not "new" — this count is added+removed, and most real-world deltas here are in-place edits (scheme status/amount), not brand-new records
+        : eitherErrored ? 'Check failed — retry?'
+        : 'Checked — up to date';
     }
-    if (btn) { btn.style.background = '#D1FAE5'; btn.style.color = '#065F46'; btn.style.borderColor = '#A7F3D0'; }
+    if (btn) {
+      if (eitherErrored) { btn.style.background = '#FEE2E2'; btn.style.color = '#991B1B'; btn.style.borderColor = '#FCA5A5'; }
+      else { btn.style.background = '#D1FAE5'; btn.style.color = '#065F46'; btn.style.borderColor = '#A7F3D0'; }
+    }
     // Reset button after 2.5 sec
     setTimeout(function() {
       if (btn) {
