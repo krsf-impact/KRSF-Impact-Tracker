@@ -1,7 +1,109 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V6.1-LIVE
+  KRSF Beneficiary Impact Tracker  -  V6.5-LIVE
   ============================================================================
+  V6.5-LIVE (2026-07-23 — adversarial re-review of V6.4, no functional bugs
+  found, one stale comment fixed):
+
+    User asked for a critical pass on V6.4 before trusting it further. Went
+    through both statically (re-read every line of the new shared-renderer
+    code asking "what could still go wrong") and empirically:
+
+      - Confirmed the shared _renderCumulativeBarChart function is genuinely
+        safe for both units — checked bar-render guards, gridline tick
+        formatting, and the max-value calculation don't have any
+        div-by-zero or negative-height paths for either beneficiary counts
+        or rupee totals.
+      - Tested a case the V6.4 pass hadn't specifically covered: a
+        livelihood endline AND an advocacy benefit landing in the SAME
+        calendar month for different people. Confirmed via synthetic data
+        that _renderDashboardTrendBands correctly sums both into that one
+        month's figure (₹30K + ₹5K = ₹35K) rather than one silently
+        overwriting the other — the combined-impact bookkeeping (a single
+        impactByMonth object both sources write into) handles this
+        correctly by construction, but it's the kind of thing worth proving
+        rather than assuming.
+      - Tested the _cumulativeSummaryStats percentage-guard boundary
+        directly: a window starting at exactly ₹1,000 (the guard's floor)
+        correctly shows a percentage; ₹999 correctly suppresses it; ₹0
+        correctly shows the plain empty state with no crash. Exercised all
+        three explicitly rather than trusting the `>=` by inspection alone.
+      - Grepped for any other part of the app that might still reference
+        the OLD stacked-bar chart's removed markup (a Livelihood/Advocacy
+        legend, per-segment DOM hooks) in case some other feature quietly
+        depended on it. Nothing did — the only hit was a stale top-of-
+        section comment ("impact creation (split Livelihood/Advocacy)")
+        left over from before V6.4, now corrected to describe what the
+        chart actually does.
+
+    No functional bugs found — V6.4's logic held up under a genuinely
+    adversarial pass, not just a repeat of the same checks. Verified on
+    staging with real Firebase writes were unnecessary here (this is a
+    pure read/render path over already-loaded data) — synthetic-data
+    function calls plus a real-staging-data sanity pass were sufficient
+    and match how V6.4 itself was verified. Zero Firebase cost, unchanged
+    from V6.4.
+
+  ----------------------------------------------------------------------------
+  V6.4-LIVE (2026-07-23 — dashboard charts unified: one shared renderer, one
+  colour, Impact chart collapsed to a single total):
+
+    Built on V6.1 (V6.2 — same redesign idea, but keeping the Livelihood/
+    Advocacy split and two different colours — was rejected same day it
+    shipped: "Did not like. Just going back to V6.1."). This time the spec
+    was explicit and different in a real way, not just a colour re-pick:
+    drop the Livelihood/Advocacy split entirely, make both cards use the
+    SAME single blue, and make the two charts genuinely share one
+    implementation instead of two independently-styled ones.
+
+    _renderDashboardTrendBands() rebuilt around two new shared helpers:
+      - _renderCumulativeBarChart(months, cumVals, deltaVals, fmt, unitLabel)
+        — one SVG builder, used by BOTH cards. Single colour Blue 500
+        #3B82F6 for every bar on both charts (previously Chart 1 was navy,
+        Chart 2 was green/purple two-tone). Bar-top labels, gridlines, month
+        axis, and the small "+N this month" labels below the axis are now
+        pixel-identical in structure between the two charts — real visual
+        parity, not just "styled to look similar."
+      - _cumulativeSummaryStats(cumArr, minBaselineForPct) — the "N total ·
+        +N in last 12 mo (+X%)" header line, shared by both cards. REAL BUG
+        this closes: chart 1's original code only suppressed the %
+        calculation below a count of 5 (avoiding "+199900%" from a tiny
+        starting base) — fine for a beneficiary COUNT, which is very
+        unlikely to be exactly 0 at the start of a 12-month window once the
+        programme has any real history. But chart 2's ₹ total legitimately
+        starts most 12-month windows at ₹0 (before the first endline or
+        benefit lands) — reusing the same bare pattern unguarded would have
+        divided by zero and shown "+Infinity%" or "+NaN%" the first time
+        this chart had real early-window data. Fixed with a rupee-scale
+        floor (₹1,000) instead of the count-scale floor (5), same shared
+        function, same principle, correct per unit.
+
+    Chart 2 ("Impact Created — Month on Month") no longer tracks Livelihood
+    and Advocacy as separate values internally at all — endline income-added
+    and scheme benefits received are summed into ONE per-month figure before
+    accumulating, per explicit instruction ("I dont want livelihood +
+    advocacy. thing"). The two-colour stacked bar, the in-band percentage
+    labels, and the Livelihood/Advocacy legend swatches are gone — replaced
+    with the same plain single-series cumulative bar chart 1 already used.
+
+    VERIFIED: grepped the whole file for every variable/helper the old
+    stacked-bar code used (totalLiv, totalAdv, maxImpact, livVals, advVals)
+    to confirm nothing outside the rewritten function still referenced them
+    — zero hits, no dangling code. Hand-verified the cumulative math and the
+    new percentage-guard against synthetic data built to specifically
+    exercise a ₹0-starting-window case (the exact scenario that would have
+    triggered the div-by-zero bug) — correct output, no NaN/Infinity, exact
+    match against a hand-worked expectation. Confirmed the empty-state path
+    renders cleanly for both cards with zero data (no crash, no orphaned
+    SVG). Verified against real staging data too — chart 1 renders correctly
+    with the new blue; chart 2 correctly shows its empty state, consistent
+    with the app's own separate, unrelated "Scheme Benefits"/"Total
+    Additional Income" KPI tiles also showing empty on this same snapshot
+    (real data state, not a regression — cross-checked before concluding
+    anything, same diligence as the V6.2 pass). Zero Firebase cost — pure
+    rendering change over already-cached local data.
+
+  ----------------------------------------------------------------------------
   V6.1-LIVE (2026-07-22 — second adversarial re-review of V5.8/V5.9/V6):
 
     User asked for a SECOND critical pass, this time also covering V6's own
@@ -6515,7 +6617,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V6.1-LIVE';
+const APP_VERSION = 'V6.5-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -19599,9 +19701,10 @@ function _filterByNgoFromRow(rowEl) {
 }
 
 // ── Dashboard: Month-on-month trends + Top 5 NGOs ──────────────────────────
-// Added v20.12 per PM request: show cumulative beneficiary growth, monthly
-// impact creation (split Livelihood/Advocacy), and top NGO partners by total
-// impact. All three respect the current dashboard filters (state/NGO/program).
+// Added v20.12 per PM request: show cumulative beneficiary growth, cumulative
+// total impact created (V6.4: combined Livelihood+Advocacy, no split — see
+// _renderDashboardTrendBands), and top NGO partners by total impact. All
+// three respect the current dashboard filters (state/NGO/program).
 
 // Build an array of the last N months as {key: '2025-11', label: 'Nov '25'}
 // Used to anchor both trend charts to the same axis.
@@ -19633,16 +19736,91 @@ function _monthKey(dateStr) {
   return null;
 }
 
+// V6.4: shared renderer for a single-colour cumulative bar chart — used by
+// BOTH dashboard trend cards, so the two genuinely share one design and one
+// logic instead of two independently-maintained SVG builders. `cumVals` is
+// the running total per month (bars only grow — never resets, never dips).
+// `deltaVals` is that month's OWN new activity (independent per-month count,
+// not derived by differencing cumVals — see the caller for why: it avoids
+// needing a "month before the window" value for the first bar). `fmt`
+// formats a number for axis ticks and bar-top labels; `unitLabel` only
+// appears in the hover tooltip text.
+function _renderCumulativeBarChart(months, cumVals, deltaVals, fmt, unitLabel) {
+  const BAR_COLOR = '#3B82F6';   // Blue 500 — same colour, both charts (V6.4)
+  const LABEL_COLOR = '#1E3A8A'; // Blue 800 — dark enough for on-white bar-top labels
+  const W = 540, H = 200, PAD_L = 40, PAD_R = 30, PAD_T = 18, PAD_B = 38;
+  const chartW = W - PAD_L - PAD_R;
+  const chartH = H - PAD_T - PAD_B;
+  const n = months.length;
+  const slotW = chartW / n;
+  const barW = Math.max(14, slotW * 0.72);
+  const maxVal = Math.max(1, ...cumVals);
+
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block" preserveAspectRatio="none">
+    <!-- gridlines -->
+    ${[0,0.25,0.5,0.75,1].map(f => {
+      const y = PAD_T + chartH - f * chartH;
+      const v = maxVal * f;
+      return `<line x1="${PAD_L}" y1="${y}" x2="${W-PAD_R}" y2="${y}" stroke="#E5E7EB" stroke-width="1"/>
+              <text x="${PAD_L-6}" y="${y+4}" text-anchor="end" font-size="9" fill="#9CA3AF" font-family="ui-sans-serif,system-ui">${v>0?fmt(v):'0'}</text>`;
+    }).join('')}
+    <!-- cumulative bars, rounded top corners -->
+    ${cumVals.map((v, i) => {
+      if (v <= 0) return '';
+      const xCenter = PAD_L + slotW * i + slotW/2;
+      const x = xCenter - barW/2;
+      const h = (v / maxVal) * chartH;
+      const topY = PAD_T + chartH - h;
+      const bottomY = PAD_T + chartH;
+      const r = 2;
+      const path = `M${x.toFixed(1)},${bottomY.toFixed(1)} L${x.toFixed(1)},${(topY+r).toFixed(1)} Q${x.toFixed(1)},${topY.toFixed(1)} ${(x+r).toFixed(1)},${topY.toFixed(1)} L${(x+barW-r).toFixed(1)},${topY.toFixed(1)} Q${(x+barW).toFixed(1)},${topY.toFixed(1)} ${(x+barW).toFixed(1)},${(topY+r).toFixed(1)} L${(x+barW).toFixed(1)},${bottomY.toFixed(1)} Z`;
+      return `<path d="${path}" fill="${BAR_COLOR}"><title>${months[i].label}: ${fmt(v)} ${unitLabel}</title></path>
+              <text x="${xCenter.toFixed(1)}" y="${(topY-4).toFixed(1)}" text-anchor="middle" font-size="9" font-weight="600" fill="${LABEL_COLOR}" font-family="ui-sans-serif,system-ui">${fmt(v)}</text>`;
+    }).join('')}
+    <!-- x-axis month labels -->
+    ${months.map((m, i) => {
+      const x = PAD_L + slotW * i + slotW/2;
+      if (n >= 10 && i % 2 !== 0 && i !== n - 1) return '';
+      return `<text x="${x.toFixed(1)}" y="${H-PAD_B+14}" text-anchor="middle" font-size="9" fill="#6B7280" font-family="ui-sans-serif,system-ui">${m.label}</text>`;
+    }).join('')}
+    <!-- monthly additions (new this month), same blue as the bars -->
+    ${deltaVals.map((v, i) => {
+      if (!v) return '';
+      const x = PAD_L + slotW * i + slotW/2;
+      return `<text x="${x.toFixed(1)}" y="${H-PAD_B+26}" text-anchor="middle" font-size="9" fill="${BAR_COLOR}" font-weight="600" font-family="ui-sans-serif,system-ui">+${fmt(v)}</text>`;
+    }).join('')}
+  </svg>`;
+}
+
+// V6.4: shared header-summary maths for a cumulative array — "N total · +N
+// in last 12 mo (+X%)". `minBaselineForPct` suppresses the percentage when
+// the starting value is too small/zero for a % to be meaningful — without
+// this, a series that starts the window at 0 (very plausible for a ₹ impact
+// total in its early months, before any endline/benefit has landed yet)
+// would divide by zero and show "+Infinity%" or "+NaN%". Beneficiary counts
+// use 5 (an absolute-count floor); impact ₹ uses 1000 (a rupee floor) —
+// different units, same principle, called from one place so both charts
+// apply it identically instead of two independently-maintained thresholds.
+function _cumulativeSummaryStats(cumArr, minBaselineForPct) {
+  const last = cumArr[cumArr.length-1] || 0;
+  const first = cumArr[0] || 0;
+  const delta = last - first;
+  const pct = first >= minBaselineForPct ? Math.round((delta/first)*100) : null;
+  return { last, first, delta, pct };
+}
+
 // Render both month-on-month charts as a side-by-side grid.
 // Takes the currently-filtered list of beneficiaries and the flattened
 // advocacy rows (latest per scheme, from _advLatestRowsAll).
 function _renderDashboardTrendBands(list, advLatest) {
   const months = _monthsWindow(12);
   const bidSet = new Set(list.map(b => b.id));
+  const fmtInt = v => String(Math.round(v));
+  const fmtRs = v => v >= 100000 ? '₹' + (v/100000).toFixed(v>=1000000?0:1) + 'L' : '₹' + Math.round(v/1000) + 'K';
 
-  // ── Chart 1: Cumulative beneficiaries by enrollDate ──
+  // ── Chart 1: cumulative beneficiaries by enrollDate ──
   // A beneficiary "exists" from the month they were enrolled onwards, so the
-  // cumulative line should be monotonically non-decreasing. We count how many
+  // cumulative line is monotonically non-decreasing — we count how many
   // beneficiaries had enrollDate ≀ end-of-month for each month in the window.
   const cumCounts = months.map(m => {
     const cutoff = m.key; // 'YYYY-MM' string comparison works for this purpose
@@ -19651,26 +19829,22 @@ function _renderDashboardTrendBands(list, advLatest) {
       return k && k <= cutoff;
     }).length;
   });
-  const newPerMonth = months.map(m => {
-    return list.filter(b => _monthKey(b.enrollDate) === m.key).length;
-  });
-  const maxCum = Math.max(1, ...cumCounts);
+  const newPerMonth = months.map(m => list.filter(b => _monthKey(b.enrollDate) === m.key).length);
 
-  // ── Chart 2: Impact created per month ──
-  // Livelihood: attribute to endlineDate month (the moment impact was measured).
-  //   Per-record impact = endIncome - baseIncome (can be negative; we show absolute)
-  // Advocacy: attribute to createdAt month of the advocacy record row where
-  //   benefitRecd === 'Yes'. Uses __updatedAt if present (from _advLatestRowsAll).
-  const livByMonth = {};
-  const advByMonth = {};
-  months.forEach(m => { livByMonth[m.key] = 0; advByMonth[m.key] = 0; });
-
+  // ── Chart 2 (V6.4): cumulative TOTAL impact — livelihood income-added and
+  // advocacy scheme benefits combined into ONE number per month, no
+  // Livelihood/Advocacy split shown (per explicit request — the split made
+  // the two chart cards look and behave differently; this makes them
+  // genuinely the same chart with different data). Same running-total
+  // technique as chart 1, so this chart also only grows, never dips.
+  const impactByMonth = {};
+  months.forEach(m => { impactByMonth[m.key] = 0; });
   list.forEach(b => {
     if (b.endIncome != null && b.baseIncome != null) {
       const k = _monthKey(b.endlineDate);
-      if (k && livByMonth[k] != null) {
+      if (k && impactByMonth[k] != null) {
         const d = b.endIncome - b.baseIncome;
-        if (d > 0) livByMonth[k] += d; // only count positive deltas toward impact
+        if (d > 0) impactByMonth[k] += d; // only count positive deltas toward impact
       }
     }
   });
@@ -19682,152 +19856,26 @@ function _renderDashboardTrendBands(list, advLatest) {
     // double underscore — it's the aggregator's field, distinct from the
     // raw scheme row which has no timestamp of its own).
     const k = _monthKey(r.__createdAt);
-    if (k && advByMonth[k] != null) advByMonth[k] += (r.benefitAmt || 0);
+    if (k && impactByMonth[k] != null) impactByMonth[k] += (r.benefitAmt || 0);
   });
+  // impactNewPerMonth is computed independently per-month (like newPerMonth
+  // above), THEN accumulated — not derived by differencing the cumulative
+  // array, which would need an undefined "month before the window" value
+  // for the very first bar.
+  const impactNewPerMonth = months.map(m => impactByMonth[m.key]);
+  let impactRunning = 0;
+  const impactCum = impactNewPerMonth.map(v => (impactRunning += v));
 
-  const livVals = months.map(m => livByMonth[m.key]);
-  const advVals = months.map(m => advByMonth[m.key]);
-  const maxImpact = Math.max(1, ...livVals.map((v,i)=>v+advVals[i]));
+  const cumSvg = _renderCumulativeBarChart(months, cumCounts, newPerMonth, fmtInt, 'beneficiaries');
+  const impactSvg = _renderCumulativeBarChart(months, impactCum, impactNewPerMonth, fmtRs, 'impact');
 
-  // SVG chart dimensions — fixed viewBox so it scales responsively.
-  // PAD_R is generous (30) because the rightmost datapoint's number label
-  // is rendered above the point; a cramped right edge would clip a 3-digit
-  // count like "102".
-  const W = 540, H = 200, PAD_L = 40, PAD_R = 30, PAD_T = 18, PAD_B = 38;
-  const chartW = W - PAD_L - PAD_R;
-  const chartH = H - PAD_T - PAD_B;
-  const n = months.length;
-  const slotW = chartW / n;
-  const barW = Math.max(14, slotW * 0.72);
-
-  // ── SVG 1: cumulative beneficiaries as BAR CHART ──
-  // Each bar represents total beneficiaries as of end-of-that-month (cumulative).
-  // Using the same bar-chart pattern as the impact chart so the two charts
-  // read as a matching pair.
-  const cumSvg = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block" preserveAspectRatio="none">
-    <!-- gridlines -->
-    ${[0,0.25,0.5,0.75,1].map(f => {
-      const y = PAD_T + chartH - f * chartH;
-      const v = Math.round(maxCum * f);
-      return `<line x1="${PAD_L}" y1="${y}" x2="${W-PAD_R}" y2="${y}" stroke="#E5E7EB" stroke-width="1"/>
-              <text x="${PAD_L-6}" y="${y+4}" text-anchor="end" font-size="9" fill="#9CA3AF" font-family="ui-sans-serif,system-ui">${v}</text>`;
-    }).join('')}
-    <!-- cumulative bars, rounded top corners -->
-    ${cumCounts.map((v, i) => {
-      if (v === 0) return '';
-      const xCenter = PAD_L + slotW * i + slotW/2;
-      const x = xCenter - barW/2;
-      const h = (v / maxCum) * chartH;
-      const topY = PAD_T + chartH - h;
-      const bottomY = PAD_T + chartH;
-      const r = 2;
-      const path = `M${x.toFixed(1)},${bottomY.toFixed(1)} L${x.toFixed(1)},${(topY+r).toFixed(1)} Q${x.toFixed(1)},${topY.toFixed(1)} ${(x+r).toFixed(1)},${topY.toFixed(1)} L${(x+barW-r).toFixed(1)},${topY.toFixed(1)} Q${(x+barW).toFixed(1)},${topY.toFixed(1)} ${(x+barW).toFixed(1)},${(topY+r).toFixed(1)} L${(x+barW).toFixed(1)},${bottomY.toFixed(1)} Z`;
-      return `<path d="${path}" fill="var(--navy2)"><title>${months[i].label}: ${v} beneficiaries</title></path>
-              <text x="${xCenter.toFixed(1)}" y="${(topY-4).toFixed(1)}" text-anchor="middle" font-size="9" font-weight="600" fill="#1F3864" font-family="ui-sans-serif,system-ui">${v}</text>`;
-    }).join('')}
-    <!-- x-axis month labels -->
-    ${months.map((m, i) => {
-      const x = PAD_L + slotW * i + slotW/2;
-      if (n >= 10 && i % 2 !== 0 && i !== n - 1) return '';
-      return `<text x="${x.toFixed(1)}" y="${H-PAD_B+14}" text-anchor="middle" font-size="9" fill="#6B7280" font-family="ui-sans-serif,system-ui">${m.label}</text>`;
-    }).join('')}
-    <!-- monthly additions (new this month) — small green labels below axis -->
-    ${newPerMonth.map((v, i) => {
-      if (!v) return '';
-      const x = PAD_L + slotW * i + slotW/2;
-      return `<text x="${x.toFixed(1)}" y="${H-PAD_B+26}" text-anchor="middle" font-size="9" fill="#10B981" font-weight="600" font-family="ui-sans-serif,system-ui">+${v}</text>`;
-    }).join('')}
-  </svg>`;
-
-  // ── SVG 2: stacked bars of impact per month (livelihood + advocacy) ──
-  const fmtRs = v => v >= 100000 ? '₹' + (v/100000).toFixed(v>=1000000?0:1) + 'L' : '₹' + Math.round(v/1000) + 'K';
-  const impactSvg = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block" preserveAspectRatio="none">
-    ${[0,0.25,0.5,0.75,1].map(f => {
-      const y = PAD_T + chartH - f * chartH;
-      const v = maxImpact * f;
-      return `<line x1="${PAD_L}" y1="${y}" x2="${W-PAD_R}" y2="${y}" stroke="#E5E7EB" stroke-width="1"/>
-              <text x="${PAD_L-6}" y="${y+4}" text-anchor="end" font-size="9" fill="#9CA3AF" font-family="ui-sans-serif,system-ui">${v>0?fmtRs(v):'0'}</text>`;
-    }).join('')}
-    ${months.map((m, i) => {
-      const liv = livVals[i];
-      const adv = advVals[i];
-      const xCenter = PAD_L + slotW * i + slotW/2;
-      const x = xCenter - barW/2;
-      const livH = (liv / maxImpact) * chartH;
-      const advH = (adv / maxImpact) * chartH;
-      const livY = PAD_T + chartH - livH;
-      const advY = livY - advH;
-      const total = liv + adv;
-      // Render a single continuous stacked bar: green (Livelihood) at the
-      // bottom with straight edges; purple (Advocacy) stacked on top of
-      // green with ONLY its top corners rounded. This makes the two colors
-      // read as one bar with two zones — not two separate bars touching.
-      // The rounding uses an SVG path rather than `rx` (which rounds all
-      // four corners) so the bottom edge of purple stays flush against
-      // green's top edge.
-      const r = 2; // corner radius
-      let parts = '';
-      if (liv > 0) {
-        // Green rect — if no advocacy above it, top corners rounded too;
-        // otherwise plain rectangle (top edge flush with purple's bottom).
-        if (adv > 0) {
-          parts += `<rect x="${x.toFixed(1)}" y="${livY.toFixed(1)}" width="${barW.toFixed(1)}" height="${livH.toFixed(1)}" fill="#10B981"><title>Livelihood ${m.label}: ${fmtRs(liv)}</title></rect>`;
-        } else {
-          // Only green — round top corners via path
-          const topY = livY;
-          const bottomY = livY + livH;
-          parts += `<path d="M${x.toFixed(1)},${bottomY.toFixed(1)} L${x.toFixed(1)},${(topY+r).toFixed(1)} Q${x.toFixed(1)},${topY.toFixed(1)} ${(x+r).toFixed(1)},${topY.toFixed(1)} L${(x+barW-r).toFixed(1)},${topY.toFixed(1)} Q${(x+barW).toFixed(1)},${topY.toFixed(1)} ${(x+barW).toFixed(1)},${(topY+r).toFixed(1)} L${(x+barW).toFixed(1)},${bottomY.toFixed(1)} Z" fill="#10B981"><title>Livelihood ${m.label}: ${fmtRs(liv)}</title></path>`;
-        }
-      }
-      if (adv > 0) {
-        // Purple sits on top — always round its top corners
-        const topY = advY;
-        const bottomY = advY + advH;
-        parts += `<path d="M${x.toFixed(1)},${bottomY.toFixed(1)} L${x.toFixed(1)},${(topY+r).toFixed(1)} Q${x.toFixed(1)},${topY.toFixed(1)} ${(x+r).toFixed(1)},${topY.toFixed(1)} L${(x+barW-r).toFixed(1)},${topY.toFixed(1)} Q${(x+barW).toFixed(1)},${topY.toFixed(1)} ${(x+barW).toFixed(1)},${(topY+r).toFixed(1)} L${(x+barW).toFixed(1)},${bottomY.toFixed(1)} Z" fill="#7C3AED"><title>Advocacy ${m.label}: ${fmtRs(adv)}</title></path>`;
-      }
-      // Percentage labels centered inside each colour band — only rendered
-      // when the band is ≥14px tall, else the text would overflow or touch
-      // the band edges. White fill contrasts well against both #10B981 and
-      // #7C3AED.
-      const MIN_LABEL_H = 14;
-      if (liv > 0 && total > 0 && livH >= MIN_LABEL_H) {
-        const livPct = Math.round((liv / total) * 100);
-        const livMidY = livY + livH/2;
-        parts += `<text x="${xCenter.toFixed(1)}" y="${(livMidY+3).toFixed(1)}" text-anchor="middle" font-size="9" font-weight="700" fill="#FFFFFF" font-family="ui-sans-serif,system-ui" pointer-events="none">${livPct}%</text>`;
-      }
-      if (adv > 0 && total > 0 && advH >= MIN_LABEL_H) {
-        const advPct = Math.round((adv / total) * 100);
-        const advMidY = advY + advH/2;
-        parts += `<text x="${xCenter.toFixed(1)}" y="${(advMidY+3).toFixed(1)}" text-anchor="middle" font-size="9" font-weight="700" fill="#FFFFFF" font-family="ui-sans-serif,system-ui" pointer-events="none">${advPct}%</text>`;
-      }
-      // Total label above the bar
-      if (total > 0) {
-        const topOfBar = adv > 0 ? advY : livY;
-        parts += `<text x="${xCenter.toFixed(1)}" y="${(topOfBar-4).toFixed(1)}" text-anchor="middle" font-size="8" font-weight="600" fill="#374151" font-family="ui-sans-serif,system-ui">${fmtRs(total)}</text>`;
-      }
-      return parts;
-    }).join('')}
-    ${months.map((m, i) => {
-      const x = PAD_L + slotW * i + slotW/2;
-      if (n >= 10 && i % 2 !== 0 && i !== n - 1) return '';
-      return `<text x="${x.toFixed(1)}" y="${H-PAD_B+14}" text-anchor="middle" font-size="9" fill="#6B7280" font-family="ui-sans-serif,system-ui">${m.label}</text>`;
-    }).join('')}
-  </svg>`;
-
-  const totalLiv = livVals.reduce((s,v)=>s+v,0);
-  const totalAdv = advVals.reduce((s,v)=>s+v,0);
-  const currentBeneficiaries = cumCounts[cumCounts.length-1] || 0;
-  const firstMonthCount = cumCounts[0] || 0;
-  // Only show a percentage when the starting baseline is ≥5 — going from 1
-  // pilot beneficiary to 2000 produces a meaningless "+199900%" number.
-  // Under 5, we just show the absolute count in the header (dashboard audit: bug D).
-  const growthPct = firstMonthCount >= 5 ? Math.round(((currentBeneficiaries - firstMonthCount) / firstMonthCount) * 100) : null;
-  const newInWindow = currentBeneficiaries - firstMonthCount;
+  const benStats = _cumulativeSummaryStats(cumCounts, 5);
+  const impactStats = _cumulativeSummaryStats(impactCum, 1000);
 
   // Empty-state handling — if all data is flat zeros, show a helpful message
   // rather than an empty chart.
   const hasBenData = cumCounts.some(v => v > 0);
-  const hasImpactData = totalLiv > 0 || totalAdv > 0;
+  const hasImpactData = impactCum.some(v => v > 0);
 
   return `
     <div class="dash-kpi-grid">
@@ -19835,7 +19883,7 @@ function _renderDashboardTrendBands(list, advLatest) {
         <div class="card-head">
           <div class="card-title">Beneficiaries — Month on Month</div>
           <div style="font-size:11px;color:var(--gray2)">
-            ${hasBenData ? `<strong style="color:var(--navy)">${currentBeneficiaries}</strong> total · <span style="color:var(--green);font-weight:600">+${newInWindow}</span> in last 12 mo${growthPct!==null?` (${growthPct>=0?'+':''}${growthPct}%)`:''}` : 'No data'}
+            ${hasBenData ? `<strong style="color:var(--navy)">${benStats.last}</strong> total · <span style="color:#3B82F6;font-weight:600">+${benStats.delta}</span> in last 12 mo${benStats.pct!==null?` (${benStats.pct>=0?'+':''}${benStats.pct}%)`:''}` : 'No data'}
           </div>
         </div>
         <div style="padding:14px 16px">
@@ -19845,13 +19893,12 @@ function _renderDashboardTrendBands(list, advLatest) {
       <div class="card">
         <div class="card-head">
           <div class="card-title">Impact Created — Month on Month</div>
-          <div style="font-size:11px;color:var(--gray2);display:flex;align-items:center;gap:10px">
-            <span style="display:inline-flex;align-items:center;gap:4px"><span style="width:8px;height:8px;background:#10B981;border-radius:2px;display:inline-block"></span>Livelihood ${fmtRs(totalLiv)}</span>
-            <span style="display:inline-flex;align-items:center;gap:4px"><span style="width:8px;height:8px;background:#7C3AED;border-radius:2px;display:inline-block"></span>Advocacy ${fmtRs(totalAdv)}</span>
+          <div style="font-size:11px;color:var(--gray2)">
+            ${hasImpactData ? `<strong style="color:var(--navy)">${fmtRs(impactStats.last)}</strong> total · <span style="color:#3B82F6;font-weight:600">+${fmtRs(impactStats.delta)}</span> in last 12 mo${impactStats.pct!==null?` (${impactStats.pct>=0?'+':''}${impactStats.pct}%)`:''}` : 'No data'}
           </div>
         </div>
         <div style="padding:14px 16px">
-          ${hasImpactData ? impactSvg : '<div class="empty" style="padding:40px 0">No impact recorded in this window. Impact shows up when endline surveys are completed (Livelihood) or scheme benefits are received (Advocacy).</div>'}
+          ${hasImpactData ? impactSvg : '<div class="empty" style="padding:40px 0">No impact recorded in this window. Impact shows up when endline surveys are completed or scheme benefits are received.</div>'}
         </div>
       </div>
     </div>`;
