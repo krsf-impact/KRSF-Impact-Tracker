@@ -1,7 +1,48 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V6.6-LIVE
+  KRSF Beneficiary Impact Tracker  -  V6.7-LIVE
   ============================================================================
+  V6.7-LIVE (2026-07-23 — new admin tool: bulk-assign many beneficiaries to
+  one FC at once):
+
+    Built for the "500 beneficiaries bulk-imported by the system
+    administrator" case — those land with createdBy = the importing admin's
+    own userId and createdByName stamped "Bulk Import (...)" (see
+    confirmBulkImport()), so they're invisible to any real FC until someone
+    assigns them, and until now that meant opening each beneficiary's card
+    one at a time.
+
+    New "📥 Bulk Assign FC" button on User Management (next to the existing
+    "⇄ Transfer Beneficiaries" / "⇄ Move FC to NGO" tools): pick an NGO, the
+    tool defaults to showing only that NGO's still-unassigned bulk-imports
+    (createdByName starts with "Bulk Import ("), tick individual records or
+    Select-all-shown, pick a target FC, confirm. Unticking "only unassigned
+    bulk-imports" widens the pool to every beneficiary in that NGO, which
+    also makes this a general "assign a filtered/searched batch to one FC"
+    tool for any other bulk-reassignment need.
+
+    Same field semantics (createdBy / createdByName / coord kept in sync)
+    and the same guarded saveData() diff path as Transfer Beneficiaries and
+    saveReassign() — one whole-array save, not a raw per-field multi-path
+    update. Family members linked to an assigned head are cascaded
+    automatically (same as Transfer), generalized to a per-head captured
+    prior-owner guard so a family member already independently assigned to
+    a different real FC is never silently swept along — verified with a
+    real test case on staging (a family member owned by a different FC
+    than her head correctly stayed put while her head and siblings moved).
+    Every moved record gets its own audit entry plus one rollup entry.
+
+    TESTED on staging as real admin: basic multi-select assign, the family-
+    cascade (including the safety-guard case above), the "only unassigned"
+    filter correctly excluding already-FC-owned records, re-opening the
+    tool afterward correctly showing an empty pool for already-assigned
+    records, search + select-all-shown, the zero-selection and role
+    guards, and a full 500-record scale run (matching the real use case)
+    — pool render, select-all, and the actual assign all completed in
+    well under a second each. One real bug found and fixed before
+    shipping: the cascaded family-member audit entries recorded an empty
+    string instead of their actual prior coordinator name.
+
   V6.6-LIVE (2026-07-23 — real service-worker bug fixed: "network-first"
   wasn't actually bypassing the browser's own HTTP cache):
 
@@ -6420,6 +6461,49 @@ body[data-shell="coord"] #coord-app { display: block; }
   </div>
 </div>
 
+<!-- V6.7: Bulk-assign many beneficiaries to one FC — admin only. Built for the
+     "500 beneficiaries bulk-imported by the system administrator" case: those
+     records land with createdBy = the importing admin and createdByName
+     stamped "Bulk Import (...)" (see confirmBulkImport()), not a real FC, so
+     they're invisible to any coordinator until assigned. This tool finds them
+     (or any beneficiary in an NGO, if "only unassigned" is unticked) and
+     assigns a batch to a real FC in one save, instead of opening each
+     beneficiary's card one at a time. Same guarded saveData() diff path and
+     createdBy/createdByName/coord field semantics as Transfer Beneficiaries
+     above and saveReassign(). -->
+<div id="bulkassign-modal" class="overlay" style="display:none;align-items:center;justify-content:center">
+  <div class="modal" style="max-width:640px;width:94%;max-height:88vh;display:flex;flex-direction:column">
+    <div class="modal-head"><div class="modal-title">📥 Bulk Assign Beneficiaries to FC</div><button class="modal-close" onclick="closeBulkAssignTool()">✕</button></div>
+    <div class="modal-body" style="overflow-y:auto;flex:1">
+      <div id="bulkassign-err" style="display:none;background:#FEE2E2;color:#991B1B;padding:8px 11px;border-radius:6px;font-size:12px;margin-bottom:12px"></div>
+      <div class="fg" style="margin-bottom:10px"><label>NGO</label>
+        <select id="bulkassign-ngo" onchange="_bulkAssignNgoChanged()" style="width:100%"></select>
+      </div>
+      <div id="bulkassign-body" style="display:none">
+        <label style="cursor:pointer;display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:10px">
+          <input type="checkbox" id="bulkassign-onlyimported" checked onchange="_bulkAssignOnlyImportedChanged()">
+          Only unassigned bulk-imports <span style="font-weight:400;color:var(--gray2)">(imported by admin — not yet owned by a real FC)</span>
+        </label>
+        <div class="fg" style="margin-bottom:8px"><label>Matching beneficiaries <span id="bulkassign-pool-count" style="font-weight:400;color:var(--gray2)"></span></label>
+          <input id="bulkassign-search" oninput="_bulkAssignRenderList()" placeholder="Search name / ID / village…" style="width:100%">
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:12px">
+          <label style="cursor:pointer;display:flex;align-items:center;gap:6px"><input type="checkbox" id="bulkassign-all" onchange="_bulkAssignToggleAll(this)"> Select all shown</label>
+          <span id="bulkassign-count" style="font-weight:600;color:var(--navy)">0 selected</span>
+        </div>
+        <div id="bulkassign-list" style="max-height:280px;overflow-y:auto;border:1px solid var(--gray3);border-radius:7px;margin-bottom:12px"></div>
+        <div class="fg" style="margin-bottom:6px"><label>Assign to — target Field Coordinator</label>
+          <select id="bulkassign-dst" style="width:100%"></select>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">
+        <button class="btn btn-sm" onclick="closeBulkAssignTool()">Cancel</button>
+        <button class="btn btn-primary btn-sm" id="bulkassign-apply-btn" onclick="applyBulkAssign()">Assign selected</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- V5.2: Move FC + all their beneficiaries (+ advocacy) to another NGO -->
 <div id="movefc-modal" class="overlay" style="display:none;align-items:center;justify-content:center">
   <div class="modal" style="max-width:460px;width:92%">
@@ -6665,7 +6749,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V6.6-LIVE';
+const APP_VERSION = 'V6.7-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -23056,6 +23140,7 @@ function renderAdminUsers() {
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-sm" onclick="openTransferTool()" title="Move selected beneficiaries from one FC to another (same NGO)">⇄ Transfer Beneficiaries</button>
           <button class="btn btn-sm" onclick="openMoveFcTool()" title="Move an FC + all their beneficiaries + advocacy records to a different NGO">⇄ Move FC to NGO</button>
+          <button class="btn btn-sm" onclick="openBulkAssignTool()" title="Assign many beneficiaries (e.g. freshly bulk-imported, still-unassigned) to a Field Coordinator at once">📥 Bulk Assign FC</button>
           <button class="btn btn-primary btn-sm" onclick="adminNewUser()">+ Add User</button>
         </div>
       </div>
@@ -25955,6 +26040,185 @@ async function applyTransfer() {
     showErr((e instanceof SaveError) ? e.message : 'Transfer failed — nothing was changed. ' + (e && e.message || ''));
   } finally {
     _transferInFlight = false;
+    btn.disabled = false; btn.textContent = oldLabel;
+  }
+}
+
+// V6.7: Bulk-assign many beneficiaries to one FC. Admin only. Built for the
+// "500 beneficiaries bulk-imported by the system administrator" case — those
+// land with createdBy = the importing admin's own userId and createdByName
+// stamped "Bulk Import (...)" (see confirmBulkImport()), so by default the
+// pool here is exactly those still-unassigned records for the chosen NGO.
+// Unticking "only unassigned bulk-imports" widens the pool to every
+// beneficiary in that NGO, which also makes this a general "assign a
+// filtered/searched batch to one FC" tool (Transfer Beneficiaries above stays
+// the right tool for a plain FC1→FC2 handover). Same field semantics
+// (createdBy / createdByName / coord) and the same guarded saveData() diff
+// path as Transfer/saveReassign.
+let _bulkAssignSel = new Set();
+let _bulkAssignPool = [];            // NGO-scoped candidate beneficiaries (raw refs, read-only)
+let _bulkAssignShown = [];           // ids currently rendered (search-filtered)
+function openBulkAssignTool() {
+  const u = currentUser();
+  if (!u || u.role !== 'admin') return toast('Only Admin can bulk-assign beneficiaries.', 'error');
+  const coords = loadUsers().filter(x => x.role === 'coordinator');
+  const ngos = Array.from(new Set(coords.map(c => c.ngo).filter(Boolean))).sort();
+  document.getElementById('bulkassign-ngo').innerHTML = `<option value="">— Select NGO —</option>` +
+    ngos.map(n => `<option value="${escHtml(n)}">${escHtml(n)}</option>`).join('');
+  document.getElementById('bulkassign-onlyimported').checked = true;
+  document.getElementById('bulkassign-body').style.display = 'none';
+  document.getElementById('bulkassign-err').style.display = 'none';
+  document.getElementById('bulkassign-search').value = '';
+  _bulkAssignSel = new Set(); _bulkAssignPool = []; _bulkAssignShown = [];
+  document.getElementById('bulkassign-modal').style.display = 'flex';
+}
+function closeBulkAssignTool() {
+  document.getElementById('bulkassign-modal').style.display = 'none';
+}
+function _bulkAssignNgoChanged() {
+  const ngo = document.getElementById('bulkassign-ngo').value;
+  _bulkAssignSel = new Set();
+  document.getElementById('bulkassign-err').style.display = 'none';
+  if (!ngo) { document.getElementById('bulkassign-body').style.display = 'none'; return; }
+  const targets = loadUsers().filter(x => x.role === 'coordinator' && x.ngo === ngo)
+    .sort((a, b) => (a.fullName || a.username).localeCompare(b.fullName || b.username));
+  document.getElementById('bulkassign-dst').innerHTML = targets.length
+    ? `<option value="">— Select target FC —</option>` + targets.map(c => `<option value="${escHtml(c.id)}">${escHtml(c.fullName || c.username)}</option>`).join('')
+    : '<option value="">No coordinators in ' + escHtml(ngo) + '</option>';
+  document.getElementById('bulkassign-dst').disabled = targets.length === 0;
+  document.getElementById('bulkassign-search').value = '';
+  document.getElementById('bulkassign-body').style.display = '';
+  _bulkAssignRebuildPool();
+}
+function _bulkAssignOnlyImportedChanged() {
+  _bulkAssignSel = new Set();
+  _bulkAssignRebuildPool();
+}
+function _bulkAssignRebuildPool() {
+  const ngo = document.getElementById('bulkassign-ngo').value;
+  const onlyImported = document.getElementById('bulkassign-onlyimported').checked;
+  // Read-only pool via the no-clone reader — no full clone per interaction.
+  const all = (typeof _loadDataRaw === 'function') ? _loadDataRaw() : loadData();
+  _bulkAssignPool = all.filter(b => b && b.ngo === ngo &&
+    (!onlyImported || (b.createdByName && b.createdByName.indexOf('Bulk Import (') === 0)));
+  document.getElementById('bulkassign-pool-count').textContent = '— ' + _bulkAssignPool.length + ' record' + (_bulkAssignPool.length === 1 ? '' : 's');
+  _bulkAssignRenderList();
+}
+function _bulkAssignRenderList() {
+  const q = (document.getElementById('bulkassign-search').value || '').toLowerCase().trim();
+  const match = q
+    ? _bulkAssignPool.filter(b => ((b.name || '') + ' ' + (b.id || '') + ' ' + (b.village || '')).toLowerCase().includes(q))
+    : _bulkAssignPool;
+  const CAP = 1000; // raised from Transfer's 400 — this tool is built for ~500-record import batches
+  _bulkAssignShown = match.slice(0, CAP).map(b => b.id);
+  const rows = match.slice(0, CAP).map(b => `
+    <label style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--gray4);cursor:pointer;font-size:12.5px">
+      <input type="checkbox" ${_bulkAssignSel.has(b.id) ? 'checked' : ''} onchange="_bulkAssignToggle('${escHtml(b.id)}', this)">
+      <span style="font-weight:600;color:var(--navy);white-space:nowrap">${escHtml(b.id)}</span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(b.name || '—')}</span>
+      <span style="color:var(--gray2);white-space:nowrap">${escHtml(b.village || '')}</span>
+      <span style="color:var(--amber);font-size:11px;white-space:nowrap" title="Current coordinator on record">${escHtml(b.createdByName || b.coord || '—')}</span>
+    </label>`).join('');
+  document.getElementById('bulkassign-list').innerHTML = rows ||
+    '<div style="padding:20px;text-align:center;color:var(--gray2);font-size:12px">No beneficiaries match.</div>';
+  if (match.length > CAP) {
+    document.getElementById('bulkassign-list').innerHTML += '<div style="padding:8px;text-align:center;color:var(--gray2);font-size:11px">Showing first ' + CAP + ' of ' + match.length + ' — refine the search, or use Select-all-shown in batches.</div>';
+  }
+  document.getElementById('bulkassign-all').checked = _bulkAssignShown.length > 0 && _bulkAssignShown.every(id => _bulkAssignSel.has(id));
+  _bulkAssignUpdateCount();
+}
+function _bulkAssignToggle(bid, cb) {
+  if (cb.checked) _bulkAssignSel.add(bid); else _bulkAssignSel.delete(bid);
+  _bulkAssignUpdateCount();
+}
+function _bulkAssignToggleAll(cb) {
+  _bulkAssignShown.forEach(id => { if (cb.checked) _bulkAssignSel.add(id); else _bulkAssignSel.delete(id); });
+  _bulkAssignRenderList();
+}
+function _bulkAssignUpdateCount() {
+  document.getElementById('bulkassign-count').textContent = _bulkAssignSel.size + ' selected';
+}
+let _bulkAssignInFlight = false;
+async function applyBulkAssign() {
+  if (_bulkAssignInFlight) return;
+  const err = document.getElementById('bulkassign-err');
+  const showErr = m => { err.textContent = m; err.style.display = 'block'; };
+  const u = currentUser();
+  if (!u || u.role !== 'admin') return showErr('Only Admin can bulk-assign beneficiaries.');
+  const ngo = document.getElementById('bulkassign-ngo').value;
+  const dstId = document.getElementById('bulkassign-dst').value;
+  if (!ngo) return showErr('Select an NGO.');
+  if (!dstId) return showErr('Select the target FC.');
+  if (_bulkAssignSel.size === 0) return showErr('Select at least one beneficiary.');
+  const dst = loadUsers().find(x => x.id === dstId);
+  if (!dst) return showErr('Coordinator not found.');
+  if (dst.ngo !== ngo) return showErr('Target FC must belong to the selected NGO.');
+  const dstName = dst.fullName || dst.username;
+  const ok = await showConfirmModal(
+    'Assign ' + _bulkAssignSel.size + ' beneficiar' + (_bulkAssignSel.size === 1 ? 'y' : 'ies') + ' to ' + dstName + ' (' + ngo + ')?\n\n' +
+    dstName + ' will see these records on their next sync. Every record gets an audit entry. This does not delete anything.',
+    { danger: true, okLabel: 'Assign ' + _bulkAssignSel.size, title: 'Confirm bulk assign' });
+  if (!ok) return;
+  _bulkAssignInFlight = true;
+  const btn = document.getElementById('bulkassign-apply-btn');
+  const oldLabel = btn.textContent; btn.disabled = true; btn.textContent = 'Assigning…';
+  try {
+    // Same pattern as saveReassign/applyTransfer: mutate the loaded array, one guarded save.
+    const data = loadData();
+    const oldOwnerById = new Map();   // per-record prior owner, for the family-cascade guard below
+    const moved = [];
+    for (const b of data) {
+      if (!b || !_bulkAssignSel.has(b.id)) continue;
+      oldOwnerById.set(b.id, b.createdBy);
+      b.createdBy = dst.id;
+      b.createdByName = dstName;
+      b.coord = dstName;                          // keep display field in sync (same as saveReassign)
+      if (dst.ngo && dst.ngo !== b.ngo) b.ngo = dst.ngo;   // correct a mistagged NGO if it drifted since the pool was built
+      moved.push({ id: b.id, name: b.name });
+    }
+    if (moved.length === 0) { showErr('Nothing to assign — records may have changed. Reopen the tool.'); return; }
+    // Bring along family members linked to an assigned head who weren't
+    // individually checked — generalizes Transfer's single-srcId guard to a
+    // per-head captured prior owner, so we only cascade a family member who
+    // was still with the SAME (pseudo-)owner her head had, never one already
+    // independently assigned to a different real FC.
+    const movedIds = new Set(moved.map(m => m.id));
+    const familyMoved = [];
+    for (const b of data) {
+      if (!b || !b.headId || movedIds.has(b.id) || !movedIds.has(b.headId)) continue;
+      if (b.createdBy !== oldOwnerById.get(b.headId)) continue; // wasn't with the same owner as her head — leave alone
+      const oldName = b.createdByName;
+      b.createdBy = dst.id;
+      b.createdByName = dstName;
+      b.coord = dstName;
+      if (dst.ngo && dst.ngo !== b.ngo) b.ngo = dst.ngo;
+      familyMoved.push({ id: b.id, name: b.name, oldName });
+    }
+    await saveData(data);
+    for (const m of moved) {
+      auditLog('reassign', 'beneficiary', m.id, m.name,
+        `Bulk assign: → ${dstName} (${ngo})`,
+        { createdBy: [oldOwnerById.get(m.id), dst.id] });
+    }
+    if (familyMoved.length > 0) {
+      for (const m of familyMoved) {
+        auditLog('reassign', 'beneficiary', m.id, m.name,
+          `Bulk assign (cascaded from linked head): → ${dstName} (${ngo})`,
+          { createdByName: [m.oldName || '', dstName] });
+      }
+    }
+    auditLog('reassign', 'bulk', dst.id, dstName,
+      `Bulk assign of ${moved.length} beneficiaries${familyMoved.length ? ` + ${familyMoved.length} cascaded family member${familyMoved.length===1?'':'s'}` : ''} to ${dstName} (${ngo})`,
+      { count: moved.length + familyMoved.length });
+    toast('✓ Assigned ' + moved.length + ' beneficiar' + (moved.length === 1 ? 'y' : 'ies') +
+      (familyMoved.length ? ` + ${familyMoved.length} linked family member${familyMoved.length===1?'':'s'}` : '') +
+      ' to ' + dstName, 'success');
+    closeBulkAssignTool();
+    try { if (typeof renderCurrent === 'function') renderCurrent(); } catch (_) {}
+  } catch (e) {
+    showErr((e instanceof SaveError) ? e.message : 'Bulk assign failed — nothing was changed. ' + (e && e.message || ''));
+  } finally {
+    _bulkAssignInFlight = false;
     btn.disabled = false; btn.textContent = oldLabel;
   }
 }
