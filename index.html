@@ -1,7 +1,55 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V6.5-LIVE
+  KRSF Beneficiary Impact Tracker  -  V6.6-LIVE
   ============================================================================
+  V6.6-LIVE (2026-07-23 — real service-worker bug fixed: "network-first"
+  wasn't actually bypassing the browser's own HTTP cache):
+
+    ⚠ THIS RELEASE REQUIRES UPLOADING sw.js TOO, NOT JUST index.html — the
+    fix lives in the service worker, not this file. Uploading only
+    index.html leaves the bug in place.
+
+    Real incident, not a hypothetical: after correctly pushing V6.5 to
+    GitHub Pages, reloading the live site within ~10 minutes of a previous
+    visit kept showing V6.1. Confirmed via a completely fresh, uncached curl
+    request that the SERVER genuinely had V6.5 — the deploy had worked. The
+    culprit was sw.js's own Cache Storage, still holding an old cached copy
+    from a stale-tagged bucket ("krsf-app-krsf-v399-1").
+
+    Root cause, once traced into sw.js: `networkFirstHTML()` — the function
+    whose entire documented purpose is "so a device can NEVER get stuck on
+    an old version" — called `fetch(req)` directly on the original
+    navigation Request. That Request is subject to the BROWSER's own normal
+    HTTP cache rules, and GitHub Pages serves index.html with
+    `Cache-Control: max-age=600`. So for up to 10 minutes after any previous
+    visit, "network-first" wasn't actually reaching the network at all — the
+    browser's disk cache silently satisfied the fetch with the stale
+    response, and the SW had no way to tell the difference from a genuine
+    fresh fetch. It then dutifully re-cached that stale response, extending
+    the problem. The `install` handler already avoided this exact trap
+    (`fetch(new Request(u, { cache: 'reload' }))`, with a comment explaining
+    why) — the runtime fetch path just never got the same treatment.
+
+    FIX: `networkFirstHTML()` now builds `new Request(req.url, { cache:
+    'reload' })` before fetching — the same explicit browser-cache bypass
+    the install handler already used, applied consistently everywhere the
+    SW fetches the HTML shell. CACHE_VERSION bumped to krsf-v400-1 so the
+    stale bucket gets pruned on activate.
+
+    VERIFIED with a controlled reproduction, not just reasoning about it:
+    built a minimal test harness (a tiny page + a local server that
+    explicitly sends `Cache-Control: max-age=600`, matching GitHub Pages'
+    real header) on a fresh, uncontaminated origin. Loaded "VERSION_1",
+    changed the served file to "VERSION_2" without restarting the server
+    (same Cache-Control window), reloaded the identical URL — with the OLD
+    sw.js code, confirmed it incorrectly kept showing VERSION_1, cleanly
+    reproducing the exact live incident on demand. Swapped in the FIXED
+    sw.js, repeated the same steps (VERSION_A → VERSION_B, same URL, same
+    Cache-Control window, no cache-clearing) — confirmed VERSION_B shows
+    correctly on the very next reload, and confirmed again on a third reload
+    for good measure. No console errors introduced.
+
+  ----------------------------------------------------------------------------
   V6.5-LIVE (2026-07-23 — adversarial re-review of V6.4, no functional bugs
   found, one stale comment fixed):
 
@@ -6617,7 +6665,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V6.5-LIVE';
+const APP_VERSION = 'V6.6-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are

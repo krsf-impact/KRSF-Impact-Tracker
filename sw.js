@@ -1,5 +1,5 @@
 // KRSF Beneficiary Impact Tracker — Service Worker
-// V399 — Always-fresh app shell (fixes the "stuck on an old version" problem).
+// V400 — Always-fresh app shell (fixes the "stuck on an old version" problem).
 //
 // Strategy:
 //   - HTML app shell: NETWORK-FIRST. When online, always fetch the latest
@@ -12,10 +12,19 @@
 //   - Firebase API calls: NEVER cache (always live data).
 //   - Everything else: network-first, fall back to cache.
 //
+// V400: the "network-first" HTML fetch was silently vulnerable to the
+// BROWSER's own HTTP cache — GitHub Pages sets Cache-Control: max-age=600,
+// and a plain fetch(req) can be satisfied entirely from the browser's disk
+// cache within that window, never touching the network at all despite this
+// function's whole purpose. Real incident: pushing a new version and
+// reloading within 10 minutes of the previous visit kept showing the OLD
+// version. Fixed in networkFirstHTML() by forcing { cache: 'reload' } on
+// the runtime fetch, same explicit bypass the install handler already used.
+//
 // Bump CACHE_VERSION whenever you change this file. activate prunes old caches;
 // the page auto-reloads onto the new worker (skipWaiting + clients.claim).
 
-const CACHE_VERSION = 'krsf-v399-1';
+const CACHE_VERSION = 'krsf-v400-1';
 const APP_CACHE = 'krsf-app-' + CACHE_VERSION;
 const NETWORK_TIMEOUT_MS = 3000;
 
@@ -78,6 +87,21 @@ self.addEventListener('activate', function(event) {
 //   - offline : returns the cached copy.
 //   - slow net: after NETWORK_TIMEOUT_MS, serves cached so app start stays fast;
 //               the network copy still updates the cache for next time.
+//
+// V400 fix: this used to call fetch(req) directly — passing the original
+// navigation Request straight through. That Request carries the BROWSER's
+// normal HTTP cache semantics, and GitHub Pages serves index.html with
+// `Cache-Control: max-age=600`. So "network-first" was only network-first in
+// name: within 10 minutes of a previous visit to the same URL, the browser's
+// own disk cache could transparently satisfy fetch(req) with a STALE
+// response, and this code had no way to tell the difference — it just saw
+// something that looked like a successful fetch and cached it right back.
+// Confirmed live: pushing V6.5 and reloading within that 10-minute window
+// kept showing V6.1 despite this function's entire reason for existing.
+// Fixed by building a fresh Request with { cache: 'reload' }, the same
+// explicit bypass the install handler already correctly uses below — this
+// forces an actual round-trip to the server every time, not just whenever
+// the browser's HTTP cache happens to have expired.
 function networkFirstHTML(req) {
   return caches.open(APP_CACHE).then(function(cache) {
     return new Promise(function(resolve) {
@@ -87,7 +111,7 @@ function networkFirstHTML(req) {
       var timer = setTimeout(function() {
         cache.match('./index.html').then(function(cached) { if (cached) finish(cached); });
       }, NETWORK_TIMEOUT_MS);
-      fetch(req).then(function(resp) {
+      fetch(new Request(req.url, { cache: 'reload' })).then(function(resp) {
         clearTimeout(timer);
         if (resp && resp.ok) {
           // Keep the offline copy current for next time.
