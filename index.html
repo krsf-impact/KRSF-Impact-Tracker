@@ -1,79 +1,7 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V6.2-LIVE
+  KRSF Beneficiary Impact Tracker  -  V6.1-LIVE
   ============================================================================
-  V6.2-LIVE (2026-07-23 — dashboard chart redesign: cumulative Impact chart,
-  metric-toggle radio, new colours):
-
-    Real dashboard-usability request, worked through with an interactive
-    colour-picker mockup before any code changed. Three changes, all in
-    _renderDashboardTrendBands():
-
-    1. "Impact Created — Month on Month" was the odd one out — it showed
-       that month's activity alone, so a slow month for endline surveys or
-       scheme benefits made the bar visibly DROP versus its neighbours, even
-       though nothing regressed — new activity is just lumpy month to month.
-       "Beneficiaries — Month on Month" never had this problem because it
-       was already a running total (a beneficiary, once enrolled, stays
-       counted forever). Impact chart now uses the same technique: each
-       month's bar is livVals[i] = running sum of positive endline deltas
-       through that month, advVals[i] = running sum of received scheme
-       benefits through that month. Bars now only grow, matching chart 1.
-       REAL BUG caught building this: `totalLiv`/`totalAdv` (used in the
-       card-header legend and the "hasImpactData" empty-state check) used to
-       `.reduce()` the whole per-month array — correct when each entry was
-       that month's own activity, but wrong now that the array is already a
-       running total; summing a cumulative curve would have double-counted
-       every earlier month many times over. Fixed to just read the LAST
-       month's value (the running total already IS the grand total).
-
-    2. The "122,363 total · +122,363 in last 12 mo" text on the Beneficiaries
-       chart is now a two-option radio toggle: "Enrolled beneficiaries"
-       (unchanged — everyone ever enrolled, cumulative) vs "Benefits
-       received + endline completed" (new — cumulative count of
-       beneficiaries who've reached a REAL outcome: an advocacy scheme with
-       benefitRecd='Yes', OR a completed livelihood endline, whichever
-       happened first for that person — an OR of two milestones, not a sum,
-       so nobody gets counted twice for doing both). New module-level
-       `_dashC1Metric` follows the exact same set-a-variable-then-
-       renderCurrent() lifecycle every other dashboard filter already uses
-       (stateFilter/ngoFilter/fcFilter/progFilter) — no new partial-render
-       path, no new state-management pattern.
-
-    3. Colours, picked interactively via a mockup artifact with clickable
-       swatches (not guessed from hex codes) before touching real code:
-       Beneficiaries chart bars → Blue 500 #3B82F6 (was navy). Impact chart
-       → Livelihood Green 800 #166534, Advocacy Green 500 #22C55E (was a
-       brighter green/purple pair). Both segments being shades of the same
-       green was flagged explicitly as a legibility trade-off (two shades of
-       one hue read as less distinct than two different hues) — user chose
-       it anyway, informed, with "if I don't like it I'll revert to V6.1."
-
-    Also added a "+₹X this month" delta label under the Impact chart's axis,
-    mirroring the "+N" label the Beneficiaries chart already had — same
-    treatment now applies to both, matching the "keep design consistent
-    across both charts" ask.
-
-    VERIFIED on staging: confirmed via the app's own "Scheme Benefits" /
-    "Total Additional Income" KPI tiles (unrelated, pre-existing code) that
-    this staging snapshot genuinely has zero qualifying ₹ records right now
-    — so the Impact chart correctly showing empty is real data, not a
-    regression, before concluding anything. Verified the cumulative-growth
-    and the achieved-metric's OR/earliest-date logic against hand-built
-    synthetic data by calling _renderDashboardTrendBands() directly and
-    checking every monthly value against a hand worked-out expectation —
-    both monotonically non-decreasing, both numerically exact. Separately
-    confirmed against REAL staging data: toggling to "Benefits received +
-    endline completed" showed a real, sensible, monotonic 31 → 2,026 → 3,002
-    growth curve — reconciled against the advocacy benefit-amount policy
-    (FCs don't enter benefit amounts, so a real nonzero count of "received"
-    people can coexist with a genuinely ₹0 impact total — not a
-    contradiction). Confirmed the radio toggle's checked state survives a
-    real full renderCurrent() re-render cycle, same as every other filter.
-    Zero Firebase cost — everything here operates on already-cached local
-    data via the existing renderCurrent() pattern.
-
-  ----------------------------------------------------------------------------
   V6.1-LIVE (2026-07-22 — second adversarial re-review of V5.8/V5.9/V6):
 
     User asked for a SECOND critical pass, this time also covering V6's own
@@ -6587,7 +6515,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V6.2-LIVE';
+const APP_VERSION = 'V6.1-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -19705,13 +19633,6 @@ function _monthKey(dateStr) {
   return null;
 }
 
-// V6.2: which metric the "Beneficiaries — Month on Month" chart shows —
-// 'enrolled' (everyone ever enrolled, cumulative) or 'achieved' (everyone
-// who has reached a real outcome — an advocacy benefit or a livelihood
-// endline, cumulative). Same lifecycle as stateFilter/ngoFilter/etc: set,
-// then renderCurrent() re-renders the whole dashboard.
-let _dashC1Metric = 'enrolled';
-
 // Render both month-on-month charts as a side-by-side grid.
 // Takes the currently-filtered list of beneficiaries and the flattened
 // advocacy rows (latest per scheme, from _advLatestRowsAll).
@@ -19733,54 +19654,13 @@ function _renderDashboardTrendBands(list, advLatest) {
   const newPerMonth = months.map(m => {
     return list.filter(b => _monthKey(b.enrollDate) === m.key).length;
   });
+  const maxCum = Math.max(1, ...cumCounts);
 
-  // ── Chart 1, alternate metric (V6.2): cumulative "achieved" count — a
-  // beneficiary counts once they've EITHER completed a livelihood endline
-  // OR received at least one advocacy scheme benefit (an OR, not a sum of
-  // two counts — this is "how many people have reached a real outcome",
-  // not "how many outcomes happened"). Per beneficiary, achievedDate is the
-  // EARLIEST of the two qualifying dates, so someone who did both counts
-  // from whichever happened first. Bucketed the same way as cumCounts above
-  // so both metrics share one chart's logic.
-  const advBenefitDateByBid = {};
-  advLatest.forEach(r => {
-    if (!bidSet.has(r.__bid)) return;
-    if (r.benefitRecd !== 'Yes') return;
-    const k = _monthKey(r.__createdAt);
-    if (!k) return;
-    if (!advBenefitDateByBid[r.__bid] || k < advBenefitDateByBid[r.__bid]) {
-      advBenefitDateByBid[r.__bid] = k;
-    }
-  });
-  const achievedDateByBid = {};
-  list.forEach(b => {
-    let d = null;
-    if (b.endIncome != null && b.baseIncome != null) {
-      const k = _monthKey(b.endlineDate);
-      if (k) d = k;
-    }
-    const advK = advBenefitDateByBid[b.id];
-    if (advK && (!d || advK < d)) d = advK;
-    if (d) achievedDateByBid[b.id] = d;
-  });
-  const achievedCum = months.map(m => {
-    const cutoff = m.key;
-    let n = 0;
-    for (const bid in achievedDateByBid) { if (achievedDateByBid[bid] <= cutoff) n++; }
-    return n;
-  });
-  const achievedNewPerMonth = months.map((m, i) => achievedCum[i] - (i > 0 ? achievedCum[i-1] : 0));
-
-  const c1Data = _dashC1Metric === 'achieved'
-    ? { cum: achievedCum, perMonth: achievedNewPerMonth, label: 'beneficiaries with a real outcome' }
-    : { cum: cumCounts,   perMonth: newPerMonth,         label: 'beneficiaries' };
-  const maxCum = Math.max(1, ...c1Data.cum);
-
-  // ── Chart 2: Impact created — CUMULATIVE to date (V6.2), same logic as
-  // chart 1. Livelihood attributes to endlineDate month, Advocacy to the
-  // qualifying scheme row's createdAt month — both as before — but each
-  // month's value is now a running total, not that month's activity alone,
-  // so the bars only grow, matching chart 1.
+  // ── Chart 2: Impact created per month ──
+  // Livelihood: attribute to endlineDate month (the moment impact was measured).
+  //   Per-record impact = endIncome - baseIncome (can be negative; we show absolute)
+  // Advocacy: attribute to createdAt month of the advocacy record row where
+  //   benefitRecd === 'Yes'. Uses __updatedAt if present (from _advLatestRowsAll).
   const livByMonth = {};
   const advByMonth = {};
   months.forEach(m => { livByMonth[m.key] = 0; advByMonth[m.key] = 0; });
@@ -19805,14 +19685,9 @@ function _renderDashboardTrendBands(list, advLatest) {
     if (k && advByMonth[k] != null) advByMonth[k] += (r.benefitAmt || 0);
   });
 
-  const livNewPerMonth = months.map(m => livByMonth[m.key]);
-  const advNewPerMonth = months.map(m => advByMonth[m.key]);
-  // Running sum — this is what actually renders as bar height now.
-  let livRunning = 0, advRunning = 0;
-  const livVals = livNewPerMonth.map(v => (livRunning += v));
-  const advVals = advNewPerMonth.map(v => (advRunning += v));
-  const impactNewPerMonth = months.map((m, i) => livNewPerMonth[i] + advNewPerMonth[i]);
-  const maxImpact = Math.max(1, livVals[livVals.length-1] + advVals[advVals.length-1]);
+  const livVals = months.map(m => livByMonth[m.key]);
+  const advVals = months.map(m => advByMonth[m.key]);
+  const maxImpact = Math.max(1, ...livVals.map((v,i)=>v+advVals[i]));
 
   // SVG chart dimensions — fixed viewBox so it scales responsively.
   // PAD_R is generous (30) because the rightmost datapoint's number label
@@ -19838,7 +19713,7 @@ function _renderDashboardTrendBands(list, advLatest) {
               <text x="${PAD_L-6}" y="${y+4}" text-anchor="end" font-size="9" fill="#9CA3AF" font-family="ui-sans-serif,system-ui">${v}</text>`;
     }).join('')}
     <!-- cumulative bars, rounded top corners -->
-    ${c1Data.cum.map((v, i) => {
+    ${cumCounts.map((v, i) => {
       if (v === 0) return '';
       const xCenter = PAD_L + slotW * i + slotW/2;
       const x = xCenter - barW/2;
@@ -19847,8 +19722,8 @@ function _renderDashboardTrendBands(list, advLatest) {
       const bottomY = PAD_T + chartH;
       const r = 2;
       const path = `M${x.toFixed(1)},${bottomY.toFixed(1)} L${x.toFixed(1)},${(topY+r).toFixed(1)} Q${x.toFixed(1)},${topY.toFixed(1)} ${(x+r).toFixed(1)},${topY.toFixed(1)} L${(x+barW-r).toFixed(1)},${topY.toFixed(1)} Q${(x+barW).toFixed(1)},${topY.toFixed(1)} ${(x+barW).toFixed(1)},${(topY+r).toFixed(1)} L${(x+barW).toFixed(1)},${bottomY.toFixed(1)} Z`;
-      return `<path d="${path}" fill="#3B82F6"><title>${months[i].label}: ${v} ${c1Data.label}</title></path>
-              <text x="${xCenter.toFixed(1)}" y="${(topY-4).toFixed(1)}" text-anchor="middle" font-size="9" font-weight="600" fill="#1E3A8A" font-family="ui-sans-serif,system-ui">${v}</text>`;
+      return `<path d="${path}" fill="var(--navy2)"><title>${months[i].label}: ${v} beneficiaries</title></path>
+              <text x="${xCenter.toFixed(1)}" y="${(topY-4).toFixed(1)}" text-anchor="middle" font-size="9" font-weight="600" fill="#1F3864" font-family="ui-sans-serif,system-ui">${v}</text>`;
     }).join('')}
     <!-- x-axis month labels -->
     ${months.map((m, i) => {
@@ -19856,11 +19731,11 @@ function _renderDashboardTrendBands(list, advLatest) {
       if (n >= 10 && i % 2 !== 0 && i !== n - 1) return '';
       return `<text x="${x.toFixed(1)}" y="${H-PAD_B+14}" text-anchor="middle" font-size="9" fill="#6B7280" font-family="ui-sans-serif,system-ui">${m.label}</text>`;
     }).join('')}
-    <!-- monthly additions (new this month) — small blue labels below axis -->
-    ${c1Data.perMonth.map((v, i) => {
+    <!-- monthly additions (new this month) — small green labels below axis -->
+    ${newPerMonth.map((v, i) => {
       if (!v) return '';
       const x = PAD_L + slotW * i + slotW/2;
-      return `<text x="${x.toFixed(1)}" y="${H-PAD_B+26}" text-anchor="middle" font-size="9" fill="#3B82F6" font-weight="600" font-family="ui-sans-serif,system-ui">+${v}</text>`;
+      return `<text x="${x.toFixed(1)}" y="${H-PAD_B+26}" text-anchor="middle" font-size="9" fill="#10B981" font-weight="600" font-family="ui-sans-serif,system-ui">+${v}</text>`;
     }).join('')}
   </svg>`;
 
@@ -19894,26 +19769,26 @@ function _renderDashboardTrendBands(list, advLatest) {
       let parts = '';
       if (liv > 0) {
         // Green rect — if no advocacy above it, top corners rounded too;
-        // otherwise plain rectangle (top edge flush with the segment above).
+        // otherwise plain rectangle (top edge flush with purple's bottom).
         if (adv > 0) {
-          parts += `<rect x="${x.toFixed(1)}" y="${livY.toFixed(1)}" width="${barW.toFixed(1)}" height="${livH.toFixed(1)}" fill="#166534"><title>Livelihood ${m.label}: ${fmtRs(liv)}</title></rect>`;
+          parts += `<rect x="${x.toFixed(1)}" y="${livY.toFixed(1)}" width="${barW.toFixed(1)}" height="${livH.toFixed(1)}" fill="#10B981"><title>Livelihood ${m.label}: ${fmtRs(liv)}</title></rect>`;
         } else {
-          // Only this segment — round top corners via path
+          // Only green — round top corners via path
           const topY = livY;
           const bottomY = livY + livH;
-          parts += `<path d="M${x.toFixed(1)},${bottomY.toFixed(1)} L${x.toFixed(1)},${(topY+r).toFixed(1)} Q${x.toFixed(1)},${topY.toFixed(1)} ${(x+r).toFixed(1)},${topY.toFixed(1)} L${(x+barW-r).toFixed(1)},${topY.toFixed(1)} Q${(x+barW).toFixed(1)},${topY.toFixed(1)} ${(x+barW).toFixed(1)},${(topY+r).toFixed(1)} L${(x+barW).toFixed(1)},${bottomY.toFixed(1)} Z" fill="#166534"><title>Livelihood ${m.label}: ${fmtRs(liv)}</title></path>`;
+          parts += `<path d="M${x.toFixed(1)},${bottomY.toFixed(1)} L${x.toFixed(1)},${(topY+r).toFixed(1)} Q${x.toFixed(1)},${topY.toFixed(1)} ${(x+r).toFixed(1)},${topY.toFixed(1)} L${(x+barW-r).toFixed(1)},${topY.toFixed(1)} Q${(x+barW).toFixed(1)},${topY.toFixed(1)} ${(x+barW).toFixed(1)},${(topY+r).toFixed(1)} L${(x+barW).toFixed(1)},${bottomY.toFixed(1)} Z" fill="#10B981"><title>Livelihood ${m.label}: ${fmtRs(liv)}</title></path>`;
         }
       }
       if (adv > 0) {
-        // Sits on top — always round its top corners
+        // Purple sits on top — always round its top corners
         const topY = advY;
         const bottomY = advY + advH;
-        parts += `<path d="M${x.toFixed(1)},${bottomY.toFixed(1)} L${x.toFixed(1)},${(topY+r).toFixed(1)} Q${x.toFixed(1)},${topY.toFixed(1)} ${(x+r).toFixed(1)},${topY.toFixed(1)} L${(x+barW-r).toFixed(1)},${topY.toFixed(1)} Q${(x+barW).toFixed(1)},${topY.toFixed(1)} ${(x+barW).toFixed(1)},${(topY+r).toFixed(1)} L${(x+barW).toFixed(1)},${bottomY.toFixed(1)} Z" fill="#22C55E"><title>Advocacy ${m.label}: ${fmtRs(adv)}</title></path>`;
+        parts += `<path d="M${x.toFixed(1)},${bottomY.toFixed(1)} L${x.toFixed(1)},${(topY+r).toFixed(1)} Q${x.toFixed(1)},${topY.toFixed(1)} ${(x+r).toFixed(1)},${topY.toFixed(1)} L${(x+barW-r).toFixed(1)},${topY.toFixed(1)} Q${(x+barW).toFixed(1)},${topY.toFixed(1)} ${(x+barW).toFixed(1)},${(topY+r).toFixed(1)} L${(x+barW).toFixed(1)},${bottomY.toFixed(1)} Z" fill="#7C3AED"><title>Advocacy ${m.label}: ${fmtRs(adv)}</title></path>`;
       }
       // Percentage labels centered inside each colour band — only rendered
       // when the band is ≥14px tall, else the text would overflow or touch
-      // the band edges. White fill contrasts well against both #166534 and
-      // #22C55E.
+      // the band edges. White fill contrasts well against both #10B981 and
+      // #7C3AED.
       const MIN_LABEL_H = 14;
       if (liv > 0 && total > 0 && livH >= MIN_LABEL_H) {
         const livPct = Math.round((liv / total) * 100);
@@ -19937,21 +19812,12 @@ function _renderDashboardTrendBands(list, advLatest) {
       if (n >= 10 && i % 2 !== 0 && i !== n - 1) return '';
       return `<text x="${x.toFixed(1)}" y="${H-PAD_B+14}" text-anchor="middle" font-size="9" fill="#6B7280" font-family="ui-sans-serif,system-ui">${m.label}</text>`;
     }).join('')}
-    <!-- monthly additions (impact created this month, livelihood + advocacy combined) — small green labels below axis, same treatment as chart 1 -->
-    ${impactNewPerMonth.map((v, i) => {
-      if (!v) return '';
-      const x = PAD_L + slotW * i + slotW/2;
-      return `<text x="${x.toFixed(1)}" y="${H-PAD_B+26}" text-anchor="middle" font-size="9" fill="#166534" font-weight="600" font-family="ui-sans-serif,system-ui">+${fmtRs(v)}</text>`;
-    }).join('')}
   </svg>`;
 
-  // V6.2: livVals/advVals are now cumulative running sums, so the true
-  // grand total is simply the LAST month's value — summing the whole curve
-  // (the old `.reduce` here) would have double-counted every earlier month.
-  const totalLiv = livVals[livVals.length-1] || 0;
-  const totalAdv = advVals[advVals.length-1] || 0;
-  const currentBeneficiaries = c1Data.cum[c1Data.cum.length-1] || 0;
-  const firstMonthCount = c1Data.cum[0] || 0;
+  const totalLiv = livVals.reduce((s,v)=>s+v,0);
+  const totalAdv = advVals.reduce((s,v)=>s+v,0);
+  const currentBeneficiaries = cumCounts[cumCounts.length-1] || 0;
+  const firstMonthCount = cumCounts[0] || 0;
   // Only show a percentage when the starting baseline is ≥5 — going from 1
   // pilot beneficiary to 2000 produces a meaningless "+199900%" number.
   // Under 5, we just show the absolute count in the header (dashboard audit: bug D).
@@ -19960,33 +19826,19 @@ function _renderDashboardTrendBands(list, advLatest) {
 
   // Empty-state handling — if all data is flat zeros, show a helpful message
   // rather than an empty chart.
-  const hasBenData = c1Data.cum.some(v => v > 0);
+  const hasBenData = cumCounts.some(v => v > 0);
   const hasImpactData = totalLiv > 0 || totalAdv > 0;
-
-  // V6.2: radio toggle replaces the old static summary text. Selecting a
-  // metric sets the module-level _dashC1Metric and re-renders the whole
-  // dashboard, same pattern as every other filter on this page
-  // (stateFilter/ngoFilter/fcFilter/progFilter) — no separate partial-render
-  // path to maintain.
-  const metricRadio = (val, text) => `<label style="display:flex;align-items:center;gap:5px;font-size:11px;color:${_dashC1Metric===val?'var(--navy)':'var(--gray2)'};font-weight:${_dashC1Metric===val?'600':'400'};cursor:pointer;user-select:none">
-    <input type="radio" name="dash-c1-metric" value="${val}" ${_dashC1Metric===val?'checked':''} onchange="_dashC1Metric='${val}';renderCurrent()" style="accent-color:#3B82F6;width:13px;height:13px;margin:0">
-    ${text}
-  </label>`;
 
   return `
     <div class="dash-kpi-grid">
       <div class="card">
         <div class="card-head">
           <div class="card-title">Beneficiaries — Month on Month</div>
+          <div style="font-size:11px;color:var(--gray2)">
+            ${hasBenData ? `<strong style="color:var(--navy)">${currentBeneficiaries}</strong> total · <span style="color:var(--green);font-weight:600">+${newInWindow}</span> in last 12 mo${growthPct!==null?` (${growthPct>=0?'+':''}${growthPct}%)`:''}` : 'No data'}
+          </div>
         </div>
-        <div style="padding:10px 16px 0;display:flex;gap:14px;flex-wrap:wrap">
-          ${metricRadio('enrolled', 'Enrolled beneficiaries')}
-          ${metricRadio('achieved', 'Benefits received + endline completed')}
-        </div>
-        <div style="padding:4px 16px 0;font-size:11px;color:var(--gray2);min-height:16px">
-          ${hasBenData ? `<strong style="color:var(--navy)">${currentBeneficiaries}</strong> total · <span style="color:#3B82F6;font-weight:600">+${newInWindow}</span> in last 12 mo${growthPct!==null?` (${growthPct>=0?'+':''}${growthPct}%)`:''}` : 'No data'}
-        </div>
-        <div style="padding:10px 16px 14px">
+        <div style="padding:14px 16px">
           ${hasBenData ? cumSvg : '<div class="empty" style="padding:40px 0">No beneficiaries with enrollment dates in this window.</div>'}
         </div>
       </div>
@@ -19994,8 +19846,8 @@ function _renderDashboardTrendBands(list, advLatest) {
         <div class="card-head">
           <div class="card-title">Impact Created — Month on Month</div>
           <div style="font-size:11px;color:var(--gray2);display:flex;align-items:center;gap:10px">
-            <span style="display:inline-flex;align-items:center;gap:4px"><span style="width:8px;height:8px;background:#166534;border-radius:2px;display:inline-block"></span>Livelihood ${fmtRs(totalLiv)}</span>
-            <span style="display:inline-flex;align-items:center;gap:4px"><span style="width:8px;height:8px;background:#22C55E;border-radius:2px;display:inline-block"></span>Advocacy ${fmtRs(totalAdv)}</span>
+            <span style="display:inline-flex;align-items:center;gap:4px"><span style="width:8px;height:8px;background:#10B981;border-radius:2px;display:inline-block"></span>Livelihood ${fmtRs(totalLiv)}</span>
+            <span style="display:inline-flex;align-items:center;gap:4px"><span style="width:8px;height:8px;background:#7C3AED;border-radius:2px;display:inline-block"></span>Advocacy ${fmtRs(totalAdv)}</span>
           </div>
         </div>
         <div style="padding:14px 16px">
