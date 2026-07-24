@@ -1,7 +1,98 @@
 <!DOCTYPE html>
 <!--
-  KRSF Beneficiary Impact Tracker  -  V6.7-LIVE
+  KRSF Beneficiary Impact Tracker  -  V6.7.2-LIVE
   ============================================================================
+  V6.7.2-LIVE (2026-07-24 — Advocacy Management: Scheme Name Audit):
+
+    Found while investigating an inconsistent monetary-impact figure between
+    devices: getSchemeDefaultAmount() and the "Used by" usage count both do
+    an EXACT string match between a schemeRow's `scheme` field and the
+    current schemes list. Any scheme name that doesn't match exactly (an
+    old seed spelling, a Gujarati-script entry never normalised to its
+    Latin-transliterated canonical form, a typo) silently contributes ₹0 and
+    is invisible to the usage count — with no prior way to see how many
+    records were affected.
+
+    New "🔍 Audit Scheme Names" button in Admin → Advocacy Management, next
+    to Bulk Update Status. adminAuditSchemeNames() scans the full (unscoped,
+    admin-only) advocacy collection, read-only, and reports every scheme
+    name that doesn't match the current schemes list — row count, "Benefits
+    Received" count, and (only when unambiguous — a known historical alias
+    or a case/whitespace-only variant) an auto-suggested canonical match
+    with the ₹ value currently not being counted. Every row also gets a
+    manual picker (dropdown of the real schemes list) so the admin can
+    resolve ambiguous cases — e.g. Gujarati-script names — themselves;
+    auto-suggestions are never guessed for anything script/spelling-
+    ambiguous. A second section separately flags canonical schemes with
+    real "Benefits Received" usage but no default amount configured — a
+    related, non-legacy reason a monetary total can look wrong.
+
+    "Fix" cascades the chosen rename across every matching advocacy
+    schemeRow system-wide (admin's loadAdv() is the full unscoped
+    collection — see fbAdvHandleChild V314 note), via the same
+    changed-records-only write path as the existing V320 migration and the
+    V322 rename-cascade already in adminRenameScheme() — audit-logged,
+    confirmed before writing, then the audit re-runs automatically so the
+    list reflects the fix immediately.
+
+    TESTED on staging (krsf-impact-staging, 103,746 real advocacy records):
+    ran the real button through the real UI, confirmed the audit surfaces
+    real data-quality findings (676 distinct unmatched scheme names on this
+    dataset — many genuinely Gujarati-script duplicates of already-canonical
+    schemes). Caught and fixed a real bug in my own test setup along the
+    way — not a bug in this feature — while proving the fix cascade writes
+    to the correct Firebase key (__fbk, not id) and updates the existing
+    record in place with no duplicate created. All test fixtures removed
+    afterward, confirmed zero remaining.
+
+    NOTE: the 676-name count is from staging's much larger accumulated
+    test/seed dataset, not representative of production — run this same
+    audit on production once deployed to see the real, actionable number.
+
+  V6.7.1-LIVE (2026-07-24 — bounded auto-retry for Firebase connect
+  failures):
+
+    Reported: an admin on a different device, with a working internet
+    connection, was stuck on the "Cloud unavailable" sync pill showing
+    stale data. Traced the cause: any failure during boot — anonymous auth
+    rejected (e.g. a browser extension or network filter blocking Google's
+    auth endpoint specifically, not general browsing), or any of the
+    parallel boot-fetches throwing (including an RTDB permission-denied) —
+    set FB.initFailed permanently. The only recovery was a full manual page
+    reload, which most FCs/admins never think to do, so a transient blip
+    that had already passed could still strand a device indefinitely.
+
+    fbAttemptConnect() now wraps the connect sequence (fresh anonymous
+    sign-in + fbInitialSync) with a bounded retry: 3 attempts with backoff
+    (2s, 5s, 12s), then one more attempt when the browser's own 'online'
+    event fires after a failure (cooldown-gated to 30s so a flapping
+    connection can't retry-storm Firebase). Sign-in itself moved to
+    _fbSignInAnon() so a retry re-attempts it fresh instead of re-awaiting
+    the same already-rejected Promise, which can never change outcome.
+
+    Sync pill now shows "Reconnecting… (N/3)" during backoff, and a more
+    actionable message once retries are exhausted ("try switching
+    networks, disable browser extensions that block Google services, then
+    reload") instead of the old generic "please reload the page".
+
+    Cost/safety: bounded to the same read cost as one normal boot, repeated
+    at most 4 times on a genuine failure, then at most once per 30s while
+    the network is actively flapping — no steady-state Firebase increase.
+    Read-path only; no write/save logic touched, so no data-loss risk.
+
+    VERIFIED on staging (krsf-impact-staging) via fault injection (not just
+    code reading): (1) a transient 2-failure auth mock recovered on its own
+    via the backoff retries, pill correctly showed "Reconnecting… (1/3)"
+    then "(2/3)" then flipped to Synced; (2) a permanent-failure mock
+    confirmed exactly 4 total attempts at the correct 2s/5s/12s spacing,
+    then stopped retrying and showed the final actionable message — no
+    further attempts even after 25+ seconds more; (3) a genuine 'online'
+    event after exhaustion, with the failure lifted, triggered one bounded
+    recovery attempt that succeeded. Caught and fixed one real bug during
+    this testing: the pill briefly showed the wrong text because it read
+    the retry-timer state before the timer variable was assigned — fixed
+    by reordering so the timer is set before fbUpdatePill() runs.
+
   V6.7-LIVE (2026-07-23 — new admin tool: bulk-assign many beneficiaries to
   one FC at once):
 
@@ -6749,7 +6840,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V6.7-LIVE';
+const APP_VERSION = 'V6.7.2-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -7840,10 +7931,17 @@ function fbUpdatePill() {
   // be blocked by the replay gate (Bug 1 fix). Once both benef and adv
   // listeners signal replay-complete (or have no records to replay), the
   // pill flips to Synced.
-  if (FB.initFailed) {
+  if (_fbRetryTimer) {
+    // V6.7.1: mid-backoff, waiting to retry a failed connect attempt.
+    pill.classList.add('pending');
+    txt.textContent = `Reconnecting… (${_fbConnectAttempt}/${FB_RETRY_DELAYS_MS.length})`;
+    pill.title = 'Trying to reconnect to the cloud. Your existing data is safe — this only affects new updates.';
+  } else if (FB.initFailed) {
     pill.classList.add('error');
     txt.textContent = 'Cloud unavailable';
-    pill.title = 'Cloud sync failed to initialise. Saves will fail until reconnected — please reload the page.';
+    pill.title = (_fbConnectAttempt >= FB_RETRY_DELAYS_MS.length)
+      ? 'Could not connect after several tries. Check your internet connection, try switching networks (WiFi/mobile data), or disable browser extensions that block Google services — then reload the page.'
+      : 'Cloud sync failed to initialise. Retrying automatically…';
   } else if (!FB.online) {
     pill.classList.add('offline');
     txt.textContent = 'Offline';
@@ -7879,6 +7977,47 @@ function fbUpdatePill() {
   }
 }
 
+// V6.7.1 (2026-07-24): bounded auto-retry for Firebase connect failures.
+// Previously, ANY failure during boot (anonymous auth rejected, or any of
+// the parallel boot-fetches throwing — including an RTDB permission-denied)
+// set FB.initFailed permanently. The only recovery was a full manual page
+// reload, which most FCs/admins never think to do — so a transient blip
+// (a browser extension timing issue, a momentary Google API hiccup, a
+// flaky handshake) could strand a device on "Cloud unavailable"
+// indefinitely even once the underlying problem had already passed.
+// fbAttemptConnect() retries a few times with backoff, and once more when
+// the browser's own 'online' event fires after a failure. Bounded so a
+// genuinely broken device can't retry-storm Firebase: same read cost as
+// one normal boot, repeated at most 4 times total on boot, then at most
+// once per 30s while the network is actively flapping.
+const FB_RETRY_DELAYS_MS = [2000, 5000, 12000];
+const FB_ONLINE_RETRY_COOLDOWN_MS = 30000;
+let _fbConnectAttempt = 0;
+let _fbRetryTimer = null;
+let _fbLastAttemptAt = 0;
+
+// (Re)establish anonymous auth. Extracted out of fbInit() so a retry can
+// attempt a fresh sign-in instead of re-awaiting the same already-rejected
+// promise (a settled Promise can't be retried by awaiting it again).
+function _fbSignInAnon() {
+  if (!(typeof firebase !== 'undefined' && firebase.auth && FB.auth)) {
+    console.warn('[F1] firebase-auth-compat not loaded — locked DB rules will reject');
+    return Promise.reject(new Error('firebase-auth-compat not loaded'));
+  }
+  try {
+    return FB.auth.signInAnonymously()
+      .then(function(cred) {
+        FB.authUser = cred && cred.user;
+        console.log('[F1] anonymous auth ready, uid:', FB.authUser && FB.authUser.uid);
+        return cred;
+      })
+      .catch(function(e) { console.error('[F1] anonymous auth failed:', e); throw e; });
+  } catch (e) {
+    console.error('[F1] anonymous auth init failed:', e);
+    return Promise.reject(e);
+  }
+}
+
 // ── Initialise Firebase ──────────────────────────────────────────────────────
 function fbInit() {
   if (typeof firebase === 'undefined') {
@@ -7905,23 +8044,14 @@ function fbInit() {
     }
     FB.db  = firebase.database();
     // V347 (F1 + V345 bug fix): expose firebase.auth() on FB.auth.
+    // V6.7.1: the actual sign-in call moved to _fbSignInAnon(), invoked by
+    // fbAttemptConnect() below — this lets a retry re-attempt anonymous
+    // auth fresh instead of re-awaiting the same already-rejected promise
+    // (a settled Promise can't be retried by awaiting it again).
     try {
-      if (firebase.auth) {
-        FB.auth = firebase.auth();
-        FB.authReady = FB.auth.signInAnonymously()
-          .then(function(cred) {
-            FB.authUser = cred && cred.user;
-            console.log('[F1] anonymous auth ready, uid:', FB.authUser && FB.authUser.uid);
-            return cred;
-          })
-          .catch(function(e) { console.error('[F1] anonymous auth failed:', e); throw e; });
-      } else {
-        console.warn('[F1] firebase-auth-compat not loaded — locked DB rules will reject');
-        FB.authReady = Promise.reject(new Error('firebase-auth-compat not loaded'));
-      }
+      if (firebase.auth) FB.auth = firebase.auth();
     } catch (e) {
-      console.error('[F1] anonymous auth init failed:', e);
-      FB.authReady = Promise.reject(e);
+      console.error('[F1] firebase.auth() unavailable:', e);
     }
     // V310-S3: Storage handle for photo migration. Best-effort — if the
     // Storage SDK didn't load (offline boot, CDN block) we leave FB.storage
@@ -7940,7 +8070,18 @@ function fbInit() {
     return;
   }
   // Online/offline listeners
-  window.addEventListener('online',  () => { FB.online = true;  fbUpdatePill(); });
+  window.addEventListener('online',  () => {
+    FB.online = true;
+    fbUpdatePill();
+    // V6.7.1: a genuine connectivity-restored signal is worth a fresh
+    // attempt even after the backoff budget was exhausted — cooldown-gated
+    // so a flapping connection can't retry-storm Firebase.
+    if (FB.initFailed && !_fbRetryTimer && (Date.now() - _fbLastAttemptAt) > FB_ONLINE_RETRY_COOLDOWN_MS) {
+      console.log('[V6.7.1] network back online — retrying Firebase connect');
+      _fbConnectAttempt = 0;
+      fbAttemptConnect();
+    }
+  });
   window.addEventListener('offline', () => { FB.online = false; fbUpdatePill(); });
   // V337 (2026-05-26) bandwidth fix: Page Visibility auto-disconnect.
   // When the tab is hidden for 5+ minutes, close the Firebase WebSocket
@@ -7979,7 +8120,10 @@ function fbInit() {
   // First load: fetch the entire tracker namespace once, hydrate localStorage,
   // then attach live listeners. We do a single .once() rather than .on() for
   // the initial sync so re-renders don't fire repeatedly during boot.
-  fbInitialSync();
+  // V6.7.1: fbAttemptConnect() wraps fbInitialSync() with bounded auto-retry
+  // (defined below) so a transient auth/read failure self-heals instead of
+  // leaving the device stuck on "Cloud unavailable" until a manual reload.
+  fbAttemptConnect();
 }
 
 function fbRef(path) { return FB.db.ref(`${FB_NAMESPACE}/${path}`); }
@@ -8167,6 +8311,43 @@ async function fbInitialSync() {
     FB.initFailed = true;
     fbUpdatePill();
   }
+}
+
+// V6.7.1: drives one full connect attempt (fresh auth + fbInitialSync) and,
+// on failure, schedules a bounded retry. See constants above for the retry
+// budget. Called once from fbInit() on boot, then re-invoked by its own
+// retry timer or by the 'online' listener — never called concurrently with
+// itself (the retry timer / online guard prevent overlap).
+async function fbAttemptConnect() {
+  _fbLastAttemptAt = Date.now();
+  FB.initFailed = false;
+  FB.authReady = _fbSignInAnon();
+  await fbInitialSync();
+  if (FB.initFailed) {
+    _fbScheduleRetry();
+  } else {
+    _fbConnectAttempt = 0;
+  }
+}
+
+function _fbScheduleRetry() {
+  if (_fbRetryTimer) { clearTimeout(_fbRetryTimer); _fbRetryTimer = null; }
+  if (_fbConnectAttempt >= FB_RETRY_DELAYS_MS.length) {
+    console.warn('[V6.7.1] Firebase connect retries exhausted — waiting for a network change or manual reload.');
+    fbUpdatePill();
+    return;
+  }
+  const delay = FB_RETRY_DELAYS_MS[_fbConnectAttempt];
+  _fbConnectAttempt++;
+  // _fbRetryTimer must be set BEFORE fbUpdatePill() so the pill's
+  // "mid-backoff" check (if (_fbRetryTimer)) sees it — otherwise the pill
+  // briefly renders the terminal "Cloud unavailable" text instead of
+  // "Reconnecting…" for this cycle.
+  _fbRetryTimer = setTimeout(function() {
+    _fbRetryTimer = null;
+    fbAttemptConnect();
+  }, delay);
+  fbUpdatePill();
 }
 
 // V310-S2: fbDrainQueueAndReconcile removed along with the offline queue.
@@ -19399,6 +19580,178 @@ async function _saveAdvocacyInner() {
   }, 0);
 })();
 
+// ── V6.7.1: Scheme-name audit (read-only report + guarded one-click fix) ──
+// migrateAdvSchemeNames() above only self-heals the two names it knows
+// about, and only on a device that happens to load an affected record.
+// This is an on-demand, admin-triggered scan of the FULL advocacy
+// collection (admins load it unscoped — see fbAdvHandleChild V314 note)
+// that surfaces EVERY scheme name not present in the current schemes list.
+// Those names are invisible to the "Used by" column in Advocacy Management,
+// to getSchemeDefaultAmount(), and to any monetary-impact total — all of
+// them do an exact string match against the canonical list.
+function adminAuditSchemeNames() {
+  const schemes = getSchemes();
+  const schemeSet = new Set(schemes);
+  const adv = (typeof loadAdv === 'function') ? loadAdv() : [];
+  // Known historical aliases (same map as the migration above) — used only
+  // to suggest a confident auto-fix. Anything else is reported but left for
+  // the admin to decide; we never guess at an ambiguous rename.
+  const KNOWN_ALIASES = { 'MGNREGS': 'MGNREGA', 'PM Awas Yojana': 'PM Awas Yojana (PMAY)' };
+  const norm = s => String(s || '').trim().toLowerCase();
+  const byNorm = {};
+  schemes.forEach(s => { byNorm[norm(s)] = s; });
+
+  const tally = {}; // rawName -> { rows, benefitsReceived }
+  adv.forEach(rec => {
+    (rec.schemeRows || []).forEach(r => {
+      if (!r || !r.scheme || schemeSet.has(r.scheme)) return; // canonical — not our concern
+      const t = tally[r.scheme] || (tally[r.scheme] = { rows: 0, benefitsReceived: 0 });
+      t.rows++;
+      if (r.status === 'Benefits Received') t.benefitsReceived++;
+    });
+  });
+
+  const legacy = Object.keys(tally).map(name => {
+    const t = tally[name];
+    let suggested = (KNOWN_ALIASES[name] && schemeSet.has(KNOWN_ALIASES[name])) ? KNOWN_ALIASES[name] : null;
+    if (!suggested && byNorm[norm(name)]) suggested = byNorm[norm(name)]; // case/whitespace-only drift
+    const suggestedAmt = suggested ? getSchemeDefaultAmount(suggested) : 0;
+    const missingValue = suggested ? t.benefitsReceived * suggestedAmt : 0;
+    return { name, rows: t.rows, benefitsReceived: t.benefitsReceived, suggested, missingValue };
+  }).sort((a, b) => b.rows - a.rows);
+
+  // Related, non-legacy reason the same monetary total can look wrong:
+  // a canonical scheme with real "Benefits Received" usage but no default
+  // amount configured — those rows silently contribute ₹0 too.
+  const unconfigured = schemes.filter(s => {
+    if (getSchemeDefaultAmount(s) > 0) return false;
+    return adv.some(rec => (rec.schemeRows||[]).some(r => r && r.scheme === s && r.status === 'Benefits Received'));
+  });
+
+  window._schemeAuditReport = { legacy, unconfigured, totalAdvRecords: adv.length };
+  _renderSchemeAuditModal(window._schemeAuditReport);
+}
+
+function _renderSchemeAuditModal(report) {
+  document.querySelectorAll('[data-krsf-audit-overlay]').forEach(el => el.remove());
+  const { legacy, unconfigured, totalAdvRecords } = report;
+  const overlay = document.createElement('div');
+  overlay.dataset.krsfAuditOverlay = '1';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(17,24,39,0.55);z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px;font-family:DM Sans,system-ui,sans-serif;';
+  const card = document.createElement('div');
+  card.style.cssText = 'background:#fff;border-radius:10px;max-width:640px;width:100%;max-height:82vh;display:flex;flex-direction:column;box-shadow:0 12px 32px rgba(0,0,0,0.25);overflow:hidden;';
+
+  const schemeOptions = getSchemes().map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('');
+  const legacyRows = legacy.length ? legacy.map((l, i) => `
+    <tr>
+      <td style="padding:8px 10px;font-family:var(--mono);font-size:12px;color:var(--red)">${escHtml(l.name)}</td>
+      <td style="padding:8px 10px;text-align:center;font-size:12.5px">${l.rows}</td>
+      <td style="padding:8px 10px;text-align:center;font-size:12.5px">${l.benefitsReceived}</td>
+      <td style="padding:8px 10px;font-size:12.5px">
+        ${l.suggested
+          ? `<span style="color:var(--green)">Auto-matched:</span> ${escHtml(l.suggested)}${l.missingValue ? ` <span style="color:var(--gray2)">(₹${l.missingValue.toLocaleString('en-IN')} not counted)</span>` : ''}`
+          : '<span style="color:var(--amber)">Pick the correct scheme →</span>'}
+      </td>
+      <td style="padding:8px 10px;text-align:right;white-space:nowrap">
+        <select data-audit-target-idx="${i}" style="padding:4px 6px;border:1px solid var(--gray3);border-radius:5px;font-size:11.5px;font-family:var(--font);max-width:150px" ${l.suggested ? '' : 'title="Only you can judge this one — e.g. a Gujarati-script name that should map to its Latin-transliterated canonical scheme"'}>
+          <option value="">— pick a scheme —</option>
+          ${schemeOptions}
+        </select>
+        <button class="btn btn-sm btn-primary" data-audit-fix-idx="${i}" style="margin-left:4px">Fix</button>
+      </td>
+    </tr>`).join('') : `<tr><td colspan="5" style="padding:14px;text-align:center;color:var(--gray2);font-size:12.5px">No legacy/unmatched scheme names found. Data is clean.</td></tr>`;
+
+  const unconfiguredList = unconfigured.length
+    ? unconfigured.map(s => `<li>${escHtml(s)}</li>`).join('')
+    : '<li style="color:var(--gray2);list-style:none;margin-left:-20px">None — every scheme with real usage has a default amount set.</li>';
+
+  card.innerHTML = `
+    <div style="padding:16px 20px 10px;border-bottom:1px solid var(--gray3)">
+      <div style="font-weight:700;font-size:15px;color:var(--text)">Scheme Name Audit</div>
+      <div style="font-size:12px;color:var(--gray2);margin-top:2px">Scanned ${totalAdvRecords} advocacy record(s), read-only. Legacy names are invisible to the "Used by" column, default amounts, and any monetary total — they need an exact-name match.</div>
+    </div>
+    <div style="padding:14px 20px;overflow-y:auto;flex:1">
+      <div style="font-size:12px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Legacy / unmatched names</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+        <thead><tr style="border-bottom:1px solid var(--gray3);text-align:left">
+          <th style="padding:6px 10px;font-size:11px;color:var(--gray2)">Name in data</th>
+          <th style="padding:6px 10px;font-size:11px;color:var(--gray2);text-align:center">Rows</th>
+          <th style="padding:6px 10px;font-size:11px;color:var(--gray2);text-align:center">Benefits Received</th>
+          <th style="padding:6px 10px;font-size:11px;color:var(--gray2)">Suggested fix</th>
+          <th></th>
+        </tr></thead>
+        <tbody>${legacyRows}</tbody>
+      </table>
+      <div style="font-size:12px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.4px;margin:16px 0 6px">Canonical schemes with no default amount set</div>
+      <ul style="margin:0;padding-left:20px;font-size:12.5px;color:var(--text);line-height:1.7">${unconfiguredList}</ul>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;background:#F9FAFB;border-top:1px solid var(--gray3)">
+      <button class="btn btn-sm" id="audit-close-btn">Close</button>
+    </div>`;
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+  const close = () => { try { document.body.removeChild(overlay); } catch(_){} };
+  card.querySelector('#audit-close-btn').onclick = close;
+  // Pre-select the auto-suggested target where we have one; admin can
+  // override before clicking Fix, or pick manually where there was none.
+  card.querySelectorAll('[data-audit-target-idx]').forEach(sel => {
+    const idx = Number(sel.getAttribute('data-audit-target-idx'));
+    const row = report.legacy[idx];
+    if (row && row.suggested) sel.value = row.suggested;
+  });
+  card.querySelectorAll('[data-audit-fix-idx]').forEach(btn => {
+    btn.onclick = () => {
+      const idx = Number(btn.getAttribute('data-audit-fix-idx'));
+      const row = report.legacy[idx];
+      const sel = card.querySelector(`[data-audit-target-idx="${idx}"]`);
+      const target = sel ? sel.value : '';
+      if (!target) { toast('Pick a target scheme first.', 'error'); return; }
+      if (row) adminFixLegacySchemeName(row.name, target);
+    };
+  });
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+}
+
+// One-click fix for a confidently-matched legacy scheme name: rewrites
+// every advocacy schemeRow using `oldName` to `newName`, across the FULL
+// advocacy collection (admin's loadAdv() is unscoped). Same safe
+// changed-records-only write path as migrateAdvSchemeNames above — this is
+// the same operation, just admin-triggered for a name that migration
+// didn't know about.
+async function adminFixLegacySchemeName(oldName, newName) {
+  const ok = await showConfirmModal(
+    `Rename every advocacy record using "${oldName}" to "${newName}"?\n\nThis updates the underlying data, not just the schemes list — it cannot be undone from here.`,
+    { okLabel: 'Fix now', title: 'Fix legacy scheme name' });
+  if (!ok) return;
+  const adv = loadAdv();
+  const changedRecs = [];
+  adv.forEach(rec => {
+    let recChanged = false;
+    (rec.schemeRows || []).forEach(r => {
+      if (r && r.scheme === oldName) { r.scheme = newName; recChanged = true; }
+    });
+    if (recChanged) changedRecs.push(rec);
+  });
+  if (!changedRecs.length) { toast('Nothing to fix — no matching rows found.', ''); return; }
+  const stampedChanged = changedRecs.map(fbStampAdvKey);
+  const cacheSet = rec => { if (rec && rec.__fbk) RecordCache.adv.set(rec.__fbk, rec); };
+  try {
+    const n = await fbWriteChangedRecords('advocacy', stampedChanged, '__fbk', 'lastAdv', cacheSet);
+    if (n > 0) {
+      auditLog('migration', 'advocacy', 'batch',
+        'Admin scheme-name fix',
+        `Renamed legacy scheme name "${oldName}" → "${newName}" on ${n} advocacy record(s)`,
+        null);
+      try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
+      toast(`Fixed: "${oldName}" → "${newName}" (${n} row${n===1?'':'s'})`, 'success');
+      try { renderCurrentView(); } catch(_){}
+      setTimeout(() => adminAuditSchemeNames(), 150); // re-run so the list reflects the fix
+    }
+  } catch (e) {
+    toast('Fix failed: ' + (e && e.message || e), 'error', 6000);
+  }
+}
+
 // ── PATCH 2: All Beneficiaries view (master list with multi-select delete) ─
 
 // ── Global filter state ───────────────────────────────────────────────────
@@ -23700,6 +24053,7 @@ function renderAdminSchemes() {
       <div class="card-head">
         <div class="card-title">Government Schemes <span style="font-size:12px;font-weight:400;color:var(--gray2)">${schemes.length} total</span></div>
         <div class="filters">
+          <button class="btn btn-sm" onclick="adminAuditSchemeNames()" title="Scan all advocacy records for scheme names that don't match the list below — these are invisible to Used-by counts, default amounts, and monetary totals">🔍 Audit Scheme Names</button>
           <button class="btn btn-sm btn-primary" onclick="openBulkStatusModal()" title="Bulk-update scheme status for many beneficiaries at once">⚡ Bulk Update Status</button>
         </div>
       </div>
