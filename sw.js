@@ -24,9 +24,29 @@
 // Bump CACHE_VERSION whenever you change this file. activate prunes old caches;
 // the page auto-reloads onto the new worker (skipWaiting + clients.claim).
 
-const CACHE_VERSION = 'krsf-v400-1';
+const CACHE_VERSION = 'krsf-v7-1';
 const APP_CACHE = 'krsf-app-' + CACHE_VERSION;
 const NETWORK_TIMEOUT_MS = 3000;
+
+// V6.8.3: the 10 achievement badges on the FC "My Badges" tab (~89 KB total),
+// hosted on Cloudinary rather than inlined into index.html — the HTML shell is
+// fetched NETWORK-FIRST on every app open, so inlined bytes are re-downloaded
+// on every single launch, forever.
+//
+// They are deliberately NOT in PRECACHE_URLS, and deliberately NOT in
+// APP_CACHE. Two reasons, both about not making anyone pay for bytes they
+// don't use:
+//   1. Precaching at install charges all 89 KB to EVERY user — including
+//      admins, NGO admins and viewers, who have no My Badges tab at all — and
+//      stalls the install on a slow field connection.
+//   2. APP_CACHE is pruned on every CACHE_VERSION bump (see activate), so the
+//      badges would be re-downloaded on every release that touches this file.
+// Instead they are cached lazily, on first view, into their own cache that the
+// activate prune leaves alone (it only deletes `krsf-app-*`). Net effect: an FC
+// downloads them ONCE, ever — not per login, not per release — and only if they
+// actually open the tab. Everyone else downloads nothing.
+const BADGE_CACHE = 'krsf-badges-v1';
+const BADGE_PATH = '/krsf_badges/';
 
 // Files cached on install (the offline fallback set). Kept small — the SW
 // intercepts everything at runtime anyway.
@@ -70,6 +90,10 @@ self.addEventListener('activate', function(event) {
   console.log('[SW] activate', CACHE_VERSION);
   event.waitUntil(
     caches.keys().then(function(keys) {
+      // Only app-shell caches are pruned. BADGE_CACHE ('krsf-badges-v1') is
+      // intentionally outside this prefix so badge artwork survives every
+      // release — an FC downloads those 89 KB once per device, not once per
+      // version. Rename BADGE_CACHE only if the artwork itself changes.
       return Promise.all(
         keys.filter(function(k) { return k !== APP_CACHE && k.indexOf('krsf-app-') === 0; })
             .map(function(k) { console.log('[SW] prune', k); return caches.delete(k); })
@@ -149,7 +173,33 @@ self.addEventListener('fetch', function(event) {
     return;
   }
 
-  // 3) Cached static assets (icons, manifest): cache-first.
+  // 3) Badge artwork: cache-first into its own long-lived cache. Written on
+  // first view and then never fetched again — not per login, not per release.
+  //
+  // ignoreVary is required here: Cloudinary sends `Vary: Accept, User-Agent`,
+  // so a Vary-aware match can miss an entry that is plainly present and go
+  // back to the network every time (blank badges offline, despite being
+  // cached). Confirmed against the live CDN, not assumed.
+  if (url.href.indexOf(BADGE_PATH) !== -1) {
+    event.respondWith(
+      caches.open(BADGE_CACHE).then(function(cache) {
+        return cache.match(req, { ignoreVary: true }).then(function(cached) {
+          if (cached) return cached;
+          return fetch(req).then(function(resp) {
+            if (resp && resp.ok) cache.put(req, resp.clone()).catch(function(){});
+            return resp;
+          }).catch(function() {
+            // Offline and not cached yet — let it fail so the page's onerror
+            // swaps in the 🏅 placeholder rather than hanging on a dead image.
+            return cached || Response.error();
+          });
+        });
+      })
+    );
+    return;
+  }
+
+  // 4) Cached static assets (icons, manifest): cache-first.
   event.respondWith(
     caches.match(req).then(function(cached) {
       if (cached) return cached;
