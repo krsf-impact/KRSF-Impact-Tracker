@@ -2,6 +2,28 @@
 <!--
   KRSF Beneficiary Impact Tracker  -  V6.7.2-LIVE
   ============================================================================
+  V11.2-LIVE (2026-07-27 - one fix, found the first time server login was
+  switched on for real. The switch was ON in the database and every single
+  sign-in still used the fallback.):
+    + THE BUG. _v11LoadConfig's timeout RESOLVED with null. A read that was
+      merely slow therefore looked identical to "the setting does not exist" -
+      which means OFF - and an unconditional .then() cached that guess for the
+      rest of the session. The database's first read waits on App Check, which
+      takes several seconds from cold, so the old 4s ceiling lost that race
+      essentially every time. Nothing was broken, nothing was at risk: the
+      fallback carried every login. The feature simply never engaged.
+    + The timeout now REJECTS, so "too slow" and "not there" are different
+      things. A failure is never cached; only a completed read is.
+    + The login screen retries (6 attempts, 1.2s apart) instead of accepting
+      the first guess, and the sign-in itself retries inside one 5s budget for
+      anyone who types faster than the database connects.
+    + Regression test added for exactly this: scratchpad/v11client.js section
+      15b drives the real code with a database whose first N reads do not
+      answer, and asserts the sign-in still reaches the server.
+    LESSON WORTH KEEPING: a timeout that resolves with a falsy value is
+    indistinguishable from a legitimate empty answer. If the two mean different
+    things - and here one meant "off" - the timeout must reject.
+  ============================================================================
   V11.1-LIVE (2026-07-27 - critical review of V11 against the ACTUAL live rules.
   Makes locking the database down possible at all, and fixes the things that
   would have broken when we tried.):
@@ -8388,7 +8410,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V11.1-LIVE';
+const APP_VERSION = 'V11.2-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -29565,6 +29587,9 @@ async function _v11RunDeferredSync() {
 }
 
 function _v11LoadConfig() {
+  // A KNOWN-GOOD answer, cached. Only ever set from a read that genuinely
+  // completed — see below for why that distinction is the whole ballgame.
+  if (_v11Cfg) return Promise.resolve(_v11Cfg);
   if (_v11CfgPromise) return _v11CfgPromise;
   // Do NOT memoise an answer produced before Firebase was ready — the login
   // screen can appear at boot, before fbInit() finishes, and caching the
@@ -29573,23 +29598,43 @@ function _v11LoadConfig() {
   if (!(FB && FB.db)) return Promise.resolve(_v11DefaultCfg());
   _v11CfgPromise = (async () => {
     try {
+      // THE TIMEOUT MUST REJECT, NOT RESOLVE.
+      // It used to resolve with null, which made "the read was too slow"
+      // indistinguishable from "the setting does not exist" — and since an
+      // absent setting means OFF, a slow read silently disabled the feature and
+      // then cached that wrong answer for the rest of the session. This is not
+      // hypothetical: it is exactly what happened on the first live attempt on
+      // 2026-07-27. The database's first read waits on App Check, which on a
+      // cold start takes several seconds, so the old 4s ceiling lost the race
+      // essentially every time.
       const snap = await Promise.race([
         fbRef('_v11Config').once('value'),
-        new Promise(r => setTimeout(() => r(null), 4000))
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 10000))
       ]);
       const v = (snap && typeof snap.val === 'function') ? snap.val() : null;
-      if (!v || typeof v !== 'object') return _v11DefaultCfg();
+      // A completed read that found nothing IS an answer: the node is absent,
+      // so the features are off. Cache it.
+      if (!v || typeof v !== 'object') { _v11Cfg = _v11DefaultCfg(); return _v11Cfg; }
       // serverLogin needs an explicit true. A typo, a string "true", or a
       // half-finished edit in the console therefore leaves it OFF rather than
       // switching the whole fleet over by accident.
       // pinPrompt needs an explicit false to disable, for the reason above.
-      return {
+      _v11Cfg = {
         serverLogin:       v.serverLogin === true,
         pinPrompt:         v.pinPrompt   !== false,
         requireRealSession: v.requireRealSession === true
       };
-    } catch (_) { return _v11DefaultCfg(); }
-  })().then(c => { _v11Cfg = c; return c; });
+      return _v11Cfg;
+    } catch (e) {
+      // Could not get an answer. Do NOT remember that. Clearing the in-flight
+      // promise means the very next caller retries instead of inheriting a
+      // guess — the old code cached the guess via an unconditional .then(),
+      // which is what disabled the feature for an entire session.
+      _v11CfgPromise = null;
+      console.warn('[V11.1] could not read _v11Config yet, will retry:', e && e.message);
+      return _v11DefaultCfg();
+    }
+  })();
   return _v11CfgPromise;
 }
 
@@ -29618,15 +29663,32 @@ function _v11WarmUp() {
 // Called wherever the login screen is put on screen. Both halves are
 // fire-and-forget: neither may ever delay or block the login form.
 function _v11OnLoginScreenShown() {
-  // Wait for the off-switch before warming. Checking _v11Cfg directly would
-  // always warm on the first login screen of a session, because the value has
-  // not arrived yet — which means the emergency off-switch would still be
-  // sending one function call per device per app-open, exactly when somebody
-  // has turned it off because something is wrong.
+  // Keep asking until we get a REAL answer, rather than accepting the first
+  // guess. The first attempt almost always lands before the database has
+  // finished connecting — that connection waits on App Check, which takes a
+  // few seconds from cold — and treating that as "the switch is off" is
+  // precisely what made the first live attempt fall back on 2026-07-27.
+  //
+  // Costs ~60 bytes and stops the instant a genuine answer arrives. It runs
+  // while somebody is typing their PIN, so by the time they press Sign In the
+  // answer is normally already in hand.
+  //
+  // The warm-up is deliberately chained to that answer: firing it regardless
+  // would mean the emergency off-switch still sent a request per device per
+  // app-open, exactly when someone has turned it off because something is wrong.
   try {
-    _v11LoadConfig()
-      .then(function (cfg) { if (cfg && cfg.serverLogin !== false) _v11WarmUp(); })
-      .catch(function () {});
+    const tryLoad = function (attempt) {
+      _v11LoadConfig().then(function (cfg) {
+        if (_v11Cfg) {                                   // genuine answer in hand
+          if (cfg && cfg.serverLogin !== false) _v11WarmUp();
+          return;
+        }
+        if (attempt < 6) setTimeout(function () { tryLoad(attempt + 1); }, 1200);
+      }).catch(function () {
+        if (attempt < 6) setTimeout(function () { tryLoad(attempt + 1); }, 1200);
+      });
+    };
+    tryLoad(0);
   } catch (_) {}
 }
 
@@ -30253,10 +30315,28 @@ async function _doLoginInner() {
   // it means the worst case for V11 is "we wasted one request", never "nobody
   // can sign in".
   try {
-    const _v11c = await Promise.race([
-      _v11LoadConfig(),
-      new Promise(r => setTimeout(() => r(_v11DefaultCfg()), 2000))
-    ]);
+    // Try repeatedly for a REAL answer, inside one 5-second budget.
+    //
+    // A single attempt was not enough. Somebody who types fast can press Sign
+    // In before the login screen's own retries have landed, and a first read
+    // that cannot answer would then be taken as "the switch is off" — sending
+    // them down the fallback even though the server path is enabled. That is
+    // the shape of the 2026-07-27 failure. Once a genuine answer exists it is
+    // cached, so this loop exits immediately on every subsequent login.
+    let _v11c = _v11DefaultCfg();
+    const _v11Deadline = Date.now() + 5000;
+    for (let _i = 0; _i < 3; _i++) {
+      const _left = _v11Deadline - Date.now();
+      if (_left <= 0) break;
+      const _r = await Promise.race([
+        _v11LoadConfig(),
+        new Promise(r => setTimeout(() => r(null), _left))
+      ]);
+      if (_v11Cfg) { _v11c = _v11Cfg; break; }   // a genuine answer — done
+      if (_r) _v11c = _r;
+    }
+    // Still no genuine answer: fall back, which always works.
+    if (!_v11Cfg) _v11c = _v11DefaultCfg();
     if (_v11c && _v11c.serverLogin !== false) {
       const _sr = await _v11ServerLogin(u, p);
 
