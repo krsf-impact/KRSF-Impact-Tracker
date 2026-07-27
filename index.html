@@ -2,6 +2,27 @@
 <!--
   KRSF Beneficiary Impact Tracker  -  V6.7.2-LIVE
   ============================================================================
+  V11.4-LIVE (2026-07-27 - the PIN request now actually reaches people, and it
+  can no longer be postponed.):
+    + IT WAS MISSING ALMOST EVERYONE IT AIMED AT. The prompt only fired during
+      sign-in - but a coordinator who is already signed in STAYS signed in, for
+      months, and their device has no reason to re-read the user list. So an
+      administrator could ask a whole NGO to change their PIN and not one of
+      them would ever be told. Reported from the field within minutes of the
+      feature going out.
+    + FIX: on every app open with a session, read just this ONE user record
+      (~300 bytes, not the ~190 KB list) and honour the flag there and then.
+      Also refreshes the local copy, so nothing later writes the stale record
+      back over it.
+    + NO MORE "LATER". A required change is now required. Sign out stays, so
+      somebody who genuinely cannot complete it - no signal, or they have
+      forgotten the PIN they were handed - can leave and be reset by an admin
+      in about thirty seconds rather than being trapped on a modal.
+    + Tests: scratchpad/v11pin.js now 30 assertions, including that an
+      already-signed-in person IS prompted, that it costs one small record read
+      and never the whole list, that the off-switch still wins, and that being
+      offline skips quietly instead of blocking anyone.
+  ============================================================================
   V11.3-LIVE (2026-07-27 - the missing half of the PIN feature: asking a whole
   NGO to choose their own PIN.):
     + REQUIRE PIN CHANGE, NGO BY NGO. Admin -> Users -> filter to an NGO ->
@@ -8433,7 +8454,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V11.3-LIVE';
+const APP_VERSION = 'V11.4-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -30032,8 +30053,7 @@ function _v11OpenPinChange(user, forced) {
       '<div style="display:flex;justify-content:flex-end;gap:8px;padding:12px 20px 16px;background:#F9FAFB;border-top:1px solid var(--gray3)">' +
         (forced
           ? '<button id="v11-pin-out" class="btn btn-sm" style="margin-right:auto;color:var(--gray2)">Sign out</button>'
-          : '') +
-        '<button id="v11-pin-cancel" class="btn btn-sm">' + (forced ? 'Later / પછી' : 'Cancel') + '</button>' +
+          : '<button id="v11-pin-cancel" class="btn btn-sm">Cancel</button>') +
         '<button id="v11-pin-save" class="btn btn-primary btn-sm">Save new PIN</button>' +
       '</div>' +
     '</div>';
@@ -30043,13 +30063,11 @@ function _v11OpenPinChange(user, forced) {
   const showErr = m => { const e = $('v11-pin-err'); e.textContent = m; e.style.display = 'block'; };
   const close = () => { try { document.body.removeChild(ov); } catch (_) {} };
 
-  // "Later" is available even on a required change, and that is deliberate.
-  // Saving a PIN needs the network; this app is otherwise fully usable offline.
-  // A coordinator who opens it in a village with no signal could neither
-  // complete this screen nor dismiss it, and would lose the day's fieldwork to
-  // a modal. The flag stays set, so they are asked again at the next sign-in
-  // and the admin can still see who has not done it — the change is pressed,
-  // not enforced at the cost of somebody's work.
+  // A required change has no "Later": the whole point is that the password an
+  // administrator handed out stops being the one in use. Sign out remains, so
+  // nobody is truly trapped — somebody who cannot complete it (no signal, or
+  // they have genuinely forgotten the PIN they were given) can leave and get
+  // an administrator to reset them, which takes about thirty seconds.
   { const c = $('v11-pin-cancel'); if (c) c.onclick = close; }
   const out = $('v11-pin-out');
   if (out) out.onclick = () => { close(); try { doLogout(); } catch (_) { location.reload(); } };
@@ -30223,6 +30241,45 @@ function adminResetUserPin(userId) {
     try { toast('PIN reset. Tell ' + (u.fullName || u.username) + ' their temporary PIN: ' + pin, 'success', 12000); } catch (_) {}
     try { renderAdminUsers(); } catch (_) {}
   };
+}
+
+// ── does THIS person owe us a new PIN? ──────────────────────────────────────
+// Without this the whole feature quietly misses most of the people it is aimed
+// at. The prompt used to fire only during sign-in — but a coordinator who is
+// already signed in stays signed in, sometimes for months, and their device has
+// no reason to re-read the user list. So an administrator could ask a whole NGO
+// to change their PIN and not one of them would ever be told.
+//
+// So: every time the app opens with a session, read just this one record. About
+// 300 bytes — not the ~190 KB user list — so it is affordable on every open.
+async function _v11CheckOwnPinFlag() {
+  try {
+    const me = currentUser();
+    if (!me || !me.userId || !(FB && FB.db)) return;
+    const cfg = await Promise.race([
+      _v11LoadConfig(),
+      new Promise(r => setTimeout(() => r(_v11DefaultCfg()), 4000))
+    ]);
+    if (cfg && cfg.pinPrompt === false) return;      // the off-switch still wins
+
+    const snap = await fbRef('users/' + me.userId).once('value');
+    const rec = snap.val();
+    if (!rec || !rec.mustChangePin) return;
+
+    // Keep this device's cached copy honest, so nothing later writes the stale
+    // record back over it (see _v11AfterPinWrite for why that matters).
+    try {
+      RecordCache.users.set(rec.id, rec);
+      if (FB.lastUsers && typeof fbHash === 'function') FB.lastUsers[rec.id] = fbHash(rec);
+    } catch (_) {}
+
+    console.log('[V11.4] this account has been asked to choose its own PIN');
+    _v11OpenPinChange({ id: rec.id, username: rec.username }, true);
+  } catch (e) {
+    // Offline or slow — silently skip. They will be asked next time the app
+    // opens; nothing here may ever get between somebody and their work.
+    console.warn('[V11.4] own PIN-flag check skipped:', e && e.message);
+  }
 }
 
 // ── admin: require a group of people to choose their own PIN ────────────────
@@ -38196,6 +38253,10 @@ function _fmtBatchDate(iso) {
   // doesn't block first paint on a slow phone. Idempotent — safe to call
   // every boot.
   setTimeout(_auditAgePruneOnBoot, 2000);
+  // V11.4: this device is already signed in, so nothing else will ever tell it
+  // that an administrator has asked this person to choose their own PIN.
+  // Deferred so it never delays first paint.
+  setTimeout(function () { try { _v11CheckOwnPinFlag(); } catch (_) {} }, 2500);
   renderAfterLogin();
 })();
 
