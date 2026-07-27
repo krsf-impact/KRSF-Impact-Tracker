@@ -2,6 +2,81 @@
 <!--
   KRSF Beneficiary Impact Tracker  -  V6.7.2-LIVE
   ============================================================================
+  V11.1-LIVE (2026-07-27 - critical review of V11 against the ACTUAL live rules.
+  Makes locking the database down possible at all, and fixes the things that
+  would have broken when we tried.):
+    + THE FINDING THAT MATTERS. The app signs in ANONYMOUSLY at boot and then
+      downloads partners, config, the audit log and all 570 user records -
+      BEFORE anyone logs in. Under rules that require a real session every one
+      of those reads is denied, so simply pasting tightened rules would have
+      given all 558 coordinators an empty app. V11.1 can defer the whole load
+      until after sign-in (_v11Config/requireRealSession, OFF by default), which
+      is the prerequisite for the lockdown rather than an optimisation.
+    + Verified against the rules that are ACTUALLY LIVE, pasted from the
+      console - not from any local file. V10.1's rules were never applied, so
+      the live database has NO username index and no _usersInvalidateFleet.
+      Every conclusion drawn from the local copies would have been wrong.
+    + TWO RULE DOCUMENTS instead of one, because they carry different risk.
+      Rules-V11.1-STEP1.json is safe to apply now: machine-diffed against the
+      live rules as 0 changed, 0 removed, 7 added. Rules-V11.1-FINAL.json is the
+      lockdown - it must NOT be applied until the adoption panel shows everyone
+      has come through the new login.
+    + _v11Config is readable WITHOUT a session, deliberately. Under the
+      tightened rules an anonymous browser can read nothing - including the
+      switch that tells it to use the server login. Left as-is, turning the
+      rules on would have made every device fall back to a check it is no longer
+      allowed to perform: a total lockout. It holds two booleans and no data.
+    + Under the tightened rules an unreachable server used to produce "Username
+      or password is incorrect" - blaming the person's password for a network
+      problem. It now says it cannot reach the server.
+    + users writes are scoped in the FINAL rules: an administrator, or your own
+      record, and nothing else. Checked against every write path in the file -
+      saveUsers() has no live callers; everything real goes through
+      saveOneUser() one record at a time.
+  ============================================================================
+  V11-LIVE (2026-07-27 - server-side login, with the old in-browser check kept
+  as an automatic fallback. Ships with the server path SWITCHED OFF; turning it
+  on is one value in the database.):
+    + SERVER LOGIN. The browser now asks a Cloud Function to check the PIN
+      instead of doing it itself, so it no longer needs every user's password
+      hash on the device. Called over plain fetch - the Functions SDK is NOT
+      loaded, so this adds ZERO bytes to page load. Verified against the live
+      endpoint: 145-240 ms.
+    + IT FALLS BACK ON EVERYTHING. Cold start, offline, CORS, a rolled-back
+      deploy, a 500, a malformed body, a token exchange that fails, even a
+      server-reported lockout - all drop through to the V10.1 check, which is
+      unchanged. The ONLY thing that stops a login is the server explicitly
+      saying the credentials are wrong, because that answer came from live data.
+    + TWO SWITCHES, both in the database, both effective on next app open with
+      no re-upload: _v11Config/serverLogin and _v11Config/pinPrompt.
+      SERVER LOGIN IS OFF UNLESS EXPLICITLY SET TO true. Uploading this file on
+      its own therefore changes NOTHING about how anyone signs in - it behaves
+      exactly as V10.1 did until somebody deliberately turns it on. A typo, or
+      the string "true" instead of a real boolean, leaves it off.
+    + PIN CHANGE + ADMIN RESET PIN, each trying the server first and writing the
+      record directly if it cannot be reached. Bilingual (EN + Gujarati)
+      "write it down" warning. The required-change screen can always be
+      dismissed with Later - saving a PIN needs the network, and trapping a
+      coordinator in a village with no signal would cost a day's fieldwork.
+    + LOGIN ADOPTION panel (admin -> Users). Shows how many people have come
+      through the new login. That number is what decides when it is safe to
+      tighten the database rules.
+    + CHEAPER, not dearer. The server path does ZERO users-list downloads. The
+      fallback now re-reads ONE indexed record (~300 bytes) instead of the whole
+      ~190 KB user list, which also makes it MORE correct than V10.1 - it no
+      longer depends on anyone having bumped a flag.
+    + Fixes found by adversarial review and corrected here: a server-side PIN
+      change left this device's cache holding the OLD hash, so the next ordinary
+      Edit User would silently restore the old PIN; a server lockout could be
+      used to lock any named coordinator out of every device; the fallback reset
+      path had no admin check; a leftover Firebase identity could persist across
+      users on a shared handset; a failure after sign-in re-ran the whole login.
+    REQUIRES: paste Rules-V11.json (adds _v11Seen and _v11Config only - machine
+      diffed, 0 existing permissions changed). Upload index.html only; sw.js is
+      untouched. Redeploy _functions (two server fixes: a 1-hour lockout was
+      silently truncated to 15 minutes, and unknown usernames could grow the
+      database without limit).
+  ============================================================================
   V10-LIVE (2026-07-25 - Phase 2a: the app now USES the real per-user Firebase
   Auth account instead of only creating it. NO RULES CHANGED - nothing here can
   lock anyone out.):
@@ -8313,7 +8388,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V10-LIVE';
+const APP_VERSION = 'V11.1-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -8691,7 +8766,14 @@ async function _usersPantryRead() {
   if (!o || o.schemaVersion !== PANTRY_SCHEMA_VERSION) return null;
   if (!Array.isArray(o.users)) return null;
   const stale = (Date.now() - (o.ts || 0)) > _PANTRY_TTL_MS;
-  return { stale: stale, users: o.users };
+  // V10.1: expose ts so the caller can compare it against the fleet
+  // users-invalidate flag. Without this a password change is invisible to
+  // every other device for up to the full 30-day TTL.
+  return { stale: stale, users: o.users, ts: (o.ts || 0) };
+}
+// V10.1: drop the cached user list outright. Used when a password changes.
+async function _usersPantryClear() {
+  try { await _idbDelete(_USERS_PANTRY_KEY); } catch (_) {}
 }
 
 // V348: partners pantry (global, 30-day TTL).
@@ -9783,6 +9865,67 @@ function _fbSignInAnon() {
   }
 }
 
+// ── V10.1: App Check token verification with bounded retry ───────────────────
+// Why this exists: App Check enforcement on RTDB went live 2026-07-26. From
+// that moment a session with no App Check token is refused by the database
+// entirely — it is not a degraded session, it is a dead one. The SDK attests
+// once at activate(); if that single attempt fails there is no second try.
+//
+// What this does and does not fix:
+//   - TRANSIENT failure (reCAPTCHA slow/unreachable for a moment): retrying
+//     genuinely recovers it. This is the common rural-connectivity case.
+//   - HARD 403: the SDK self-throttles for 24h and no amount of retrying in
+//     this page will help. Only a fresh page load starts a new attempt. So we
+//     stop early, and tell the user the one thing that actually works.
+// Either way the session is no longer silently broken.
+window._v101AppCheck = { ok: false, attempts: 0, lastError: null, notified: false };
+
+async function _v101VerifyAppCheck() {
+  const DELAYS = [0, 1500, 4000, 9000];   // ~15s total, then give up
+  for (let i = 0; i < DELAYS.length; i++) {
+    if (DELAYS[i]) await new Promise(r => setTimeout(r, DELAYS[i]));
+    window._v101AppCheck.attempts = i + 1;
+    try {
+      const t = await firebase.appCheck().getToken(false);
+      if (t && t.token) {
+        window._v101AppCheck.ok = true;
+        window._v101AppCheck.lastError = null;
+        if (i > 0) console.log('[V10.1] App Check token obtained on attempt ' + (i + 1));
+        return true;
+      }
+      window._v101AppCheck.lastError = 'empty-token';
+    } catch (e) {
+      const code = (e && (e.code || e.message)) || 'unknown';
+      window._v101AppCheck.lastError = String(code);
+      // A throttle is terminal for this page load — retrying just burns time
+      // while the user waits. Stop and surface the remedy instead.
+      if (/throttl/i.test(String(code))) {
+        console.warn('[V10.1] App Check throttled — further retries pointless this session:', code);
+        break;
+      }
+      console.warn('[V10.1] App Check attempt ' + (i + 1) + ' failed:', code);
+    }
+  }
+  _v101NotifyAppCheckFailure();
+  return false;
+}
+
+function _v101NotifyAppCheckFailure() {
+  if (window._v101AppCheck.notified) return;
+  window._v101AppCheck.notified = true;
+  console.error('[V10.1] App Check unavailable after ' + window._v101AppCheck.attempts +
+                ' attempts (' + window._v101AppCheck.lastError + '). The database will refuse this session.');
+  // Bilingual, because a coordinator in the field may not read English. The
+  // instruction is deliberately the ONE action that actually clears a throttle:
+  // fully close the app and open it again.
+  const msg = 'Security check failed. Please CLOSE the app completely and open it again.' +
+              '\n\nસુરક્ષા ચકાસણી નિષ્ફળ. કૃપા કરીને એપ્લિકેશન સંપૂર્ણપણે બંધ કરીને ફરીથી ખોલો.';
+  try {
+    if (typeof toast === 'function') toast(msg, 'error', 15000);
+    else alert(msg);
+  } catch (_) { try { alert(msg); } catch (__) {} }
+}
+
 // ── Initialise Firebase ──────────────────────────────────────────────────────
 function fbInit() {
   if (typeof firebase === 'undefined') {
@@ -9793,14 +9936,29 @@ function fbInit() {
   }
   try {
     FB.app = firebase.initializeApp(FB_CONFIG);
+    // V4.5/V10.1: see _v101VerifyAppCheck below for why this now matters.
     // V4.5: activate App Check as early as possible so every subsequent
-    // Firebase call carries a verifiable token. Best-effort — enforcement
-    // is off in Firebase console, so a failure here (e.g. reCAPTCHA script
-    // blocked by the network) never blocks the app, it just means this
-    // session won't show up as "verified" in the App Check dashboard.
+    // Firebase call carries a verifiable token.
+    //
+    // V10.1 — THIS IS NO LONGER BEST-EFFORT. RTDB enforcement was switched ON
+    // in the Firebase console on 2026-07-26. A session that cannot obtain an
+    // App Check token is now REFUSED BY THE DATABASE: no login, no records,
+    // no saving. The previous comment here said a failure "never blocks the
+    // app" — true when it was written, false the moment enforcement went on.
+    //
+    // The SDK attests once. A single failure (reCAPTCHA unreachable on a weak
+    // rural connection) therefore costs that coordinator their whole session,
+    // and a 403 puts the SDK into a 24-hour throttle it will not retry out of.
+    // Observed live on 2026-07-26: "appCheck/throttled ... Attempts allowed
+    // again after 23h:59m" while the database refused every read.
+    //
+    // So: confirm we actually hold a token, retry with backoff for transient
+    // failures, and if it still fails say so loudly instead of leaving an FC
+    // staring at an app that silently does nothing.
     try {
       if (firebase.appCheck) {
         firebase.appCheck().activate(APPCHECK_RECAPTCHA_SITE_KEY, true);
+        _v101VerifyAppCheck();   // async on purpose — must never delay boot
       } else {
         console.warn('[V4.5] firebase-app-check-compat not loaded — App Check inactive');
       }
@@ -9905,6 +10063,19 @@ async function fbInitialSync() {
       return;
     }
   }
+  // V11.1: under tightened rules an anonymous session can read nothing, so the
+  // whole load below has to wait for a real sign-in. Off unless the rules have
+  // actually been tightened, in which case it is what stops every coordinator
+  // opening an empty app. Deliberately placed AFTER the auth wait (we need to
+  // know what kind of session we have) and BEFORE the first read.
+  try {
+    if (typeof _v11GateInitialSync === 'function' && await _v11GateInitialSync()) {
+      FB.ready = false;
+      try { fbUpdatePill(); } catch (_) {}
+      return;
+    }
+  } catch (e) { console.warn('[V11.1] sync gate check failed, continuing:', e && e.message); }
+
   // V347: attach real-time version listener — propagates new versions instantly.
   try { _v343VersionCheck(); } catch(_){}
   // V398: attach the fleet-reset listener (admin "Reset all clients" button).
@@ -9979,9 +10150,32 @@ async function fbInitialSync() {
     }
     async function _v348FetchUsers() {
       const cached = await _usersPantryRead();
-      if (cached && !cached.stale && cached.users.length > 0) {
+      // V10.1: the cached user list carries every password. Before trusting it
+      // we check a fleet flag an admin bumps whenever a password changes.
+      //
+      // Why this exists: the ONLY thing that previously invalidated this cache
+      // was its own 30-day TTL. "Push fresh data to all FCs" never touched it
+      // (that path refreshes beneficiaries and advocacy only), so a password
+      // change did not reach other devices for up to a month — the NEW password
+      // was rejected there and the OLD one kept working. Hit for real with the
+      // `blf` account on 2026-07-26.
+      //
+      // Costs ~30 bytes per boot, and only forces a real refetch when a
+      // password has actually changed since this device last synced.
+      let _fleetUsersTs = 0;
+      try {
+        const fsnap = await fbRef('_usersInvalidateFleet').once('value');
+        const fv = fsnap.val();
+        if (typeof fv === 'number') _fleetUsersTs = fv;
+      } catch (_) { /* offline or denied — fall through to normal TTL rules */ }
+
+      const _cacheBeatsFlag = cached && (_fleetUsersTs <= (cached.ts || 0));
+      if (cached && !cached.stale && cached.users.length > 0 && _cacheBeatsFlag) {
         console.log('[V348] users from pantry (boot):', cached.users.length);
         return { val: function() { const obj = {}; for (const r of cached.users) if (r && r.id) obj[r.id] = r; return obj; } };
+      }
+      if (cached && !cached.stale && cached.users.length > 0 && !_cacheBeatsFlag) {
+        console.log('[V10.1] users cache superseded by a password change — refetching');
       }
       const snap = await fbRef('users').once('value');
       const arr = Object.values(snap.val() || {});
@@ -12210,6 +12404,17 @@ async function saveData(arr) {
   }
   // Normal path: await Firebase, then update cache. If Firebase throws,
   // cache is unchanged and the caller's form stays in error state.
+  //
+  // V10.1: capture which coordinators owned records BEFORE this save, so a
+  // DELETION still bumps that coordinator's _fc_meta. See the meta block below
+  // for why this matters — without it a deleted record never disappears from
+  // the owner's other devices.
+  const _v101OwnersBefore = new Set();
+  try {
+    for (const rec of RecordCache.benef.values()) {
+      if (rec && rec.createdBy) _v101OwnersBefore.add(rec.createdBy);
+    }
+  } catch (_) {}
   await fbSyncCollection('beneficiaries', arr || [], 'id', 'lastBenef');
   _hydrateBenefCache(Array.isArray(arr) ? arr : []);
   // V362: queue a summary write (debounced 2 sec) so viewer's numbers stay
@@ -12230,6 +12435,20 @@ async function saveData(arr) {
       for (const rec of (Array.isArray(arr) ? arr : [])) {
         if (rec && rec.createdBy) affectedFCs.add(rec.createdBy);
       }
+      // V10.1 DELETION FIX. This set was built ONLY from records still present
+      // in `arr`. A deleted record is by definition absent, so if it was that
+      // coordinator's last record their _fc_meta was never bumped — and the
+      // smart-check compares exactly that meta against the device's cached
+      // count. Matching stale numbers meant "nothing changed", so the deleted
+      // beneficiary stayed visible on their other devices permanently, and
+      // pressing Refresh did nothing (it is also capped to once a day).
+      // Reproduced on 2026-07-26: a record deleted on the laptop was still on
+      // the phone after a Refresh.
+      // Adding the owners captured BEFORE the write means a deletion always
+      // moves that coordinator's count, so their devices notice.
+      try {
+        for (const uid of _v101OwnersBefore) if (uid) affectedFCs.add(uid);
+      } catch (_) {}
       if (affectedFCs.size > 0) _v359UpdateFcMeta(Array.from(affectedFCs));
     }
   } catch(_) {}
@@ -25409,6 +25628,11 @@ function renderAdminUsers() {
     );
   }
 
+  // V11: resetting someone's PIN is an administrator action. The server
+  // function enforces this from the token's own claims; this only keeps the
+  // button from appearing where it would always fail.
+  const _v11IsAdmin = !!(me && me.role === 'admin');
+
   const roleBadge = r => {
     // V375: labels for viewer + scopedViewer roles so the user table reads
     // cleanly. Without this they fell through to gray "scopedViewer" raw text.
@@ -25438,6 +25662,7 @@ function renderAdminUsers() {
       <td style="text-align:center;font-weight:500">${owned}</td>
       <td style="white-space:nowrap">
         <button class="btn btn-sm" onclick="adminEditUser('${escHtml(u.id)}')">Edit</button>
+        ${_v11IsAdmin?`<button class="btn btn-sm" title="Give this person a temporary PIN. They must choose their own the next time they sign in." onclick="adminResetUserPin('${escHtml(u.id)}')">Reset PIN</button>`:''}
         ${isMe?'':`<button class="btn btn-sm" style="color:var(--red)" onclick="adminDeleteUser('${escHtml(u.id)}')">Delete</button>`}
       </td>
     </tr>`;
@@ -25483,6 +25708,7 @@ function renderAdminUsers() {
           <button class="btn btn-sm" onclick="openTransferTool()" title="Move selected beneficiaries from one FC to another (same NGO)">⇄ Transfer Beneficiaries</button>
           <button class="btn btn-sm" onclick="openMoveFcTool()" title="Move an FC + all their beneficiaries + advocacy records to a different NGO">⇄ Move FC to NGO</button>
           <button class="btn btn-sm" onclick="openBulkAssignTool()" title="Assign many beneficiaries (e.g. freshly bulk-imported, still-unassigned) to a Field Coordinator at once">📥 Bulk Assign FC</button>
+          ${_v11IsAdmin?`<button class="btn btn-sm" onclick="_v11ShowAdoption()" title="How many people have signed in through the new server login. This is the number that decides when the database rules can safely be tightened.">🔐 Login adoption</button>`:''}
           <button class="btn btn-primary btn-sm" onclick="adminNewUser()">+ Add User</button>
         </div>
       </div>
@@ -25784,6 +26010,31 @@ async function _adminSaveUserInner() {
     const pwChanged = pw ? ' (password reset)' : '';
     auditLog('update', 'user', editingId, username,
       `Admin edited user ${username}${pwChanged}`, diff);
+    // V10.1: a password change is NOT effective until every device refetches
+    // the users list. Login verifies against the LOCAL cached copy (pantry,
+    // 30-day TTL), not Firebase — so until the fleet refreshes, the NEW
+    // password is rejected everywhere else and the OLD one still works.
+    // Found the hard way on 2026-07-26: an NGO password was changed, worked
+    // in the admin's own browser, and failed in every other one.
+    // Firing the same fleet signal the admin button uses removes the manual
+    // step. Best-effort: the user record is already saved, so a failure here
+    // must never surface as a save error.
+    if (pw) {
+      try {
+        // MUST be _usersInvalidateFleet, NOT _pantryInvalidateFleet.
+        // _pantryInvalidateFleet drives the beneficiary/advocacy smart-check,
+        // which never looks at the user list and requires an existing login to
+        // run at all — so it can never fix a password problem. Corrected after
+        // the first version of this fix used the wrong flag and did nothing.
+        await fbRef('_usersInvalidateFleet').set(Date.now());
+        // Drop it locally too, so this very browser cannot serve the old list.
+        await _usersPantryClear();
+        toast('Password changed. Every device will pick it up on next open.', 'success', 5000);
+      } catch (e) {
+        console.warn('[V10.1] users invalidate signal failed:', e);
+        toast('Password saved, but other devices were not notified. They may keep accepting the OLD password until they are opened again tomorrow. Try the save again.', 'error', 10000);
+      }
+    }
     toast('User updated: ' + username, 'success');
     // If the current session user edited themselves, refresh the pill
     const me = currentUser();
@@ -29178,6 +29429,778 @@ async function _v10EstablishRealSession(userRecord, plaintextPassword) {
   return res;
 }
 
+// =============================================================================
+// V11 — SERVER-SIDE LOGIN
+// =============================================================================
+// WHY THIS EXISTS
+// Until now the browser checked the password itself. To do that it had to
+// download every user record — including every password hash — and keep them in
+// IndexedDB for up to 30 days. That is what forced the `users` node to stay
+// readable, and it is the root cause of the whole stale-password family of bugs
+// V10.1 had to work around: a device holding an old list kept accepting an old
+// password and rejecting the new one.
+//
+// V11 asks a Cloud Function instead. The browser sends a username and PIN and
+// receives a signed token; it never sees a hash. The function reads ONE indexed
+// record rather than the whole node.
+//
+// HOW IT FAILS — this is the important part.
+// The server does not replace the old check, it sits in front of it. Anything
+// that means "the server could not give a trustworthy answer" — cold start,
+// offline, CORS, a rolled-back deploy, an App Check hiccup, a proxy error page,
+// a malformed body — falls straight through to the V10.1 client check below,
+// which is left completely untouched. Only an explicit "wrong credentials"
+// answer stops the login, and only because that answer was computed from LIVE
+// data and is therefore strictly more trustworthy than a cached list. Even a
+// correct password whose token exchange fails falls back rather than denying a
+// legitimate person.
+//
+// COST
+// One invocation and roughly 500 bytes per login against a ~12 GB/month
+// baseline, plus a ~70-byte breadcrumb write. It also REMOVES the ~150 KB users
+// refetch V10.1 needed after a password change, so on balance it reduces
+// traffic rather than adding to it. Well inside the Cloud Functions free tier.
+// =============================================================================
+
+// Region matches the database (asia-southeast1). Derived from FB_CONFIG, so a
+// staging build automatically targets the staging project and a production
+// build can never be pointed at the wrong one by an editing slip.
+const V11_FN_BASE = 'https://asia-southeast1-' + FB_CONFIG.projectId + '.cloudfunctions.net';
+
+// ── remote off-switches ─────────────────────────────────────────────────────
+// Two independent switches, read once when the login screen appears. Changing
+// either in the database takes effect on the next app open — no rebuild, no
+// re-upload, no waiting for anyone to update.
+//   _v11Config/serverLogin  true  -> ask the function; anything else -> don't
+//   _v11Config/pinPrompt    false -> never show the required PIN-change screen
+//
+// SERVER LOGIN IS OFF UNLESS EXPLICITLY TURNED ON, and that asymmetry is the
+// point. Uploading this file changes nothing about how anybody signs in: with
+// no setting present the app behaves exactly as V10.1 did. Someone then has to
+// make a deliberate decision to switch it on. Defaulting the other way would
+// mean a forgotten console step silently put all 558 coordinators onto a new
+// login path — the one thing this release must never do by accident.
+//
+// pinPrompt defaults the other way (ON) because it is harmless on its own: it
+// only ever fires for someone an admin has explicitly asked to change their PIN.
+let _v11Cfg = null;
+let _v11CfgPromise = null;
+//   _v11Config/requireRealSession  true -> load NO data until somebody has
+//     signed in through the server. Must be turned on at the same time as the
+//     tightened database rules and never before — see _v11GateInitialSync().
+function _v11DefaultCfg() { return { serverLogin: false, pinPrompt: true, requireRealSession: false }; }
+
+// Does this browser hold a session the TIGHTENED rules would accept? Not just
+// "signed in" — an anonymous session and the old email/password session are
+// both non-null but carry no `krsf` claim, so both read nothing once the rules
+// are locked down. Only a token minted by the login function qualifies.
+// Reads the claim out of the token locally; no network call.
+async function _v11HasKrsfSession() {
+  try {
+    if (!(FB && FB.auth && FB.auth.currentUser)) return false;
+    if (FB.auth.currentUser.isAnonymous) return false;
+    const r = await FB.auth.currentUser.getIdTokenResult();
+    return !!(r && r.claims && r.claims.krsf === true);
+  } catch (_) { return false; }
+}
+
+// Set when the initial sync was skipped because nobody had signed in yet, so
+// the login path knows it still owes the app its data.
+let _v11SyncDeferred = false;
+
+// THE PREREQUISITE FOR LOCKING THE DATABASE DOWN.
+// Today the app signs in anonymously at boot and immediately downloads
+// partners, config, the audit log and all 570 user records — before anyone has
+// logged in. Under rules that require a real session every one of those reads
+// is denied, so simply pasting tightened rules would give every coordinator an
+// empty app. This defers the whole load until after sign-in instead.
+// Returns true if the caller should STOP.
+async function _v11GateInitialSync() {
+  let cfg;
+  try {
+    cfg = await Promise.race([
+      _v11LoadConfig(),
+      new Promise(r => setTimeout(() => r(_v11DefaultCfg()), 3000))
+    ]);
+  } catch (_) { cfg = _v11DefaultCfg(); }
+  if (!cfg || !cfg.requireRealSession) return false;      // OFF today: no change
+  if (await _v11HasKrsfSession()) return false;           // already signed in
+  console.log('[V11.1] holding the initial sync until somebody signs in (tightened rules)');
+  _v11SyncDeferred = true;
+
+  // THE STRANDED-SESSION CASE, and it is the one that would have hurt.
+  // "Stay signed in" means a device can hold an app session from BEFORE the
+  // switchover — with an anonymous or old email/password Firebase session
+  // behind it. bootGate sees that session, skips the login screen, and renders
+  // the app. But the data load has just been held back and nothing will ever
+  // release it, because releasing it happens on sign-in and no sign-in is
+  // coming. The person sits looking at an empty app with no way to fix it and
+  // nothing to tell them what is wrong.
+  //
+  // So: drop the stale session and put the login screen up. They sign in once,
+  // get a real session, and everything loads. One extra login, once.
+  try {
+    if (typeof currentUser === 'function' && currentUser()) {
+      console.warn('[V11.1] this device is signed in but without a server session — asking for one login');
+      saveSession(null);
+      const ov = document.getElementById('login-overlay');
+      if (ov) ov.style.display = 'flex';
+      try { _v11OnLoginScreenShown(); } catch (_) {}
+    }
+  } catch (e) { console.warn('[V11.1] could not surface the login screen:', e && e.message); }
+  return true;
+}
+
+// Runs the sync that _v11GateInitialSync held back. Called after a successful
+// sign-in. Safe to call when nothing was deferred — it does nothing.
+async function _v11RunDeferredSync() {
+  if (!_v11SyncDeferred) return;
+  _v11SyncDeferred = false;
+  try {
+    console.log('[V11.1] signed in — running the initial sync now');
+    await fbInitialSync();
+  } catch (e) {
+    console.error('[V11.1] deferred initial sync failed:', e);
+  }
+}
+
+function _v11LoadConfig() {
+  if (_v11CfgPromise) return _v11CfgPromise;
+  // Do NOT memoise an answer produced before Firebase was ready — the login
+  // screen can appear at boot, before fbInit() finishes, and caching the
+  // fallback there would leave the off-switches unreadable for the whole
+  // session. Return the default now and let the next caller try again.
+  if (!(FB && FB.db)) return Promise.resolve(_v11DefaultCfg());
+  _v11CfgPromise = (async () => {
+    try {
+      const snap = await Promise.race([
+        fbRef('_v11Config').once('value'),
+        new Promise(r => setTimeout(() => r(null), 4000))
+      ]);
+      const v = (snap && typeof snap.val === 'function') ? snap.val() : null;
+      if (!v || typeof v !== 'object') return _v11DefaultCfg();
+      // serverLogin needs an explicit true. A typo, a string "true", or a
+      // half-finished edit in the console therefore leaves it OFF rather than
+      // switching the whole fleet over by accident.
+      // pinPrompt needs an explicit false to disable, for the reason above.
+      return {
+        serverLogin:       v.serverLogin === true,
+        pinPrompt:         v.pinPrompt   !== false,
+        requireRealSession: v.requireRealSession === true
+      };
+    } catch (_) { return _v11DefaultCfg(); }
+  })().then(c => { _v11Cfg = c; return c; });
+  return _v11CfgPromise;
+}
+
+// ── cold-start warm-up ──────────────────────────────────────────────────────
+// A gen2 function that has been idle is cold, and a cold start can take several
+// seconds. Left alone that delay would land exactly on an FC's login, on a
+// rural connection, first thing in the morning — the worst possible place.
+//
+// So when the login screen appears we send one deliberately-invalid request.
+// `login` rejects a missing username BEFORE it touches the database, so this
+// costs one invocation, zero reads and zero writes, and leaves a warm instance
+// ready during the several seconds it takes someone to type their PIN.
+let _v11Warmed = false;
+function _v11WarmUp() {
+  if (_v11Warmed) return;
+  _v11Warmed = true;
+  try {
+    fetch(V11_FN_BASE + '/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: {} })
+    }).catch(() => {});
+  } catch (_) {}
+}
+
+// Called wherever the login screen is put on screen. Both halves are
+// fire-and-forget: neither may ever delay or block the login form.
+function _v11OnLoginScreenShown() {
+  // Wait for the off-switch before warming. Checking _v11Cfg directly would
+  // always warm on the first login screen of a session, because the value has
+  // not arrived yet — which means the emergency off-switch would still be
+  // sending one function call per device per app-open, exactly when somebody
+  // has turned it off because something is wrong.
+  try {
+    _v11LoadConfig()
+      .then(function (cfg) { if (cfg && cfg.serverLogin !== false) _v11WarmUp(); })
+      .catch(function () {});
+  } catch (_) {}
+}
+
+// ── the call itself ─────────────────────────────────────────────────────────
+// Speaks the callable-function HTTPS protocol directly rather than loading the
+// Firebase Functions SDK. That SDK would put another ~20 KB of script on the
+// critical path to reach one endpoint, against a hard "the app must load fast"
+// requirement — and the protocol is small enough to write out: POST {data:...},
+// read back {result:...} on success or {error:{status,message}} on failure.
+//
+// Returns exactly one of:
+//   {status:'ok', token, user}     server verified the PIN against live data
+//   {status:'rejected', message}   server says these credentials are wrong
+//   {status:'locked', message}     server-side rate limit hit
+//   {status:'unavailable', reason} no trustworthy answer — caller must fall back
+async function _v11ServerLogin(username, pin) {
+  const OUT = (status, extra) => Object.assign({ status: status }, extra || {});
+  let resp;
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    // Forward an App Check token when one is already in hand. The function does
+    // not require it today; sending it means enforcement can be switched on
+    // later without needing another client release. Never blocks: if App Check
+    // is unhappy we simply send no header.
+    try {
+      if (typeof firebase !== 'undefined' && firebase.appCheck &&
+          window._v101AppCheck && window._v101AppCheck.ok) {
+        const t = await Promise.race([
+          firebase.appCheck().getToken(false),
+          new Promise(r => setTimeout(() => r(null), 1500))
+        ]);
+        if (t && t.token) headers['X-Firebase-AppCheck'] = t.token;
+      }
+    } catch (_) {}
+
+    // 6s ceiling. A warm function answers in ~150 ms and a cold start in ~3 s,
+    // so 6 s covers the real cases with room to spare. It was 12 s, which was
+    // wrong for the actual field conditions here: a weak rural connection
+    // fails by HANGING rather than erroring, so the ceiling IS the wait, and
+    // every second of it is dead time in front of a check that needs no
+    // network at all. Better to give up early and use the built-in one.
+    const ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    const timer = setTimeout(() => { try { if (ctl) ctl.abort(); } catch (_) {} }, 6000);
+    try {
+      resp = await fetch(V11_FN_BASE + '/login', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({ data: { username: username, pin: pin } }),
+        signal: ctl ? ctl.signal : undefined
+      });
+    } finally { clearTimeout(timer); }
+  } catch (e) {
+    return OUT('unavailable', { reason: 'network:' + ((e && e.name) || (e && e.message) || 'error') });
+  }
+
+  let body = null;
+  try { body = await resp.json(); } catch (_) { body = null; }
+
+  if (resp.ok && body && body.result && body.result.token && body.result.user && body.result.user.id) {
+    return OUT('ok', { token: body.result.token, user: body.result.user });
+  }
+
+  const errStatus = (body && body.error && body.error.status) || '';
+  const errMsg    = (body && body.error && body.error.message) || '';
+  if (errStatus === 'UNAUTHENTICATED')    return OUT('rejected', { message: errMsg });
+  if (errStatus === 'RESOURCE_EXHAUSTED') return OUT('locked',   { message: errMsg });
+  // INVALID_ARGUMENT deliberately falls through to 'unavailable' below rather
+  // than being treated as a rejection. _doLoginInner has already guaranteed a
+  // non-empty username and PIN, so this code can only mean the request itself
+  // was malformed in some way we did not anticipate — and telling somebody with
+  // a perfectly good password that it is wrong would be the worst reading of
+  // that. Falling back re-checks them locally instead.
+  // NOT_FOUND (function deleted), INTERNAL, UNAVAILABLE, DEADLINE_EXCEEDED, a
+  // 403 from App Check, an HTML error page from a captive portal, a 200 with a
+  // body we do not recognise — every one of these means "no trustworthy
+  // answer", so the caller uses the built-in check instead of denying anyone.
+  return OUT('unavailable', { reason: 'http' + resp.status + (errStatus ? ':' + errStatus : '') });
+}
+
+// ── adoption breadcrumb ─────────────────────────────────────────────────────
+// One tiny record per user saying "this account has been through the new login
+// on this version". That number is what tells us when it is actually safe to
+// tighten the database rules — the alternative is guessing, and guessing wrong
+// locks field staff out. Deliberately its own node so it never touches `users`
+// and can never disturb the users cache.
+function _v11RecordSeen(userId, mode) {
+  try {
+    if (!userId || !(FB && FB.db)) return;
+    // Not awaited anywhere: a login must never wait on, or fail because of,
+    // a piece of book-keeping.
+    fbRef('_v11Seen/' + userId).set({ ts: Date.now(), mode: mode, v: APP_VERSION })
+      .catch(function () {});
+  } catch (_) {}
+}
+
+// ── completing a server login ───────────────────────────────────────────────
+// Returns true if the user is signed in and the app has rendered; false means
+// "could not complete — fall through to the ordinary client path", which is
+// always safe because the client path re-verifies the typed password itself.
+async function _v11FinishServerLogin(res, typedUsername) {
+  const user = res.user;
+
+  // Exchange the signed token for a real Firebase session. This is what makes
+  // the session genuinely this person's: auth.uid becomes their app user id,
+  // which is already what every record's createdBy uses — so identity in the
+  // database and identity in Auth finally agree.
+  try {
+    await Promise.race([
+      FB.auth.signInWithCustomToken(res.token),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 10000))
+    ]);
+    FB.authUser = FB.auth.currentUser;
+  } catch (e) {
+    // The PIN was correct — the server said so against live data. Only the
+    // session swap failed. Denying a legitimate person here would be the worst
+    // outcome, so we hand back to the client path, which establishes its own
+    // session in the way V10 already does.
+    console.warn('[V11] custom-token sign-in failed — using the built-in path instead:', e && e.message);
+    try { await _v10EnsureSomeSession(); } catch (_) {}
+    return false;
+  }
+
+  // From here on this login HAS succeeded and we must never return false.
+  // Returning false would send the caller into the client path with a session
+  // already saved and the overlay already hidden — which would sign the user in
+  // a second time, duplicate their audit entry, and (if their username is not
+  // in this device's cached list) end with "Username or password is incorrect"
+  // shown over a working, signed-in app. So everything below is wrapped and the
+  // function returns true no matter what fails.
+  try {
+    _resetLoginFailures(typedUsername);
+    _v11RecordSeen(user.id, 'server');
+
+    saveSession({
+      userId: user.id, username: user.username, role: user.role, ngo: user.ngo,
+      fullName: user.fullName,
+      assignedNgos:  user.assignedNgos  || null,
+      assignedFcIds: user.assignedFcIds || null
+    });
+    // V11.1: if the boot-time load was held back because nobody was signed in,
+    // this is the moment it can finally run. Not awaited — the app renders from
+    // cache straight away and re-renders itself when the data lands, which is
+    // the same shape as a normal boot.
+    try { _v11RunDeferredSync(); } catch (_) {}
+    try { if (typeof fbAttachListeners === 'function') fbAttachListeners(); } catch (_) {}
+    try {
+      auditLog('login', 'session', user.id, user.username,
+        'Signed in as ' + user.role + (user.ngo ? ' (' + user.ngo + ')' : '') + ' [server]', null);
+    } catch (_) {}
+    document.getElementById('login-overlay').style.display = 'none';
+    document.getElementById('login-username').value = '';
+    document.getElementById('login-password').value = '';
+    renderAfterLogin();
+  } catch (e) {
+    console.error('[V11] server login completed but rendering failed:', e);
+  }
+
+  // Deliberately LAST, and deliberately after renderAfterLogin(). If anything
+  // about the PIN screen misbehaves, the person is already signed in and able
+  // to work — a bug here costs a prompt, never a day's fieldwork.
+  try {
+    const cfg = _v11Cfg || _v11DefaultCfg();
+    if (user.mustChangePin && cfg.pinPrompt) {
+      setTimeout(function () { try { _v11OpenPinChange(user, true); } catch (_) {} }, 400);
+    }
+  } catch (_) {}
+  return true;
+}
+
+// ── after ANY successful PIN write ──────────────────────────────────────────
+// This exists because of a bug that would otherwise be invisible until it bit.
+//
+// saveOneUser() writes the WHOLE record with .set(), built from whatever
+// loadUsers() has cached. When the server changes a password hash, this device
+// is not told — so the cached record still carries the OLD hash. The next
+// perfectly innocent edit of that user (fixing a spelling in Edit User, or the
+// person updating their own name in My Account) writes the stale record back
+// and RESTORES THE OLD PIN, silently. The admin who just read a temporary PIN
+// down the phone has actually reverted it, with no error anywhere.
+//
+// So: re-read that single record (~300 bytes, a direct path read — not a scan)
+// and put the truth back into the cache, the diff map and the pantry together.
+//
+// bumpFleet is deliberately NOT the default. It makes EVERY device re-download
+// the whole ~190 KB user list at its next start. That is the right price for a
+// rare admin-initiated reset, and quite the wrong one for self-service PIN
+// changes: 558 people changing their own PIN would mean gigabytes of re-reads
+// against a 12 GB/month budget. Self-service changes stay correct through the
+// single-user freshness check the login path now does instead.
+async function _v11AfterPinWrite(userId, bumpFleet) {
+  try {
+    const snap = await fbRef('users/' + userId).once('value');
+    const fresh = snap.val();
+    if (fresh && fresh.id) {
+      RecordCache.users.set(fresh.id, fresh);
+      if (FB.lastUsers && typeof FB.lastUsers === 'object' && typeof fbHash === 'function') {
+        FB.lastUsers[fresh.id] = fbHash(fresh);
+      }
+      try { await _usersPantryWrite(Array.from(RecordCache.users.values())); } catch (_) {}
+    }
+  } catch (e) {
+    console.warn('[V11] could not refresh the local copy after a PIN write:', e && e.message);
+  }
+  if (bumpFleet) {
+    try { await fbRef('_usersInvalidateFleet').set(Date.now()); } catch (_) {}
+  }
+}
+
+// ── changing a PIN ──────────────────────────────────────────────────────────
+// Server first, because only the server can clear the mustChangePin flag while
+// verifying the old PIN in one atomic step. If the function cannot be reached
+// we write the user's own record directly — the same fallback shape as login,
+// so being on a bad connection never traps someone on this screen.
+//
+// Returns {ok:true} or {ok:false, message} where the message is safe to show.
+async function _v11ChangePin(userId, currentPin, newPin) {
+  // ── attempt 1: the server ──
+  try {
+    if (FB && FB.auth && FB.auth.currentUser) {
+      const idToken = await Promise.race([
+        FB.auth.currentUser.getIdToken(),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000))
+      ]);
+      const resp = await fetch(V11_FN_BASE + '/changePin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
+        body: JSON.stringify({ data: { currentPin: currentPin, newPin: newPin } })
+      });
+      let body = null;
+      try { body = await resp.json(); } catch (_) {}
+      if (resp.ok && body && body.result && body.result.ok) {
+        await _v11AfterPinWrite(userId, false);
+        return { ok: true, via: 'server' };
+      }
+
+      const msg = (body && body.error && body.error.message) || '';
+      // These two are real answers about the PINs themselves, computed from
+      // live data. Show them; do not retry locally, or a stale cached hash
+      // could overrule a correct server verdict.
+      if (/current pin is incorrect/i.test(msg))  return { ok: false, message: 'Your current PIN is incorrect.' };
+      if (/must be different/i.test(msg))         return { ok: false, message: 'Your new PIN must be different from the current one.' };
+      console.warn('[V11] changePin via server unavailable — writing directly instead:', msg || resp.status);
+    }
+  } catch (e) {
+    console.warn('[V11] changePin via server failed — writing directly instead:', e && e.message);
+  }
+
+  // ── attempt 2: write our own record ──
+  try {
+    const all = loadUsers();
+    const idx = all.findIndex(x => x.id === userId);
+    if (idx < 0) return { ok: false, message: 'Could not find your account on this device. Please sign out and in again.' };
+    const rec = all[idx];
+    const check = await _verifyPassword(currentPin, rec.passwordHash);
+    if (!check.ok) return { ok: false, message: 'Your current PIN is incorrect.' };
+    const same = await _verifyPassword(newPin, rec.passwordHash);
+    if (same.ok) return { ok: false, message: 'Your new PIN must be different from the current one.' };
+
+    rec.passwordHash = await _hashPassword(newPin);
+    delete rec.mustChangePin;
+    rec.pinChangedAt = Date.now();
+    await saveOneUser(rec);
+    // saveOneUser already writes through to the cache and the pantry, so this
+    // is belt-and-braces; it also keeps both PIN-change paths ending in exactly
+    // the same state, which is what makes them safe to reason about together.
+    await _v11AfterPinWrite(userId, false);
+    return { ok: true, via: 'client' };
+  } catch (e) {
+    return { ok: false, message: 'Could not save your new PIN. Please check your connection and try again.' };
+  }
+}
+
+// The PIN screen. `forced` means it was triggered by a required change, in
+// which case there is no way to dismiss it except completing the change or
+// signing out — but signing out IS offered, so nobody is ever trapped.
+function _v11OpenPinChange(user, forced) {
+  if (document.getElementById('v11-pin-overlay')) return;   // never stack
+  const ov = document.createElement('div');
+  ov.id = 'v11-pin-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:60000;background:rgba(17,24,39,0.72);display:flex;align-items:center;justify-content:center;padding:16px;font-family:var(--font),system-ui,sans-serif;overflow-y:auto';
+  ov.innerHTML =
+    '<div style="background:#fff;border-radius:12px;max-width:440px;width:100%;box-shadow:0 16px 44px rgba(0,0,0,0.3);overflow:hidden;margin:auto">' +
+      '<div style="padding:18px 20px 12px;border-bottom:1px solid var(--gray3)">' +
+        '<div style="font-size:17px;font-weight:700;color:var(--navy)">' +
+          (forced ? 'Set a new PIN' : 'Change your PIN') + '</div>' +
+        '<div style="font-size:13px;color:var(--gray2);margin-top:3px">નવો PIN સેટ કરો</div>' +
+      '</div>' +
+      '<div style="padding:16px 20px">' +
+        (forced
+          ? '<div style="background:#FEF3C7;border:1px solid #FCD34D;border-radius:8px;padding:11px 13px;font-size:13px;color:#78350F;margin-bottom:14px;line-height:1.5">' +
+            'Your PIN was reset by an administrator. Please choose your own PIN now.' +
+            '<div style="margin-top:6px">તમારો PIN એડમિનિસ્ટ્રેટરે રીસેટ કર્યો છે. કૃપા કરીને હવે તમારો પોતાનો PIN પસંદ કરો.</div></div>'
+          : '') +
+        '<label style="display:block;font-size:12px;font-weight:600;color:var(--gray2);margin-bottom:4px">Current PIN / હાલનો PIN</label>' +
+        '<input id="v11-pin-cur" type="password" inputmode="numeric" autocomplete="current-password" ' +
+          'style="width:100%;padding:9px 11px;border:1px solid var(--gray3);border-radius:7px;font-size:15px;margin-bottom:12px;letter-spacing:2px">' +
+        '<label style="display:block;font-size:12px;font-weight:600;color:var(--gray2);margin-bottom:4px">New PIN — 6 digits / નવો PIN — 6 અંક</label>' +
+        '<input id="v11-pin-new" type="password" inputmode="numeric" autocomplete="new-password" maxlength="12" ' +
+          'style="width:100%;padding:9px 11px;border:1px solid var(--gray3);border-radius:7px;font-size:15px;margin-bottom:12px;letter-spacing:2px">' +
+        '<label style="display:block;font-size:12px;font-weight:600;color:var(--gray2);margin-bottom:4px">Confirm new PIN / ફરીથી લખો</label>' +
+        '<input id="v11-pin-new2" type="password" inputmode="numeric" autocomplete="new-password" maxlength="12" ' +
+          'style="width:100%;padding:9px 11px;border:1px solid var(--gray3);border-radius:7px;font-size:15px;letter-spacing:2px">' +
+        '<div style="background:#FEE2E2;border:1px solid #FCA5A5;border-radius:8px;padding:12px 13px;margin-top:14px">' +
+          '<div style="font-size:13px;font-weight:700;color:#991B1B;margin-bottom:5px">⚠️ Write your PIN down and keep it safe.</div>' +
+          '<div style="font-size:12.5px;color:#7F1D1D;line-height:1.5">If you forget this PIN you will not be able to sign in. Only an administrator can reset it for you.</div>' +
+          '<div style="font-size:12.5px;color:#7F1D1D;line-height:1.6;margin-top:7px;font-weight:600">⚠️ તમારો PIN લખી લો અને સાચવીને રાખો.</div>' +
+          '<div style="font-size:12.5px;color:#7F1D1D;line-height:1.6">જો તમે આ PIN ભૂલી જશો તો તમે લોગિન કરી શકશો નહીં. ફક્ત એડમિનિસ્ટ્રેટર જ તે ફરીથી સેટ કરી શકે છે.</div>' +
+        '</div>' +
+        '<div id="v11-pin-err" style="display:none;color:var(--red);font-size:13px;margin-top:11px;font-weight:500"></div>' +
+      '</div>' +
+      '<div style="display:flex;justify-content:flex-end;gap:8px;padding:12px 20px 16px;background:#F9FAFB;border-top:1px solid var(--gray3)">' +
+        (forced
+          ? '<button id="v11-pin-out" class="btn btn-sm" style="margin-right:auto;color:var(--gray2)">Sign out</button>'
+          : '') +
+        '<button id="v11-pin-cancel" class="btn btn-sm">' + (forced ? 'Later / પછી' : 'Cancel') + '</button>' +
+        '<button id="v11-pin-save" class="btn btn-primary btn-sm">Save new PIN</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(ov);
+
+  const $ = id => document.getElementById(id);
+  const showErr = m => { const e = $('v11-pin-err'); e.textContent = m; e.style.display = 'block'; };
+  const close = () => { try { document.body.removeChild(ov); } catch (_) {} };
+
+  // "Later" is available even on a required change, and that is deliberate.
+  // Saving a PIN needs the network; this app is otherwise fully usable offline.
+  // A coordinator who opens it in a village with no signal could neither
+  // complete this screen nor dismiss it, and would lose the day's fieldwork to
+  // a modal. The flag stays set, so they are asked again at the next sign-in
+  // and the admin can still see who has not done it — the change is pressed,
+  // not enforced at the cost of somebody's work.
+  { const c = $('v11-pin-cancel'); if (c) c.onclick = close; }
+  const out = $('v11-pin-out');
+  if (out) out.onclick = () => { close(); try { doLogout(); } catch (_) { location.reload(); } };
+
+  $('v11-pin-save').onclick = async function () {
+    const btn = this;
+    const cur = $('v11-pin-cur').value.trim();
+    const n1  = $('v11-pin-new').value.trim();
+    const n2  = $('v11-pin-new2').value.trim();
+    $('v11-pin-err').style.display = 'none';
+
+    if (!cur)                 return showErr('Enter your current PIN.');
+    if (!/^\d{6,}$/.test(n1)) return showErr('Your new PIN must be at least 6 digits, numbers only.');
+    if (n1 !== n2)            return showErr('The two new PINs do not match.');
+    if (n1 === cur)           return showErr('Your new PIN must be different from the current one.');
+
+    btn.disabled = true; btn.textContent = 'Saving...';
+    const res = await _v11ChangePin(user.id, cur, n1);
+    if (!res.ok) {
+      btn.disabled = false; btn.textContent = 'Save new PIN';
+      return showErr(res.message || 'Could not change your PIN.');
+    }
+    // Keep this device's own cached copy honest, so the person is not asked
+    // again on the next screen.
+    try {
+      const all = loadUsers();
+      const rec = all.find(x => x.id === user.id);
+      if (rec) { delete rec.mustChangePin; RecordCache.users.set(rec.id, rec); }
+    } catch (_) {}
+    try { auditLog('pin_changed', 'session', user.id, user.username, 'Changed their own PIN', null); } catch (_) {}
+    close();
+    try { toast('PIN changed. Please remember it — write it down if you need to.', 'success', 6000); } catch (_) {}
+  };
+
+  setTimeout(() => { const e = $('v11-pin-cur'); if (e) e.focus(); }, 60);
+}
+
+// ── admin: reset someone else's PIN ─────────────────────────────────────────
+// The server is preferred because it can verify from the token's claims that
+// the caller really is an admin. That claim only exists on a session created by
+// the new server login, so an admin who fell back to the old path gets a
+// permission error — in which case we write the record directly, which is what
+// this app has always done and what the rules still permit.
+async function _v11AdminResetPin(userId, newPin) {
+  try {
+    if (FB && FB.auth && FB.auth.currentUser) {
+      const idToken = await Promise.race([
+        FB.auth.currentUser.getIdToken(),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000))
+      ]);
+      const resp = await fetch(V11_FN_BASE + '/adminResetPin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
+        body: JSON.stringify({ data: { userId: userId, newPin: newPin } })
+      });
+      let body = null;
+      try { body = await resp.json(); } catch (_) {}
+      if (resp.ok && body && body.result && body.result.ok) {
+        await _v11AfterPinWrite(userId, true);
+        return { ok: true, via: 'server' };
+      }
+      console.warn('[V11] adminResetPin via server unavailable — writing directly:',
+        (body && body.error && body.error.message) || resp.status);
+    }
+  } catch (e) {
+    console.warn('[V11] adminResetPin via server failed — writing directly:', e && e.message);
+  }
+
+  // The server proves the caller is an admin from the token's own claims. The
+  // fallback below cannot do that, so it has to check for itself. Without this,
+  // `adminResetUserPin` is a plain global function that any signed-in
+  // coordinator could call from the browser console against the admin's own
+  // account — the server would refuse, the code would fall through, and the
+  // direct write would succeed because the rules let any signed-in user write
+  // to `users`. Not a complete defence (that needs the rules tightened), but it
+  // removes a ready-made escalation route this release would otherwise add.
+  try {
+    const _me = currentUser();
+    if (!_me || _me.role !== 'admin') {
+      return { ok: false, message: 'Only an administrator can reset a PIN.' };
+    }
+  } catch (_) {
+    return { ok: false, message: 'Could not confirm your account. Please sign in again.' };
+  }
+
+  // Direct write. Mirrors exactly what the server function does, so the two
+  // paths leave the record in the same state either way.
+  try {
+    const all = loadUsers();
+    const idx = all.findIndex(x => x.id === userId);
+    if (idx < 0) return { ok: false, message: 'That user is not in this device\'s list. Try Refresh first.' };
+    const rec = all[idx];
+    rec.passwordHash  = await _hashPassword(newPin);
+    rec.mustChangePin = true;
+    rec.pinResetAt    = Date.now();
+    try { const me = currentUser(); if (me) rec.pinResetBy = me.userId; } catch (_) {}
+    await saveOneUser(rec);
+    // bumpFleet = true here. An admin reset is rare and deliberate, and it is
+    // exactly the case where the OLD PIN must stop working everywhere at once,
+    // so it is worth making every device refresh its user list.
+    await _v11AfterPinWrite(userId, true);
+    return { ok: true, via: 'client' };
+  } catch (e) {
+    return { ok: false, message: 'Could not reset the PIN. Check your connection and try again.' };
+  }
+}
+
+// Six random digits, from the crypto RNG where the browser offers one.
+function _v11SuggestPin() {
+  try {
+    const a = new Uint32Array(1);
+    crypto.getRandomValues(a);
+    return String(100000 + (a[0] % 900000));
+  } catch (_) {
+    return String(100000 + Math.floor(Math.random() * 900000));
+  }
+}
+
+function adminResetUserPin(userId) {
+  const u = loadUsers().find(x => x.id === userId);
+  if (!u) { try { toast('User not found on this device.', 'error'); } catch (_) {} return; }
+  if (document.getElementById('v11-reset-overlay')) return;
+
+  const ov = document.createElement('div');
+  ov.id = 'v11-reset-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:60000;background:rgba(17,24,39,0.6);display:flex;align-items:center;justify-content:center;padding:16px;font-family:var(--font),system-ui,sans-serif';
+  ov.innerHTML =
+    '<div style="background:#fff;border-radius:12px;max-width:420px;width:100%;box-shadow:0 16px 44px rgba(0,0,0,0.3);overflow:hidden">' +
+      '<div style="padding:16px 20px 11px;border-bottom:1px solid var(--gray3);font-size:16px;font-weight:700;color:var(--navy)">' +
+        'Reset PIN — ' + escHtml(u.fullName || u.username) + '</div>' +
+      '<div style="padding:16px 20px">' +
+        '<div style="font-size:13px;color:var(--gray2);line-height:1.5;margin-bottom:12px">' +
+          'Give this temporary PIN to <strong>' + escHtml(u.username) + '</strong>. They will be asked to choose their own PIN the next time they sign in.</div>' +
+        '<label style="display:block;font-size:12px;font-weight:600;color:var(--gray2);margin-bottom:4px">Temporary PIN — 6 digits</label>' +
+        '<input id="v11-reset-pin" inputmode="numeric" value="' + _v11SuggestPin() + '" ' +
+          'style="width:100%;padding:10px 12px;border:1px solid var(--gray3);border-radius:7px;font-size:19px;letter-spacing:5px;font-weight:600;text-align:center">' +
+        '<div id="v11-reset-err" style="display:none;color:var(--red);font-size:13px;margin-top:10px"></div>' +
+      '</div>' +
+      '<div style="display:flex;justify-content:flex-end;gap:8px;padding:12px 20px 16px;background:#F9FAFB;border-top:1px solid var(--gray3)">' +
+        '<button id="v11-reset-cancel" class="btn btn-sm">Cancel</button>' +
+        '<button id="v11-reset-go" class="btn btn-primary btn-sm">Reset PIN</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(ov);
+
+  const close = () => { try { document.body.removeChild(ov); } catch (_) {} };
+  document.getElementById('v11-reset-cancel').onclick = close;
+  document.getElementById('v11-reset-go').onclick = async function () {
+    const btn = this;
+    const pin = document.getElementById('v11-reset-pin').value.trim();
+    const errEl = document.getElementById('v11-reset-err');
+    errEl.style.display = 'none';
+    if (!/^\d{6,}$/.test(pin)) {
+      errEl.textContent = 'The PIN must be at least 6 digits, numbers only.';
+      errEl.style.display = 'block';
+      return;
+    }
+    btn.disabled = true; btn.textContent = 'Resetting...';
+    const res = await _v11AdminResetPin(userId, pin);
+    if (!res.ok) {
+      btn.disabled = false; btn.textContent = 'Reset PIN';
+      errEl.textContent = res.message || 'Could not reset the PIN.';
+      errEl.style.display = 'block';
+      return;
+    }
+    try {
+      auditLog('pin_reset', 'user', u.id, u.username,
+        'Admin reset the PIN for ' + u.username + ' (' + res.via + ')', null);
+    } catch (_) {}
+    close();
+    try { toast('PIN reset. Tell ' + (u.fullName || u.username) + ' their temporary PIN: ' + pin, 'success', 12000); } catch (_) {}
+    try { renderAdminUsers(); } catch (_) {}
+  };
+}
+
+// ── admin: who has actually been through the new login ──────────────────────
+// Read on demand only — an admin opening the Users page should not pay for this
+// every time. The number that matters is "still falling back": while that is
+// above zero, tightening the database rules would lock those people out.
+async function _v11ShowAdoption() {
+  let seen = {};
+  try {
+    const snap = await fbRef('_v11Seen').once('value');
+    seen = snap.val() || {};
+  } catch (e) {
+    try { toast('Could not read login adoption: ' + (e && e.message), 'error'); } catch (_) {}
+    return;
+  }
+  const all = loadUsers();
+  let server = 0, client = 0;
+  const pending = [];
+  all.forEach(u => {
+    const s = seen[u.id];
+    if (!s)                    { pending.push(u); return; }
+    if (s.mode === 'server')   server++;
+    else                       client++;
+  });
+
+  const list = pending.slice(0, 60).map(u =>
+    '<div style="padding:3px 0;border-bottom:1px solid var(--gray3);font-size:12.5px">' +
+      escHtml(u.fullName || u.username) +
+      ' <span style="color:var(--gray2)">' + escHtml(u.username) + (u.ngo ? ' · ' + escHtml(u.ngo) : '') + '</span></div>'
+  ).join('');
+
+  const stat = (label, n, colour) =>
+    '<div style="flex:1;min-width:118px;background:' + colour + '11;border:1px solid ' + colour + '44;border-radius:9px;padding:11px 13px">' +
+      '<div style="font-size:23px;font-weight:700;color:' + colour + '">' + n + '</div>' +
+      '<div style="font-size:11.5px;color:var(--gray2);margin-top:2px">' + label + '</div></div>';
+
+  if (document.getElementById('v11-adopt-overlay')) return;
+  const ov = document.createElement('div');
+  ov.id = 'v11-adopt-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:60000;background:rgba(17,24,39,0.6);display:flex;align-items:center;justify-content:center;padding:16px;font-family:var(--font),system-ui,sans-serif';
+  ov.innerHTML =
+    '<div style="background:#fff;border-radius:12px;max-width:520px;width:100%;box-shadow:0 16px 44px rgba(0,0,0,0.3);overflow:hidden">' +
+      '<div style="padding:16px 20px 11px;border-bottom:1px solid var(--gray3);font-size:16px;font-weight:700;color:var(--navy)">Login adoption</div>' +
+      '<div style="padding:16px 20px">' +
+        '<div style="display:flex;gap:9px;flex-wrap:wrap;margin-bottom:13px">' +
+          stat('On the new server login', server, '#10B981') +
+          stat('Still on the old check', client, '#F59E0B') +
+          stat('Not seen since V11', pending.length, '#6B7280') +
+        '</div>' +
+        '<div style="font-size:12.5px;color:var(--gray2);line-height:1.55;margin-bottom:11px">' +
+          (pending.length === 0 && client === 0
+            ? 'Everyone has signed in through the new server login. Tightening the database rules would now be safe.'
+            : 'Do not tighten the database rules yet — anyone in the amber or grey column would be locked out.') +
+        '</div>' +
+        (pending.length
+          ? '<div style="font-size:12px;font-weight:600;color:var(--gray2);margin-bottom:5px">Not seen yet' +
+            (pending.length > 60 ? ' (first 60 of ' + pending.length + ')' : '') + '</div>' +
+            '<div style="max-height:210px;overflow-y:auto;border:1px solid var(--gray3);border-radius:7px;padding:7px 10px">' + list + '</div>'
+          : '') +
+      '</div>' +
+      '<div style="display:flex;justify-content:flex-end;padding:12px 20px 16px;background:#F9FAFB;border-top:1px solid var(--gray3)">' +
+        '<button id="v11-adopt-close" class="btn btn-primary btn-sm">Close</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(ov);
+  const close = () => { try { document.body.removeChild(ov); } catch (_) {} };
+  document.getElementById('v11-adopt-close').onclick = close;
+  ov.addEventListener('click', e => { if (e.target === ov) close(); });
+}
+
 // V407: session-scoped guard — see the usage site inside _doLoginInner for
 // full rationale. Resets only on a fresh page load (new tab/reload), which
 // is the intended boundary: at most one extra users-collection fetch per
@@ -29198,6 +30221,134 @@ async function _doLoginInner() {
     err.textContent = 'Too many failed attempts. Try again in ' + _formatLockoutRemaining(lock.remaining) + '.';
     err.style.display = 'block';
     return;
+  }
+
+  // V11: drop any real Firebase identity still attached to this tab before we
+  // sign anybody in. Sessions are deliberately persisted across reloads, so on
+  // a SHARED FIELD HANDSET that was closed without signing out, the previous
+  // coordinator's identity is still live. If the incoming person then takes the
+  // fallback path and its sign-in does not complete, _v10EnsureSomeSession sees
+  // a non-null user and leaves the OLD one in place — so the new person spends
+  // their whole session carrying the previous person's identity. Harmless while
+  // the rules only say "auth != null", but it silently defeats the tightened
+  // rules this release exists to make possible.
+  try {
+    if (FB && FB.auth && FB.auth.currentUser && !FB.auth.currentUser.isAnonymous) {
+      await FB.auth.signOut();
+      await _v10EnsureSomeSession();
+      console.log('[V11] cleared a leftover identity before signing in');
+    }
+  } catch (e) { console.warn('[V11] could not clear the leftover identity:', e && e.message); }
+
+  // Tracks whether the server was tried and could not answer. Under tightened
+  // rules that is the difference between "your PIN is wrong" and "we could not
+  // reach the server" — and telling somebody the first when it is the second
+  // sends them hunting for a password problem that does not exist.
+  let _v11Unavailable = false;
+
+  // ── V11: ask the server first ─────────────────────────────────────────────
+  // Everything below this block is the V10.1 client path, unchanged. This is a
+  // prelude: it either finishes the login and returns, or falls through and
+  // lets the old code run exactly as it did before. That shape is deliberate —
+  // it means the worst case for V11 is "we wasted one request", never "nobody
+  // can sign in".
+  try {
+    const _v11c = await Promise.race([
+      _v11LoadConfig(),
+      new Promise(r => setTimeout(() => r(_v11DefaultCfg()), 2000))
+    ]);
+    if (_v11c && _v11c.serverLogin !== false) {
+      const _sr = await _v11ServerLogin(u, p);
+
+      if (_sr.status === 'ok') {
+        const done = await _v11FinishServerLogin(_sr, u);
+        if (done) return;
+        // Token exchange failed — fall through and let the client path sign
+        // this person in the old way. Their PIN was already proven correct.
+        console.warn('[V11] falling through to the built-in check after a server success');
+      } else if (_sr.status === 'rejected') {
+        // Authoritative: computed from live data, so it beats any cached list.
+        // Recorded locally too, so the existing client lockout still applies on
+        // top of the server's own.
+        const _f = _recordLoginFailure(u);
+        try {
+          auditLog('login_failed', 'session', '(none)', u,
+            'Failed login attempt for "' + u + '" (rejected by server)', null);
+        } catch (_) {}
+        err.textContent = _f.lockedUntil
+          ? 'Too many failed attempts. Try again in ' + _formatLockoutRemaining(_f.lockedUntil - Date.now()) + '.'
+          : 'Username or password is incorrect.';
+        err.style.display = 'block';
+        return;
+      } else if (_sr.status === 'locked') {
+        // Deliberately NOT a hard stop. The server counts failures per
+        // USERNAME on a public endpoint, so anyone who knows that somebody is
+        // called "ramesh_fc" could lock them out of every device for an hour
+        // by posting rubbish PINs. Falling through costs an attacker nothing —
+        // they still do not know the PIN, and the built-in check has its own
+        // lockout — but it means a real coordinator who knows their own PIN
+        // can always get to work.
+        console.warn('[V11] server reports a lockout — using the built-in check so a real user is not stranded');
+      } else {
+        // 'unavailable' — the normal, expected fallback. Not an error the
+        // person should ever see; the built-in check takes over silently.
+        _v11Unavailable = true;
+        console.warn('[V11] server login unavailable (' + _sr.reason + ') — using the built-in check');
+      }
+    }
+  } catch (e) {
+    // A bug in the block above must not be able to stop anyone signing in.
+    console.warn('[V11] server login step failed outright — using the built-in check:', e && e.message);
+  }
+
+  // V10.1: before trusting the cached user list, check whether a password has
+  // changed anywhere since this device last synced.
+  //
+  // The retry further down rescues a NEW password on a stale device, but it
+  // only fires on a FAILED check — and an OLD password verifies just fine
+  // against an old cached hash. So without this, revoking a password did not
+  // actually revoke it on any device already holding the list; the old one kept
+  // working. That is the opposite of what an admin resetting a password wants.
+  //
+  // Cost: one ~30-byte read per login attempt. The expensive part (refetching
+  // the user list) happens ONLY when a password genuinely changed since this
+  // device's copy was written.
+  // V11 replaces V10.1's version of this check with a much smaller one.
+  //
+  // V10.1 read a fleet flag and, if any password anywhere had changed since
+  // this device synced, re-downloaded the WHOLE user list — about 190 KB. That
+  // was correct but expensive, and it got worse the more people changed their
+  // PINs: during a rollout every device would pay it repeatedly.
+  //
+  // We only ever need ONE account: the one being typed in. So ask for exactly
+  // that record using the username index — roughly 300 bytes — and treat it as
+  // the truth. That is cheaper than V10.1 on the bad path, only slightly dearer
+  // on the good one, and it is strictly MORE correct: it no longer depends on
+  // anyone having remembered to bump a flag. A PIN changed anywhere is picked
+  // up here on the very next sign-in attempt.
+  try {
+    if (FB && FB.db) {
+      const _one = await Promise.race([
+        fbRef('users').orderByChild('username').equalTo(u.toLowerCase()).limitToFirst(1).once('value'),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000))
+      ]);
+      const _ov = (_one && typeof _one.val === 'function') ? (_one.val() || {}) : {};
+      const _oid = Object.keys(_ov)[0];
+      if (_oid && _ov[_oid] && _ov[_oid].id) {
+        const _rec = _ov[_oid];
+        if (!FB.lastUsers) FB.lastUsers = {};
+        RecordCache.users.set(_rec.id, _rec);
+        FB.lastUsers[_rec.id] = fbHash(_rec);
+        RecordCache.primed = true;
+      }
+      // A miss is not an error: the account may genuinely not exist, or it may
+      // be stored with capital letters that this lookup cannot match. Either
+      // way the cached list below still gets its (case-insensitive) turn.
+    }
+  } catch (e) {
+    // Offline, denied, or slow — fall through to the cached list. Login must
+    // still work on a bad connection; this is a tightening, not a gate.
+    console.warn('[V11] pre-login single-user freshness check skipped:', e && e.message);
   }
 
   const users = loadUsers();
@@ -29251,6 +30402,16 @@ async function _doLoginInner() {
   }
 
   if (!user) {
+    // V11.1: once the rules are tightened, an unreachable server plus an empty
+    // local list is the ONLY way to get here — the account is almost certainly
+    // fine. Saying "incorrect" would send somebody hunting for a password
+    // problem that does not exist, and would generate exactly the support call
+    // this release is meant to prevent. Say what actually happened instead.
+    if (_v11Unavailable && _v11Cfg && _v11Cfg.requireRealSession) {
+      err.textContent = 'Cannot reach the server right now. Please check your internet and try again.';
+      err.style.display = 'block';
+      return;
+    }
     // Count this against the typed username's quota. Audit-log it so admins
     // can spot brute-force patterns even when the username is bogus.
     _recordLoginFailure(u);
@@ -29273,6 +30434,50 @@ async function _doLoginInner() {
   } catch (e) {
     err.textContent = 'Login failed: ' + (e && e.message ? e.message : 'crypto error'); err.style.display = 'block'; return;
   }
+
+  // V10.1: the SAME stale-cache problem V407 solved for unknown usernames also
+  // applies to a CHANGED password — and that case was never covered, because
+  // the username IS found, just with the old hash beside it. Result: after an
+  // admin resets someone's password, every other device rejects the NEW
+  // password and keeps accepting the OLD one until the 30-day cache expires.
+  // Confirmed live on 2026-07-26 with `blf`: worked in the admin's own browser,
+  // failed everywhere else, and "Push fresh data to all FCs" could not fix it
+  // (that path refreshes beneficiaries/advocacy and never touches users).
+  //
+  // So: on a password MISMATCH, do one fresh users fetch and re-verify before
+  // rejecting. Shares V407's one-fetch-per-tab budget, so a brute-force attempt
+  // or a run of typos cannot turn into repeated ~150 KB reads. A correct
+  // password therefore always works on the first try after a reset, with no
+  // cache clearing, no reinstall, and no waiting.
+  if (!result.ok && FB && FB.db && !_v407UsersFreshCheckDone) {
+    _v407UsersFreshCheckDone = true;
+    try {
+      const freshSnap = await Promise.race([
+        fbRef('users').once('value'),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000))
+      ]);
+      const freshVal = freshSnap.val() || {};
+      const freshUsers = [];
+      if (!FB.lastUsers) FB.lastUsers = {};
+      for (const id in freshVal) {
+        const record = freshVal[id];
+        if (!record) continue;
+        RecordCache.users.set(id, record);
+        FB.lastUsers[id] = fbHash(record);
+        freshUsers.push(record);
+      }
+      try { await _usersPantryWrite(freshUsers); } catch(_) {}
+      const refreshed = freshUsers.find(x => x.username.toLowerCase() === u.toLowerCase());
+      if (refreshed && refreshed.passwordHash !== user.passwordHash) {
+        console.log('[V10.1] password mismatch on a stale cached record — re-checking against the live one');
+        user = refreshed;
+        try { result = await _verifyPassword(p, user.passwordHash); } catch (_) {}
+      }
+    } catch (e) {
+      console.warn('[V10.1] fresh users re-check failed — falling back to the cached list:', e && e.message);
+    }
+  }
+
   if (!result.ok) {
     // V308.1 (Bug 4 fix): record the failure, audit-log it, and if this push
     // tipped over the threshold, surface the lockout in the same response.
@@ -29344,10 +30549,31 @@ async function _doLoginInner() {
   // users who already had a session at boot.
   try { if (typeof fbAttachListeners === 'function') fbAttachListeners(); } catch(_){}
   auditLog('login', 'session', user.id, user.username, `Signed in as ${user.role}${user.ngo?' ('+user.ngo+')':''}`, null);
+  // V11: same breadcrumb as the server path, tagged 'client' so the adoption
+  // panel can show how many people are still falling back — which is exactly
+  // the signal that says "not yet safe to tighten the rules".
+  try { _v11RecordSeen(user.id, 'client'); } catch (_) {}
+  // V11.1: release a held-back data load on THIS path too. While the rules are
+  // still the permissive ones, a person who fell back can read perfectly well —
+  // so stranding them on an empty app would be a self-inflicted outage during
+  // exactly the window where we are watching whether the server login works.
+  // Once the rules are tightened this read is refused instead, which is correct:
+  // by then the fallback is not supposed to be able to see anything.
+  try { _v11RunDeferredSync(); } catch (_) {}
   document.getElementById('login-overlay').style.display = 'none';
   document.getElementById('login-username').value = '';
   document.getElementById('login-password').value = '';
   renderAfterLogin();
+
+  // V11: a required PIN change applies on this path too. Last, and after the
+  // app has rendered, for the same reason as on the server path — a problem
+  // here must cost a prompt, never the working day.
+  try {
+    const _cfg = _v11Cfg || _v11DefaultCfg();
+    if (user.mustChangePin && _cfg.pinPrompt) {
+      setTimeout(function () { try { _v11OpenPinChange(user, true); } catch (_) {} }, 400);
+    }
+  } catch (_) {}
 }
 
 
@@ -29739,6 +30965,7 @@ async function doLogout() {
   // Clear any open overlays so nothing leaks between sessions
   document.querySelectorAll('.overlay.open, .drawer.open').forEach(el => el.classList.remove('open'));
   document.getElementById('login-overlay').style.display = 'flex';
+  try { _v11OnLoginScreenShown(); } catch (_) {}
   setTimeout(() => document.getElementById('login-username').focus(), 50);
 }
 
@@ -36750,6 +37977,7 @@ function _fmtBatchDate(iso) {
   const u = currentUser();
   if (!u) {
     document.getElementById('login-overlay').style.display = 'flex';
+    try { _v11OnLoginScreenShown(); } catch (_) {}
     setTimeout(() => { const el = document.getElementById('login-username'); if (el) el.focus(); }, 50);
     return;
   }
@@ -36778,6 +38006,7 @@ function _fmtBatchDate(iso) {
                  'not in the authoritative users list of', users.length);
     saveSession(null);
     document.getElementById('login-overlay').style.display = 'flex';
+    try { _v11OnLoginScreenShown(); } catch (_) {}
     return;
   }
   // V308.1 (Option C): age-prune the audit log on boot. Deferred so it
