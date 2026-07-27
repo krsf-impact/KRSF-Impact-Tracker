@@ -2,6 +2,29 @@
 <!--
   KRSF Beneficiary Impact Tracker  -  V6.7.2-LIVE
   ============================================================================
+  V11.3-LIVE (2026-07-27 - the missing half of the PIN feature: asking a whole
+  NGO to choose their own PIN.):
+    + REQUIRE PIN CHANGE, NGO BY NGO. Admin -> Users -> filter to an NGO ->
+      "Require PIN change". Everyone listed is asked to set a private PIN the
+      next time they open the app. The accounts were created FOR people with a
+      password an administrator chose, and in several cases the same one went to
+      a whole team - so until somebody picks their own, it is not really theirs.
+    + IT CANNOT LOCK ANYBODY OUT, and that is the point of the design. It does
+      NOT change or reset any password: people sign in exactly as they do today
+      and choose a new PIN from there. The screen it raises can be postponed
+      with "Later", so a coordinator with no signal is never trapped.
+    + Scope is whatever the Users page is filtered to, so one NGO at a time is
+      the natural way to use it. With no filter set the confirmation says in
+      plain words that it covers EVERYONE and suggests doing it NGO by NGO -
+      561 people inventing new PINs on one morning is a support incident.
+    + Skips you, and skips anyone already asked (no pointless writes). Rows show
+      a "PIN change asked" badge so you can see who is still outstanding, and
+      the button carries a running count.
+    + A save that fails is reported as a failure, not swallowed.
+    + 18 assertions in scratchpad/v11pin.js drive the REAL function: only the
+      filtered rows are touched, no password is ever altered, non-admins are
+      refused, and everyone flagged still has a working password.
+  ============================================================================
   V11.2-LIVE (2026-07-27 - one fix, found the first time server login was
   switched on for real. The switch was ON in the database and every single
   sign-in still used the fallback.):
@@ -8410,7 +8433,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V11.2-LIVE';
+const APP_VERSION = 'V11.3-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -25655,6 +25678,12 @@ function renderAdminUsers() {
   // button from appearing where it would always fail.
   const _v11IsAdmin = !!(me && me.role === 'admin');
 
+  // V11.2: remember exactly who the current filters resolved to, so "Require
+  // PIN change" acts on precisely the rows on screen — pick an NGO above and it
+  // applies to that NGO, nothing wider.
+  _v11FilteredUserIds = users.map(u => u.id);
+  const _v11PendingCount = users.filter(u => u.mustChangePin).length;
+
   const roleBadge = r => {
     // V375: labels for viewer + scopedViewer roles so the user table reads
     // cleanly. Without this they fell through to gray "scopedViewer" raw text.
@@ -25678,7 +25707,7 @@ function renderAdminUsers() {
     // Bug 1, just on the admin-only User Management page.
     return `<tr>
       <td style="color:var(--gray2);font-size:12px;text-align:center">${i+1}</td>
-      <td><div class="bname">${escHtml(u.fullName||u.username)}${isMe?' <span style="color:var(--gray2);font-size:11px">(you)</span>':''}</div><div class="bid">${escHtml(u.username)}</div></td>
+      <td><div class="bname">${escHtml(u.fullName||u.username)}${isMe?' <span style="color:var(--gray2);font-size:11px">(you)</span>':''}${u.mustChangePin?' <span title="Asked to choose their own PIN — waiting for them to do it" style="font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:9px;background:#FEF3C7;color:#92400E">PIN change asked</span>':''}</div><div class="bid">${escHtml(u.username)}</div></td>
       <td>${roleBadge(u.role)}</td>
       <td style="font-size:13px">${u.ngo?escHtml(u.ngo):'<span style="color:var(--gray2)">—</span>'}</td>
       <td style="text-align:center;font-weight:500">${owned}</td>
@@ -25730,6 +25759,7 @@ function renderAdminUsers() {
           <button class="btn btn-sm" onclick="openTransferTool()" title="Move selected beneficiaries from one FC to another (same NGO)">⇄ Transfer Beneficiaries</button>
           <button class="btn btn-sm" onclick="openMoveFcTool()" title="Move an FC + all their beneficiaries + advocacy records to a different NGO">⇄ Move FC to NGO</button>
           <button class="btn btn-sm" onclick="openBulkAssignTool()" title="Assign many beneficiaries (e.g. freshly bulk-imported, still-unassigned) to a Field Coordinator at once">📥 Bulk Assign FC</button>
+          ${_v11IsAdmin?`<button class="btn btn-sm" onclick="adminRequirePinChange()" title="Ask the people currently listed below to choose their own PIN next time they open the app. Filter by NGO first to do one NGO at a time. Does not change anyone's password and cannot lock anyone out.">🔑 Require PIN change${_v11PendingCount?` <span style="color:var(--gray2);font-weight:400">(${_v11PendingCount} asked)</span>`:''}</button>`:''}
           ${_v11IsAdmin?`<button class="btn btn-sm" onclick="_v11ShowAdoption()" title="How many people have signed in through the new server login. This is the number that decides when the database rules can safely be tightened.">🔐 Login adoption</button>`:''}
           <button class="btn btn-primary btn-sm" onclick="adminNewUser()">+ Add User</button>
         </div>
@@ -30193,6 +30223,79 @@ function adminResetUserPin(userId) {
     try { toast('PIN reset. Tell ' + (u.fullName || u.username) + ' their temporary PIN: ' + pin, 'success', 12000); } catch (_) {}
     try { renderAdminUsers(); } catch (_) {}
   };
+}
+
+// ── admin: require a group of people to choose their own PIN ────────────────
+// The accounts were created FOR people, with a password an administrator
+// picked. Until someone chooses their own, that password is known to whoever
+// set it up — and in several cases the same one was handed to a whole team.
+//
+// This flags a group so that each of them is asked to set a private PIN the
+// next time they open the app. It does NOT change anybody's password: they sign
+// in exactly as they do today and choose a new one from there. Nobody is locked
+// out by pressing this, and the screen it raises can be postponed.
+//
+// Scope is whatever the Users page is currently filtered to — pick an NGO from
+// the dropdown and this applies to that NGO. That is deliberate: doing this one
+// NGO at a time keeps the "I forgot my new PIN" calls to a handful a day
+// instead of 561 in one morning.
+let _v11FilteredUserIds = [];
+
+async function adminRequirePinChange() {
+  const me = currentUser();
+  if (!me || me.role !== 'admin') { try { toast('Only an administrator can do this.', 'error'); } catch (_) {} return; }
+
+  const all = loadUsers();
+  const byId = new Map(all.map(u => [u.id, u]));
+  // Skip: yourself (use My Account), and anyone already asked.
+  const targets = _v11FilteredUserIds
+    .map(id => byId.get(id))
+    .filter(u => u && u.id !== me.userId && !u.mustChangePin);
+  const alreadyAsked = _v11FilteredUserIds
+    .map(id => byId.get(id)).filter(u => u && u.mustChangePin).length;
+
+  const scope = _adminUserNgoFilter
+    ? ('NGO "' + _adminUserNgoFilter + '"')
+    : (_adminUserRoleFilter || _adminUserSearch ? 'the current filter' : 'EVERY user in the system');
+
+  if (!targets.length) {
+    try { toast(alreadyAsked ? 'Everyone here has already been asked.' : 'Nobody to ask in this selection.', 'info', 5000); } catch (_) {}
+    return;
+  }
+
+  const warn = (!_adminUserNgoFilter && !_adminUserRoleFilter && !_adminUserSearch)
+    ? '\n\n⚠️ No NGO filter is set, so this covers EVERYONE. Consider doing one NGO at a time so the support calls stay manageable.'
+    : '';
+  const ok = await showConfirmModal(
+    'Ask ' + targets.length + ' people in ' + scope + ' to choose their own PIN?' +
+    '\n\nThey will be prompted the next time they open the app. Their current password keeps working until they change it, so nobody is locked out.' +
+    (alreadyAsked ? '\n\n' + alreadyAsked + ' of them have already been asked and will be skipped.' : '') +
+    warn,
+    { okLabel: 'Ask them', title: 'Require a PIN change' });
+  if (!ok) return;
+
+  let done = 0, failed = 0;
+  for (const u of targets) {
+    try {
+      const rec = byId.get(u.id);
+      rec.mustChangePin = true;
+      rec.pinChangeRequestedAt = Date.now();
+      rec.pinChangeRequestedBy = me.userId;
+      await saveOneUser(rec);
+      done++;
+    } catch (e) { failed++; console.warn('[V11.2] could not flag ' + u.username + ':', e && e.message); }
+  }
+  try {
+    auditLog('pin_change_required', 'user', '(bulk)', scope,
+      'Asked ' + done + ' user(s) in ' + scope + ' to choose their own PIN' + (failed ? ' (' + failed + ' failed)' : ''), null);
+  } catch (_) {}
+  try {
+    toast(failed
+      ? (done + ' asked, ' + failed + ' could not be saved — check your connection and try again.')
+      : (done + ' people will be asked to set their own PIN next time they open the app.'),
+      failed ? 'error' : 'success', 8000);
+  } catch (_) {}
+  try { renderAdminUsers(); } catch (_) {}
 }
 
 // ── admin: who has actually been through the new login ──────────────────────
