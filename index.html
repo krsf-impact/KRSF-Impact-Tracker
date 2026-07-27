@@ -2,6 +2,35 @@
 <!--
   KRSF Beneficiary Impact Tracker  -  V6.7.2-LIVE
   ============================================================================
+  V11.5-LIVE (2026-07-28 - two things an administrator could not do for
+  themselves.):
+    + REFRESH USERS button (Admin -> Users). There was NO way inside the app to
+      re-fetch the staff list. It is cached per device for up to 30 days, and
+      only a fleet-wide flag, a failed login lookup or the TTL ever refreshed
+      it - so a coordinator added on one device could be invisible on another
+      for weeks. Hit for real on 2026-07-28: the admin could not find an FC who
+      was plainly in the database, and unsticking it needed a command line.
+      Costs ~190 KB, on that one device only.
+    + IT CLEARS AND REBUILDS RecordCache.users AND FB.lastUsers TOGETHER from
+      the same snapshot. Adding to them without clearing would resurrect anyone
+      deleted elsewhere, and letting the two drift is the documented way a
+      surplus key becomes a REAL DELETE on the next sync. An empty reply from
+      the server is REFUSED rather than applied, so a bad moment cannot empty
+      User Management.
+    + It reports added and removed SEPARATELY. Reporting the net count said
+      "no change" when one person had been added and another removed - which
+      would send somebody hunting for a user who was right there. Caught by the
+      test, not in the field.
+    + SECURITY BANNER REWRITTEN. It still claimed accounts and passwords "live
+      in browser localStorage" and advised integrating "Firebase Auth or a
+      proper backend". Untrue since 2026-07-27, and worse than saying nothing,
+      because it described the system inaccurately to the one person making
+      decisions about it. It now states what is actually true - passwords are
+      checked on the server - and what is still outstanding: the database will
+      answer any signed-in session until the tightened rules go on. It turns
+      green by itself once they do.
+    + Tests: scratchpad/v11pin.js now 43 assertions.
+  ============================================================================
   V11.4-LIVE (2026-07-27 - the PIN request now actually reaches people, and it
   can no longer be postponed.):
     + IT WAS MISSING ALMOST EVERYONE IT AIMED AT. The prompt only fired during
@@ -8454,7 +8483,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V11.4-LIVE';
+const APP_VERSION = 'V11.5-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -25061,9 +25090,26 @@ window.renderCurrent=function(){
 // ── ADMIN PANEL RENDERERS ───────────────────────────────────────────────────
 // Full implementations shipped in v20.2. Stubs here so the sidebar links
 // don't break when an admin clicks them.
+// V11.5: this used to say that accounts and passwords lived in browser
+// localStorage and that the app should "integrate with Firebase Auth or a
+// proper backend". That stopped being true on 2026-07-27: passwords are now
+// checked by a Cloud Function and the browser never receives a password hash.
+// Leaving it up was worse than saying nothing — it described the system
+// inaccurately to the one person who has to make decisions about it.
+//
+// What remains true is stated instead, because it still matters and it is the
+// next piece of work: the database currently answers any signed-in session,
+// which includes an anonymous one, so the panel is still not a security
+// boundary on its own. That closes when the tightened rules go on.
 function _adminSecurityBanner() {
+  const _tightened = !!(typeof _v11Cfg === 'object' && _v11Cfg && _v11Cfg.requireRealSession);
+  if (_tightened) {
+    return `<div style="background:#ECFDF5;border:1px solid #10B981;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:12px;color:#065F46;line-height:1.5">
+      <strong>🔒 Security:</strong> Sign-in is verified on the server and this device never receives anyone's password. The database only answers a genuine staff sign-in.
+    </div>`;
+  }
   return `<div style="background:#FEF3C7;border:1px solid #F59E0B;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:12px;color:#92400E;line-height:1.5">
-    <strong>⚠  Security notice:</strong> This admin panel is a usability layer, not a security boundary. User accounts and passwords live in browser localStorage and can be bypassed by technical users via devtools. For production deployments, integrate with Firebase Auth or a proper backend.
+    <strong>⚠ Security notice:</strong> Passwords are now checked on the server and are never sent to this device. Still outstanding: the database will answer <em>any</em> signed-in session, so it is not yet closed to the outside. That is fixed by applying the tightened database rules once everyone has signed in through the new login — see <strong>Login adoption</strong>.
   </div>`;
 }
 
@@ -25780,6 +25826,7 @@ function renderAdminUsers() {
           <button class="btn btn-sm" onclick="openTransferTool()" title="Move selected beneficiaries from one FC to another (same NGO)">⇄ Transfer Beneficiaries</button>
           <button class="btn btn-sm" onclick="openMoveFcTool()" title="Move an FC + all their beneficiaries + advocacy records to a different NGO">⇄ Move FC to NGO</button>
           <button class="btn btn-sm" onclick="openBulkAssignTool()" title="Assign many beneficiaries (e.g. freshly bulk-imported, still-unassigned) to a Field Coordinator at once">📥 Bulk Assign FC</button>
+          ${_v11IsAdmin?`<button class="btn btn-sm" onclick="adminRefreshUsers()" title="Fetch the staff list from the server again. Use this if somebody added a user on another device and you cannot see them here.">↻ Refresh users</button>`:''}
           ${_v11IsAdmin?`<button class="btn btn-sm" onclick="adminRequirePinChange()" title="Ask the people currently listed below to choose their own PIN next time they open the app. Filter by NGO first to do one NGO at a time. Does not change anyone's password and cannot lock anyone out.">🔑 Require PIN change${_v11PendingCount?` <span style="color:var(--gray2);font-weight:400">(${_v11PendingCount} asked)</span>`:''}</button>`:''}
           ${_v11IsAdmin?`<button class="btn btn-sm" onclick="_v11ShowAdoption()" title="How many people have signed in through the new server login. This is the number that decides when the database rules can safely be tightened.">🔐 Login adoption</button>`:''}
           <button class="btn btn-primary btn-sm" onclick="adminNewUser()">+ Add User</button>
@@ -30353,6 +30400,72 @@ async function adminRequirePinChange() {
       failed ? 'error' : 'success', 8000);
   } catch (_) {}
   try { renderAdminUsers(); } catch (_) {}
+}
+
+// ── admin: fetch the staff list again, on demand ────────────────────────────
+// There was no way to do this from inside the app. The staff list is cached on
+// each device for up to 30 days to save bandwidth, and only three things ever
+// refreshed it: a fleet-wide flag, a failed login lookup, or the TTL expiring.
+// So a coordinator added on one device could be invisible on another for weeks
+// — which is exactly what happened on 2026-07-27, and fixing it needed a
+// command line. That is not acceptable for something an administrator will hit
+// every time a colleague adds a user.
+//
+// Costs about 190 KB, on THIS device only. It does not touch anyone else.
+async function adminRefreshUsers() {
+  const me = currentUser();
+  if (!me || me.role !== 'admin') { try { toast('Only an administrator can do this.', 'error'); } catch (_) {} return; }
+  if (!(FB && FB.db)) { try { toast('No connection — try again when you are online.', 'error'); } catch (_) {} return; }
+
+  // Capture WHICH ids we had, not just how many. Comparing counts alone would
+  // report "no change" when one person was added and another removed — the
+  // exact case that sends somebody hunting for a user who is right there.
+  const beforeIds = new Set(RecordCache.users.keys());
+  try {
+    try { toast('Fetching the staff list…', 'info', 2500); } catch (_) {}
+    const snap = await Promise.race([
+      fbRef('users').once('value'),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 20000))
+    ]);
+    const val = snap.val() || {};
+    const arr = [];
+    for (const id in val) { if (val[id]) arr.push(val[id]); }
+    if (!arr.length) { try { toast('The server returned an empty list — keeping what this device already has.', 'error', 6000); } catch (_) {} return; }
+
+    // CLEAR AND REBUILD BOTH TOGETHER. RecordCache.users and FB.lastUsers must
+    // always describe the same set: a key left in the "last" map that is absent
+    // from the cache is read as a deletion by the next diff-based write. Adding
+    // to them without clearing would also keep resurrecting anyone deleted
+    // elsewhere. Replacing both from the same server snapshot is the only shape
+    // that cannot drift.
+    RecordCache.users.clear();
+    FB.lastUsers = {};
+    for (const rec of arr) {
+      if (!rec || !rec.id) continue;
+      RecordCache.users.set(rec.id, rec);
+      FB.lastUsers[rec.id] = fbHash(rec);
+    }
+    RecordCache.primed = true;
+    RecordCache.usersFromStore = true;
+    try { await _usersPantryWrite(arr); } catch (_) {}
+
+    const after = RecordCache.users.size;
+    let added = 0, removed = 0;
+    for (const id of RecordCache.users.keys()) if (!beforeIds.has(id)) added++;
+    for (const id of beforeIds) if (!RecordCache.users.has(id)) removed++;
+    const bits = [];
+    if (added)   bits.push(added + ' new');
+    if (removed) bits.push(removed + ' removed');
+    try {
+      toast('Staff list updated: ' + after + ' users' +
+        (bits.length ? ' (' + bits.join(', ') + ')' : ' (already up to date)'),
+        'success', 6000);
+    } catch (_) {}
+    try { renderAdminUsers(); } catch (_) {}
+  } catch (e) {
+    console.warn('[V11.5] refresh users failed:', e && e.message);
+    try { toast('Could not fetch the staff list — check your connection and try again.', 'error', 6000); } catch (_) {}
+  }
 }
 
 // ── admin: who has actually been through the new login ──────────────────────
