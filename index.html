@@ -2,6 +2,48 @@
 <!--
   KRSF Beneficiary Impact Tracker  -  V6.7.2-LIVE
   ============================================================================
+  V11.6-LIVE (2026-07-28 - stop publishing credentials; close the cost hole on
+  the public function endpoints.):
+    + REMOVED 29 HARD-CODED USERNAME/PASSWORD PAIRS from the page source. A
+      seedUsers() block created starter accounts - admin, one NGO login and one
+      coordinator per partner - with their passwords written in plain text.
+      Anyone could View Source and read them. THIS IS WHERE THE <name>.2026
+      PATTERN CAME FROM: it was never guessable, it was published. On
+      2026-07-28 three of those accounts were still using their published
+      password (kartavya, fc1.kartavya, fc1.blf).
+      The block only ran when the local database was completely empty, so on a
+      real deployment it did nothing but broadcast a credential list. Removing
+      it also retires a bug: on a fresh phone it primed the cache with 29 fake
+      accounts and the boot check then signed genuine users OUT for not being
+      one of them (worked around in V10 via RecordCache.usersFromStore).
+      ⚠️ Removing this from the file does NOT change any password already in
+      the database - those three accounts still need a PIN reset.
+    + THE FUNCTION ENDPOINTS WERE OPEN TO ANYONE. Proven by measurement: a POST
+      from a made-up Origin carrying no token got a real answer back. No data
+      leaks that way - the rules still demand a genuine session - but every
+      call costs one function run plus one indexed database read, so a script
+      could burn a large share of the monthly budget and push the project at
+      its billing shutoff.
+    + The app now attaches an App Check token to ALL THREE calls (login,
+      changePin, adminResetPin) via _v11AppCheckHeader(). The old code attached
+      one only when window._v101AppCheck.ok was already true - and that flag is
+      set by a background probe that can still be running when somebody presses
+      Sign In, so it would have omitted the token at exactly the wrong moment.
+      Now it always asks; getToken() returns the cached token when there is one.
+      If no token can be had it sends none and lets the server decide, so
+      behaviour is identical before and after enforcement.
+    + _functions/functions/index.js sets enforceAppCheck: true on all three.
+      ⚠️ DEPLOY ORDER: ship THIS client first, confirm `firebase functions:log`
+      shows "app":"VALID" (it read "app":"MISSING" before V11.6), and only then
+      deploy the functions. The reverse order rejects every login from the
+      client that is currently live.
+    + No new lockout: Firebase Auth already enforces App Check on this project,
+      so a device that cannot pass it has no session and cannot use the app at
+      all, with or without this setting.
+    + Tests: v11server.js now asserts all 3 functions carry the option, that no
+      function keeps the old unprotected signature, that the app attaches the
+      token at all 3 call sites, and that ZERO credentials remain in the source.
+  ============================================================================
   V11.5-LIVE (2026-07-28 - two things an administrator could not do for
   themselves.):
     + REFRESH USERS button (Admin -> Users). There was NO way inside the app to
@@ -8483,7 +8525,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V11.5-LIVE';
+const APP_VERSION = 'V11.6-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -8677,11 +8719,12 @@ function _ensureCachePrimed() {
     try { localStorage.removeItem(USERS_KEY); } catch(_){}
   }
   try {
-    // Literal string used here (instead of PARTNERS_KEY) because the prime
-    // function may run before PARTNERS_KEY is defined — the seedUsers() IIFE
-    // at the top of the user-management block calls loadUsers() which calls
-    // _ensureCachePrimed(), and that runs during script parsing before
-    // PARTNERS_KEY's `const` declaration executes (TDZ ReferenceError).
+    // Literal string used here instead of PARTNERS_KEY. The original reason
+    // was that the seedUsers() IIFE called loadUsers() during script parsing,
+    // before PARTNERS_KEY's `const` executed (TDZ ReferenceError). That IIFE
+    // was removed in V11.6, so the hazard is gone — but the literal is kept
+    // deliberately: any future caller that primes the cache early would hit
+    // exactly the same trap, and this line costs nothing.
     // The literal sidesteps the issue. Same pattern is already used for
     // 'krsf_advocacy_v9' above. STORE_KEY and USERS_KEY are safe because
     // their declarations precede every load* call site.
@@ -10331,9 +10374,12 @@ async function fbInitialSync() {
     // ─ Users ─────────────────────────────────────────────────────────
     // Cross-device user sync. Cloud is source of truth: when a teammate
     // creates a user on their device, it lands here and this device's
-    // cache gets overwritten. On first-ever boot (cloud empty),
-    // we push the locally-seeded defaults up so future devices inherit
-    // them. See seedUsers() which has already run by this point.
+    // cache gets overwritten. The "cloud empty" branch below used to push a
+    // set of locally-seeded default accounts up to Firebase; V11.6 removed
+    // those seeds (they were a published credential list), so on a genuinely
+    // empty database this branch now simply finds nothing to push and leaves
+    // FB.lastUsers empty. Restoring an emptied database is a job for the
+    // weekly GitHub Actions backup, not for hard-coded accounts.
     const fbUsers = Object.values(usersSnap.val() || {});
     if (fbUsers.length > 0) {
       // Cloud has users — it wins. V310: overwrite the in-memory cache
@@ -13157,45 +13203,22 @@ function _blockCoordinatorDelete() {
 // seeded users up to Firebase a few seconds later (existing path at the
 // "─ Users ─" block in fbInitialSync). On returning devices, loadUsers()
 // already has data primed from localStorage, so this seed is skipped.
-(function seedUsers(){
-  if (loadUsers().length > 0) return;
-  const seedArr = [
-    {id:'u-admin', username:"admin", passwordHash:_scramble("admin.2026"), role:"admin", ngo:null, fullName:"System Administrator"},
-    {id:'u-demo-ngo', username:"demo_ngo_admin", passwordHash:_scramble("demo.2026"), role:"ngo", ngo:"SeSTA", fullName:"Demo NGO Admin (SeSTA)"},
-    {id:'u-demo-fc', username:"demo_fc", passwordHash:_scramble("demo.2026"), role:"coordinator", ngo:"SeSTA", fullName:"Demo Field Coordinator (SeSTA)"},
-    {id:'u-ngo-sesta', username:"sesta", passwordHash:_scramble("sesta.2026"), role:"ngo", ngo:"SeSTA", fullName:"SeSTA Admin"},
-    {id:'u-ngo-blf', username:"blf", passwordHash:_scramble("blf.2026"), role:"ngo", ngo:"Better Life Foundation", fullName:"Better Life Foundation Admin"},
-    {id:'u-ngo-khoj', username:"khoj", passwordHash:_scramble("khoj.2026"), role:"ngo", ngo:"Khoj", fullName:"Khoj Admin"},
-    {id:'u-ngo-vncs', username:"vncs", passwordHash:_scramble("vncs.2026"), role:"ngo", ngo:"VNCS", fullName:"VNCS Admin"},
-    {id:'u-ngo-aaa', username:"aaa", passwordHash:_scramble("aaa.2026"), role:"ngo", ngo:"AAA", fullName:"AAA Admin"},
-    {id:'u-ngo-gramurja', username:"gramurja", passwordHash:_scramble("gramurja.2026"), role:"ngo", ngo:"GramUrja", fullName:"GramUrja Admin"},
-    {id:'u-ngo-navchetna', username:"navchetna", passwordHash:_scramble("navchetna.2026"), role:"ngo", ngo:"Navchetna", fullName:"Navchetna Admin"},
-    {id:'u-ngo-kaarigar', username:"kaarigar", passwordHash:_scramble("kaarigar.2026"), role:"ngo", ngo:"Kaarigar Clinic", fullName:"Kaarigar Clinic Admin"},
-    {id:'u-ngo-sristi', username:"sristi", passwordHash:_scramble("sristi.2026"), role:"ngo", ngo:"Sristi", fullName:"Sristi Admin"},
-    {id:'u-ngo-jankalyan', username:"jankalyan", passwordHash:_scramble("jankalyan.2026"), role:"ngo", ngo:"Jankalyan", fullName:"Jankalyan Admin"},
-    {id:'u-ngo-sarvangi', username:"sarvangi", passwordHash:_scramble("sarvangi.2026"), role:"ngo", ngo:"Sarvangi Vikas", fullName:"Sarvangi Vikas Admin"},
-    {id:'u-ngo-kartavya', username:"kartavya", passwordHash:_scramble("kartavya.2026"), role:"ngo", ngo:"Kartavya", fullName:"Kartavya Admin"},
-    {id:'u-ngo-vssm', username:"vssm", passwordHash:_scramble("vssm.2026"), role:"ngo", ngo:"VSSM", fullName:"VSSM Admin"},
-    {id:'u-fc-sesta', username:"fc1.sesta", passwordHash:_scramble("fc1.sesta2026"), role:"coordinator", ngo:"SeSTA", fullName:"FC SeSTA"},
-    {id:'u-fc-blf', username:"fc1.blf", passwordHash:_scramble("fc1.blf2026"), role:"coordinator", ngo:"Better Life Foundation", fullName:"FC BLF"},
-    {id:'u-fc-khoj', username:"fc1.khoj", passwordHash:_scramble("fc1.khoj2026"), role:"coordinator", ngo:"Khoj", fullName:"FC Khoj"},
-    {id:'u-fc-vncs', username:"fc1.vncs", passwordHash:_scramble("fc1.vncs2026"), role:"coordinator", ngo:"VNCS", fullName:"FC VNCS"},
-    {id:'u-fc-aaa', username:"fc1.aaa", passwordHash:_scramble("fc1.aaa2026"), role:"coordinator", ngo:"AAA", fullName:"FC AAA"},
-    {id:'u-fc-gramurja', username:"fc1.gramurja", passwordHash:_scramble("fc1.gramurja2026"), role:"coordinator", ngo:"GramUrja", fullName:"FC GramUrja"},
-    {id:'u-fc-navchetna', username:"fc1.navchetna", passwordHash:_scramble("fc1.navchetna2026"), role:"coordinator", ngo:"Navchetna", fullName:"FC Navchetna"},
-    {id:'u-fc-kaarigar', username:"fc1.kaarigar", passwordHash:_scramble("fc1.kaarigar2026"), role:"coordinator", ngo:"Kaarigar Clinic", fullName:"FC Kaarigar Clinic"},
-    {id:'u-fc-sristi', username:"fc1.sristi", passwordHash:_scramble("fc1.sristi2026"), role:"coordinator", ngo:"Sristi", fullName:"FC Sristi"},
-    {id:'u-fc-jankalyan', username:"fc1.jankalyan", passwordHash:_scramble("fc1.jankalyan2026"), role:"coordinator", ngo:"Jankalyan", fullName:"FC Jankalyan"},
-    {id:'u-fc-sarvangi', username:"fc1.sarvangi", passwordHash:_scramble("fc1.sarvangi2026"), role:"coordinator", ngo:"Sarvangi Vikas", fullName:"FC Sarvangi Vikas"},
-    {id:'u-fc-kartavya', username:"fc1.kartavya", passwordHash:_scramble("fc1.kartavya2026"), role:"coordinator", ngo:"Kartavya", fullName:"FC Kartavya"},
-    {id:'u-fc-vssm', username:"fc1.vssm", passwordHash:_scramble("fc1.vssm2026"), role:"coordinator", ngo:"VSSM", fullName:"FC VSSM"}
-  ];
-  // Direct cache hydration — bypasses the async saveUsers() Firebase path
-  // because Firebase isn't ready yet during script parse. fbInitialSync's
-  // "cloud empty" branch will see RecordCache.users populated and call
-  // fbSeedCollection to push them to cloud once Firebase is ready.
-  _hydrateUsersCache(seedArr);
-})();
+// V11.6: THE 29 BUILT-IN STARTER ACCOUNTS HAVE BEEN REMOVED.
+// They lived here as a plain-text list of usernames and passwords - admin,
+// one NGO login and one coordinator per partner - so that a brand-new install
+// had something to sign into. That list was readable by anyone who chose
+// "View source" on the live site, which is where the <name>.2026 pattern came
+// from: it was never guessable, it was published. Three of those accounts were
+// still using their published password on 2026-07-28.
+//
+// The block only ever executed when the local database was completely empty,
+// so on a real deployment it did nothing except broadcast credentials. Removing
+// it also retires a bug: on a fresh phone it primed the cache with 29 fake
+// accounts, and the boot check then signed genuine users out for not being one
+// of them (worked around in V10 via RecordCache.usersFromStore).
+//
+// Bootstrapping an empty database is a disaster-recovery job for the weekly
+// GitHub Actions backup, not something the client should carry.
 
 // Dynamic livelihood types — editable via Admin Panel. Replaces the hardcoded
 // arrays that used to live inline. Every dropdown/chip reads via getLivTypes().
@@ -29802,25 +29825,49 @@ function _v11OnLoginScreenShown() {
 //   {status:'rejected', message}   server says these credentials are wrong
 //   {status:'locked', message}     server-side rate limit hit
 //   {status:'unavailable', reason} no trustworthy answer — caller must fall back
+// Gets an App Check token to attach to a Cloud Function call.
+//
+// WHY THIS IS ITS OWN FUNCTION, AND WHY IT NO LONGER CHECKS `_v101AppCheck.ok`.
+// The three callable functions are reachable by anyone who works out the
+// address — which is trivially derived from the public page. Proven on
+// 2026-07-28: a POST from a made-up Origin with no token got a real answer.
+// Nobody can read data that way (the rules still require a real session), but
+// every call costs one function run plus one database lookup, so a script can
+// burn the monthly Firebase budget. Closing that means the functions must
+// REQUIRE this token — and the moment they do, every call site has to send one
+// reliably or logins break.
+//
+// The old code only attached a token if `_v101AppCheck.ok` was already true.
+// That flag is set by a background check that can still be running when
+// somebody presses Sign In, so it would have silently omitted the header at
+// exactly the wrong moment. Now we always ask; getToken() returns the cached
+// token immediately when there is one.
+//
+// Returns null rather than throwing: a caller that cannot get a token should
+// still make the call and let the server decide, so behaviour is identical
+// before and after enforcement is switched on.
+async function _v11AppCheckHeader() {
+  try {
+    if (typeof firebase === 'undefined' || !firebase.appCheck) return null;
+    const t = await Promise.race([
+      firebase.appCheck().getToken(false),
+      new Promise(r => setTimeout(() => r(null), 5000))
+    ]);
+    return (t && t.token) ? t.token : null;
+  } catch (e) {
+    console.warn('[V11.6] no App Check token available for the function call:',
+      (e && (e.code || e.message)) || 'unknown');
+    return null;
+  }
+}
+
 async function _v11ServerLogin(username, pin) {
   const OUT = (status, extra) => Object.assign({ status: status }, extra || {});
   let resp;
   try {
     const headers = { 'Content-Type': 'application/json' };
-    // Forward an App Check token when one is already in hand. The function does
-    // not require it today; sending it means enforcement can be switched on
-    // later without needing another client release. Never blocks: if App Check
-    // is unhappy we simply send no header.
-    try {
-      if (typeof firebase !== 'undefined' && firebase.appCheck &&
-          window._v101AppCheck && window._v101AppCheck.ok) {
-        const t = await Promise.race([
-          firebase.appCheck().getToken(false),
-          new Promise(r => setTimeout(() => r(null), 1500))
-        ]);
-        if (t && t.token) headers['X-Firebase-AppCheck'] = t.token;
-      }
-    } catch (_) {}
+    const _ac = await _v11AppCheckHeader();
+    if (_ac) headers['X-Firebase-AppCheck'] = _ac;
 
     // 6s ceiling. A warm function answers in ~150 ms and a cold start in ~3 s,
     // so 6 s covers the real cases with room to spare. It was 12 s, which was
@@ -30010,9 +30057,12 @@ async function _v11ChangePin(userId, currentPin, newPin) {
         FB.auth.currentUser.getIdToken(),
         new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000))
       ]);
+      const _hdrs = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken };
+      const _ac = await _v11AppCheckHeader();
+      if (_ac) _hdrs['X-Firebase-AppCheck'] = _ac;
       const resp = await fetch(V11_FN_BASE + '/changePin', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
+        headers: _hdrs,
         body: JSON.stringify({ data: { currentPin: currentPin, newPin: newPin } })
       });
       let body = null;
@@ -30165,9 +30215,12 @@ async function _v11AdminResetPin(userId, newPin) {
         FB.auth.currentUser.getIdToken(),
         new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000))
       ]);
+      const _hdrs = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken };
+      const _ac = await _v11AppCheckHeader();
+      if (_ac) _hdrs['X-Firebase-AppCheck'] = _ac;
       const resp = await fetch(V11_FN_BASE + '/adminResetPin', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
+        headers: _hdrs,
         body: JSON.stringify({ data: { userId: userId, newPin: newPin } })
       });
       let body = null;
