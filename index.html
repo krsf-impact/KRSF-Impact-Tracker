@@ -2,6 +2,49 @@
 <!--
   KRSF Beneficiary Impact Tracker  -  V6.7.2-LIVE
   ============================================================================
+  V12.5-LIVE (2026-07-29 - two production faults found on the V12.4 screenshot,
+  both fixed the same day):
+    + FAULT 1, THE FABRICATED DATES. The V12-V12.4 stamper had no notion of a
+      TRANSITION: it stamped "today" onto any unstamped row that was ALREADY
+      Applied / Benefits Received, so every routine re-save of an old record
+      (a name fix, an FC reassignment) re-dated its historical benefits as
+      "received today". One day on production manufactured ~40 fake "benefits
+      received this month" and put a coordinator inactive for 33 days at the
+      top of the leaderboard with 16 of them. The user's screenshot showed it
+      within hours.
+    + FIX, IN TWO LAYERS:
+        WRITER - _rptStampRowDates now stamps ONLY on an observed transition
+        (stored status differs, or the row is new). A stored row already in a
+        filed state with no valid stamp is HISTORICAL: its true date is
+        unknown and it stays undated forever, counting all-time only.
+        READER - every stamp is read through _rptStampOk, which treats stamps
+        dated on or before 2026-07-29 (the one day the buggy stamper ran) as
+        absent. Fabricated and genuine stamps from that day are
+        indistinguishable, so both are dropped: an undated benefit is honest,
+        a wrongly-dated one is not. The stamper also scrubs poisoned stamps
+        from a record on its next save, and writes nothing while the clock is
+        still on the poisoned day. Real dating therefore begins 30 Jul 2026.
+      NOTE IF STALE V12.4 TABS LINGER past 29 Jul: they will write fabricated
+      stamps dated 30 Jul+ which the guard cannot recognise - bump _minVersion
+      to force-reload the fleet after uploading, and if fabrications from a
+      later date are found, widen the cutoff date inside _rptStampOk.
+    + FAULT 2, THE SCATTERED LAYOUT. V12.2 (the 1400px widening) accidentally
+      duplicated the rpt-head OPEN tag; the second one never closed, so the
+      tab bar, the day chips and the KPI grid were all swallowed into the
+      header's flex container (space-between + wrap) and scattered across
+      wrapped flex lines - the KPI boxes drifted right, dead space appeared
+      above the chips. One duplicate line removed; the approved V12 structure
+      is back.
+    + WHY THE 125 ASSERTIONS MISSED BOTH. The stamp fixtures used dates like
+      _bAt:'2026-03-01' - data that CANNOT EXIST, because stamps only began
+      29 Jul 2026. Testing against impossible data proved nothing about the
+      real failure mode (old rows with NO stamp being re-saved). Every fixture
+      date now sits after the epoch, and section 19 replays the production
+      bug directly. The chrome was never tested for balanced markup at all -
+      section 20 now counts <div> against </div> on every tab, which catches
+      the whole class of unclosed-container bugs. 144 assertions, 20 sections.
+
+  ============================================================================
   V12.4-LIVE (2026-07-29 - Applied now carries its own filing date.):
     + THE PROBLEM V12.3 SHIPPED WITH: "applied in this window" had to fall back
       to the advocacy RECORD's createdAt, because a scheme row carried no date
@@ -8978,7 +9021,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V12.4-LIVE';
+const APP_VERSION = 'V12.5-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -21806,8 +21849,30 @@ function advOnSchemeChange(rowId) {
 // _bAt is deliberately ABSENT from the save signature: including a field that
 // changes on stamping would append a spurious advocacy row on every unrelated
 // edit — the unbounded growth the V310 comment warns about.
+//
+// ⚠️ V12.5: A stamp is only trustworthy if it is AFTER 2026-07-29. The
+// V12–V12.4 stamper had no notion of a transition: it stamped "today" onto any
+// unstamped row that was ALREADY Applied / Benefits Received, so every routine
+// re-save of an old record re-dated its historical benefits as "received
+// today". On 29 Jul 2026 — the one day that stamper ran on production — this
+// manufactured ~40 "benefits received this month" out of months-old rows and
+// put a coordinator who had been inactive for 33 days at the top of the
+// leaderboard. Stamps dated on or before that day are a mix of genuine and
+// fabricated with no way to tell them apart, so _rptStampOk treats ALL of them
+// as absent: the reader ignores them, and the stamper below scrubs them from a
+// record the next time it is saved. The cost is that the handful of GENUINE
+// 29-Jul transitions fall back to undated (all-time-only) — accepted, because
+// an undated benefit is honest and a wrongly-dated one is not.
+function _rptStampOk(d) {
+  return (typeof d === 'string' && d > '2026-07-29') ? d : null;
+}
+
 function _rptStampRowDates(outgoing, stored, todayIso) {
   const today = todayIso || new Date().toISOString().slice(0, 10);
+  // If today's date would itself be ignored by _rptStampOk (a clock stuck on /
+  // before the poisoned day), write nothing rather than bytes the reader is
+  // hardcoded to skip.
+  const canStamp = !!_rptStampOk(today);
   const key = r => `${r.scheme}::${r.remarks || ''}`;
   const prev = new Map();
   // Tombstoned rows must not donate a date to a live row — that entry was
@@ -21817,21 +21882,30 @@ function _rptStampRowDates(outgoing, stored, todayIso) {
     const out = Object.assign({}, r);            // never mutate the caller's rows
     const s = _advNormStatus(r);
     const was = prev.get(key(r));
+    const wasS = was ? _advNormStatus(was) : null;
 
     // ── _aAt : the day this scheme was FILED (V12.4) ────────────────────────
-    // Stamped as soon as the row leaves "Need to Apply" — including a jump
-    // straight to Benefits Received, which necessarily implies it was applied
-    // for. Before this, "applied in the last 7 days" had to fall back to the
-    // advocacy RECORD's creation date, which meant a scheme added today to a
-    // beneficiary first logged 18 months ago never appeared in a short window.
+    // Stamped ONLY on an observed transition out of "Need to Apply" (or on a
+    // brand-new row) — including a jump straight to Benefits Received, which
+    // necessarily implies it was applied for. A stored row that was ALREADY
+    // filed but carries no valid stamp is historical: its real filing date is
+    // unknown, and it must stay unstamped rather than be re-dated to whenever
+    // someone next edits the record (the V12.4 bug described above).
+    const keptA = was ? _rptStampOk(was._aAt) : null;
     if (s === 'Need to Apply') delete out._aAt;
-    else out._aAt = (was && was._aAt) ? was._aAt : today;
+    else if (keptA) out._aAt = keptA;
+    else if (canStamp && (!was || wasS === 'Need to Apply')) out._aAt = today;
+    else delete out._aAt;                        // historical — date unknown
 
     // ── _bAt : the day the benefit ARRIVED ──────────────────────────────────
-    // A row that already carries a filing date keeps it when the benefit lands;
-    // the two dates coexist and describe different events.
+    // Same transition rule. A row that already carries a filing date keeps it
+    // when the benefit lands; the two dates coexist and describe different
+    // events.
+    const keptB = was ? _rptStampOk(was._bAt) : null;
     if (s !== 'Benefits Received') delete out._bAt;
-    else out._bAt = (was && was._bAt) ? was._bAt : today;
+    else if (keptB) out._bAt = keptB;
+    else if (canStamp && (!was || wasS !== 'Benefits Received')) out._bAt = today;
+    else delete out._bAt;                        // historical — date unknown
 
     return out;
   });
@@ -25058,16 +25132,23 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
       const s = _advNormStatus(r);
       if (s !== 'Need to Apply') {
         a.filed++; a.applied++;
-        if (r._aAt ? inWin(r._aAt) : parentInWin) a.appliedWin++;
+        // V12.5: stamps go through _rptStampOk, which drops any stamp dated on
+        // or before 2026-07-29 — the day the buggy stamper re-dated historical
+        // rows as "today" (see _rptStampOk). Records nobody has re-saved since
+        // still carry those stamps, so the reader must ignore them too.
+        const aAt = _rptStampOk(r._aAt);
+        if (aAt ? inWin(aAt) : parentInWin) a.appliedWin++;
         if (s === 'Benefits Received') {
           a.recd++; a.benefits++;
           // V12: only STAMPED rows appear in the daily series. A benefit with
-          // no _bAt is historical — it still counts in every total above, it
-          // simply has no day to sit on. Inventing one would make the chart
-          // confidently wrong, which is worse than a chart that starts late.
-          if (r._bAt) {
-            benefitDayCounts.set(r._bAt, (benefitDayCounts.get(r._bAt) || 0) + 1);
-            if (inWin(r._bAt)) a.benefitsWin++;
+          // no valid _bAt is historical — it still counts in every total
+          // above, it simply has no day to sit on. Inventing one would make
+          // the chart confidently wrong, which is worse than a chart that
+          // starts late.
+          const bAt = _rptStampOk(r._bAt);
+          if (bAt) {
+            benefitDayCounts.set(bAt, (benefitDayCounts.get(bAt) || 0) + 1);
+            if (inWin(bAt)) a.benefitsWin++;
           }
         }
       }
@@ -25656,7 +25737,6 @@ function _rptChrome(body) {
   // the space was filled with whitespace rather than used. 1400 gives the
   // numbers room without stretching names across the screen.
   return `<div style="max-width:1400px">
-      <div class="rpt-head">
       <div class="rpt-head">
         <div>
           <div class="rpt-title">Reports</div>
