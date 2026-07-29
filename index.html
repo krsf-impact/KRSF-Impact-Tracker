@@ -2,6 +2,133 @@
 <!--
   KRSF Beneficiary Impact Tracker  -  V6.7.2-LIVE
   ============================================================================
+  V12.8-LIVE (2026-07-30 - two FAIL-OPEN scope defects found by auditing V12.7
+  before it shipped. V12.7 was never uploaded; these are its corrections):
+    + ⛔ DEFECT 1 - THE ONE THAT LEAKED RECORDS. filteredAll() runs an indexed
+      fast path (_v367TryFastPath) BEFORE the role-scoping code everything else
+      relies on, and its NGO branch was guarded as:
+          if (u.role === 'ngo' && u.ngo)
+      An NGO account with a BLANK ngo therefore matched no branch at all, left
+      candidateIds as null - which that function reads as "all role-scoped
+      records" - and received EVERY BENEFICIARY IN THE PROGRAMME.
+      ⚠️ WHY IT WOULD NOT HAVE BEEN NOTICED: _rptScopedUsers already failed
+      CLOSED for the same account, so the coordinator NAMES would have stayed
+      correctly hidden while every record leaked. Nothing on screen would have
+      looked wrong. A half-scoped page is more dangerous than an unscoped one.
+      FIX: `if (!u.ngo) return [];` - an empty scope means no records, exactly
+      as the scopedViewer and scopedViewerByFc branches six lines below have
+      always done. The user form requires an NGO for this role, so the state
+      should be unreachable; a legacy or hand-edited record walked through.
+    + DEFECT 2 - the same fail-open shape one level up. _rptCanView admitted an
+      NGO account with no partner set, which would then have rendered Reports
+      from whatever filteredAll() chose to return. It now refuses outright, so
+      the page never depends on every data path independently agreeing.
+    + NOT A LEAK, but recorded because the numbers will not reconcile and
+      somebody will ask: the leaderboard attributes a beneficiary through
+      fcAgg.get(b.createdBy) || fcByName.get(b.coord), while the KPI card walks
+      every record directly. A record whose creator is not in the roster (made
+      by an admin account, by a since-deleted FC, or by an FC later moved to
+      another partner) is counted by the CARD but by NO ROW. So the card can
+      read higher than the columns sum to. Pre-existing, affects the admin view
+      too, one-directional, and exactly zero on clean data - §28 measures it
+      rather than assuming it. Left as-is deliberately.
+    + Tests: 215 assertions, 28 sections, all 9 harnesses green. §27 is the new
+      fail-closed audit (both defects, plus a check that the donor/TL guards
+      were not broken while editing the same function). §27 also strips
+      comments before its regex - the fix's own comment quotes the broken guard
+      verbatim to explain it, and a naive match reported the bug as still
+      present. That is the SECOND time a regex has matched an explanatory
+      comment in this file; strip comments before asserting absence.
+
+  ============================================================================
+  V12.7-LIVE (2026-07-30 - NGO partner admins can now open Reports, scoped
+  strictly to their own coordinators and beneficiaries):
+    + WHO CHANGED. Reports was admin-only. It is now admin + NGO admin. The
+      559 COORDINATORS are still refused, which is what protects field-phone
+      load time - that gate moved into _rptCanView(), it did not go away.
+    + ⚠️ THE ONE REAL LEAK SURFACE WAS THE ROSTER, and it is worth
+      understanding before touching any of this. Beneficiaries and advocacy
+      are scoped at the FIREBASE QUERY for an NGO user
+      (orderByChild('ngo').equalTo(u.ngo) - see _v337BenefOneShotFetch), so
+      another partner's records never reach their browser at all. `users` is
+      NOT: it is fetched with a bare fbRef('users').once('value') for every
+      role, so an NGO admin's cache genuinely holds all ~596 accounts. The
+      leaderboard builds a row for EVERY coordinator it is handed, including
+      ones with no records - so handing it the raw roster would have printed
+      all 559 FCs by name with their partner beside them.
+      _rptScopedUsers() is the only thing that stops that. Every Reports entry
+      point (screen AND both CSV exports) must take its users from there and
+      never from loadUsers(). It fails CLOSED: an 'ngo' account with no
+      partner set gets an empty roster, not the whole fleet.
+    + PARTNERS TAB REMOVED for an NGO admin - it exists to compare partners
+      against each other, and for them it would be a one-row table titled
+      "which partners are doing the best work". The tab is not rendered, an
+      arriving rptTab='ngo' is bounced to the leaderboard, and
+      rptExportNgo() refuses outright (a hidden button is not a control).
+      Same for the "NGO comparison" card on the Trends tab.
+    + FIXED WHILE SCOPING, and it affected ADMIN too: the per-FC advocacy pass
+      keyed only on who CREATED a record, never on whether that record's
+      beneficiary was in the current view. So an admin filtering the topbar to
+      one NGO saw advocacy leak in from beneficiaries outside the filter, and
+      the Advocacy Pipeline totals disagreed with the leaderboard totals
+      because latestRows already applied the rule and the per-FC pass did not.
+      One line - if (!bById.has(p.bid)) return; - and the two now agree.
+    + ALSO: the topbar NGO dropdown listed EVERY partner by name to an NGO
+      admin, and the enrollment form let them file a beneficiary under
+      another partner. Their data was always scoped; the NAME LIST was not.
+      Scoped at injectDynamicOptions, the same place and the same way the
+      donor role has been scoped since V375, so every dropdown built from
+      that list inherits it.
+    + Zero Firebase download added: an NGO admin already holds their own
+      records locally, and Reports computes from what is in memory.
+    + Tests: 206 assertions, 26 sections. §25 covers the gate, the roster
+      scoping (with a NEGATIVE CONTROL proving the unscoped roster really
+      does leak another partner's staff), fail-closed behaviour, both export
+      gates, and the Partners tab removal. §26 covers the advocacy scope fix,
+      also with a negative control.
+
+  ============================================================================
+  V12.6-LIVE (2026-07-30 - Reports open on ALL TIME; a measure that cannot be
+  windowed shows its lifetime total instead of a column of zeros):
+    + WHAT WENT WRONG. V12.5 correctly stopped trusting the fabricated 29-Jul
+      stamps, but Reports still OPENED on a 30-day window - so the first thing
+      anyone saw was a Benefits column of zeros. That reads as "these
+      coordinators delivered nothing", which is the opposite of the truth:
+      16,422 benefits are recorded, they simply have no DATE yet.
+    + FIX 1, THE DEFAULT. rptRange 0 = all time, and it is now where Reports
+      open. Narrowing to a window is a deliberate act rather than the state you
+      land in. The chip row gains "All time" so the default is reselectable.
+      At all time inWin() returns true BEFORE the date is examined, so records
+      with no date still count - otherwise "All time" would quietly report
+      fewer people than the all-time total printed beside it.
+    + FIX 2, THE FALLBACK. When a measure has NO usable date anywhere in the
+      filtered data, a window cannot be computed at all, so it falls back to
+      its lifetime total and EVERY surface says so: the column heading gains
+      "(all-time)", the KPI sub-line reads "all-time - no dated benefits yet",
+      the card note explains, and both CSV headers carry it. The heading
+      changes, not only the tooltip - most people never open a tooltip.
+      ⚠️ It self-disables: one dated benefit and the column becomes a real
+      window again, so it can never mask a genuine "zero this week". "No
+      stamps at all" is a fact about the app's history; "zero this week" is a
+      fact about the work, and the two must never be shown the same way.
+      Decided ONCE in _rptAggregate, before the NGO rollup reads those values,
+      so leaderboard / partner table / sort keys / KPI cards / both exports
+      cannot disagree - the V12.3 fault class, where cells showed one figure
+      and the ranking used another.
+    + ALSO FIXED, found while wiring this: the CSV export sorted by ALL-TIME
+      keys while the table sorted by WINDOWED ones, so a file exported while
+      sorted by Applied came out in a different order than the screen it came
+      from. And at all time every KPI card printed its own number a second
+      time under an "All-time" heading, which reads as a broken card.
+    + _rptWinLabel / _rptWinChip are the single source for window wording, so
+      the chip, the headings, the KPI subs and both CSV filenames can never
+      describe the same window differently.
+    + Tests: 174 assertions, 24 sections. §21-24 are new, including a NEGATIVE
+      CONTROL that removes the fallback and confirms the zeros return.
+      _tests/rptrender.js gains 4 panels - all-time, both fallback tables, and
+      the 5-chip chrome - all rendered from the real functions and real CSS.
+
+  ============================================================================
   V12.5-LIVE (2026-07-29 - two production faults found on the V12.4 screenshot,
   both fixed the same day):
     + FAULT 1, THE FABRICATED DATES. The V12-V12.4 stamper had no notion of a
@@ -7892,7 +8019,7 @@ body[data-shell="coord"] #_v352-install-btn {
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
       Dashboard
     </button>
-    <button data-admin-only class="nav-btn" data-v="reports" onclick="nav('reports')" style="display:none">
+    <button data-admin-only data-ngo-ok class="nav-btn" data-v="reports" onclick="nav('reports')" style="display:none">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="3" y1="13" x2="3" y2="7"/><line x1="8" y1="13" x2="8" y2="3"/><line x1="13" y1="13" x2="13" y2="9"/><line x1="1" y1="15" x2="15" y2="15"/></svg>
       Reports
     </button>
@@ -8645,7 +8772,7 @@ body[data-shell="coord"] #_v352-install-btn {
     <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="8" cy="12" r="6"/><circle cx="16" cy="12" r="6"/></svg>
     <span>Integrated View</span>
   </button>
-  <button data-admin-only class="mob-sheet-btn" onclick="closeMobMoreSheet();mobNav('reports')" style="display:none">
+  <button data-admin-only data-ngo-ok class="mob-sheet-btn" onclick="closeMobMoreSheet();mobNav('reports')" style="display:none">
     <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><line x1="6" y1="20" x2="6" y2="12"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="18" y1="20" x2="18" y2="14"/><line x1="2" y1="22" x2="22" y2="22"/></svg>
     <span>Reports</span>
   </button>
@@ -9021,7 +9148,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V12.5-LIVE';
+const APP_VERSION = 'V12.8-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -22696,7 +22823,15 @@ function _v367TryFastPath() {
     // records with createdBy=null) that the createdBy index can't represent,
     // so V367-fix5: ALWAYS defer coordinator role to the scan path. Coords
     // typically have small datasets so the perf loss is negligible.
-    if (u.role === 'ngo' && u.ngo) {
+    if (u.role === 'ngo') {
+      // V12.8 [fail-closed]: this used to read `u.role === 'ngo' && u.ngo`, so
+      // an NGO account with a BLANK ngo matched no branch at all, left
+      // candidateIds null — which this function reads as "all role-scoped
+      // records" — and returned the ENTIRE FLEET. The user form requires an
+      // NGO for this role, so the state should be unreachable, but a legacy or
+      // hand-edited record would have walked straight through. Empty scope now
+      // means no records, exactly as scopedViewer/scopedViewerByFc below.
+      if (!u.ngo) return [];
       candidateIds = new Set(_v367Idx.byNgo[u.ngo] || []);
     } else if (u.role === 'coordinator') {
       return null;
@@ -24913,6 +25048,48 @@ window.openDrawer = function(id) {
 // download increase (the standing ground rule).
 let rptTab = 'fc';          // fc | ngo | trend | adv | liv
 
+// ── V12.7: who may open Reports, and how far they may see ───────────────────
+// Admin sees the fleet. An NGO admin sees their OWN partner only — their
+// coordinators, their beneficiaries, nothing else. Every other role is out.
+function _rptCanView(u) {
+  const s = u || (typeof currentUser === 'function' ? currentUser() : null);
+  if (!s) return false;
+  if (s.role === 'admin') return true;
+  // V12.8 [fail-closed]: an NGO admin with no partner set has NO computable
+  // scope. _rptScopedUsers already returns nothing for them, but filteredAll()
+  // is a separate code path — so rather than depend on every input agreeing,
+  // the page simply does not open. Belt and braces for a state the user form
+  // should already make unreachable.
+  if (s.role === 'ngo') return !!s.ngo;
+  return false;
+}
+function _rptIsFleet(u) {
+  const s = u || (typeof currentUser === 'function' ? currentUser() : null);
+  return !!(s && s.role === 'admin');
+}
+
+// ⚠️ THE ROSTER IS THE ONE SURFACE THAT IS NOT ALREADY SCOPED.
+// Beneficiaries and advocacy are scoped at the FIREBASE QUERY for an NGO user
+// (orderByChild('ngo').equalTo(u.ngo) — see _v337BenefOneShotFetch), so those
+// never reach their browser at all. `users` is different: it is fetched with a
+// bare fbRef('users').once('value') for EVERY role, so an NGO admin's cache
+// really does hold all ~596 accounts. The leaderboard builds a row for every
+// coordinator in the list it is handed — including ones with zero records —
+// so handing it the raw roster would print all 559 FCs, by name, with their
+// partner beside them. This function is what stops that, and it is the ONLY
+// thing that stops it. Every Reports entry point must take its users from
+// here — never from loadUsers() directly.
+function _rptScopedUsers(u) {
+  const s = u || (typeof currentUser === 'function' ? currentUser() : null);
+  if (!_rptCanView(s)) return [];
+  const all = (typeof loadUsers === 'function') ? loadUsers() : [];
+  if (_rptIsFleet(s)) return all;
+  // An NGO admin with no ngo set is a misconfiguration, not a licence to see
+  // everything — return nothing rather than fall through to the full roster.
+  if (!s.ngo) return [];
+  return all.filter(x => x && x.ngo === s.ngo);
+}
+
 // V12 Reports sort state.
 // ⚠️ ALL FIVE ARE REGISTERED IN _v357ComputeSig. The Reports view is served from
 // the V357 tab cache, which keys on a signature. Leave one of these out and its
@@ -24952,7 +25129,10 @@ function _rptTh(cols, activeIdx, dir, handler, tips) {
       + `>${escHtml(c)}${tip}<span class="rpt-arr">${on ? (dir === -1 ? '▼' : '▲') : '▼'}</span></th>`;
   }).join('');
 }
-let rptRange = 30;          // day-window for FC + Trends tabs
+// V12.6: 0 = ALL TIME, and it is the default. Reports open on the full picture
+// — every FC's total enrollments, applications and benefits — and narrowing to
+// a window is now a deliberate act rather than the state you land in.
+let rptRange = 0;           // 0 = all time; otherwise the day-window for FC/Partners/Trends
 
 function _rptMoney(v) {
   if (v == null || isNaN(v)) return '—';
@@ -25008,6 +25188,18 @@ function _rptDismissTip() {
 }
 window.rptSetTab   = function(t) { _rptDismissTip(); rptTab = t; renderReports(); };
 window.rptSetRange = function(d) { _rptDismissTip(); rptRange = d; renderReports(); };
+
+// V12.6: ONE place that turns rptRange into words, so the chip, the KPI cards,
+// the card headings and both CSV filenames can never describe the same window
+// differently. 0 is all time.
+function _rptWinLabel(range) {
+  const r = (range == null) ? rptRange : range;
+  return !r ? 'all time' : r === 365 ? 'last 12 months' : 'last ' + r + ' days';
+}
+function _rptWinChip(range) {
+  const r = (range == null) ? rptRange : range;
+  return !r ? 'All time' : r === 365 ? '12 months' : r + ' days';
+}
 // V12: clicking the active column flips direction; a new column starts descending
 // (the useful default — "who did the most" is what an admin opens this to see).
 window.rptSortFc     = function(i) { _rptDismissTip(); if (rptFcSort === i) rptFcDir = -rptFcDir; else { rptFcSort = i; rptFcDir = -1; } renderReports(); };
@@ -25070,7 +25262,13 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
   const bById = new Map();
   allB.forEach(b => bById.set(b.id, b));
   const latestRows = _advLatestRowsAll(advParents).filter(r => bById.has(r.__bid));
+  // V12.6: winMs of 0 (or a non-finite one) means ALL TIME — the default view.
+  // The guard returns true BEFORE the date is examined, so a record carrying no
+  // usable date still counts; otherwise "All time" would quietly report fewer
+  // people than the all-time total printed right beside it.
+  const ALL_TIME = !(winMs > 0) || !isFinite(winMs);
   const inWin = iso => {
+    if (ALL_TIME) return true;
     if (!iso) return false;
     const t = new Date(iso).getTime();
     return !isNaN(t) && (nowMs - t) <= winMs;
@@ -25112,6 +25310,16 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
   advParents.forEach(p => {
     const a = fcAgg.get(p.createdBy);
     if (!a) return;
+    // V12.7: the advocacy record must belong to a beneficiary that is IN SCOPE.
+    // Without this the pass keyed only on who CREATED the record, so an
+    // advocacy entry whose beneficiary sits outside the current view still
+    // counted toward its author's Applied and Benefits columns. Two ways that
+    // bit: an admin filtering the topbar to one NGO saw advocacy leak in from
+    // beneficiaries outside that filter, and (V12.7) an FC who had since been
+    // moved between partners could carry another partner's advocacy into this
+    // one. latestRows already applied this rule; the per-FC pass did not, so
+    // the two disagreed.
+    if (!bById.has(p.bid)) return;
     const rows = (p.schemeRows || []).filter(r => r && !r._deleted);
     if (inWin(p.createdAt)) a.advWin += rows.length;
     // V12.3: the two windowed counts below rest on DIFFERENT dates, and the
@@ -25137,7 +25345,7 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
         // rows as "today" (see _rptStampOk). Records nobody has re-saved since
         // still carry those stamps, so the reader must ignore them too.
         const aAt = _rptStampOk(r._aAt);
-        if (aAt ? inWin(aAt) : parentInWin) a.appliedWin++;
+        if (ALL_TIME || (aAt ? inWin(aAt) : parentInWin)) a.appliedWin++;
         if (s === 'Benefits Received') {
           a.recd++; a.benefits++;
           // V12: only STAMPED rows appear in the daily series. A benefit with
@@ -25146,10 +25354,12 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
           // the chart confidently wrong, which is worse than a chart that
           // starts late.
           const bAt = _rptStampOk(r._bAt);
-          if (bAt) {
-            benefitDayCounts.set(bAt, (benefitDayCounts.get(bAt) || 0) + 1);
-            if (inWin(bAt)) a.benefitsWin++;
-          }
+          if (bAt) benefitDayCounts.set(bAt, (benefitDayCounts.get(bAt) || 0) + 1);
+          // V12.6: at ALL TIME there is no window to fall outside of, so an
+          // undated benefit counts like any other. Only a real window needs a
+          // date, and only then can a benefit be excluded for lacking one.
+          if (ALL_TIME) a.benefitsWin++;
+          else if (bAt && inWin(bAt)) a.benefitsWin++;
         }
       }
     });
@@ -25162,6 +25372,25 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
                             .sort((x, y) => (x.last || 0) - (y.last || 0));
   const convDen = fcList.reduce((s, a) => s + a.filed, 0);
   const convNum = fcList.reduce((s, a) => s + a.recd, 0);
+
+  // ── V12.6: a measure with NO usable date cannot be windowed at all ────────
+  // Benefit dating only began 30 Jul 2026, so until stamped benefits exist a
+  // windowed Benefits column is nothing but zeros — which reads as "these
+  // coordinators delivered nothing", not "the app cannot answer that yet".
+  // A column that says the wrong thing is worse than one that says less, so
+  // the measure falls back to its ALL-TIME figure and every renderer labels
+  // it, making it impossible to mistake for a windowed number.
+  //
+  // The fallback is decided ONCE here, before the NGO rollup reads these
+  // values, so the leaderboard, the partner table, the sort keys, the KPI
+  // cards and both exports cannot disagree — the class of bug that shipped in
+  // V12.3, where the cells showed one figure and the ranking used another.
+  //
+  // ⚠️ It switches ITSELF off the moment any dated benefit exists, so it can
+  // never mask a genuine zero later. "No stamps at all" is a statement about
+  // the app's history; "zero this week" is a statement about the work.
+  const benefitsFellBack = !ALL_TIME && benefitDayCounts.size === 0;
+  if (benefitsFellBack) fcList.forEach(a => { a.benefitsWin = a.benefits; });
 
   // ── V12: per-NGO rollup ──────────────────────────────────────────────────
   // activeFcs is the divisor for the table's "per-FC average" mode. It counts
@@ -25223,7 +25452,9 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
     }
     if (inWin(b.enrollDate)) {
       enrolledWinTotal++;
-      dayCounts.set(d, (dayCounts.get(d) || 0) + 1);
+      // V12.6: guarded because at ALL TIME an undated record now passes inWin,
+      // and an undated record has no day to sit on in the trend series.
+      if (d) dayCounts.set(d, (dayCounts.get(d) || 0) + 1);
       const g = ngoWin.get(b.ngo) || { n: 0, fcs: new Set() };
       g.n++;
       if (b.createdBy) g.fcs.add(b.createdBy);
@@ -25285,7 +25516,7 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
   });
   const stuckTotal = Array.from(stuckByScheme.values()).reduce((s, g) => s + g.n, 0);
   const advTotal = latestRows.length;
-  return { fcAgg, fcByName, fcList, ngoRows, benefitDayCounts, totalEverEnrolled, benefitFirstStamp, activeFcs, inactiveFcs, convDen, convNum, ADVI, dayCounts, ngoWin, villageFirst, enrolledWinTotal, livN, endN, sumBase, sumEnd, overdue, stage, byInt, byNgoLiv, overdueNgo, suspects, uName, newVillages, statusCount, stuckByScheme, schemeStats, stuckTotal, advTotal, latestRows, bById, inWin, fcs };
+  return { fcAgg, fcByName, fcList, ngoRows, benefitDayCounts, totalEverEnrolled, benefitFirstStamp, activeFcs, inactiveFcs, convDen, convNum, ADVI, dayCounts, ngoWin, villageFirst, enrolledWinTotal, livN, endN, sumBase, sumEnd, overdue, stage, byInt, byNgoLiv, overdueNgo, suspects, uName, newVillages, statusCount, stuckByScheme, schemeStats, stuckTotal, advTotal, latestRows, bById, inWin, fcs, allTime: ALL_TIME, benefitsFellBack };
 }
 
 // ── V12: FC Performance tab ─────────────────────────────────────────────────
@@ -25301,14 +25532,24 @@ function _rptRenderFc(A, nowMs) {
   // Column order. The key functions below are indexed to match EXACTLY — add a
   // column here and you must add its key in the same position, or the headers
   // will sort by the wrong data.
-  const RPT_FC_COLS = ['Coordinator','Enrollments','Applied','Benefits received',
+  // V12.6: the Benefits heading changes when that column fell back to all-time.
+  // The label carries it, not just the tooltip — a heading is read by everyone,
+  // a tooltip only by whoever taps it.
+  const RPT_FC_COLS = ['Coordinator','Enrollments','Applied',
+                       A.benefitsFellBack ? 'Benefits received (all-time)' : 'Benefits received',
                        'Livelihood','Data quality','Last active'];
+  const scope = A.allTime ? 'in total, across all time' : 'inside the selected date window';
   const RPT_FC_TIPS = [
     '',
-    'Beneficiaries this coordinator enrolled inside the selected date window.',
-    'Scheme applications filed inside the selected window — every entry past "Need to Apply". Applications filed from 29 July 2026 onward carry their own exact filing date; older ones fall back to the date the beneficiary’s advocacy record was created, which can place a late addition outside the window it was really filed in. That approximation shrinks as new applications replace old ones. All-time total: ' + fcList.reduce((s, a) => s + a.applied, 0).toLocaleString('en-IN') + '.',
-    'Benefits that arrived inside the selected window. ⚠ This app only began recording the DATE a benefit was received on 29 July 2026, so benefits from before then cannot appear here — they still count in the all-time total of ' + fcList.reduce((s, a) => s + a.benefits, 0).toLocaleString('en-IN') + '.',
-    'Beneficiaries enrolled inside the window who have at least one REAL livelihood activity — goat rearing, tailoring, a shop. The "Advocacy (Govt. Schemes)" entry is not a livelihood activity and is deliberately excluded, which is why a coordinator doing only advocacy work shows 0. All-time total: ' + fcList.reduce((s, a) => s + a.livelihood, 0).toLocaleString('en-IN') + '.',
+    'Beneficiaries this coordinator enrolled ' + scope + '.',
+    'Scheme applications filed ' + scope + ' — every entry past "Need to Apply".'
+      + (A.allTime ? '' : ' Applications filed from 30 July 2026 onward carry their own exact filing date; older ones fall back to the date the beneficiary’s advocacy record was created, which can place a late addition outside the window it was really filed in. That approximation shrinks as new applications replace old ones.')
+      + ' All-time total: ' + fcList.reduce((s, a) => s + a.applied, 0).toLocaleString('en-IN') + '.',
+    (A.benefitsFellBack
+      ? 'ALL-TIME, not the selected window. This app only began recording the DATE a benefit was received on 30 July 2026, and no benefit carries one yet — so a windowed figure would be nothing but zeros. Every benefit ever recorded is shown instead, and this column will start following the date filter on its own as soon as dated benefits exist.'
+      : 'Benefits that arrived ' + scope + '.'
+        + (A.allTime ? '' : ' ⚠ This app only began recording the DATE a benefit was received on 30 July 2026, so benefits from before then cannot appear here — they still count in the all-time total of ' + fcList.reduce((s, a) => s + a.benefits, 0).toLocaleString('en-IN') + '.')),
+    'Beneficiaries enrolled ' + scope + ' who have at least one REAL livelihood activity — goat rearing, tailoring, a shop. The "Advocacy (Govt. Schemes)" entry is not a livelihood activity and is deliberately excluded, which is why a coordinator doing only advocacy work shows 0. All-time total: ' + fcList.reduce((s, a) => s + a.livelihood, 0).toLocaleString('en-IN') + '.',
     'How complete their records are: the average of three checks — % of their beneficiaries with a phone number, % with a GPS location, and % with at least one photo. All-time, across every record they hold. A low score means paperwork is missing, not that the fieldwork was poor.',
     'The most recent day they enrolled someone or logged an advocacy update. Red means 30+ days with nothing at all. Not affected by the date filter.'
   ];
@@ -25361,23 +25602,40 @@ function _rptRenderFc(A, nowMs) {
     </tr>`).join('');
 
   const sum = k => fcList.reduce((s2, a) => s2 + (a[k] || 0), 0);
-  const win = rptRange === 365 ? 'last 12 months' : 'last ' + rptRange + ' days';
+  const win = _rptWinLabel();
+  // V12.6: when a measure fell back to all-time its card must SAY all-time, and
+  // the "All-time" line beneath is dropped — repeating the same number twice
+  // under two different headings is how a reader concludes the screen is broken.
+  const bWin = A.benefitsFellBack ? 'all-time — no dated benefits yet' : win;
   // V12.3: every card leads with the selected window and keeps its all-time
   // total on the line beneath. Previously three of the four ignored the chip
   // entirely while sitting next to one that obeyed it, so "7 days" appeared to
   // claim 31,961 applications.
+  // V12.6: at ALL TIME the big number IS the all-time total, so the "All-time"
+  // line beneath would print the identical figure under a second heading —
+  // which reads as a broken card, not as reassurance. Suppressed, on every
+  // card, exactly as it is for a measure that fell back.
+  const allT = v => A.allTime ? null : v;
   return _rptKpiRow([
-    ['Enrollments',       'users',  enrolledWinTotal,     win, A.totalEverEnrolled],
-    ['Schemes applied',   'file',   sum('appliedWin'),    win, sum('applied')],
+    ['Enrollments',       'users',  enrolledWinTotal,     win, allT(A.totalEverEnrolled)],
+    ['Schemes applied',   'file',   sum('appliedWin'),    win, allT(sum('applied'))],
     ['Benefits received', 'gift',   sum('benefitsWin'),
-      win + (A.benefitFirstStamp ? ' · dated from ' + A.benefitFirstStamp : ''), sum('benefits')],
-    ['Livelihood',        'sprout', sum('livelihoodWin'), win, sum('livelihood')]
+      // "dated from" explains why a WINDOW looks short. At all time nothing is
+      // excluded for want of a date, so the caveat would only raise a doubt
+      // that does not apply.
+      bWin + (!A.allTime && !A.benefitsFellBack && A.benefitFirstStamp ? ' · dated from ' + A.benefitFirstStamp : ''),
+      A.benefitsFellBack ? null : allT(sum('benefits'))],
+    ['Livelihood',        'sprout', sum('livelihoodWin'), win, allT(sum('livelihood'))]
   ])
   + `<div class="rpt-card">
       <div class="rpt-card-h rpt-card-h-row">
         <div class="rpt-hg">
-          <h3>Coordinator leaderboard \u2014 last ${rptRange} days</h3>
-          <div class="rpt-note">Click any column heading to re-rank; click again to flip. The green-edged row is the current #1 for whichever column you sorted by. <b>Every count is for the selected date window</b> — the chip above applies to all four. Data quality and Last active are all-time. Each column’s ⓘ carries its all-time total and any caveat.</div>
+          <h3>Coordinator leaderboard \u2014 ${esc(_rptWinLabel())}</h3>
+          <div class="rpt-note">Click any column heading to re-rank; click again to flip. The green-edged row is the current #1 for whichever column you sorted by. ${A.allTime
+            ? '<b>Every count is a lifetime total</b> — pick a date chip above to narrow all four to a window.'
+            : '<b>Every count is for the selected date window</b> — the chip above applies to all four.'} Data quality and Last active are always all-time. Each column’s ⓘ carries its all-time total and any caveat.${A.benefitsFellBack
+            ? ' <b>Benefits received is showing all-time</b>, because no benefit carries a date yet — it will start following the filter on its own once dated benefits exist.'
+            : ''}</div>
         </div>
         ${_rptExportBtn('rptExportFc')}
       </div>
@@ -25537,16 +25795,23 @@ function _rptExportRows(cols, rows, slug) {
     if (typeof stateFilter !== 'undefined' && stateFilter) scope.push(_fileSlug(stateFilter));
     if (typeof ngoFilter !== 'undefined' && ngoFilter) scope.push(_fileSlug(ngoFilter));
   } catch (_) {}
-  const name = ['KRSF', slug, scope.join('-'), rptRange + 'd', stamp].filter(Boolean).join('_') + '.csv';
+  const name = ['KRSF', slug, scope.join('-'), rptRange ? rptRange + 'd' : 'alltime', stamp].filter(Boolean).join('_') + '.csv';
   _downloadCsv(name, lines.join('\r\n'));
   if (typeof toast === 'function') toast('Exported all ' + rows.length.toLocaleString('en-IN') + ' rows to ' + name, 'success', 4500);
 }
 
 window.rptExportFc = function () {
-  const A = _rptAggregate(filteredAll(), loadAdv(), loadUsers(), Date.now(), rptRange * 86400000);
+  // V12.7: a CSV leaves the building. It gets the SAME gate and the SAME
+  // scoped roster as the screen — an export that ignored either would hand an
+  // NGO admin the whole fleet in a file.
+  if (!_rptCanView()) return;
+  const A = _rptAggregate(filteredAll(), loadAdv(), _rptScopedUsers(), Date.now(), rptRange ? rptRange * 86400000 : Infinity);
+  // V12.6: these MUST be the windowed keys, matching _rptRenderFc exactly. They
+  // were the all-time ones, so exporting while sorted by Applied produced a
+  // different row order than the screen it was exported from.
   const keyFns = [
-    a => (a.u.fullName || a.u.username || ''), a => a.enrolledWin, a => a.applied,
-    a => a.benefits, a => a.livelihood,
+    a => (a.u.fullName || a.u.username || ''), a => a.enrolledWin, a => a.appliedWin,
+    a => a.benefitsWin, a => a.livelihoodWin,
     a => (a.tot ? ((a.phone / a.tot + a.gps / a.tot + a.photo / a.tot) / 3) * 100 : 0),
     a => a.last || 0
   ];
@@ -25562,10 +25827,14 @@ window.rptExportFc = function () {
     a.tot ? Math.round(((a.phone / a.tot + a.gps / a.tot + a.photo / a.tot) / 3) * 100) : 0,
     a.last ? new Date(a.last).toISOString().slice(0, 10) : ''
   ]);
-  const W = ' (' + rptRange + 'd)';
+  const W = ' (' + (rptRange ? rptRange + 'd' : 'all-time') + ')';
+  // When Benefits fell back, its "window" column is really the all-time figure.
+  // Saying so in the header is the whole difference between a usable file and a
+  // misleading one — a spreadsheet outlives the screen that produced it.
+  const BW = A.benefitsFellBack ? ' (all-time — no dated benefits yet)' : W;
   _rptExportRows(
     ['Coordinator', 'NGO',
-     'Enrollments' + W, 'Schemes applied' + W, 'Benefits received' + W, 'Livelihood' + W,
+     'Enrollments' + W, 'Schemes applied' + W, 'Benefits received' + BW, 'Livelihood' + W,
      'Total beneficiaries (all-time)', 'Schemes applied (all-time)',
      'Benefits received (all-time)', 'Livelihood (all-time)',
      'Data quality %', 'Last active'],
@@ -25573,7 +25842,11 @@ window.rptExportFc = function () {
 };
 
 window.rptExportNgo = function () {
-  const A = _rptAggregate(filteredAll(), loadAdv(), loadUsers(), Date.now(), rptRange * 86400000);
+  // V12.7: the partner comparison is a fleet artefact. The tab is hidden for
+  // an NGO admin, but a hidden button is not a control — this is, and it is
+  // why the check is here and not only in the markup.
+  if (!_rptIsFleet()) return;
+  const A = _rptAggregate(filteredAll(), loadAdv(), _rptScopedUsers(), Date.now(), rptRange ? rptRange * 86400000 : Infinity);
   const totE = (A.ngoRows || []).reduce((s, r) => s + r.enrolled, 0);
   // Export always carries BOTH lenses, whichever the screen is showing — the
   // per-FC average is the whole point of the tab and a spreadsheet that dropped
@@ -25588,11 +25861,12 @@ window.rptExportNgo = function () {
     r.appliedAll, r.benefitsAll, r.livelihoodAll,
     totE ? Math.round((r.enrolled / totE) * 1000) / 10 : 0
   ]);
-  const W = ' (' + rptRange + 'd)';
+  const W = ' (' + (rptRange ? rptRange + 'd' : 'all-time') + ')';
+  const BW = A.benefitsFellBack ? ' (all-time — no dated benefits yet)' : W;
   _rptExportRows(
     ['NGO', 'Active FCs',
-     'Enrollments' + W, 'Schemes applied' + W, 'Benefits received' + W, 'Livelihood' + W,
-     'Enrollments per FC' + W, 'Applied per FC' + W, 'Benefits per FC' + W, 'Livelihood per FC' + W,
+     'Enrollments' + W, 'Schemes applied' + W, 'Benefits received' + BW, 'Livelihood' + W,
+     'Enrollments per FC' + W, 'Applied per FC' + W, 'Benefits per FC' + BW, 'Livelihood per FC' + W,
      'Schemes applied (all-time)', 'Benefits received (all-time)', 'Livelihood (all-time)',
      'Share of enrollments %'],
     rows, 'partners');
@@ -25624,16 +25898,22 @@ function _rptRenderNgo(A) {
     share: totE ? r.enrolled / totE : 0
   }));
 
-  const COLS = ['NGO','Active FCs','Enrollments','Applied','Benefits received',
+  const COLS = ['NGO','Active FCs','Enrollments','Applied',
+                A.benefitsFellBack ? 'Benefits received (all-time)' : 'Benefits received',
                 'Livelihood','Share of enrollments'];
+  const scope = A.allTime ? 'in total, across all time' : 'inside the selected window';
   const TIPS = [
     '',
-    'Coordinators from this partner who enrolled someone or logged an advocacy update inside the selected window. This is also the number the per-FC average divides by — so a partner is not penalised for staff on leave or a vacant post.',
-    'Beneficiaries enrolled inside the selected window.',
-    'Scheme applications filed inside the selected window — every entry past "Need to Apply". Applications filed from 29 July 2026 onward carry their own exact filing date; older ones fall back to the advocacy record’s creation date.',
-    'Benefits that arrived inside the selected window. ⚠ The date a benefit was received has only been recorded since 29 July 2026, so earlier benefits cannot appear here — they are still counted in the all-time column of the CSV export.',
-    'Beneficiaries enrolled inside the window who have at least one REAL livelihood activity. The "Advocacy (Govt. Schemes)" entry is excluded, so a partner doing only advocacy work shows 0 here.',
-    "This partner's share of all enrollments in the window, across every partner currently shown."
+    'Coordinators from this partner who enrolled someone or logged an advocacy update ' + scope + '. This is also the number the per-FC average divides by — so a partner is not penalised for staff on leave or a vacant post.',
+    'Beneficiaries enrolled ' + scope + '.',
+    'Scheme applications filed ' + scope + ' — every entry past "Need to Apply".'
+      + (A.allTime ? '' : ' Applications filed from 30 July 2026 onward carry their own exact filing date; older ones fall back to the advocacy record’s creation date.'),
+    (A.benefitsFellBack
+      ? 'ALL-TIME, not the selected window. The date a benefit was received has only been recorded since 30 July 2026, and no benefit carries one yet — so a windowed figure would be nothing but zeros. Every benefit ever recorded is shown instead, and this column will start following the date filter on its own as soon as dated benefits exist.'
+      : 'Benefits that arrived ' + scope + '.'
+        + (A.allTime ? '' : ' ⚠ The date a benefit was received has only been recorded since 30 July 2026, so earlier benefits cannot appear here — they are still counted in the all-time column of the CSV export.')),
+    'Beneficiaries enrolled ' + scope + ' who have at least one REAL livelihood activity. The "Advocacy (Govt. Schemes)" entry is excluded, so a partner doing only advocacy work shows 0 here.',
+    "This partner's share of all enrollments " + (A.allTime ? 'ever recorded' : 'in the window') + ', across every partner currently shown.'
   ];
   // A dash sorts as "lowest", never as 0 — otherwise an idle partner would
   // outrank a real one whose average happens to be 0.
@@ -25664,7 +25944,11 @@ function _rptRenderNgo(A) {
     <div class="rpt-card-h rpt-card-h-row">
       <div class="rpt-hg">
         <h3>Which partners are doing the best work</h3>
-        <div class="rpt-note"><b>Raw totals</b> shows scale; <b>Per-FC average</b> shows how hard each team works, dividing by the coordinators who were active in this window. Click any heading to re-rank. <b>Every figure is for the selected date window.</b></div>
+        <div class="rpt-note"><b>Raw totals</b> shows scale; <b>Per-FC average</b> shows how hard each team works, dividing by the coordinators who were active in this window. Click any heading to re-rank. ${A.allTime
+          ? '<b>Every figure is a lifetime total.</b> Pick a date chip above to narrow them to a window.'
+          : '<b>Every figure is for the selected date window.</b>'}${A.benefitsFellBack
+          ? ' <b>Benefits received is showing all-time</b>, because no benefit carries a date yet.'
+          : ''}</div>
       </div>
       ${_rptExportBtn('rptExportNgo')}
     </div>
@@ -25727,10 +26011,15 @@ function _rptChrome(body) {
     + `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${TAB_ICON[id] || ''}</svg>`
     + `${label}</button>`;
   const chipBtn = d =>
-    `<button class="${rptRange === d ? 'on' : ''}" onclick="rptSetRange(${d})" aria-pressed="${rptRange === d}">${d === 365 ? '12 months' : d + ' days'}</button>`;
+    `<button class="${rptRange === d ? 'on' : ''}" onclick="rptSetRange(${d})" aria-pressed="${rptRange === d}">${_rptWinChip(d)}</button>`;
   // The NGO tab is driven by the same window as FC + Trends, so it gets the
   // range chips too. Advocacy and Livelihood remain all-time views.
   const showChips = (rptTab === 'fc' || rptTab === 'ngo' || rptTab === 'trend');
+  // V12.7: Partners compares partners against each other — a fleet view. An
+  // NGO admin sees only their own partner, so for them the tab would be a
+  // one-row table titled "which partners are doing the best work". It is
+  // removed rather than left to render something meaningless.
+  const fleet = _rptIsFleet();
   // 1400px, not 1080 and not full-bleed. The old 1080 cap left roughly a third
   // of a laptop screen empty; removing the cap entirely was worse — measured at
   // 1900px the coordinator name column ballooned to 842px, half the table, so
@@ -25740,29 +26029,43 @@ function _rptChrome(body) {
       <div class="rpt-head">
         <div>
           <div class="rpt-title">Reports</div>
-          <div class="rpt-sub">Computed on this device from data already loaded \u2014 no extra Firebase download. Respects the State and NGO filters above.</div>
+          <div class="rpt-sub">Computed on this device from data already loaded \u2014 no extra Firebase download. ${fleet
+            ? 'Respects the State and NGO filters above.'
+            : 'Covers your own coordinators and beneficiaries only. Respects the filters above.'}</div>
         </div>
       </div>
       <div class="rpt-seg" role="tablist">
-        ${tab('fc', 'FC Performance')}${tab('ngo', 'Partners')}${tab('trend', 'Enrollment Trends')}${tab('adv', 'Advocacy Pipeline')}${tab('liv', 'Livelihood Impact')}
+        ${tab('fc', 'FC Performance')}${fleet ? tab('ngo', 'Partners') : ''}${tab('trend', 'Enrollment Trends')}${tab('adv', 'Advocacy Pipeline')}${tab('liv', 'Livelihood Impact')}
       </div>
-      ${showChips ? `<div class="rpt-chips">${chipBtn(7)}${chipBtn(30)}${chipBtn(90)}${chipBtn(365)}</div>` : ''}
+      ${showChips ? `<div class="rpt-chips">${chipBtn(0)}${chipBtn(7)}${chipBtn(30)}${chipBtn(90)}${chipBtn(365)}</div>` : ''}
       ${body}
     </div>`;
 }
 
 function renderReports() {
   const u = currentUser();
-  if (!u || u.role !== 'admin') {
+  // V12.7: admin + NGO admin. The nav button being hidden is not what keeps
+  // anyone else out — this check is, and it runs on every render.
+  if (!_rptCanView(u)) {
     document.getElementById('content').innerHTML =
-      '<div style="padding:48px 20px;text-align:center;color:var(--gray2);font-size:14px">Reports are available to admin accounts only.</div>';
+      '<div style="padding:48px 20px;text-align:center;color:var(--gray2);font-size:14px">Reports are available to admin and NGO partner accounts only.</div>';
     return;
   }
+  const fleet = _rptIsFleet(u);
+  // V12.7: an NGO admin can never leave their own partner, so the Partners tab
+  // (which exists to compare partners against each other) is not theirs. If
+  // their saved tab is that one — or they arrive with it set — bounce to the
+  // leaderboard rather than render an empty comparison.
+  if (!fleet && rptTab === 'ngo') rptTab = 'fc';
   const esc = s => escHtml(String(s == null ? '' : s));
   const allB = filteredAll();                 // topbar State/NGO filters apply here
-  const users = loadUsers();
+  // ⚠️ NOT loadUsers(). See _rptScopedUsers — the roster is the only Reports
+  // input that is not already scoped by the Firebase query.
+  const users = _rptScopedUsers(u);
   const advParents = loadAdv();
-  const now = Date.now(), winMs = rptRange * 86400000;
+  // V12.6: rptRange 0 = all time. Infinity makes _rptAggregate's ALL_TIME
+  // branch fire, which counts undated records too.
+  const now = Date.now(), winMs = rptRange ? rptRange * 86400000 : Infinity;
   const _A = _rptAggregate(allB, advParents, users, now, winMs);
   const { fcAgg, fcByName, fcList, ngoRows, benefitDayCounts, totalEverEnrolled, benefitFirstStamp, activeFcs, inactiveFcs, convDen, convNum, ADVI, dayCounts, ngoWin, villageFirst, enrolledWinTotal, livN, endN, sumBase, sumEnd, overdue, stage, byInt, byNgoLiv, overdueNgo, suspects, uName, newVillages, statusCount, stuckByScheme, schemeStats, stuckTotal, advTotal, latestRows, bById, inWin, fcs } = _A;
 
@@ -25812,11 +26115,16 @@ function renderReports() {
 
   // ══ TAB 2 : ENROLLMENT TRENDS ════════════════════════════════════════════
   if (rptTab === 'trend') {
-    const days = rptRange;
+    // V12.6: a chart needs a finite span. "All time" plots the last 12 months —
+    // the KPI cards beneath say so, and the daily average is computed from the
+    // chart's OWN buckets rather than from the all-time total, which would
+    // divide a lifetime of enrollments across one year and read far too high.
+    const days = rptRange || 365;
     // V12: the chart (both series) now lives in _rptTrendChart so it can be
     // rendered against fixtures in _tests/rptrender.js without a browser.
     const T = _rptTrendChart(_A, now, days);
     const { buckets, best, bucketDays, fmtD2 } = T;
+    const chartTotal = buckets.reduce((s, b) => s + (b.n || 0), 0);
     const chart = T.legend + T.svg
       + `<div style="font-size:10.5px;color:var(--ink2);margin-top:4px;text-align:center">Tap any point for that ${bucketDays === 1 ? 'day' : 'week'}'s exact numbers.</div>`
       + T.note;
@@ -25824,15 +26132,15 @@ function renderReports() {
     const maxNgo = Math.max(1, ...ngoRows.map(([, g]) => g.n));
     body =
       `<div class="rpt-kpis">
-        ${kpi('Enrolled (window)', enrolledWinTotal.toLocaleString('en-IN'), 'last ' + rptRange + ' days', null, 'New beneficiaries enrolled in the selected date range.')}
-        ${kpi('Daily average', (enrolledWinTotal / Math.max(1, rptRange)).toFixed(1), 'per day across the window', null, 'Total enrolled in the window ÷ number of days in the window.')}
+        ${kpi(rptRange ? 'Enrolled (window)' : 'Enrolled (all time)', enrolledWinTotal.toLocaleString('en-IN'), _rptWinLabel(), null, 'New beneficiaries enrolled in the selected date range.')}
+        ${kpi('Daily average', (chartTotal / Math.max(1, days)).toFixed(1), 'per day across ' + _rptWinLabel(days), null, 'Enrollments plotted on the chart below ÷ the number of days it covers. The chart always spans a finite period, so at "All time" this is the last 12 months rather than the whole history.')}
         ${kpi('Best ' + (bucketDays === 1 ? 'day' : 'week'), best.n.toLocaleString('en-IN'), best.n ? fmtD2(best.label) : '—', null, 'The single ' + (bucketDays === 1 ? 'day' : 'week') + ' with the most enrollments in this window. Tap any point on the chart below to see its exact date and count.')}
         ${kpi('New villages reached', newVillages, 'first-ever enrollment in window', null, 'Villages that had their very first enrollment ever inside this window — not just their first enrollment recently.')}
       </div>` +
-      card('Enrollments and benefits per ' + (bucketDays === 1 ? 'day' : 'week') + ' — last ' + rptRange + ' days',
+      card('Enrollments and benefits per ' + (bucketDays === 1 ? 'day' : 'week') + ' — ' + _rptWinLabel(days),
         'Both lines follow the NGO filter above: pick a partner and this chart redraws for that partner alone.',
         tblWrap(chart)) +
-      card('NGO comparison — window', 'Per FC = enrollments ÷ FCs who enrolled at least one beneficiary in the window.',
+      (!fleet ? '' : card('NGO comparison — window', 'Per FC = enrollments ÷ FCs who enrolled at least one beneficiary in the window.',
         tblWrap(`<table style="width:100%;border-collapse:collapse">
           <tr><th style="${TH}">NGO</th><th style="${THR}">Enrolled</th><th style="${THR}">Active FCs</th><th style="${THR}">Per FC</th><th style="${TH}">Share</th></tr>
           ${ngoRows.map(([ngo, g]) => `<tr style="cursor:pointer" onclick="stateFilter='';ngoFilter='${(ngo || '').replace(/'/g, "\\'")}';fcFilter='';currentView='list';nav('list')" title="Click to see ${esc(ngo || '—')}'s beneficiaries">
@@ -25842,7 +26150,7 @@ function renderReports() {
             <td style="${TDR}">${g.fcs.size ? Math.round(g.n / g.fcs.size) : '—'}</td>
             <td style="${TD}">${qBar(g.n / maxNgo * 100)}</td>
           </tr>`).join('') || `<tr><td colspan="5" style="${TD};text-align:center;color:var(--gray2)">No enrollments in this window.</td></tr>`}
-        </table>`));
+        </table>`)));
   }
 
   // ══ TAB 3 : ADVOCACY PIPELINE ════════════════════════════════════════════
@@ -29000,6 +29308,14 @@ function injectDynamicOptions() {
       const allowed = new Set(_u.assignedNgos);
       names = names.filter(n => allowed.has(n));
     }
+    // V12.7: an NGO admin gets the same treatment the donor role has had since
+    // V375, which it should have had all along. Their DATA was always scoped
+    // (getData filters on b.ngo, and their Firebase query never fetches
+    // anything else) but the topbar dropdown still listed every partner in the
+    // programme by name, and the enrollment form let them file a beneficiary
+    // under someone else's partner. Scoping the source list fixes both, and
+    // every other consumer of this list, in one place.
+    if (_u && _u.role === 'ngo' && _u.ngo) names = names.filter(n => n === _u.ngo);
   } catch(_) {}
   const populate = (sel, includeAllOption, allLabel) => {
     const el = document.getElementById(sel);
@@ -36071,6 +36387,11 @@ function _applyRoleVisibility() {
     // silently-failed background sync could leave them stale for up to the
     // 30-day pantry TTL with nothing on screen to say so.
     if (el.id === 'topbar-refresh-btn') { el.style.display = (isAdm || isNgo) ? '' : 'none'; return; }
+    // V12.7: data-ngo-ok marks a control an NGO admin may also use — currently
+    // the Reports nav entries. It only unhides the BUTTON; renderReports()
+    // re-checks the role itself, so this attribute can never be the only thing
+    // standing between a role and the page.
+    if (el.hasAttribute('data-ngo-ok')) { el.style.display = (isAdm || isNgo) ? '' : 'none'; return; }
     el.style.display = isAdm ? '' : 'none';
   });
   // V325: utility-only tools are permanently hidden from sidebar even for
