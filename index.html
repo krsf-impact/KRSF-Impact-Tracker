@@ -2,6 +2,88 @@
 <!--
   KRSF Beneficiary Impact Tracker  -  V6.7.2-LIVE
   ============================================================================
+  V12-LIVE (2026-07-29 - Reports: leaderboards you can sort, a partner
+  comparison, and a daily benefits line.):
+    + FC PERFORMANCE is now a SORTABLE table. Click any heading to re-rank,
+      click again to flip. Three new columns - Applied, Benefits received,
+      Livelihood - so a coordinator's whole pipeline reads left to right:
+      enrolled -> applied -> received -> livelihood. The green-edged row is the
+      current #1 for whichever column you sorted by, so it MOVES as you re-rank;
+      it is suppressed when sorting by name, where "#1" means nothing.
+      All three counts go through _advNormStatus(), never r.status - the string
+      'Benefits Received' is never stored, and reading it directly has shipped
+      as a bug twice already (V371, V6.8.2).
+    + NEW "PARTNERS" TAB answering "which NGOs are doing the best work" with two
+      lenses on one table. RAW shows scale; PER-FC AVERAGE divides by the
+      coordinators active in the window, so a 30-FC partner no longer beats a
+      3-FC partner automatically. A partner with zero active FCs shows a dash -
+      never NaN, never Infinity, and it sorts to the bottom rather than to the
+      top.
+    + TRENDS now draws BENEFITS RECEIVED PER DAY alongside enrollments, on one
+      shared y-axis (never two scales). Both lines follow the NGO filter.
+    + THE BENEFITS LINE STARTS PARTWAY ACROSS, BY DESIGN. A scheme row recorded
+      THAT a benefit arrived but never WHEN, so V12 adds `_bAt` (a 'YYYY-MM-DD'
+      stamp) at the moment a row becomes Benefits Received. Nothing is
+      backfilled: days before the first stamp are a GAP, not a zero, because a
+      zero would assert "no benefits that day" - which would be false. Days
+      inside the tracked era with genuinely no benefit ARE drawn as zero.
+      Historical benefits still count in full everywhere else; only the daily
+      line is affected, and the chart says so in plain language.
+    + ⚠️ THE `_bAt` DATA-LOSS TRAP, and its guard. TWO paths rebuild scheme rows
+      from scratch and return a fixed five-field object, silently discarding any
+      field they do not know about: toStoredSchemeRows (the beneficiary Edit
+      form) and advGetRows (the Advocacy modal, which reads the DOM and cannot
+      know what was stored). The advocacy merge then replaces the stored row
+      wholesale. So a naive stamp would be erased the next time anyone edited
+      that beneficiary's NAME, and the chart would develop holes nobody could
+      explain. Both paths now run through _rptStampBenefitDate(), which carries
+      an existing date forward, stamps a new one, and clears it if the row stops
+      being Benefits Received. A tombstoned row never donates its date.
+      `_bAt` is deliberately ABSENT from the save signature: a field that
+      changes on stamping would append a spurious advocacy row on every
+      unrelated edit - the unbounded growth the V310 comment warns about.
+    + FIXED A LATENT BUG OLDER THAN THIS RELEASE. _v357ComputeSig read its
+      variables via window[name], but rptTab/rptRange are declared with `let` -
+      and a top-level `let` lives in the global DECLARATIVE record, never as a
+      property of window. Every Reports tab has therefore produced the SAME
+      cache signature since V4.6, so returning to Reports could restore the
+      wrong tab. The Reports state is now read directly, and the five new sort
+      variables with it. Without this, clicking a column header would have
+      re-rendered into a cache hit and sorting would have done nothing at all.
+    + FIXED: the progress bars were invisible. .rpt-qfill / .rpt-sfill are
+      <span>s carrying a percentage width, and a percentage width does not apply
+      to an inline element - so every data-quality and share bar rendered at
+      ZERO width while the markup looked perfectly correct. Measured at 0px in a
+      browser, now display:block, with a test asserting it.
+    + renderReports() is split into _rptAggregate (pure: no DOM, no globals, no
+      Firebase) plus _rptRenderFc / _rptRenderNgo / _rptTrendChart / _rptChrome,
+      so every number and every pixel can be verified from fixtures with no
+      login and no live data. New harness _tests/rptrender.js writes a
+      standalone page from the REAL functions and the REAL stylesheet.
+    + Modern SaaS treatment: KPI cards, segmented tab pills, pill range chips,
+      row hover, NGO-tinted avatars, SVG icons throughout. Restyling the shared
+      card()/kpi() helpers gave Advocacy and Livelihood the same look with no
+      code touched inside them. ALL decorative emoji removed from Reports.
+      Verified at 1440 / 1024 / 768 / 375: no horizontal page scroll anywhere,
+      tables and the chart scroll inside their own wrappers, KPI cards reflow
+      4-up to 2-up, tap targets >= 36px.
+    + Chart colour: the enrolment line is #3050C7, not --navy2. The original
+      failed the lightness-band check against a white chart surface; the shipped
+      pair passes CVD separation (deutan dE 21.9), the normal-vision floor
+      (24.7) and 3:1 contrast. Re-run the palette validator if either changes.
+    + THE THREE CONSTRAINTS. (1) No Firebase increase: every figure is computed
+      from filteredAll()/loadUsers()/loadAdv(), already in memory - asserted
+      statically for all 8 Reports functions. The only new byte is the ~18-byte
+      _bAt stamp, written onto a row that is ALREADY being saved because its
+      status just changed. (2) No data loss: one additive write, guarded above,
+      with tests that prove a date survives both edit paths. (3) Fast load:
+      Reports is admin-only, so all 561 coordinators never render a line of it;
+      no new library, font or CDN.
+    + Tests: _tests/rptverify.js (12 sections) and _tests/rptrender.js (12
+      rendered panels). Run alongside v11server, v11client, v11pin, fcverify,
+      ngoverify, hashtest, statetest, syntaxcheck.
+
+  ============================================================================
   V11.6-LIVE (2026-07-28 - stop publishing credentials; close the cost hole on
   the public function endpoints.):
     + REMOVED 29 HARD-CODED USERNAME/PASSWORD PAIRS from the page source. A
@@ -32,17 +114,29 @@
       Now it always asks; getToken() returns the cached token when there is one.
       If no token can be had it sends none and lets the server decide, so
       behaviour is identical before and after enforcement.
-    + _functions/functions/index.js sets enforceAppCheck: true on all three.
-      ⚠️ DEPLOY ORDER: ship THIS client first, confirm `firebase functions:log`
-      shows "app":"VALID" (it read "app":"MISSING" before V11.6), and only then
-      deploy the functions. The reverse order rejects every login from the
-      client that is currently live.
-    + No new lockout: Firebase Auth already enforces App Check on this project,
-      so a device that cannot pass it has no session and cannot use the app at
-      all, with or without this setting.
-    + Tests: v11server.js now asserts all 3 functions carry the option, that no
-      function keeps the old unprotected signature, that the app attaches the
-      token at all 3 call sites, and that ZERO credentials remain in the source.
+    + ⚠️ CORRECTION, written 2026-07-29. This entry originally said the server
+      would set `enforceAppCheck: true` on all three functions. IT DOES NOT, and
+      must not - the setting was built, tested, then deliberately REMOVED the
+      same night. Two reasons: (1) it saves nothing extra, because the
+      invocation is billed either way, so it protects exactly what an early
+      return protects - the DATABASE work, which is the line that actually bills
+      this project; and (2) it locks out every client that does not send a
+      token, and at that moment 30 of 32 recent sign-ins were still on V11.5.
+      With `requireRealSession` on there is no fallback, so a rejected login is
+      a total lockout, not a degraded mode.
+      What SHIPPED instead is an in-code burst limiter inside login(): a
+      token-less call is allowed, but only 15 per 60 seconds per instance, and a
+      SUCCESSFUL sign-in refunds its budget - so genuine coordinators can never
+      throttle each other however many sign in at once, while a stranger (whose
+      calls all fail) is capped after 15 tries having read and written zero
+      bytes. Deployed and verified on production 2026-07-28: served 15, HTTP 429
+      from the 16th, and the same request succeeded again 65s later.
+      See the `krsf-function-cost-guard` memory before changing any of this.
+    + Tests: v11server.js asserts platform enforcement stays OFF, that the burst
+      limiter is wired in and is memory-only (a public endpoint that can create
+      database records is how a stranger grows your bill), that a crowd of real
+      token-less sign-ins is never refused, that the app attaches the token at
+      all 3 call sites, and that ZERO credentials remain in the source.
   ============================================================================
   V11.5-LIVE (2026-07-28 - two things an administrator could not do for
   themselves.):
@@ -7124,6 +7218,117 @@ body[data-shell="coord"] #_v352-install-btn {
     width: 54px; text-align: right;
   }
 }
+
+/* ── V12 Reports ──────────────────────────────────────────────────────────
+   Every selector here is prefixed rpt- so this cannot leak into any other
+   view. Three neutral inks are added because the existing --gray2/--gray3 pair
+   is too light for body text on white at the sizes this page uses.          */
+:root{ --ink:#101828; --ink2:#475467; --ink3:#98A2B3; --rbd:#E7EAF0; --rhov:#F8FAFC; }
+
+.rpt-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;
+  flex-wrap:wrap;margin-bottom:16px}
+.rpt-title{font-size:20px;font-weight:700;letter-spacing:-.01em;color:var(--ink)}
+.rpt-sub{font-size:12.5px;color:var(--ink2);margin-top:3px;max-width:70ch;line-height:1.5}
+
+/* Segmented tab bar. Scrolls horizontally on a phone rather than wrapping into
+   a second row that pushes the content down. */
+.rpt-seg{display:inline-flex;background:#EDF0F5;border-radius:12px;padding:4px;gap:2px;
+  margin-bottom:14px;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.rpt-seg button{display:flex;align-items:center;gap:7px;padding:8px 15px;min-height:40px;
+  border:none;background:none;border-radius:9px;font-size:13px;font-weight:500;
+  color:var(--ink2);white-space:nowrap;font-family:var(--font);cursor:pointer;
+  transition:background .18s,color .18s}
+.rpt-seg button svg{flex-shrink:0}
+.rpt-seg button.on{background:#fff;color:var(--navy);font-weight:600;
+  box-shadow:0 1px 2px rgba(16,24,40,.05),0 1px 3px rgba(16,24,40,.06)}
+.rpt-seg button:focus-visible{outline:2px solid var(--navy2);outline-offset:-2px}
+
+.rpt-chips{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}
+.rpt-chips button{padding:7px 14px;min-height:36px;border-radius:99px;border:1px solid var(--rbd);
+  background:#fff;font-size:12.5px;color:var(--ink2);font-family:var(--font);cursor:pointer;
+  transition:background .18s,border-color .18s,color .18s}
+.rpt-chips button.on{background:var(--navy);border-color:var(--navy);color:#fff;font-weight:600}
+.rpt-chips button:not(.on):hover{border-color:var(--ink3)}
+.rpt-chips button:focus-visible{outline:2px solid var(--navy2);outline-offset:2px}
+
+.rpt-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+.rpt-kpi{background:#fff;border:1px solid var(--rbd);border-radius:14px;padding:14px 16px;
+  box-shadow:0 1px 2px rgba(16,24,40,.05),0 1px 3px rgba(16,24,40,.06)}
+.rpt-kpi-lab{display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:600;
+  color:var(--ink2);text-transform:uppercase;letter-spacing:.05em}
+.rpt-kpi-lab svg{color:var(--ink3);flex-shrink:0}
+.rpt-kpi-val{font-size:24px;font-weight:700;letter-spacing:-.02em;margin-top:6px;
+  font-variant-numeric:tabular-nums;color:var(--ink)}
+.rpt-kpi-sub{font-size:11.5px;color:var(--ink3);margin-top:3px}
+@media(max-width:760px){ .rpt-kpis{grid-template-columns:repeat(2,1fr)} }
+@media(max-width:420px){ .rpt-kpi-val{font-size:20px} }
+
+.rpt-card{background:#fff;border:1px solid var(--rbd);border-radius:14px;
+  box-shadow:0 1px 2px rgba(16,24,40,.05),0 1px 3px rgba(16,24,40,.06);
+  margin-bottom:16px;overflow:hidden}
+.rpt-card-h{padding:15px 18px 4px}
+.rpt-card-h h3{font-size:14.5px;font-weight:700;letter-spacing:-.01em;color:var(--ink)}
+.rpt-card-h .rpt-note{font-size:12px;color:var(--ink2);margin-top:3px;line-height:1.5}
+
+.rpt-tblwrap{overflow-x:auto;padding:6px 6px 8px}
+.rpt-tbl{border-collapse:collapse;width:100%;font-size:13px;min-width:720px}
+.rpt-th{background:none;color:var(--ink3);font-size:10.5px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.06em;padding:10px 12px;text-align:right;
+  white-space:nowrap;cursor:pointer;user-select:none;border-bottom:1px solid var(--rbd);
+  transition:color .15s}
+.rpt-th:hover{color:var(--ink2)}
+.rpt-th:focus-visible{outline:2px solid var(--navy2);outline-offset:-2px;border-radius:6px}
+.rpt-tbl th:first-child,.rpt-tbl td:first-child{text-align:left}
+.rpt-arr{display:inline-block;width:8px;margin-left:4px;opacity:.3;font-size:8px;vertical-align:1px}
+.rpt-th.rpt-sorted{color:var(--navy)}
+.rpt-th.rpt-sorted .rpt-arr{opacity:1}
+.rpt-tbl td{padding:10px 12px;text-align:right;border-bottom:1px solid #F2F4F7;
+  white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--ink)}
+.rpt-tbl tbody tr{transition:background .12s}
+.rpt-tbl tbody tr:hover td{background:var(--rhov)}
+.rpt-tbl tbody tr:last-child td{border-bottom:none}
+.rpt-tbl tr.rpt-top td{background:#F3FBF6}
+.rpt-tbl tr.rpt-top td:first-child{box-shadow:inset 3px 0 0 var(--green)}
+
+.rpt-person{display:flex;align-items:center;gap:10px}
+.rpt-av{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-size:11.5px;font-weight:700;color:#fff;flex-shrink:0}
+.rpt-pname{font-weight:600;font-size:13px}
+.rpt-psub{font-size:11px;color:var(--ink3);margin-top:1px;display:block}
+.rpt-strong{font-weight:700}
+/* The track and fill are <span>s. A percentage width does NOT apply to an
+   inline element, so without display:block the fill renders at zero width and
+   both progress bars silently disappear — the markup looks perfectly correct.
+   The tracks are flex items (blockified by the inline-flex parent), but they
+   are declared explicitly so a future markup change cannot re-break them. */
+.rpt-qual{display:inline-flex;align-items:center;gap:7px}
+.rpt-qtrack{display:inline-block;width:52px;height:5px;border-radius:3px;background:#EDF0F5;overflow:hidden;flex-shrink:0}
+.rpt-qfill{display:block;height:100%;border-radius:3px;background:var(--green)}
+.rpt-share{display:inline-flex;align-items:center;gap:8px;justify-content:flex-end}
+.rpt-strack{display:inline-block;width:110px;height:7px;border-radius:4px;background:#EDF0F5;overflow:hidden;flex-shrink:0}
+.rpt-sfill{display:block;height:100%;border-radius:4px;background:#3050C7}
+.rpt-mini{font-size:11.5px;color:var(--ink2)}
+.rpt-warn{font-size:11px;font-weight:600;color:var(--red);background:var(--red2);
+  border-radius:99px;padding:2px 8px}
+.rpt-empty{text-align:center;color:var(--ink2);padding:22px 12px}
+
+/* Two series always carry a legend, so identity is never colour-alone. */
+.rpt-legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--ink2);margin:2px 0 8px}
+.rpt-leg{display:flex;align-items:center;gap:6px}
+.rpt-dot{display:inline-block;width:9px;height:9px;border-radius:3px;flex-shrink:0}
+.rpt-tracknote{font-size:11.5px;color:var(--amber);background:var(--amber2);border-radius:10px;
+  padding:9px 12px;margin-top:10px;line-height:1.5}
+
+.rpt-mode{display:inline-flex;background:#EDF0F5;border-radius:10px;padding:3px;margin:10px 18px 4px}
+.rpt-mode button{padding:6px 13px;min-height:34px;border:none;background:none;border-radius:8px;
+  font-size:12px;font-weight:500;color:var(--ink2);font-family:var(--font);cursor:pointer;
+  transition:background .18s,color .18s}
+.rpt-mode button.on{background:#fff;color:var(--navy);font-weight:600;
+  box-shadow:0 1px 2px rgba(16,24,40,.05)}
+
+@media (prefers-reduced-motion: reduce){
+  .rpt-th,.rpt-tbl tbody tr,.rpt-mode button{transition:none}
+}
 </style>
 </head>
 <body>
@@ -8525,7 +8730,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V11.6-LIVE';
+const APP_VERSION = 'V12-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -18063,13 +18268,16 @@ async function _submitEnrollInner() {
   // — for untouched edit rows this is the original stored value (preserving
   // 'Approved'+Yes and 'Rejected' and benefitAmt), for touched/fresh rows
   // this is the 2-state UI value with default 'No'/0.
-  const toStoredSchemeRows = rows => rows.map(r => ({
+  // V12: this mapper drops every field it does not name, so the benefit date
+  // must be carried back on explicitly — otherwise an ordinary name-or-phone
+  // edit silently wipes it. See _rptStampBenefitDate for the full explanation.
+  const toStoredSchemeRows = rows => _rptStampBenefitDate(rows.map(r => ({
     scheme:      r.scheme,
     status:      r.status,
     benefitRecd: r.benefitRecd || 'No',
     benefitAmt:  r.benefitAmt || 0,
     remarks:     r.remarks || ''   // #1: per-application remarks
-  }));
+  })), editingId ? _advLatestRowsForBeneficiary(editingId) : []);
 
   if (editingId) {
     // V5.3: confirm before adding a real livelihood intervention to a
@@ -21311,6 +21519,42 @@ function advOnSchemeChange(rowId) {
   }
 }
 
+// V12: the ONLY field this release persists. A scheme row records THAT a
+// benefit was received but never WHEN, so the daily-benefits chart had nothing
+// to plot. This stamps a date at the moment a row becomes Benefits Received.
+//
+// ⚠️ WHY THIS IS A FUNCTION AND NOT AN INLINE ASSIGNMENT.
+// Two separate paths rebuild scheme rows from scratch and return a fixed
+// five-field object — toStoredSchemeRows (the beneficiary Edit form) and
+// advGetRows (the Advocacy modal, which reads the DOM and cannot know what was
+// stored). Both silently discard any field they do not know about, and the
+// advocacy merge below then replaces the stored row wholesale. So a naive stamp
+// would be erased the next time anyone edited that beneficiary's NAME, and the
+// chart would develop holes nobody could explain. Every rebuild path must run
+// its output through here.
+//
+// _bAt is deliberately ABSENT from the save signature: including a field that
+// changes on stamping would append a spurious advocacy row on every unrelated
+// edit — the unbounded growth the V310 comment warns about.
+function _rptStampBenefitDate(outgoing, stored, todayIso) {
+  const today = todayIso || new Date().toISOString().slice(0, 10);
+  const key = r => `${r.scheme}::${r.remarks || ''}`;
+  const prev = new Map();
+  // Tombstoned rows must not donate a date to a live row — that entry was
+  // deleted, and reviving its date would put a phantom point on the chart.
+  (stored || []).forEach(r => { if (r && !r._deleted) prev.set(key(r), r); });
+  return (outgoing || []).map(r => {
+    const out = Object.assign({}, r);            // never mutate the caller's rows
+    if (_advNormStatus(r) !== 'Benefits Received') {
+      delete out._bAt;                            // no longer a benefit → no date
+      return out;
+    }
+    const was = prev.get(key(r));
+    out._bAt = (was && was._bAt) ? was._bAt : today;   // carry forward, else stamp
+    return out;
+  });
+}
+
 function advGetRows() {
   const wrap = document.getElementById('adv-scheme-rows');
   if (!wrap) return [];
@@ -21529,7 +21773,7 @@ async function _saveAdvocacyInner() {
   const bid = document.getElementById('adv-bid').value;
   const err = document.getElementById('adv-err');
   if (!bid) { err.textContent='Please select a beneficiary first.'; err.classList.add('show'); return; }
-  const rows = advGetRows();
+  let rows = advGetRows();
   if (!rows.length) { err.textContent='Please add at least one scheme row.'; err.classList.add('show'); return; }
   // V392 [4.4]: look up the beneficiary in the FULL dataset (fall back to
   // loadData) so an out-of-scope / just-deleted record still gets the correct
@@ -21554,6 +21798,12 @@ async function _saveAdvocacyInner() {
   // The tombstone approach also fixes the symmetric bug in the enrollment
   // modal's edit flow — see toStoredSchemeRows handling below.
   const existingIdx = arr.findIndex(a => a.bid === bid);
+  // V12: carry any existing benefit date across this rebuild. advGetRows()
+  // reconstructs every row from the DOM, so without this the date is dropped
+  // and the daily-benefits chart loses that point for good. Done BEFORE
+  // incomingByKey is built so both the replace path and the append path below
+  // receive stamped rows.
+  rows = _rptStampBenefitDate(rows, existingIdx >= 0 ? (arr[existingIdx].schemeRows || []) : []);
   let rec, isUpdate, deletedCount = 0;
   if (existingIdx >= 0) {
     isUpdate = true;
@@ -24305,7 +24555,42 @@ window.openDrawer = function(id) {
 // holds in memory (filteredAll(), loadAdv(), loadUsers()) — no new Firebase
 // node, no new listener, no new fetch anywhere in this section. Zero
 // download increase (the standing ground rule).
-let rptTab = 'fc';          // fc | trend | adv | liv
+let rptTab = 'fc';          // fc | ngo | trend | adv | liv
+
+// V12 Reports sort state.
+// ⚠️ ALL FIVE ARE REGISTERED IN _v357ComputeSig. The Reports view is served from
+// the V357 tab cache, which keys on a signature. Leave one of these out and its
+// control re-renders into a cache HIT — the click appears to do nothing at all.
+// The same bug had to be fixed once already, for rptTab itself.
+let rptFcSort = 1, rptFcDir = -1;      // default: Enrollments, descending
+let rptNgoSort = 2, rptNgoDir = -1;    // default: Enrollments, descending
+let rptNgoMode = 'raw';                // 'raw' | 'pfc'
+
+// V12: one stable comparator for both tables. The index tiebreak matters —
+// without it, equal values reshuffle between renders, which reads as a glitch.
+// Never mutates its input; the caller still holds the unsorted array.
+function _rptSortRows(rows, keyFn, dir) {
+  return rows.map((r, i) => ({ r, i })).sort((x, y) => {
+    const A = keyFn(x.r), B = keyFn(y.r);
+    let c;
+    if (typeof A === 'number' && typeof B === 'number') c = A - B;
+    else c = String(A == null ? '' : A).localeCompare(String(B == null ? '' : B));
+    return c !== 0 ? c * dir : x.i - y.i;
+  }).map(o => o.r);
+}
+
+// V12: shared sortable-header builder, so the arrow, the aria-label and the
+// sorted class can never drift apart between the two tables.
+function _rptTh(cols, activeIdx, dir, handler) {
+  return cols.map((c, i) => {
+    const on = i === activeIdx;
+    return `<th class="rpt-th${on ? ' rpt-sorted' : ''}" role="button" tabindex="0"`
+      + ` aria-label="Sort by ${escHtml(c)}"`
+      + ` onclick="${handler}(${i})"`
+      + ` onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${handler}(${i})}"`
+      + `>${escHtml(c)}<span class="rpt-arr">${on ? (dir === -1 ? '▼' : '▲') : '▼'}</span></th>`;
+  }).join('');
+}
 let rptRange = 30;          // day-window for FC + Trends tabs
 
 function _rptMoney(v) {
@@ -24334,12 +24619,39 @@ function _rptAgoLabel(ms) {
 // #content (so the cache-hit innerHTML swap doesn't touch it), but that also
 // means it would otherwise float on screen, disconnected, after the tab it
 // was anchored to has already been replaced.
+// V12: "3 days" with no markup. _rptAgoLabel wraps anything 30+ days old in its
+// own pill; the V12 tables decide that styling themselves, so they need the bare
+// text. Kept separate rather than adding a flag — two callers, two clear jobs.
+function _rptAgoLabelPlain(ms) {
+  if (!ms) return 'never';
+  const d = Math.floor((Date.now() - ms) / 86400000);
+  if (d <= 0) return 'Today';
+  if (d === 1) return 'Yesterday';
+  return d + ' days ago';
+}
+
+// V12: a stable colour per NGO for the avatar chips. Hashed from the name rather
+// than assigned by index, so an NGO keeps its colour when the list is re-sorted
+// or filtered — colour follows the entity, never its rank.
+function _rptNgoColor(ngo) {
+  const PAL = ['#25399D','#146B38','#5B21B6','#B45309','#0E7490','#9D174D','#3F6212','#7C2D12'];
+  const s = String(ngo || '—');
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  return PAL[Math.abs(h) % PAL.length];
+}
+
 function _rptDismissTip() {
   document.getElementById('_rpt-tip-pop')?.remove();
   _rptTipOpenEl = null;
 }
 window.rptSetTab   = function(t) { _rptDismissTip(); rptTab = t; renderReports(); };
 window.rptSetRange = function(d) { _rptDismissTip(); rptRange = d; renderReports(); };
+// V12: clicking the active column flips direction; a new column starts descending
+// (the useful default — "who did the most" is what an admin opens this to see).
+window.rptSortFc     = function(i) { _rptDismissTip(); if (rptFcSort === i) rptFcDir = -rptFcDir; else { rptFcSort = i; rptFcDir = -1; } renderReports(); };
+window.rptSortNgo    = function(i) { _rptDismissTip(); if (rptNgoSort === i) rptNgoDir = -rptNgoDir; else { rptNgoSort = i; rptNgoDir = -1; } renderReports(); };
+window.rptSetNgoMode = function(m) { _rptDismissTip(); rptNgoMode = m; renderReports(); };
 
 // V4.9: small "ⓘ" info-tooltip, tap/click-triggered (not hover-only — title=
 // alone never fires on touch devices, a known gotcha elsewhere in this app).
@@ -24381,32 +24693,33 @@ function _rptShowTip(el) {
   }, 0);
 }
 
-function renderReports() {
-  const u = currentUser();
-  if (!u || u.role !== 'admin') {
-    document.getElementById('content').innerHTML =
-      '<div style="padding:48px 20px;text-align:center;color:var(--gray2);font-size:14px">Reports are available to admin accounts only.</div>';
-    return;
-  }
-  const esc = s => escHtml(String(s == null ? '' : s));
-  const allB = filteredAll();                 // topbar State/NGO filters apply here
+// V12: the Reports aggregation is a pure function so its numbers can be
+// verified in _tests/rptverify.js. It reads NOTHING global and touches no DOM --
+// every input arrives as an argument -- and it must never read Firebase: the
+// whole Reports feature is required to add zero download. rptverify.js asserts
+// that statically.
+function _rptAggregate(allB, advParents, users, nowMs, winMs) {
+  // Declared up here because the per-FC pass below needs it too (V12's
+  // livelihood column). It used to sit further down, next to its first use.
+  const ADVI = 'Advocacy (Govt. Schemes)';
+  // V12: benefits per day, keyed 'YYYY-MM-DD' from the _bAt stamp. Declared
+  // here because the advocacy pass below fills it before the trends section.
+  const benefitDayCounts = new Map();
+  const fcs = users.filter(x => x.role === 'coordinator');
   const bById = new Map();
   allB.forEach(b => bById.set(b.id, b));
-  const users = loadUsers();
-  const fcs = users.filter(x => x.role === 'coordinator');
-  const advParents = loadAdv();
   const latestRows = _advLatestRowsAll(advParents).filter(r => bById.has(r.__bid));
-  const now = Date.now(), winMs = rptRange * 86400000;
   const inWin = iso => {
     if (!iso) return false;
     const t = new Date(iso).getTime();
-    return !isNaN(t) && (now - t) <= winMs;
+    return !isNaN(t) && (nowMs - t) <= winMs;
   };
 
   // ── single pass: per-FC aggregation ──────────────────────────────────────
   const fcAgg = new Map(), fcByName = new Map();
   fcs.forEach(f => {
     const a = { u: f, tot: 0, enrolledWin: 0, advWin: 0, filed: 0, recd: 0,
+                applied: 0, benefits: 0, livelihood: 0,   // V12 leaderboard columns
                 phone: 0, gps: 0, photo: 0, last: 0 };
     fcAgg.set(f.id, a);
     if (f.fullName) fcByName.set(f.fullName, a);
@@ -24416,6 +24729,9 @@ function renderReports() {
     if (!a) return;
     a.tot++;
     if (inWin(b.enrollDate)) a.enrolledWin++;
+    // V12: livelihood = at least one REAL intervention. The Advocacy pseudo-
+    // entry is not a livelihood activity and must never inflate this column.
+    if ((b.interventions || []).some(i => i && i !== ADVI)) a.livelihood++;
     if (b.phone) a.phone++;
     if (b.lat != null) a.gps++;
     if ((b.photos || []).length) a.photo++;
@@ -24431,20 +24747,48 @@ function renderReports() {
     if (inWin(p.createdAt)) a.advWin += rows.length;
     rows.forEach(r => {
       const s = _advNormStatus(r);
-      if (s !== 'Need to Apply') { a.filed++; if (s === 'Benefits Received') a.recd++; }
+      if (s !== 'Need to Apply') {
+        a.filed++; a.applied++;
+        if (s === 'Benefits Received') {
+          a.recd++; a.benefits++;
+          // V12: only STAMPED rows appear in the daily series. A benefit with
+          // no _bAt is historical — it still counts in every total above, it
+          // simply has no day to sit on. Inventing one would make the chart
+          // confidently wrong, which is worse than a chart that starts late.
+          if (r._bAt) benefitDayCounts.set(r._bAt, (benefitDayCounts.get(r._bAt) || 0) + 1);
+        }
+      }
     });
     const t = p.createdAt ? new Date(p.createdAt).getTime() : 0;
     if (t > a.last) a.last = t;
   });
   const fcList = Array.from(fcAgg.values());
-  const activeFcs   = fcList.filter(a => a.last && (now - a.last) <= 30 * 86400000);
-  const inactiveFcs = fcList.filter(a => a.tot > 0 && (!a.last || (now - a.last) > 30 * 86400000))
+  const activeFcs   = fcList.filter(a => a.last && (nowMs - a.last) <= 30 * 86400000);
+  const inactiveFcs = fcList.filter(a => a.tot > 0 && (!a.last || (nowMs - a.last) > 30 * 86400000))
                             .sort((x, y) => (x.last || 0) - (y.last || 0));
   const convDen = fcList.reduce((s, a) => s + a.filed, 0);
   const convNum = fcList.reduce((s, a) => s + a.recd, 0);
 
+  // ── V12: per-NGO rollup ──────────────────────────────────────────────────
+  // activeFcs is the divisor for the table's "per-FC average" mode. It counts
+  // only coordinators with activity INSIDE the window (user decision,
+  // 2026-07-29) so an NGO is not penalised for staff on leave or a vacant post.
+  // It can legitimately be 0 — the renderer must show a dash, never divide.
+  const ngoMap = new Map();
+  fcList.forEach(a => {
+    const n = a.u.ngo || '—';
+    const g = ngoMap.get(n) ||
+      { ngo: n, activeFcs: 0, enrolled: 0, applied: 0, benefits: 0, livelihood: 0 };
+    if (a.enrolledWin > 0 || a.advWin > 0) g.activeFcs++;
+    g.enrolled   += a.enrolledWin;
+    g.applied    += a.applied;
+    g.benefits   += a.benefits;
+    g.livelihood += a.livelihood;
+    ngoMap.set(n, g);
+  });
+  const ngoRows = Array.from(ngoMap.values());
+
   // ── single pass: trends + livelihood + villages ──────────────────────────
-  const ADVI = 'Advocacy (Govt. Schemes)';
   const dayCounts = new Map(), ngoWin = new Map(), villageFirst = new Map();
   let enrolledWinTotal = 0;
   let livN = 0, endN = 0, sumBase = 0, sumEnd = 0, overdue = 0;
@@ -24527,19 +24871,376 @@ function renderReports() {
   });
   const stuckTotal = Array.from(stuckByScheme.values()).reduce((s, g) => s + g.n, 0);
   const advTotal = latestRows.length;
+  return { fcAgg, fcByName, fcList, ngoRows, benefitDayCounts, activeFcs, inactiveFcs, convDen, convNum, ADVI, dayCounts, ngoWin, villageFirst, enrolledWinTotal, livN, endN, sumBase, sumEnd, overdue, stage, byInt, byNgoLiv, overdueNgo, suspects, uName, newVillages, statusCount, stuckByScheme, schemeStats, stuckTotal, advTotal, latestRows, bById, inWin, fcs };
+}
+
+// ── V12: FC Performance tab ─────────────────────────────────────────────────
+// Split out of renderReports so the markup can be rendered against fixtures in
+// a harness (_tests/rptrender.js) without a browser, a login, or Firebase.
+// Depends only on globals that genuinely exist at call time: escHtml, _rptTh,
+// _rptSortRows, _rptNgoColor, _rptAgoLabelPlain and the rpt* sort state.
+function _rptRenderFc(A, nowMs) {
+  const esc = s => escHtml(String(s == null ? '' : s));
+  const now = nowMs || Date.now();
+  const { fcList, inactiveFcs, activeFcs, enrolledWinTotal, convDen, convNum } = A;
+
+  // Column order. The key functions below are indexed to match EXACTLY — add a
+  // column here and you must add its key in the same position, or the headers
+  // will sort by the wrong data.
+  const RPT_FC_COLS = ['Coordinator','Enrollments','Applied','Benefits received',
+                       'Livelihood','Data quality','Last active'];
+  const fcKeys = [
+    a => (a.u.fullName || a.u.username || ''),
+    a => a.enrolledWin,
+    a => a.applied,
+    a => a.benefits,
+    a => a.livelihood,
+    a => (a.tot ? ((a.phone / a.tot + a.gps / a.tot + a.photo / a.tot) / 3) * 100 : 0),
+    a => a.last || 0
+  ];
+  const withRecords = fcList.filter(a => a.tot > 0);
+  const sortedFc = _rptSortRows(withRecords, fcKeys[rptFcSort] || fcKeys[1], rptFcDir);
+  // Still capped: re-rendering ~470 rows on every header click would make the
+  // page feel slow, and "who is the best" is answered by the head of the list.
+  // Filtering to one NGO drops almost everyone under the cap anyway.
+  const RPT_FC_CAP = 25;
+  const board = sortedFc.slice(0, RPT_FC_CAP);
+  // The #1 marker follows the SORTED column, so it moves as the admin re-ranks.
+  // It is meaningless when sorting by name, so it is suppressed there.
+  const bestFc = rptFcSort === 0 ? null : board[0];
+
+  const rows = board.map(a => {
+    const q = a.tot ? ((a.phone / a.tot + a.gps / a.tot + a.photo / a.tot) / 3) * 100 : 0;
+    const nm = a.u.fullName || a.u.username || '\u2014';
+    const inits = nm.split(/\s+/).map(w => w[0] || '').join('').slice(0, 2).toUpperCase();
+    const stale = a.last && (now - a.last) > 30 * 86400000;
+    // V4.9: click-through to this FC's beneficiary list — reuses the same
+    // fcFilter + nav('list') pattern the NGO Partners drill-down already uses.
+    const fcClick = `stateFilter='';ngoFilter='';fcFilter='${(a.u.id || '').replace(/'/g, "\\'")}';currentView='list';nav('list')`;
+    return `<tr class="${a === bestFc ? 'rpt-top' : ''}" style="cursor:pointer" onclick="${fcClick}" title="Click to see ${esc(nm)}'s beneficiaries">
+      <td><div class="rpt-person"><span class="rpt-av" style="background:${_rptNgoColor(a.u.ngo)}">${esc(inits)}</span><span><span class="rpt-pname">${esc(nm)}</span><span class="rpt-psub">${esc(a.u.ngo || '\u2014')}</span></span></div></td>
+      <td class="rpt-strong">${a.enrolledWin.toLocaleString('en-IN')}</td>
+      <td>${a.applied.toLocaleString('en-IN')}</td>
+      <td>${a.benefits.toLocaleString('en-IN')}</td>
+      <td>${a.livelihood.toLocaleString('en-IN')}</td>
+      <td><span class="rpt-qual"><span class="rpt-qtrack"><span class="rpt-qfill" style="width:${Math.round(q)}%"></span></span><span class="rpt-mini">${Math.round(q)}%</span></span></td>
+      <td>${stale ? `<span class="rpt-warn">${_rptAgoLabelPlain(a.last)}</span>` : `<span class="rpt-mini">${_rptAgoLabelPlain(a.last)}</span>`}</td>
+    </tr>`;
+  }).join('');
+
+  const inactiveRows = inactiveFcs.slice(0, 10).map(a => `<tr>
+      <td><div class="rpt-person"><span class="rpt-av" style="background:${_rptNgoColor(a.u.ngo)}">${esc((a.u.fullName || a.u.username || '\u2014').split(/\s+/).map(w => w[0] || '').join('').slice(0, 2).toUpperCase())}</span><span><span class="rpt-pname">${esc(a.u.fullName || a.u.username)}</span><span class="rpt-psub">${esc(a.u.ngo || '\u2014')}</span></span></div></td>
+      <td><span class="rpt-warn">${_rptAgoLabelPlain(a.last)}</span></td>
+      <td>${a.tot.toLocaleString('en-IN')}</td>
+    </tr>`).join('');
+
+  const totApplied = fcList.reduce((s2, a) => s2 + a.applied, 0);
+  const totBenefit = fcList.reduce((s2, a) => s2 + a.benefits, 0);
+  const totLiv     = fcList.reduce((s2, a) => s2 + a.livelihood, 0);
+
+  return _rptKpiRow([
+    ['Enrollments',       'users',  enrolledWinTotal, 'last ' + rptRange + ' days'],
+    ['Schemes applied',   'file',   totApplied,       'all-time'],
+    ['Benefits received', 'gift',   totBenefit,       'all-time'],
+    ['Livelihood',        'sprout', totLiv,           'beneficiaries with an intervention']
+  ])
+  + `<div class="rpt-card">
+      <div class="rpt-card-h">
+        <h3>Coordinator leaderboard \u2014 last ${rptRange} days</h3>
+        <div class="rpt-note">Click any column heading to re-rank; click again to flip. The green-edged row is the current #1 for whichever column you sorted by. Enrollments are within the window; Applied, Benefits received and Livelihood are all-time. Data quality = average of % with phone, % with GPS, % with photo.</div>
+      </div>
+      <div class="rpt-tblwrap">
+        <table class="rpt-tbl">
+          <thead><tr>${_rptTh(RPT_FC_COLS, rptFcSort, rptFcDir, 'rptSortFc')}</tr></thead>
+          <tbody>${rows || `<tr><td colspan="${RPT_FC_COLS.length}" class="rpt-empty">No FC activity found for the current filters.</td></tr>`}</tbody>
+        </table>
+      </div>
+      ${withRecords.length > RPT_FC_CAP ? `<div class="rpt-note" style="padding:0 18px 14px">Showing the top ${RPT_FC_CAP} of ${withRecords.length} coordinators with records, for the column you sorted by.</div>` : ''}
+    </div>`
+  + `<div class="rpt-card">
+      <div class="rpt-card-h">
+        <h3>Inactive coordinators \u2014 nothing logged in 30+ days</h3>
+        <div class="rpt-note">${activeFcs.length} of ${fcList.length} coordinators were active in the last 30 days. The people below may have left, be on leave, or need support \u2014 their beneficiaries may need reassigning (User Management \u2192 Transfer).</div>
+      </div>
+      <div class="rpt-tblwrap">
+        <table class="rpt-tbl" style="min-width:420px">
+          <thead><tr><th class="rpt-th">Coordinator</th><th class="rpt-th">Last activity</th><th class="rpt-th">Their beneficiaries</th></tr></thead>
+          <tbody>${inactiveRows || `<tr><td colspan="3" class="rpt-empty" style="color:var(--green)">None \u2014 every coordinator with records has been active in the last 30 days.</td></tr>`}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+// ── V12: the Trends chart, with the benefits series ─────────────────────────
+// Split out of renderReports so the harness can render it without a browser.
+// Returns the SVG plus the figures the KPI cards above it need, so the caller
+// never recomputes the buckets.
+//
+// ⚠️ THE BENEFITS LINE IS DELIBERATELY SHORTER THAN THE ENROLMENT LINE.
+// A scheme row records THAT a benefit arrived, never WHEN — the _bAt stamp only
+// exists from V12 onward. Days before the first stamp are therefore `null`, a
+// GAP, and emphatically not zero: a zero asserts "no benefits that day", which
+// would be false. Historical benefits still count in full on every other tab.
+function _rptTrendChart(A, nowMs, days) {
+  const now = nowMs || Date.now();
+  const bucketDays = days > 120 ? 7 : 1;
+  const buckets = [];
+  for (let i = days - 1; i >= 0; i -= bucketDays) {
+    let n = 0, bn = null, label = '';
+    for (let j = 0; j < bucketDays; j++) {
+      if ((i - j) < 0) break;
+      const key = new Date(now - (i - j) * 86400000).toISOString().slice(0, 10);
+      n += A.dayCounts.get(key) || 0;
+      const b = A.benefitDayCounts.get(key);
+      if (b != null) bn = (bn || 0) + b;
+      if (!label) label = key;
+    }
+    buckets.push({ label, n, bn });
+  }
+  // The first day anything was stamped. Before it there is no data at all, so
+  // the line simply does not start — rather than drawing a misleading flat zero.
+  const stamps = Array.from(A.benefitDayCounts.keys()).sort();
+  const firstStamp = stamps.length ? stamps[0] : null;
+  buckets.forEach(b => {
+    if (!firstStamp || b.label < firstStamp) b.bn = null;
+    else if (b.bn == null) b.bn = 0;      // inside the tracked era, 0 is a real zero
+  });
+
+  // One shared y-scale. Two scales on one chart is the classic way to make two
+  // series look related when they are not.
+  const maxN = Math.max(1, ...buckets.map(b => b.n), ...buckets.map(b => b.bn || 0));
+  const W = 700, H = 205, L = 40, B = 150;
+  const xOf = i => L + (i / Math.max(1, buckets.length - 1)) * (W - L - 20);
+  const yOf = v => B - (v / maxN) * 120;
+
+  const ePts = buckets.map((b, i) => ({ x: xOf(i), y: yOf(b.n), b }));
+  const ePoly = ePts.map(p => p.x.toFixed(1) + ',' + p.y.toFixed(1)).join(' ');
+  // A <path> with gaps, not a <polyline>: polyline cannot break a line.
+  let bPath = '', pen = false;
+  buckets.forEach((b, i) => {
+    if (b.bn == null) { pen = false; return; }
+    bPath += (pen ? 'L' : 'M') + xOf(i).toFixed(1) + ' ' + yOf(b.bn).toFixed(1) + ' ';
+    pen = true;
+  });
+
+  const best = buckets.reduce((m, b) => b.n > m.n ? b : m, { n: 0, label: '—' });
+  const bestPt = ePts.find(p => p.b === best);
+  const fmtD2 = s => { try { return new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }); } catch (_) { return s; } };
+  const unit = bucketDays === 1 ? '' : ' (week)';
+
+  const pointEls = ePts.map((p, i) => {
+    const b = p.b;
+    const tip = fmtD2(b.label) + unit + ': ' + b.n.toLocaleString('en-IN') + ' enrolled'
+      + ', ' + (b.bn == null ? 'benefits not tracked yet' : b.bn.toLocaleString('en-IN') + ' benefit' + (b.bn === 1 ? '' : 's'));
+    return `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="10" fill="transparent" style="cursor:pointer" data-tip="${escHtml(tip)}" onclick="event.stopPropagation();_rptShowTip(this)"/>`
+      + `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3" fill="#3050C7" style="pointer-events:none"/>`;
+  }).join('');
+  const bDots = buckets.map((b, i) => b.bn == null ? '' :
+    `<circle cx="${xOf(i).toFixed(1)}" cy="${yOf(b.bn).toFixed(1)}" r="2.6" fill="var(--green)" style="pointer-events:none"/>`).join('');
+
+  // Where tracking begins, marked on the chart itself so the short line is
+  // explained where it is seen, not only in the note underneath.
+  const stampIdx = firstStamp ? buckets.findIndex(b => b.label >= firstStamp) : -1;
+  const marker = stampIdx > 0
+    ? `<line x1="${xOf(stampIdx).toFixed(1)}" y1="20" x2="${xOf(stampIdx).toFixed(1)}" y2="${B}" stroke="#B45309" stroke-dasharray="4 4" stroke-width="1.2"/>`
+      + `<text x="${(xOf(stampIdx) + 5).toFixed(1)}" y="28" font-size="9.5" fill="#92400E">benefit dates tracked from here</text>`
+    : '';
+
+  const svg =
+    `<svg viewBox="0 0 ${W} ${H}" style="width:100%;min-width:520px" role="img" aria-label="Enrollments and benefits per ${bucketDays === 1 ? 'day' : 'week'}">
+      <line x1="${L}" y1="${B}" x2="${W - 20}" y2="${B}" stroke="#E5E7EB"/>
+      <line x1="${L}" y1="${B - 60}" x2="${W - 20}" y2="${B - 60}" stroke="#F3F4F6"/>
+      <line x1="${L}" y1="${B - 120}" x2="${W - 20}" y2="${B - 120}" stroke="#F3F4F6"/>
+      <text x="${L - 6}" y="${B + 4}" font-size="10" fill="#9CA3AF" text-anchor="end">0</text>
+      <text x="${L - 6}" y="${B - 56}" font-size="10" fill="#9CA3AF" text-anchor="end">${Math.round(maxN / 2)}</text>
+      <text x="${L - 6}" y="${B - 116}" font-size="10" fill="#9CA3AF" text-anchor="end">${maxN}</text>
+      ${marker}
+      <polyline fill="none" stroke="#3050C7" stroke-width="2.5" points="${ePoly}"/>
+      ${bPath ? `<path d="${bPath.trim()}" fill="none" stroke="var(--green)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>` : ''}
+      ${pointEls}${bDots}
+      ${bestPt && best.n > 0 ? `<text x="${bestPt.x.toFixed(1)}" y="${(bestPt.y - 8).toFixed(1)}" font-size="10" fill="var(--navy)" text-anchor="middle" font-weight="600" style="pointer-events:none">${best.n}</text>` : ''}
+      <text x="${L}" y="${B + 22}" font-size="10" fill="#9CA3AF">${buckets.length ? fmtD2(buckets[0].label) : ''}</text>
+      <text x="${W - 20}" y="${B + 22}" font-size="10" fill="#9CA3AF" text-anchor="end">${buckets.length ? fmtD2(buckets[buckets.length - 1].label) : ''}</text>
+    </svg>`;
+
+  const legend =
+    `<div class="rpt-legend">
+      <span class="rpt-leg"><span class="rpt-dot" style="background:#3050C7"></span>Enrollments per ${bucketDays === 1 ? 'day' : 'week'}</span>
+      <span class="rpt-leg"><span class="rpt-dot" style="background:var(--green)"></span>Benefits received per ${bucketDays === 1 ? 'day' : 'week'}</span>
+    </div>`;
+
+  const note = firstStamp
+    ? `<div class="rpt-tracknote">The benefits line starts on ${fmtD2(firstStamp)}, when this app began recording the date a benefit was received. Benefits from before then still count in full on the FC and Partner tabs — they simply have no date to sit on.</div>`
+    : `<div class="rpt-tracknote">No benefit has been recorded with a date yet, so there is no benefits line. One will appear as soon as a coordinator marks a scheme as Benefits Received. Existing benefits still count in full on the FC and Partner tabs.</div>`;
+
+  return { svg, legend, note, buckets, best, bucketDays, firstStamp, fmtD2 };
+}
+
+// ── V12: NGO comparison tab ─────────────────────────────────────────────────
+// Two lenses on one table. RAW answers "who delivers the most"; PER-FC answers
+// "whose team works hardest". Showing only raw would let a 30-coordinator
+// partner beat a 3-coordinator one automatically, which is not a judgement the
+// data supports — so both are offered and the admin decides.
+function _rptRenderNgo(A) {
+  const esc = s => escHtml(String(s == null ? '' : s));
+  const rowsIn = A.ngoRows || [];
+  const totE = rowsIn.reduce((s, r) => s + r.enrolled, 0);
+  const pfc = rptNgoMode === 'pfc';
+
+  // ⚠️ activeFcs is the divisor and CAN legitimately be 0 — a partner whose
+  // whole team was idle for the selected window. Dividing would print NaN or
+  // Infinity into a report used to judge partners, so those cells show a dash.
+  const per = (n, fcs) => pfc ? (fcs ? Math.round((n / fcs) * 10) / 10 : null) : n;
+
+  const rows = rowsIn.map(r => ({
+    ngo: r.ngo,
+    activeFcs: r.activeFcs,
+    enrolled:   per(r.enrolled, r.activeFcs),
+    applied:    per(r.applied, r.activeFcs),
+    benefits:   per(r.benefits, r.activeFcs),
+    livelihood: per(r.livelihood, r.activeFcs),
+    share: totE ? r.enrolled / totE : 0
+  }));
+
+  const COLS = ['NGO','Active FCs','Enrollments','Applied','Benefits received',
+                'Livelihood','Share of enrollments'];
+  // A dash sorts as "lowest", never as 0 — otherwise an idle partner would
+  // outrank a real one whose average happens to be 0.
+  const K = [ r => r.ngo, r => r.activeFcs,
+              r => r.enrolled   == null ? -1 : r.enrolled,
+              r => r.applied    == null ? -1 : r.applied,
+              r => r.benefits   == null ? -1 : r.benefits,
+              r => r.livelihood == null ? -1 : r.livelihood,
+              r => r.share ];
+  const sorted = _rptSortRows(rows, K[rptNgoSort] || K[2], rptNgoDir);
+  const best = rptNgoSort === 0 ? null : sorted[0];
+  const num = n => n == null ? '<span class="rpt-mini">—</span>' : n.toLocaleString('en-IN');
+
+  const body = sorted.map(r => {
+    const inits = String(r.ngo || '—').split(/\s+/).map(w => w[0] || '').join('').slice(0, 2).toUpperCase();
+    return `<tr class="${r === best ? 'rpt-top' : ''}">
+      <td><div class="rpt-person"><span class="rpt-av" style="background:${_rptNgoColor(r.ngo)}">${esc(inits)}</span><span class="rpt-pname">${esc(r.ngo)}</span></div></td>
+      <td>${r.activeFcs.toLocaleString('en-IN')}</td>
+      <td class="rpt-strong">${num(r.enrolled)}</td>
+      <td>${num(r.applied)}</td>
+      <td>${num(r.benefits)}</td>
+      <td>${num(r.livelihood)}</td>
+      <td><span class="rpt-share"><span class="rpt-strack"><span class="rpt-sfill" style="width:${Math.round(r.share * 100)}%"></span></span><span class="rpt-mini">${Math.round(r.share * 100)}%</span></span></td>
+    </tr>`;
+  }).join('');
+
+  return `<div class="rpt-card">
+    <div class="rpt-card-h">
+      <h3>Which partners are doing the best work</h3>
+      <div class="rpt-note"><b>Raw totals</b> shows scale; <b>Per-FC average</b> shows how hard each team works, dividing by the coordinators who were active in this window. Click any heading to re-rank. Enrollments are within the window; the rest are all-time.</div>
+    </div>
+    <div class="rpt-mode" role="group" aria-label="Comparison mode">
+      <button class="${pfc ? '' : 'on'}" onclick="rptSetNgoMode('raw')">Raw totals</button>
+      <button class="${pfc ? 'on' : ''}" onclick="rptSetNgoMode('pfc')">Per-FC average</button>
+    </div>
+    <div class="rpt-tblwrap">
+      <table class="rpt-tbl">
+        <thead><tr>${_rptTh(COLS, rptNgoSort, rptNgoDir, 'rptSortNgo')}</tr></thead>
+        <tbody>${body || `<tr><td colspan="${COLS.length}" class="rpt-empty">No partner activity found for the current filters.</td></tr>`}</tbody>
+      </table>
+    </div>
+    ${pfc && rowsIn.some(r => !r.activeFcs) ? `<div class="rpt-note" style="padding:0 18px 14px">A dash means no coordinator from that partner was active in this window, so there is nothing to average.</div>` : ''}
+  </div>`;
+}
+
+// V12: the four headline cards. Inline SVG, never emoji — an emoji renders as a
+// different glyph on every platform and cannot be recoloured.
+const _RPT_ICONS = {
+  users:  '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  file:   '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="m9 15 2 2 4-4"/>',
+  gift:   '<polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5"/><line x1="12" y1="22" x2="12" y2="7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/>',
+  sprout: '<path d="M7 20h10"/><path d="M12 20v-9"/><path d="M12 11C12 6 8 3 3 3c0 5 3 8 9 8z"/><path d="M12 11c0-3.5 2.5-6 8-6 0 4-2 7-8 7z"/>'
+};
+function _rptKpiRow(cards) {
+  return '<div class="rpt-kpis">' + cards.map(c => {
+    const [label, icon, val, sub] = c;
+    const n = typeof val === 'number' ? val.toLocaleString('en-IN') : val;
+    return `<div class="rpt-kpi">
+      <div class="rpt-kpi-lab"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${_RPT_ICONS[icon] || ''}</svg>${escHtml(label)}</div>
+      <div class="rpt-kpi-val">${n}</div>
+      <div class="rpt-kpi-sub">${escHtml(sub || '')}</div>
+    </div>`;
+  }).join('') + '</div>';
+}
+
+// ── V12: the Reports page chrome ────────────────────────────────────────────
+// Header, segmented tab bar and range chips. Split out so it can be rendered in
+// _tests/rptrender.js — the chrome is shared by all five tabs, so a mistake here
+// is a mistake on every one of them.
+function _rptChrome(body) {
+  // SVG icons, never emoji. An emoji is a different glyph on every platform,
+  // cannot take the active colour, and reads as decoration rather than as part
+  // of the control.
+  const TAB_ICON = {
+    fc:    '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+    ngo:   '<path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/>',
+    trend: '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
+    adv:   '<path d="M3 21h18"/><path d="M5 21V10"/><path d="M19 21V10"/><path d="M9 21v-6h6v6"/><path d="M12 3 2 9h20L12 3Z"/>',
+    liv:   '<path d="M7 20h10"/><path d="M12 20v-9"/><path d="M12 11C12 6 8 3 3 3c0 5 3 8 9 8z"/><path d="M12 11c0-3.5 2.5-6 8-6 0 4-2 7-8 7z"/>'
+  };
+  const tab = (id, label) =>
+    `<button class="${rptTab === id ? 'on' : ''}" onclick="rptSetTab('${id}')" role="tab" aria-selected="${rptTab === id}">`
+    + `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${TAB_ICON[id] || ''}</svg>`
+    + `${label}</button>`;
+  const chipBtn = d =>
+    `<button class="${rptRange === d ? 'on' : ''}" onclick="rptSetRange(${d})" aria-pressed="${rptRange === d}">${d === 365 ? '12 months' : d + ' days'}</button>`;
+  // The NGO tab is driven by the same window as FC + Trends, so it gets the
+  // range chips too. Advocacy and Livelihood remain all-time views.
+  const showChips = (rptTab === 'fc' || rptTab === 'ngo' || rptTab === 'trend');
+  return `<div style="max-width:1080px">
+      <div class="rpt-head">
+        <div>
+          <div class="rpt-title">Reports</div>
+          <div class="rpt-sub">Computed on this device from data already loaded \u2014 no extra Firebase download. Respects the State and NGO filters above.</div>
+        </div>
+      </div>
+      <div class="rpt-seg" role="tablist">
+        ${tab('fc', 'FC Performance')}${tab('ngo', 'Partners')}${tab('trend', 'Enrollment Trends')}${tab('adv', 'Advocacy Pipeline')}${tab('liv', 'Livelihood Impact')}
+      </div>
+      ${showChips ? `<div class="rpt-chips">${chipBtn(7)}${chipBtn(30)}${chipBtn(90)}${chipBtn(365)}</div>` : ''}
+      ${body}
+    </div>`;
+}
+
+function renderReports() {
+  const u = currentUser();
+  if (!u || u.role !== 'admin') {
+    document.getElementById('content').innerHTML =
+      '<div style="padding:48px 20px;text-align:center;color:var(--gray2);font-size:14px">Reports are available to admin accounts only.</div>';
+    return;
+  }
+  const esc = s => escHtml(String(s == null ? '' : s));
+  const allB = filteredAll();                 // topbar State/NGO filters apply here
+  const users = loadUsers();
+  const advParents = loadAdv();
+  const now = Date.now(), winMs = rptRange * 86400000;
+  const _A = _rptAggregate(allB, advParents, users, now, winMs);
+  const { fcAgg, fcByName, fcList, ngoRows, benefitDayCounts, activeFcs, inactiveFcs, convDen, convNum, ADVI, dayCounts, ngoWin, villageFirst, enrolledWinTotal, livN, endN, sumBase, sumEnd, overdue, stage, byInt, byNgoLiv, overdueNgo, suspects, uName, newVillages, statusCount, stuckByScheme, schemeStats, stuckTotal, advTotal, latestRows, bById, inWin, fcs } = _A;
+
 
   // ── shared HTML helpers ───────────────────────────────────────────────────
+  // V12: these two helpers are used by the Trends, Advocacy and Livelihood tabs.
+  // Restyling them here — rather than rewriting the markup inside each tab —
+  // gives every tab the new look from one change, with no churn in code this
+  // release is not otherwise touching.
   const kpi = (label, val, sub, color, tip) =>
-    `<div style="background:#fff;border:1px solid var(--gray3);border-radius:12px;padding:12px 14px">
-      <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--gray2);font-weight:600;display:flex;align-items:center">${label}${tip ? _rptTip(tip) : ''}</div>
-      <div style="font-size:22px;font-weight:700;color:${color || 'var(--navy)'};margin-top:2px">${val}</div>
-      <div style="font-size:11px;color:var(--gray2);margin-top:2px">${sub || ''}</div>
+    `<div class="rpt-kpi">
+      <div class="rpt-kpi-lab">${label}${tip ? _rptTip(tip) : ''}</div>
+      <div class="rpt-kpi-val"${color ? ` style="color:${color}"` : ''}>${val}</div>
+      <div class="rpt-kpi-sub">${sub || ''}</div>
     </div>`;
   const card = (title, hint, body) =>
-    `<div style="background:#fff;border:1px solid var(--gray3);border-radius:12px;padding:16px;margin-bottom:14px">
-      <div style="font-size:14px;font-weight:600;margin-bottom:3px">${title}</div>
-      ${hint ? `<div style="font-size:11px;color:var(--gray2);margin-bottom:12px">${hint}</div>` : ''}
-      ${body}
+    `<div class="rpt-card">
+      <div class="rpt-card-h">
+        <h3>${title}</h3>
+        ${hint ? `<div class="rpt-note">${hint}</div>` : ''}
+      </div>
+      <div style="padding:10px 18px 16px">${body}</div>
     </div>`;
   const pill = (txt, bg, fg) =>
     `<span style="display:inline-block;font-size:10.5px;font-weight:600;padding:2px 9px;border-radius:10px;background:${bg};color:${fg}">${txt}</span>`;
@@ -24560,118 +25261,33 @@ function renderReports() {
   let body = '';
 
   // ══ TAB 1 : FC PERFORMANCE ═══════════════════════════════════════════════
-  if (rptTab === 'fc') {
-    const board = fcList.filter(a => a.tot > 0)
-      .sort((x, y) => y.enrolledWin - x.enrolledWin || y.tot - x.tot).slice(0, 15);
-    const medals = ['🥇', '🥈', '🥉'];
-    const rows = board.map((a, i) => {
-      const q = a.tot ? ((a.phone / a.tot + a.gps / a.tot + a.photo / a.tot) / 3) * 100 : 0;
-      const conv = a.filed ? (a.recd / a.filed) * 100 : null;
-      // V4.9: click-through to this FC's beneficiary list — reuses the same
-      // fcFilter + nav('list') pattern already used by the NGO Partners
-      // FC-wise drill-down table, no new filter plumbing needed.
-      const fcClick = `stateFilter='';ngoFilter='';fcFilter='${(a.u.id || '').replace(/'/g, "\\'")}';currentView='list';nav('list')`;
-      return `<tr style="cursor:pointer" onclick="${fcClick}" title="Click to see ${esc(a.u.fullName || a.u.username)}'s beneficiaries">
-        <td style="${TD};font-size:14px">${medals[i] || ''}</td>
-        <td style="${TD}"><b>${esc(a.u.fullName || a.u.username)}</b></td>
-        <td style="${TD}">${esc(a.u.ngo || '—')}</td>
-        <td style="${TDR}"><b>${a.enrolledWin.toLocaleString('en-IN')}</b></td>
-        <td style="${TDR}">${a.tot.toLocaleString('en-IN')}</td>
-        <td style="${TDR}">${a.advWin.toLocaleString('en-IN')}</td>
-        <td style="${TDR}">${conv == null ? '—' : pctPill(conv)}</td>
-        <td style="${TD}">${qBar(q)}</td>
-        <td style="${TDR}">${_rptAgoLabel(a.last)}</td>
-      </tr>`;
-    }).join('');
-    const inactiveRows = inactiveFcs.slice(0, 10).map(a => `<tr>
-      <td style="${TD}"><b>${esc(a.u.fullName || a.u.username)}</b></td>
-      <td style="${TD}">${esc(a.u.ngo || '—')}</td>
-      <td style="${TDR}">${_rptAgoLabel(a.last)}</td>
-      <td style="${TDR}">${a.tot.toLocaleString('en-IN')}</td>
-    </tr>`).join('');
-    body =
-      `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px">
-        ${kpi('Active FCs (30d)', activeFcs.length, 'of ' + fcList.length + ' with records: ' + fcList.filter(a => a.tot > 0).length, null, 'Field Coordinators who enrolled a beneficiary or logged an advocacy update in the last 30 days.')}
-        ${kpi('Inactive 30+ days', inactiveFcs.length, 'needs follow-up', inactiveFcs.length ? 'var(--red)' : 'var(--green)', 'FCs with zero enrollments or advocacy updates for 30+ days straight — worth a check-in call.')}
-        ${kpi('Enrolled (window)', enrolledWinTotal.toLocaleString('en-IN'), 'last ' + rptRange + ' days', null, 'New beneficiaries enrolled in the selected date range, across all FCs.')}
-        ${kpi('Overall conversion', convDen ? Math.round(convNum / convDen * 100) + '%' : '—', 'filed → benefits received', null, 'Of every scheme application ever filed (Applied, Received, or Rejected), the % that reached Benefits Received. All-time, not limited to the selected window.')}
-      </div>` +
-      card('FC Leaderboard — last ' + rptRange + ' days',
-        'Sorted by enrollments in the window. Conversion is all-time: of scheme entries they filed, % that reached "Benefits Received". Data quality = average of % with phone, % with GPS, % with photo.',
-        tblWrap(`<table style="width:100%;border-collapse:collapse">
-          <tr><th style="${TH}"></th><th style="${TH}">FC</th><th style="${TH}">NGO</th><th style="${THR}">Enrolled (win)</th><th style="${THR}">Total</th><th style="${THR}">Advocacy (win)</th><th style="${THR}">Conversion${_rptTip('All-time: of the scheme entries this FC filed, the % that reached Benefits Received.')}</th><th style="${TH}">Data quality${_rptTip('Average of: % of their beneficiaries with a phone number, % with a GPS location, and % with at least one photo on file.')}</th><th style="${THR}">Last active</th></tr>
-          ${rows || `<tr><td colspan="9" style="${TD};text-align:center;color:var(--gray2)">No FC activity found for the current filters.</td></tr>`}
-        </table>`)
-        + (fcList.filter(a => a.tot > 0).length > 15 ? `<div style="font-size:11px;color:var(--gray2);margin-top:8px">Showing top 15 of ${fcList.filter(a => a.tot > 0).length} FCs with records.</div>` : '')) +
-      card('⚠ Inactive FCs — no enrollment or advocacy update in 30+ days',
-        'These FCs may have left, be on leave, or need support. Their beneficiaries may need reassignment (User Management → Transfer).',
-        tblWrap(`<table style="width:100%;border-collapse:collapse">
-          <tr><th style="${TH}">FC</th><th style="${TH}">NGO</th><th style="${THR}">Last activity</th><th style="${THR}">Their beneficiaries</th></tr>
-          ${inactiveRows || `<tr><td colspan="4" style="${TD};text-align:center;color:var(--green)">None — every FC with records has been active in the last 30 days. 🎉</td></tr>`}
-        </table>`));
-  }
+  if (rptTab === 'fc') { body = _rptRenderFc(_A, now); }
+
+  // ══ TAB 2 : NGO COMPARISON (V12) ═════════════════════════════════════════
+  if (rptTab === 'ngo') { body = _rptRenderNgo(_A); }
 
   // ══ TAB 2 : ENROLLMENT TRENDS ════════════════════════════════════════════
   if (rptTab === 'trend') {
     const days = rptRange;
-    const buckets = [];
-    const bucketDays = days > 120 ? 7 : 1;
-    for (let i = days - 1; i >= 0; i -= bucketDays) {
-      let n = 0, label = '';
-      for (let j = 0; j < bucketDays; j++) {
-        const dt = new Date(now - (i - j) * 86400000);
-        if ((i - j) < 0) break;
-        const key = dt.toISOString().slice(0, 10);
-        n += dayCounts.get(key) || 0;
-        if (!label) label = key;
-      }
-      buckets.push({ label, n });
-    }
-    const maxN = Math.max(1, ...buckets.map(b => b.n));
-    const W = 700, H = 180, L = 40, B = 150;
-    const pts = buckets.map((b, i) => {
-      const x = L + (i / Math.max(1, buckets.length - 1)) * (W - L - 20);
-      const y = B - (b.n / maxN) * 120;
-      return { x, y, b };
-    });
-    const poly = pts.map(p => p.x.toFixed(1) + ',' + p.y.toFixed(1)).join(' ');
-    const best = buckets.reduce((m, b) => b.n > m.n ? b : m, { n: 0, label: '—' });
-    const bestPt = pts.find(p => p.b === best);
-    const fmtD2 = s => { try { return new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }); } catch (_) { return s; } };
-    // V4.9: every point gets a tap/click target (invisible r=10 hit-circle +
-    // a small visible dot) showing its exact date and count — previously
-    // only the single "best" point was a real element; the rest of the line
-    // was one flat <polyline> with no way to read an individual day's number.
-    const pointEls = pts.map(p => {
-      const tipText = fmtD2(p.b.label) + ': ' + p.b.n.toLocaleString('en-IN') + (p.b.n === 1 ? ' enrolled' : ' enrolled');
-      return `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="10" fill="transparent" style="cursor:pointer" data-tip="${escHtml(tipText)}" onclick="event.stopPropagation();_rptShowTip(this)"/>`
-        + `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3" fill="var(--navy2)" style="pointer-events:none"/>`;
-    }).join('');
-    const chart =
-      `<svg viewBox="0 0 ${W} 205" style="width:100%;min-width:520px">
-        <line x1="${L}" y1="${B}" x2="${W - 20}" y2="${B}" stroke="#E5E7EB"/>
-        <line x1="${L}" y1="${B - 60}" x2="${W - 20}" y2="${B - 60}" stroke="#F3F4F6"/>
-        <line x1="${L}" y1="${B - 120}" x2="${W - 20}" y2="${B - 120}" stroke="#F3F4F6"/>
-        <text x="${L - 6}" y="${B + 4}" font-size="10" fill="#9CA3AF" text-anchor="end">0</text>
-        <text x="${L - 6}" y="${B - 56}" font-size="10" fill="#9CA3AF" text-anchor="end">${Math.round(maxN / 2)}</text>
-        <text x="${L - 6}" y="${B - 116}" font-size="10" fill="#9CA3AF" text-anchor="end">${maxN}</text>
-        <polyline fill="none" stroke="var(--navy2)" stroke-width="2.5" points="${poly}"/>
-        ${pointEls}
-        ${bestPt && best.n > 0 ? `<text x="${bestPt.x.toFixed(1)}" y="${(bestPt.y - 8).toFixed(1)}" font-size="10" fill="var(--navy)" text-anchor="middle" font-weight="600" style="pointer-events:none">${best.n}</text>` : ''}
-        <text x="${L}" y="${B + 22}" font-size="10" fill="#9CA3AF">${buckets.length ? fmtD2(buckets[0].label) : ''}</text>
-        <text x="${W - 20}" y="${B + 22}" font-size="10" fill="#9CA3AF" text-anchor="end">${buckets.length ? fmtD2(buckets[buckets.length - 1].label) : ''}</text>
-      </svg>
-      <div style="font-size:10.5px;color:var(--gray2);margin-top:4px;text-align:center">Tap any point for its exact date and count.</div>`;
+    // V12: the chart (both series) now lives in _rptTrendChart so it can be
+    // rendered against fixtures in _tests/rptrender.js without a browser.
+    const T = _rptTrendChart(_A, now, days);
+    const { buckets, best, bucketDays, fmtD2 } = T;
+    const chart = T.legend + T.svg
+      + `<div style="font-size:10.5px;color:var(--ink2);margin-top:4px;text-align:center">Tap any point for that ${bucketDays === 1 ? 'day' : 'week'}'s exact numbers.</div>`
+      + T.note;
     const ngoRows = Array.from(ngoWin.entries()).sort((a, b) => b[1].n - a[1].n).slice(0, 12);
     const maxNgo = Math.max(1, ...ngoRows.map(([, g]) => g.n));
     body =
-      `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px">
+      `<div class="rpt-kpis">
         ${kpi('Enrolled (window)', enrolledWinTotal.toLocaleString('en-IN'), 'last ' + rptRange + ' days', null, 'New beneficiaries enrolled in the selected date range.')}
         ${kpi('Daily average', (enrolledWinTotal / Math.max(1, rptRange)).toFixed(1), 'per day across the window', null, 'Total enrolled in the window ÷ number of days in the window.')}
         ${kpi('Best ' + (bucketDays === 1 ? 'day' : 'week'), best.n.toLocaleString('en-IN'), best.n ? fmtD2(best.label) : '—', null, 'The single ' + (bucketDays === 1 ? 'day' : 'week') + ' with the most enrollments in this window. Tap any point on the chart below to see its exact date and count.')}
         ${kpi('New villages reached', newVillages, 'first-ever enrollment in window', null, 'Villages that had their very first enrollment ever inside this window — not just their first enrollment recently.')}
       </div>` +
-      card('Enrollments per ' + (bucketDays === 1 ? 'day' : 'week') + ' — last ' + rptRange + ' days', '', tblWrap(chart)) +
+      card('Enrollments and benefits per ' + (bucketDays === 1 ? 'day' : 'week') + ' — last ' + rptRange + ' days',
+        'Both lines follow the NGO filter above: pick a partner and this chart redraws for that partner alone.',
+        tblWrap(chart)) +
       card('NGO comparison — window', 'Per FC = enrollments ÷ FCs who enrolled at least one beneficiary in the window.',
         tblWrap(`<table style="width:100%;border-collapse:collapse">
           <tr><th style="${TH}">NGO</th><th style="${THR}">Enrolled</th><th style="${THR}">Active FCs</th><th style="${THR}">Per FC</th><th style="${TH}">Share</th></tr>
@@ -24721,7 +25337,7 @@ function renderReports() {
         <td style="${TDR}">${pctPill(s.filed ? s.recd / s.filed * 100 : null)}</td>
       </tr>`).join('');
     body =
-      `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px">
+      `<div class="rpt-kpis">
         ${kpi('Scheme records', advTotal.toLocaleString('en-IN'), 'latest status per beneficiary-scheme', null, 'One row per beneficiary-scheme pair, counting only its latest status — not every status change along the way.')}
         ${kpi('Benefits received', statusCount['Benefits Received'].toLocaleString('en-IN'), advTotal ? Math.round(statusCount['Benefits Received'] / advTotal * 100) + '% of all' : '', 'var(--green)', 'Scheme applications that reached the final "Benefits Received" stage.')}
         ${kpi('Stuck 60+ days', stuckTotal.toLocaleString('en-IN'), 'applied, no status change since logging', stuckTotal ? 'var(--amber)' : 'var(--green)', 'Marked "Applied" and logged 60 or more days ago, with no status update since. Tap a row below to see which beneficiaries.')}
@@ -24730,17 +25346,17 @@ function renderReports() {
       card('The pipeline — where every scheme application stands', 'Counts of beneficiary-scheme records at each stage right now (latest status only, respecting the State/NGO filters above).',
         frow('Need to Apply', statusCount['Need to Apply'], '#9CA3AF') +
         frow('Applied', statusCount['Applied'], 'var(--navy2)') +
-        frow('✓ Benefits Received', statusCount['Benefits Received'], '#146B38') +
-        frow('✗ Rejected', statusCount['Rejected'], '#B91C1C')) +
+        frow('Benefits Received', statusCount['Benefits Received'], '#146B38') +
+        frow('Rejected', statusCount['Rejected'], '#B91C1C')) +
       card('⏳ Stuck applications — "Applied" logged 60+ days ago, still no outcome',
         'Age is measured from when the entry was logged (the app does not store per-status-change dates). Follow up with the FC or the block office.',
         tblWrap(`<table style="width:100%;border-collapse:collapse">
           <tr><th style="${TH}">Scheme</th><th style="${THR}">Stuck</th><th style="${THR}">Avg days since logged</th><th style="${TH}">Most affected NGO</th></tr>
-          ${stuckRows || `<tr><td colspan="4" style="${TD};text-align:center;color:var(--green)">Nothing stuck 60+ days. 🎉</td></tr>`}
+          ${stuckRows || `<tr><td colspan="4" style="${TD};text-align:center;color:var(--green)">Nothing stuck 60+ days.</td></tr>`}
         </table>`)) +
       card('Scheme success rates', 'Of entries filed (applied / received / rejected), how many reached benefits. Schemes with fewer than 10 filed entries are hidden.',
         tblWrap(`<table style="width:100%;border-collapse:collapse">
-          <tr><th style="${TH}">Scheme</th><th style="${THR}">Filed</th><th style="${THR}">✓ Received</th><th style="${THR}">✗ Rejected</th><th style="${THR}">Success${_rptTip('Of entries filed for this scheme (Applied + Received + Rejected), the % that reached Benefits Received.')}</th></tr>
+          <tr><th style="${TH}">Scheme</th><th style="${THR}">Filed</th><th style="${THR}">Received</th><th style="${THR}">Rejected</th><th style="${THR}">Success${_rptTip('Of entries filed for this scheme (Applied + Received + Rejected), the % that reached Benefits Received.')}</th></tr>
           ${succRows || `<tr><td colspan="5" style="${TD};text-align:center;color:var(--gray2)">Not enough data yet.</td></tr>`}
         </table>`));
   }
@@ -24791,7 +25407,7 @@ function renderReports() {
         <td style="${TDR}">${Math.round(g.oldest / 30)} months ago</td>
       </tr>`).join('');
     body =
-      `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px">
+      `<div class="rpt-kpis">
         ${kpi('Livelihood beneficiaries', livN.toLocaleString('en-IN'), 'enrolled in a program', null, 'Beneficiaries enrolled in at least one livelihood intervention (Advocacy-only records are excluded).')}
         ${kpi('Avg income increase', avgInc == null ? '—' : (avgInc >= 0 ? '+' : '') + _rptMoney(avgInc), avgInc == null ? 'no endlines yet' : 'per year ≈ ' + _rptMoney(avgInc / 12) + ' / month', 'var(--green)', 'Average of (endline income − baseline income), across everyone with both a baseline and a completed endline survey. This is the ADDITIONAL income logged, per V4.8 — never the household\'s total income.')}
         ${kpi('Avg uplift', uplift == null ? '—' : (uplift >= 0 ? '+' : '') + Math.round(uplift) + '%', 'baseline → endline', 'var(--green)', 'Average income increase as a % of baseline, across the same completed-endline group.')}
@@ -24801,7 +25417,7 @@ function renderReports() {
         <div style="font-size:15px;font-weight:700;color:var(--green)">Total measured income added: ${_rptMoney(added)} / year</div>
         <div style="font-size:11px;color:#065F46;margin-top:3px">Across the ${endN.toLocaleString('en-IN')} beneficiaries with completed baseline + endline surveys. Counts only measured, surveyed income change — nothing estimated.</div>
       </div>` : '') +
-      (suspects.length ? card('🔍 Suspicious endlines — endline less than HALF of baseline (' + suspects.length.toLocaleString('en-IN') + ' records)',
+      (suspects.length ? card(' Suspicious endlines — endline less than HALF of baseline (' + suspects.length.toLocaleString('en-IN') + ' records)',
         'Classic sign of the "entered only the ADDITIONAL income" mistake — though genuine income drops happen too, so nothing here is auto-changed. Review each: open the record → Endline Survey and re-save (the V4.7 form now catches this mistake at entry). The last column shows what the total would be IF the entered amount was actually the additional income.',
         tblWrap(`<table style="width:100%;border-collapse:collapse">
           <tr><th style="${TH}">Beneficiary</th><th style="${TH}">NGO</th><th style="${TH}">FC</th><th style="${THR}">Baseline</th><th style="${THR}">Endline entered</th><th style="${THR}">Shows as</th><th style="${THR}">If additional: total</th></tr>
@@ -24819,7 +25435,7 @@ function renderReports() {
       card('Program stages — where every livelihood beneficiary stands', 'Baseline survey at enrollment → intervention → endline survey measures the change.',
         frow('Baseline Completed', stage['Enrolled'] || 0, 'var(--navy2)') +
         frow('Intervention In Progress', stage['Intervention In Progress'] || 0, '#7C3AED') +
-        frow('✓ Endline Completed', stage['Completed'] || 0, '#146B38')) +
+        frow('Endline Completed', stage['Completed'] || 0, '#146B38')) +
       card('Income impact by intervention — completed endlines only',
         'A household income is one number — if someone has 2+ interventions the gain cannot honestly be split between them, so they get their own row. ₹ figures are real survey data.',
         tblWrap(`<table style="width:100%;border-collapse:collapse">
@@ -24830,7 +25446,7 @@ function renderReports() {
         'Without the endline, their income impact can never be counted. Assign FCs to close these out.',
         tblWrap(`<table style="width:100%;border-collapse:collapse">
           <tr><th style="${TH}">NGO</th><th style="${THR}">Overdue endlines</th><th style="${THR}">Oldest enrollment</th></tr>
-          ${odRows || `<tr><td colspan="3" style="${TD};text-align:center;color:var(--green)">No overdue endlines. 🎉</td></tr>`}
+          ${odRows || `<tr><td colspan="3" style="${TD};text-align:center;color:var(--green)">No overdue endlines.</td></tr>`}
         </table>`)) +
       card('Income uplift by NGO — completed endlines only', '',
         tblWrap(`<table style="width:100%;border-collapse:collapse">
@@ -24840,21 +25456,7 @@ function renderReports() {
   }
 
   // ── chrome: tabs + range chips ────────────────────────────────────────────
-  const tab = (id, label) =>
-    `<button onclick="rptSetTab('${id}')" style="padding:9px 16px;font-size:13px;font-weight:${rptTab === id ? '600' : '500'};border:none;background:none;cursor:pointer;font-family:var(--font);color:${rptTab === id ? 'var(--navy)' : 'var(--gray2)'};border-bottom:${rptTab === id ? '2px solid var(--navy)' : '2px solid transparent'};margin-bottom:-2px;white-space:nowrap">${label}</button>`;
-  const chipBtn = d =>
-    `<button onclick="rptSetRange(${d})" style="font-size:12px;padding:6px 12px;border-radius:16px;border:1px solid ${rptRange === d ? 'var(--navy)' : 'var(--gray3)'};background:${rptRange === d ? 'var(--navy)' : '#fff'};color:${rptRange === d ? '#fff' : 'var(--gray1)'};cursor:pointer;font-family:var(--font);font-weight:${rptRange === d ? '600' : '400'}">${d === 365 ? '12 months' : d + ' days'}</button>`;
-  const showChips = (rptTab === 'fc' || rptTab === 'trend');
-  document.getElementById('content').innerHTML =
-    `<div style="max-width:1080px">
-      <div style="font-size:19px;font-weight:700;margin-bottom:2px">📊 Reports</div>
-      <div style="font-size:12px;color:var(--gray2);margin-bottom:14px">Decision-making insights · computed on this device from already-loaded data · zero extra Firebase download · respects the State/NGO filters above</div>
-      <div style="display:flex;gap:0;border-bottom:2px solid var(--gray3);margin-bottom:14px;overflow-x:auto">
-        ${tab('fc', '👥 FC Performance')}${tab('trend', '📈 Enrollment Trends')}${tab('adv', '🏛 Advocacy Pipeline')}${tab('liv', '🌾 Livelihood Impact')}
-      </div>
-      ${showChips ? `<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap">${chipBtn(7)}${chipBtn(30)}${chipBtn(90)}${chipBtn(365)}</div>` : ''}
-      ${body}
-    </div>`;
+  document.getElementById('content').innerHTML = _rptChrome(body);
 }
 
 // ── Nav ───────────────────────────────────────────────────────────────────
@@ -24897,14 +25499,26 @@ function _v357ComputeSig(view) {
   const filterVars = [
     'stateFilter','ngoFilter','fcFilter',
     'baselineFrom','baselineTo','endlineFrom','endlineTo',
-    'allBCurrentPage','livCurrentPage','advBCurrentPage',
-    'rptTab','rptRange'   // V4.6: Reports tab/range must be part of the cache key
+    'allBCurrentPage','livCurrentPage','advBCurrentPage'
   ];
   for (const name of filterVars) {
     let v = null;
     try { v = window[name]; } catch(_) {}
     parts.push(name, v == null ? '' : String(v));
   }
+  // ── V12: the Reports state, read DIRECTLY ─────────────────────────────────
+  // rptTab and friends are declared with `let`, and a top-level `let` lives in
+  // the global DECLARATIVE environment record — it is never a property of
+  // window. So the window[name] loop above literally could not see them: since
+  // V4.6 every Reports tab has been producing the SAME signature, and returning
+  // to Reports restored whichever tab happened to be cached. Reading the
+  // bindings by name is the only way this works. The try/catch is for the
+  // temporal dead zone if the signature is ever computed before these
+  // declarations have been evaluated.
+  try {
+    parts.push('rpt', rptTab, rptRange,
+               rptFcSort, rptFcDir, rptNgoSort, rptNgoDir, rptNgoMode);
+  } catch (_) { parts.push('rpt', 'unavailable'); }
   return parts.join('|');
 }
 
