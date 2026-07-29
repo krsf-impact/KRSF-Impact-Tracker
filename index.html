@@ -2,6 +2,148 @@
 <!--
   KRSF Beneficiary Impact Tracker  -  V6.7.2-LIVE
   ============================================================================
+  V12.4-LIVE (2026-07-29 - Applied now carries its own filing date.):
+    + THE PROBLEM V12.3 SHIPPED WITH: "applied in this window" had to fall back
+      to the advocacy RECORD's createdAt, because a scheme row carried no date
+      of its own. There is ONE advocacy record per beneficiary, stamped the day
+      their FIRST scheme was logged, and every later scheme joins that same
+      record. So a scheme filed today for someone first logged 18 months ago
+      inherited an 18-month-old date and never appeared in a 7-day window. The
+      error ran one way - it UNDERCOUNTED - and it hit hardest exactly where the
+      work is least visible: follow-up filing for long-standing beneficiaries.
+    + FIX: `_aAt`, a per-row filing date, stamped the moment a row leaves "Need
+      to Apply". The aggregate now prefers it and falls back to the record date
+      only for rows filed before the stamp existed, so accuracy improves as
+      stamped rows replace unstamped ones rather than arriving all at once.
+    + _rptStampBenefitDate is renamed _rptStampRowDates - it now stamps two
+      dates that describe DIFFERENT events and must coexist. A row that jumps
+      straight to Benefits Received gets both (it was necessarily applied for);
+      when a benefit lands on an already-applied row the ORIGINAL filing date is
+      preserved; moving back to "Need to Apply" clears the filing date, because
+      a row must never claim to have been filed while showing that it has not.
+      Rejected still counts as filed.
+    + The same data-loss guard as `_bAt` covers it, for the same reason: both
+      rebuild paths return a fixed field list and silently drop anything else,
+      so without the carry-forward an ordinary name edit would wipe the date.
+      Neither field is in the save signature - a field that changes on stamping
+      would append a spurious advocacy row on every unrelated edit.
+    + WHY NOT JUST DROP THE COLUMN, which was the other option considered: this
+      app already flags applications stuck 60+ days, so almost nothing filed
+      this month has LANDED yet. In a 7- or 30-day view, Applied is the only
+      column showing advocacy effort at all - benefits arrive far too late to
+      appear. Removing it would have made a coordinator who filed 40
+      applications last week look idle.
+    + Tests: rptverify.js is 125 assertions across 18 sections, including a
+      NEGATIVE CONTROL that strips the _aAt preference and confirms the late
+      filing disappears again - proving the test detects the bug rather than
+      merely agreeing with the code.
+
+  ============================================================================
+  V12.3-LIVE (2026-07-29 - the date filter now applies to EVERY count.):
+    + THE REPORTED FAULT: only Enrollments obeyed the 7/30/90/365 chip. Applied,
+      Benefits received and Livelihood were all-time, so "7 days" sat beside
+      31,961 applications and a coordinator could show 0 enrolled next to 617
+      applied - which reads as a broken screen, not as two different time bases.
+      Every count column and every KPI card is now windowed.
+    + EACH MEASURE USES THE MOST HONEST DATE IT HAS, and they differ:
+        Enrollments -> the beneficiary's enrolDate. Exact, works historically.
+        Applied     -> the advocacy RECORD's createdAt. Every record has one, so
+                       this works right back through history. Limitation: a
+                       scheme added later to an OLD record inherits that old
+                       date. Accepted deliberately - the alternative is a new
+                       per-row stamp that would read zero until it accumulated.
+        Benefits    -> the row's own _bAt stamp. Exact, but only exists from
+                       2026-07-29, so earlier benefits cannot appear in a window
+                       and are absent from it while still counting in full in
+                       the all-time figure. The Benefits card prints the start
+                       date so a low number explains itself where it is read.
+        Livelihood  -> the beneficiary's enrolDate, because a livelihood record
+                       carries no "intervention started" date of its own. So it
+                       means "people enrolled in this window who have a
+                       livelihood activity".
+    + EVERY KPI CARD now leads with the window and keeps its ALL-TIME total on a
+      dashed line beneath. Nothing is hidden; the complaint was never that
+      all-time was wrong, only that it was shown while a 7-day chip was lit with
+      no way to tell which you were looking at.
+    + SORT KEYS MOVED WITH THE CELLS. The columns print windowed figures, so the
+      sort must read the same fields - otherwise the ranking silently disagrees
+      with the numbers printed beside it. rptverify asserts cells and keys use
+      the same field, and that no all-time key survives in the leaderboard.
+    + CSV EXPORT NOW CARRIES BOTH. A table can only show one basis; a spreadsheet
+      has no such limit, and someone opening the file next month should not have
+      to know which chip was lit when it was made. Coordinator export: window +
+      all-time for all four measures. Partner export: windowed, per-FC, AND
+      all-time.
+    + Guard: no windowed count may exceed its own all-time total - the cheapest
+      possible check that the two have not been crossed.
+    + rptverify.js is now 111 assertions across 16 sections.
+
+  ============================================================================
+  V12.2-LIVE (2026-07-29 - Reports: CSV export, and a sensible width.):
+    + EXPORT CSV on both the Coordinator and Partner tables. Reuses the app's
+      existing _csvEsc / _downloadCsv, which already prepend a UTF-8 BOM so
+      Excel on Windows renders Gujarati names instead of question marks - a
+      second downloader would only have drifted from the first.
+      ⚠️ THE EXPORT IS NOT CAPPED. The screen shows the top 25 so a header click
+      does not re-render ~470 rows, but an export that silently dropped 445
+      coordinators would be worse than none; the file carries every row and the
+      toast states the count. It honours the column you sorted by and the
+      State / NGO filters, and the filename records both (KRSF_coordinators_
+      Kartavya_30d_2026-07-29.csv) so a file opened next month is still
+      interpretable. The partner export always carries BOTH raw and per-FC
+      figures regardless of the toggle on screen - the per-FC average is the
+      point of that tab and a reader should not have to recompute it.
+    + REPORTS WIDTH IS NOW 1400px, not 1080 and not full-bleed. Measured at
+      1900px with no cap the coordinator name column ballooned to 842px - half
+      the table - so removing the cap filled the space with whitespace rather
+      than using it.
+    + The right-hand rail (goals / momentum / money views) was explored and
+      dropped at the user's request: table only.
+
+  ============================================================================
+  V12.1-LIVE (2026-07-29 - three fixes reported after V12 went live):
+    + ADVOCACY MODAL, PHONE: one scheme now reads clearly as separate from the
+      next. Reported from the field with a screenshot: two white cards on a
+      near-white tray, divided only by a #E5E7EB hairline, read as ONE long
+      form. Each card now carries a header - a navy number chip plus the scheme
+      it holds ("1 · Birth Certificate") - on the same --navy4 / --navy3 tint as
+      the SCHEME-WISE TRACKING bar above it, so it joins the existing visual
+      family rather than introducing a new one. The number is a CSS counter, so
+      deleting a scheme RENUMBERS the rest with no code involved. A card with
+      nothing chosen reads "New scheme" in grey italic instead of a blank strip.
+      Desktop is untouched: the header is display:none there, because the
+      five-column grid already separates rows and a sixth cell would break it.
+    + The delete × MOVED INTO that header. It used to sit immediately beside the
+      scheme dropdown, close enough to hit while aiming for the select. Tap
+      target is 34x34.
+      ⚠️ TWO BUGS CAUGHT IN TESTING, both invisible in the markup:
+      (1) the rule hiding the OLD delete cell was placed earlier in the file
+      than that cell's own `display: flex !important` - equal specificity, later
+      rule wins - so BOTH × buttons rendered. Fixed at the source rule, not by
+      adding another override.
+      (2) with the delete gone, "scheme" still occupied 1fr of a 2-column row,
+      stranding the dropdown at half width beside dead space. It now spans both
+      columns and measures the same 358px as the status control.
+    + REPORTS USES THE FULL SCREEN. The container was capped at max-width:1080px,
+      leaving roughly a third of a laptop screen empty while the leaderboard was
+      still scrolling sideways. Cap removed; numeric columns are width:1% +
+      nowrap so they stay compact and grouped, and the coordinator name column
+      absorbs the rest.
+    + EVERY REPORTS COLUMN NOW EXPLAINS ITSELF. "Livelihood" and "Data quality"
+      meant nothing on their own - the admin asked what they were, which is the
+      clearest possible signal a label is not enough. _rptTh() takes an optional
+      tips array and renders the existing tap-for-explanation icon. The
+      Livelihood text spells out that the "Advocacy (Govt. Schemes)" pseudo-entry
+      is deliberately excluded, which is why an advocacy-only coordinator reads
+      0 - the thing that otherwise looks like a bug.
+    + ⚠️ VERSION DISCIPLINE. These changes were briefly left under the V12-LIVE
+      number while V12 was already deployed - two different builds, 7,697 bytes
+      apart, sharing one version string. That silently breaks the _minVersion
+      force-reload gate (a device on the old build is never told to update) and
+      makes _v11Seen adoption meaningless. Any change that ships gets its own
+      number, however small it looks.
+
+  ============================================================================
   V12-LIVE (2026-07-29 - Reports: leaderboards you can sort, a partner
   comparison, and a daily benefits line.):
     + FC PERFORMANCE is now a SORTABLE table. Click any heading to re-rank,
@@ -36,7 +178,7 @@
       know what was stored). The advocacy merge then replaces the stored row
       wholesale. So a naive stamp would be erased the next time anyone edited
       that beneficiary's NAME, and the chart would develop holes nobody could
-      explain. Both paths now run through _rptStampBenefitDate(), which carries
+      explain. Both paths now run through _rptStampRowDates(), which carries
       an existing date forward, stamps a new one, and clears it if the row stops
       being Benefits Received. A tombstoned row never donates its date.
       `_bAt` is deliberately ABSENT from the save signature: a field that
@@ -7088,9 +7230,12 @@ body[data-shell="coord"] #_v352-install-btn {
   #adv-scheme-rows {
     display: flex !important;
     flex-direction: column !important;
-    gap: 10px !important;
+    gap: 14px !important;
     padding: 8px !important;
     background: #FAFAFA;
+    /* Drives the "Scheme 1 / Scheme 2" headers below. A CSS counter renumbers
+       itself when a row is deleted; a number baked in by JS would not. */
+    counter-reset: advrow !important;
   }
   /* Hide the desktop 5-column header strip on mobile — each card carries
      its own inline labels instead. */
@@ -7099,17 +7244,89 @@ body[data-shell="coord"] #_v352-install-btn {
   #adv-scheme-rows > div[id^="adv-row-"] {
     display: grid !important;
     grid-template-columns: 1fr 1fr !important;
+    /* "scheme" spans both columns now. It used to share its row with the
+       delete button; with the delete moved into the header, leaving it at 1fr
+       would strand the dropdown at half width beside an empty gap while every
+       other control ran full width. */
     grid-template-areas:
-      "scheme   delete"
+      "hdr      hdr"
+      "scheme   scheme"
       "status   status"
       "amount   amount"
       "remarks  remarks" !important;
     gap: 8px !important;
     background: #fff !important;
-    border: 1px solid var(--gray3) !important;
-    border-radius: 10px !important;
-    padding: 10px !important;
+    /* Two white cards on a near-white ground separated only by a #E5E7EB
+       hairline read as ONE block on a phone — reported from the field. A
+       stronger edge, a lift, and a numbered header make the boundary obvious. */
+    border: 1px solid #D5D9E2 !important;
+    box-shadow: 0 1px 3px rgba(16,24,40,.07) !important;
+    border-radius: 12px !important;
+    padding: 0 12px 12px !important;
     align-items: stretch !important;
+  }
+  /* The card header: number + the scheme it holds. Same light navy tint and
+     navy text as the "SCHEME-WISE TRACKING" bar above it, so it reads as part
+     of the same family rather than a new visual idea. */
+  #adv-scheme-rows > div[id^="adv-row-"] { counter-increment: advrow; }
+  #adv-scheme-rows > div[id^="adv-row-"] > .adv-card-hdr {
+    display: flex !important;
+    align-items: center;
+    gap: 9px;
+    grid-area: hdr;
+    margin: 0 -12px 2px;
+    padding: 9px 11px 9px 12px;
+    background: var(--navy4);
+    border-bottom: 1px solid var(--navy3);
+    border-radius: 12px 12px 0 0;
+    min-width: 0;
+  }
+  .adv-card-num::before { content: counter(advrow); }
+  #adv-scheme-rows .adv-card-num {
+    flex-shrink: 0;
+    min-width: 19px;
+    height: 19px;
+    padding: 0 5px;
+    border-radius: 99px;
+    background: var(--navy);
+    color: #fff;
+    font-size: 10.5px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-variant-numeric: tabular-nums;
+  }
+  #adv-scheme-rows .adv-card-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--navy);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* Nothing chosen yet — say so quietly rather than showing a blank strip. */
+  #adv-scheme-rows .adv-card-name.adv-card-name-empty {
+    font-weight: 500;
+    font-style: italic;
+    color: var(--gray2);
+  }
+  #adv-scheme-rows .adv-card-x {
+    flex-shrink: 0;
+    border: none;
+    background: none;
+    color: var(--gray2);
+    font-size: 20px;
+    line-height: 1;
+    /* 34px of tap target for a 20px glyph — the delete used to sit beside the
+       scheme dropdown, close enough to hit by accident. */
+    padding: 4px 6px;
+    min-width: 34px;
+    min-height: 34px;
+    cursor: pointer;
+    font-family: var(--font);
   }
   /* Each cell loses its right-border (desktop divider) and gets its
      own grid-area + label-on-top. */
@@ -7121,11 +7338,14 @@ body[data-shell="coord"] #_v352-install-btn {
   #adv-scheme-rows > div[id^="adv-row-"] > div[data-cell="status"]  { grid-area: status; }
   #adv-scheme-rows > div[id^="adv-row-"] > div[data-cell="amount"]  { grid-area: amount; }
   #adv-scheme-rows > div[id^="adv-row-"] > div[data-cell="remarks"] { grid-area: remarks; }
+  /* V12.1: hidden on the phone — the card header now carries the delete, and
+     two × buttons on one card is worse than none. Changed HERE rather than
+     overridden elsewhere: an override placed earlier in the file loses to this
+     rule's own `display: flex !important` (equal specificity, later wins).
+     That is exactly the bug that rendered two delete buttons in testing. */
   #adv-scheme-rows > div[id^="adv-row-"] > div[data-cell="delete"]  {
     grid-area: delete;
-    display: flex !important;
-    justify-content: flex-end !important;
-    align-items: flex-start !important;
+    display: none !important;
   }
   /* Inline label above each control. ::before reads the data-label.
      Hidden on the delete cell. */
@@ -7219,6 +7439,12 @@ body[data-shell="coord"] #_v352-install-btn {
   }
 }
 
+/* V12.1: the advocacy scheme-card header exists in the DOM at every width but
+   is only shown on the phone layout (see the max-width:600px block above),
+   where the cards stack. On desktop the five-column grid already separates the
+   rows, and an extra header would land in the grid as a stray sixth cell. */
+#adv-scheme-rows > div[id^="adv-row-"] > .adv-card-hdr { display: none; }
+
 /* ── V12 Reports ──────────────────────────────────────────────────────────
    Every selector here is prefixed rpt- so this cannot leak into any other
    view. Three neutral inks are added because the existing --gray2/--gray3 pair
@@ -7260,6 +7486,11 @@ body[data-shell="coord"] #_v352-install-btn {
 .rpt-kpi-val{font-size:24px;font-weight:700;letter-spacing:-.02em;margin-top:6px;
   font-variant-numeric:tabular-nums;color:var(--ink)}
 .rpt-kpi-sub{font-size:11.5px;color:var(--ink3);margin-top:3px}
+/* The all-time line. Dashed rule so it reads as a footnote to the window
+   figure above it, not as a second headline competing with it. */
+.rpt-kpi-all{font-size:11.5px;color:var(--ink2);margin-top:6px;padding-top:6px;
+  border-top:1px dashed var(--rbd)}
+.rpt-kpi-all b{color:var(--ink);font-variant-numeric:tabular-nums}
 @media(max-width:760px){ .rpt-kpis{grid-template-columns:repeat(2,1fr)} }
 @media(max-width:420px){ .rpt-kpi-val{font-size:20px} }
 
@@ -7267,6 +7498,18 @@ body[data-shell="coord"] #_v352-install-btn {
   box-shadow:0 1px 2px rgba(16,24,40,.05),0 1px 3px rgba(16,24,40,.06);
   margin-bottom:16px;overflow:hidden}
 .rpt-card-h{padding:15px 18px 4px}
+/* Card header with a control on the right. The text group takes the space and
+   the button stays put; on a narrow screen it wraps underneath rather than
+   squeezing the heading. */
+.rpt-card-h-row{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.rpt-hg{flex:1;min-width:240px}
+.rpt-export{display:inline-flex;align-items:center;gap:7px;flex-shrink:0;
+  border:1px solid var(--rbd);background:#fff;border-radius:9px;padding:7px 13px;min-height:36px;
+  font-family:var(--font);font-size:12.5px;font-weight:500;color:var(--ink2);cursor:pointer;
+  transition:background .18s,border-color .18s,color .18s}
+.rpt-export:hover{background:var(--rhov);border-color:var(--ink3);color:var(--ink)}
+.rpt-export:focus-visible{outline:2px solid var(--navy2);outline-offset:2px}
+@media (prefers-reduced-motion: reduce){ .rpt-export{transition:none} }
 .rpt-card-h h3{font-size:14.5px;font-weight:700;letter-spacing:-.01em;color:var(--ink)}
 .rpt-card-h .rpt-note{font-size:12px;color:var(--ink2);margin-top:3px;line-height:1.5}
 
@@ -7282,6 +7525,11 @@ body[data-shell="coord"] #_v352-install-btn {
 .rpt-arr{display:inline-block;width:8px;margin-left:4px;opacity:.3;font-size:8px;vertical-align:1px}
 .rpt-th.rpt-sorted{color:var(--navy)}
 .rpt-th.rpt-sorted .rpt-arr{opacity:1}
+/* On a wide screen the numeric columns must stay compact and grouped rather
+   than drifting apart until a figure sits nowhere near its heading. width:1%
+   + nowrap shrinks each to its content; the name column absorbs the rest. */
+.rpt-tbl th:not(:first-child),.rpt-tbl td:not(:first-child){width:1%;white-space:nowrap}
+.rpt-tbl th:first-child,.rpt-tbl td:first-child{width:auto;min-width:200px}
 .rpt-tbl td{padding:10px 12px;text-align:right;border-bottom:1px solid #F2F4F7;
   white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--ink)}
 .rpt-tbl tbody tr{transition:background .12s}
@@ -8730,7 +8978,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V12-LIVE';
+const APP_VERSION = 'V12.4-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -18270,8 +18518,8 @@ async function _submitEnrollInner() {
   // this is the 2-state UI value with default 'No'/0.
   // V12: this mapper drops every field it does not name, so the benefit date
   // must be carried back on explicitly — otherwise an ordinary name-or-phone
-  // edit silently wipes it. See _rptStampBenefitDate for the full explanation.
-  const toStoredSchemeRows = rows => _rptStampBenefitDate(rows.map(r => ({
+  // edit silently wipes it. See _rptStampRowDates for the full explanation.
+  const toStoredSchemeRows = rows => _rptStampRowDates(rows.map(r => ({
     scheme:      r.scheme,
     status:      r.status,
     benefitRecd: r.benefitRecd || 'No',
@@ -21413,7 +21661,18 @@ function advAddSchemeRow(scheme, status, benefitRecd, benefitAmt, remarks) {
   // accommodate; the remarks column flexes to take leftover space.
   row.style.cssText = 'display:grid;grid-template-columns:1.6fr 1.1fr 0.9fr 1.6fr 28px;gap:0;border-bottom:1px solid var(--gray3);align-items:center';
   row.innerHTML =
-    `<div data-cell="scheme" data-label="Scheme" style="padding:6px 8px;border-right:1px solid var(--gray3)">
+    // V12.1: card header for the phone layout — "1 · Birth Certificate". Two
+    // white cards on a near-white tray, split only by a hairline, read as ONE
+    // form on a handset; reported from the field with a screenshot. The number
+    // comes from a CSS counter so it renumbers itself when a row is deleted;
+    // the name is refreshed by advOnSchemeChange(). Hidden on desktop, where
+    // the five-column grid already separates rows perfectly well.
+    `<div data-cell="hdr" class="adv-card-hdr">
+       <span class="adv-card-num"></span>
+       <span class="adv-card-name${scheme ? '' : ' adv-card-name-empty'}">${escHtml(scheme || 'New scheme')}</span>
+       <button type="button" onclick="document.getElementById('adv-row-${rowId}').remove()" class="adv-card-x" title="Remove this scheme" aria-label="Remove this scheme">&times;</button>
+     </div>
+     <div data-cell="scheme" data-label="Scheme" style="padding:6px 8px;border-right:1px solid var(--gray3)">
        <select onchange="advOnSchemeChange(${rowId})" style="width:100%;padding:5px 6px;border:1px solid var(--gray3);border-radius:5px;font-size:12px;font-family:var(--font);background:#fff">
          <option value="">— Select scheme —</option>${schemeOpts}
        </select>
@@ -21502,6 +21761,17 @@ function advOnStatusChange(rowId) {
 function advOnSchemeChange(rowId) {
   const row = document.getElementById('adv-row-' + rowId);
   if (!row) return;
+  // V12.1: refresh the card header FIRST. Everything below this point returns
+  // early unless the status is Benefits Received, so putting the header update
+  // at the end would leave it stale for every other status.
+  try {
+    const _nameEl = row.querySelector('.adv-card-name');
+    if (_nameEl) {
+      const _picked = (row.querySelectorAll('select')[0] || {}).value || '';
+      _nameEl.textContent = _picked || 'New scheme';
+      _nameEl.classList.toggle('adv-card-name-empty', !_picked);
+    }
+  } catch (_) {}
   const statusSel = row.querySelectorAll('select')[1];
   const input     = document.getElementById('adv-amt-' + rowId);
   if (!statusSel || !input) return;
@@ -21536,7 +21806,7 @@ function advOnSchemeChange(rowId) {
 // _bAt is deliberately ABSENT from the save signature: including a field that
 // changes on stamping would append a spurious advocacy row on every unrelated
 // edit — the unbounded growth the V310 comment warns about.
-function _rptStampBenefitDate(outgoing, stored, todayIso) {
+function _rptStampRowDates(outgoing, stored, todayIso) {
   const today = todayIso || new Date().toISOString().slice(0, 10);
   const key = r => `${r.scheme}::${r.remarks || ''}`;
   const prev = new Map();
@@ -21545,12 +21815,24 @@ function _rptStampBenefitDate(outgoing, stored, todayIso) {
   (stored || []).forEach(r => { if (r && !r._deleted) prev.set(key(r), r); });
   return (outgoing || []).map(r => {
     const out = Object.assign({}, r);            // never mutate the caller's rows
-    if (_advNormStatus(r) !== 'Benefits Received') {
-      delete out._bAt;                            // no longer a benefit → no date
-      return out;
-    }
+    const s = _advNormStatus(r);
     const was = prev.get(key(r));
-    out._bAt = (was && was._bAt) ? was._bAt : today;   // carry forward, else stamp
+
+    // ── _aAt : the day this scheme was FILED (V12.4) ────────────────────────
+    // Stamped as soon as the row leaves "Need to Apply" — including a jump
+    // straight to Benefits Received, which necessarily implies it was applied
+    // for. Before this, "applied in the last 7 days" had to fall back to the
+    // advocacy RECORD's creation date, which meant a scheme added today to a
+    // beneficiary first logged 18 months ago never appeared in a short window.
+    if (s === 'Need to Apply') delete out._aAt;
+    else out._aAt = (was && was._aAt) ? was._aAt : today;
+
+    // ── _bAt : the day the benefit ARRIVED ──────────────────────────────────
+    // A row that already carries a filing date keeps it when the benefit lands;
+    // the two dates coexist and describe different events.
+    if (s !== 'Benefits Received') delete out._bAt;
+    else out._bAt = (was && was._bAt) ? was._bAt : today;
+
     return out;
   });
 }
@@ -21803,7 +22085,7 @@ async function _saveAdvocacyInner() {
   // and the daily-benefits chart loses that point for good. Done BEFORE
   // incomingByKey is built so both the replace path and the append path below
   // receive stamped rows.
-  rows = _rptStampBenefitDate(rows, existingIdx >= 0 ? (arr[existingIdx].schemeRows || []) : []);
+  rows = _rptStampRowDates(rows, existingIdx >= 0 ? (arr[existingIdx].schemeRows || []) : []);
   let rec, isUpdate, deletedCount = 0;
   if (existingIdx >= 0) {
     isUpdate = true;
@@ -24581,14 +24863,19 @@ function _rptSortRows(rows, keyFn, dir) {
 
 // V12: shared sortable-header builder, so the arrow, the aria-label and the
 // sorted class can never drift apart between the two tables.
-function _rptTh(cols, activeIdx, dir, handler) {
+// `tips` is optional: an array parallel to `cols`, where a non-empty entry adds
+// the tap-for-explanation icon. Column names like "Livelihood" and "Data
+// quality" mean nothing on their own — the admin asked what they meant, which
+// is the clearest possible signal that a label alone is not enough.
+function _rptTh(cols, activeIdx, dir, handler, tips) {
   return cols.map((c, i) => {
     const on = i === activeIdx;
+    const tip = (tips && tips[i]) ? _rptTip(tips[i]) : '';
     return `<th class="rpt-th${on ? ' rpt-sorted' : ''}" role="button" tabindex="0"`
       + ` aria-label="Sort by ${escHtml(c)}"`
       + ` onclick="${handler}(${i})"`
       + ` onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${handler}(${i})}"`
-      + `>${escHtml(c)}<span class="rpt-arr">${on ? (dir === -1 ? '▼' : '▲') : '▼'}</span></th>`;
+      + `>${escHtml(c)}${tip}<span class="rpt-arr">${on ? (dir === -1 ? '▼' : '▲') : '▼'}</span></th>`;
   }).join('');
 }
 let rptRange = 30;          // day-window for FC + Trends tabs
@@ -24719,7 +25006,8 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
   const fcAgg = new Map(), fcByName = new Map();
   fcs.forEach(f => {
     const a = { u: f, tot: 0, enrolledWin: 0, advWin: 0, filed: 0, recd: 0,
-                applied: 0, benefits: 0, livelihood: 0,   // V12 leaderboard columns
+                applied: 0, benefits: 0, livelihood: 0,          // V12: all-time
+                appliedWin: 0, benefitsWin: 0, livelihoodWin: 0, // V12.3: in-window
                 phone: 0, gps: 0, photo: 0, last: 0 };
     fcAgg.set(f.id, a);
     if (f.fullName) fcByName.set(f.fullName, a);
@@ -24731,7 +25019,14 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
     if (inWin(b.enrollDate)) a.enrolledWin++;
     // V12: livelihood = at least one REAL intervention. The Advocacy pseudo-
     // entry is not a livelihood activity and must never inflate this column.
-    if ((b.interventions || []).some(i => i && i !== ADVI)) a.livelihood++;
+    // V12.3: the windowed count uses the ENROLMENT date, because that is the
+    // only date a livelihood record carries — there is no "intervention started
+    // on" field. So it answers "people enrolled in this window who have a
+    // livelihood activity", which is what the leaderboard is comparing.
+    if ((b.interventions || []).some(i => i && i !== ADVI)) {
+      a.livelihood++;
+      if (inWin(b.enrollDate)) a.livelihoodWin++;
+    }
     if (b.phone) a.phone++;
     if (b.lat != null) a.gps++;
     if ((b.photos || []).length) a.photo++;
@@ -24745,17 +25040,35 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
     if (!a) return;
     const rows = (p.schemeRows || []).filter(r => r && !r._deleted);
     if (inWin(p.createdAt)) a.advWin += rows.length;
+    // V12.3: the two windowed counts below rest on DIFFERENT dates, and the
+    // difference matters when reading them.
+    //   APPLIED  -> the row's own _aAt stamp when it has one (V12.4 onward,
+    //               exact), otherwise the advocacy record's createdAt as a
+    //               fallback for rows filed before the stamp existed. The
+    //               fallback undercounts: a scheme added to an OLD record
+    //               inherits that old date, so a late addition lands outside
+    //               the window it was really filed in. That error shrinks to
+    //               nothing as stamped rows replace unstamped ones.
+    //   BENEFITS -> the row's own _bAt stamp, which is exact but only exists
+    //               from V12 (29 Jul 2026). Historical benefits have no date
+    //               and are therefore absent from the windowed count while
+    //               still counting in full in the all-time one.
+    const parentInWin = inWin(p.createdAt);
     rows.forEach(r => {
       const s = _advNormStatus(r);
       if (s !== 'Need to Apply') {
         a.filed++; a.applied++;
+        if (r._aAt ? inWin(r._aAt) : parentInWin) a.appliedWin++;
         if (s === 'Benefits Received') {
           a.recd++; a.benefits++;
           // V12: only STAMPED rows appear in the daily series. A benefit with
           // no _bAt is historical — it still counts in every total above, it
           // simply has no day to sit on. Inventing one would make the chart
           // confidently wrong, which is worse than a chart that starts late.
-          if (r._bAt) benefitDayCounts.set(r._bAt, (benefitDayCounts.get(r._bAt) || 0) + 1);
+          if (r._bAt) {
+            benefitDayCounts.set(r._bAt, (benefitDayCounts.get(r._bAt) || 0) + 1);
+            if (inWin(r._bAt)) a.benefitsWin++;
+          }
         }
       }
     });
@@ -24778,15 +25091,35 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
   fcList.forEach(a => {
     const n = a.u.ngo || '—';
     const g = ngoMap.get(n) ||
-      { ngo: n, activeFcs: 0, enrolled: 0, applied: 0, benefits: 0, livelihood: 0 };
+      { ngo: n, activeFcs: 0, enrolled: 0,
+        applied: 0, benefits: 0, livelihood: 0,                  // in-window
+        appliedAll: 0, benefitsAll: 0, livelihoodAll: 0 };       // all-time
     if (a.enrolledWin > 0 || a.advWin > 0) g.activeFcs++;
-    g.enrolled   += a.enrolledWin;
-    g.applied    += a.applied;
-    g.benefits   += a.benefits;
-    g.livelihood += a.livelihood;
+    g.enrolled      += a.enrolledWin;
+    // V12.3: the partner table's main figures are now WINDOWED, matching the
+    // date chip, with the all-time totals carried alongside for the export and
+    // the column tooltips.
+    g.applied       += a.appliedWin;
+    g.benefits      += a.benefitsWin;
+    g.livelihood    += a.livelihoodWin;
+    g.appliedAll    += a.applied;
+    g.benefitsAll   += a.benefits;
+    g.livelihoodAll += a.livelihood;
     ngoMap.set(n, g);
   });
   const ngoRows = Array.from(ngoMap.values());
+
+  // V12.3: figures the KPI cards need for their all-time line.
+  const totalEverEnrolled = allB.length;
+  // The day benefit-dating began, shown on the Benefits card so a low windowed
+  // number is explained where it is read rather than only in a tooltip.
+  let benefitFirstStamp = null;
+  if (benefitDayCounts.size) {
+    const first = Array.from(benefitDayCounts.keys()).sort()[0];
+    try {
+      benefitFirstStamp = new Date(first).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+    } catch (_) { benefitFirstStamp = first; }
+  }
 
   // ── single pass: trends + livelihood + villages ──────────────────────────
   const dayCounts = new Map(), ngoWin = new Map(), villageFirst = new Map();
@@ -24871,7 +25204,7 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
   });
   const stuckTotal = Array.from(stuckByScheme.values()).reduce((s, g) => s + g.n, 0);
   const advTotal = latestRows.length;
-  return { fcAgg, fcByName, fcList, ngoRows, benefitDayCounts, activeFcs, inactiveFcs, convDen, convNum, ADVI, dayCounts, ngoWin, villageFirst, enrolledWinTotal, livN, endN, sumBase, sumEnd, overdue, stage, byInt, byNgoLiv, overdueNgo, suspects, uName, newVillages, statusCount, stuckByScheme, schemeStats, stuckTotal, advTotal, latestRows, bById, inWin, fcs };
+  return { fcAgg, fcByName, fcList, ngoRows, benefitDayCounts, totalEverEnrolled, benefitFirstStamp, activeFcs, inactiveFcs, convDen, convNum, ADVI, dayCounts, ngoWin, villageFirst, enrolledWinTotal, livN, endN, sumBase, sumEnd, overdue, stage, byInt, byNgoLiv, overdueNgo, suspects, uName, newVillages, statusCount, stuckByScheme, schemeStats, stuckTotal, advTotal, latestRows, bById, inWin, fcs };
 }
 
 // ── V12: FC Performance tab ─────────────────────────────────────────────────
@@ -24889,12 +25222,24 @@ function _rptRenderFc(A, nowMs) {
   // will sort by the wrong data.
   const RPT_FC_COLS = ['Coordinator','Enrollments','Applied','Benefits received',
                        'Livelihood','Data quality','Last active'];
+  const RPT_FC_TIPS = [
+    '',
+    'Beneficiaries this coordinator enrolled inside the selected date window.',
+    'Scheme applications filed inside the selected window — every entry past "Need to Apply". Applications filed from 29 July 2026 onward carry their own exact filing date; older ones fall back to the date the beneficiary’s advocacy record was created, which can place a late addition outside the window it was really filed in. That approximation shrinks as new applications replace old ones. All-time total: ' + fcList.reduce((s, a) => s + a.applied, 0).toLocaleString('en-IN') + '.',
+    'Benefits that arrived inside the selected window. ⚠ This app only began recording the DATE a benefit was received on 29 July 2026, so benefits from before then cannot appear here — they still count in the all-time total of ' + fcList.reduce((s, a) => s + a.benefits, 0).toLocaleString('en-IN') + '.',
+    'Beneficiaries enrolled inside the window who have at least one REAL livelihood activity — goat rearing, tailoring, a shop. The "Advocacy (Govt. Schemes)" entry is not a livelihood activity and is deliberately excluded, which is why a coordinator doing only advocacy work shows 0. All-time total: ' + fcList.reduce((s, a) => s + a.livelihood, 0).toLocaleString('en-IN') + '.',
+    'How complete their records are: the average of three checks — % of their beneficiaries with a phone number, % with a GPS location, and % with at least one photo. All-time, across every record they hold. A low score means paperwork is missing, not that the fieldwork was poor.',
+    'The most recent day they enrolled someone or logged an advocacy update. Red means 30+ days with nothing at all. Not affected by the date filter.'
+  ];
+  // V12.3: every count column now reads the WINDOWED figure, so the date chip
+  // means the same thing on all of them. Sorting must use the same values the
+  // eye sees, or the ranking silently disagrees with the numbers beside it.
   const fcKeys = [
     a => (a.u.fullName || a.u.username || ''),
     a => a.enrolledWin,
-    a => a.applied,
-    a => a.benefits,
-    a => a.livelihood,
+    a => a.appliedWin,
+    a => a.benefitsWin,
+    a => a.livelihoodWin,
     a => (a.tot ? ((a.phone / a.tot + a.gps / a.tot + a.photo / a.tot) / 3) * 100 : 0),
     a => a.last || 0
   ];
@@ -24920,9 +25265,9 @@ function _rptRenderFc(A, nowMs) {
     return `<tr class="${a === bestFc ? 'rpt-top' : ''}" style="cursor:pointer" onclick="${fcClick}" title="Click to see ${esc(nm)}'s beneficiaries">
       <td><div class="rpt-person"><span class="rpt-av" style="background:${_rptNgoColor(a.u.ngo)}">${esc(inits)}</span><span><span class="rpt-pname">${esc(nm)}</span><span class="rpt-psub">${esc(a.u.ngo || '\u2014')}</span></span></div></td>
       <td class="rpt-strong">${a.enrolledWin.toLocaleString('en-IN')}</td>
-      <td>${a.applied.toLocaleString('en-IN')}</td>
-      <td>${a.benefits.toLocaleString('en-IN')}</td>
-      <td>${a.livelihood.toLocaleString('en-IN')}</td>
+      <td>${a.appliedWin.toLocaleString('en-IN')}</td>
+      <td>${a.benefitsWin.toLocaleString('en-IN')}</td>
+      <td>${a.livelihoodWin.toLocaleString('en-IN')}</td>
       <td><span class="rpt-qual"><span class="rpt-qtrack"><span class="rpt-qfill" style="width:${Math.round(q)}%"></span></span><span class="rpt-mini">${Math.round(q)}%</span></span></td>
       <td>${stale ? `<span class="rpt-warn">${_rptAgoLabelPlain(a.last)}</span>` : `<span class="rpt-mini">${_rptAgoLabelPlain(a.last)}</span>`}</td>
     </tr>`;
@@ -24934,24 +25279,30 @@ function _rptRenderFc(A, nowMs) {
       <td>${a.tot.toLocaleString('en-IN')}</td>
     </tr>`).join('');
 
-  const totApplied = fcList.reduce((s2, a) => s2 + a.applied, 0);
-  const totBenefit = fcList.reduce((s2, a) => s2 + a.benefits, 0);
-  const totLiv     = fcList.reduce((s2, a) => s2 + a.livelihood, 0);
-
+  const sum = k => fcList.reduce((s2, a) => s2 + (a[k] || 0), 0);
+  const win = rptRange === 365 ? 'last 12 months' : 'last ' + rptRange + ' days';
+  // V12.3: every card leads with the selected window and keeps its all-time
+  // total on the line beneath. Previously three of the four ignored the chip
+  // entirely while sitting next to one that obeyed it, so "7 days" appeared to
+  // claim 31,961 applications.
   return _rptKpiRow([
-    ['Enrollments',       'users',  enrolledWinTotal, 'last ' + rptRange + ' days'],
-    ['Schemes applied',   'file',   totApplied,       'all-time'],
-    ['Benefits received', 'gift',   totBenefit,       'all-time'],
-    ['Livelihood',        'sprout', totLiv,           'beneficiaries with an intervention']
+    ['Enrollments',       'users',  enrolledWinTotal,     win, A.totalEverEnrolled],
+    ['Schemes applied',   'file',   sum('appliedWin'),    win, sum('applied')],
+    ['Benefits received', 'gift',   sum('benefitsWin'),
+      win + (A.benefitFirstStamp ? ' · dated from ' + A.benefitFirstStamp : ''), sum('benefits')],
+    ['Livelihood',        'sprout', sum('livelihoodWin'), win, sum('livelihood')]
   ])
   + `<div class="rpt-card">
-      <div class="rpt-card-h">
-        <h3>Coordinator leaderboard \u2014 last ${rptRange} days</h3>
-        <div class="rpt-note">Click any column heading to re-rank; click again to flip. The green-edged row is the current #1 for whichever column you sorted by. Enrollments are within the window; Applied, Benefits received and Livelihood are all-time. Data quality = average of % with phone, % with GPS, % with photo.</div>
+      <div class="rpt-card-h rpt-card-h-row">
+        <div class="rpt-hg">
+          <h3>Coordinator leaderboard \u2014 last ${rptRange} days</h3>
+          <div class="rpt-note">Click any column heading to re-rank; click again to flip. The green-edged row is the current #1 for whichever column you sorted by. <b>Every count is for the selected date window</b> — the chip above applies to all four. Data quality and Last active are all-time. Each column’s ⓘ carries its all-time total and any caveat.</div>
+        </div>
+        ${_rptExportBtn('rptExportFc')}
       </div>
       <div class="rpt-tblwrap">
         <table class="rpt-tbl">
-          <thead><tr>${_rptTh(RPT_FC_COLS, rptFcSort, rptFcDir, 'rptSortFc')}</tr></thead>
+          <thead><tr>${_rptTh(RPT_FC_COLS, rptFcSort, rptFcDir, 'rptSortFc', RPT_FC_TIPS)}</tr></thead>
           <tbody>${rows || `<tr><td colspan="${RPT_FC_COLS.length}" class="rpt-empty">No FC activity found for the current filters.</td></tr>`}</tbody>
         </table>
       </div>
@@ -25076,6 +25427,96 @@ function _rptTrendChart(A, nowMs, days) {
   return { svg, legend, note, buckets, best, bucketDays, firstStamp, fmtD2 };
 }
 
+// V12.2: the export control. Same markup for both tables so they cannot drift.
+function _rptExportBtn(handler) {
+  return `<button type="button" class="rpt-export" onclick="${handler}()" title="Download every row as a CSV file">`
+    + `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">`
+    + `<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`
+    + `Export CSV</button>`;
+}
+
+// ── V12.2: CSV export for the Reports tables ────────────────────────────────
+// Reuses the app's existing _csvEsc / _downloadCsv, which already prepend a
+// UTF-8 BOM so Excel on Windows renders Gujarati names instead of question
+// marks — do not hand-roll a second downloader here.
+//
+// ⚠️ EXPORTS EVERY ROW, not the 25 shown on screen. The on-screen cap exists so
+// a header click does not re-render 470 rows; an export that silently dropped
+// 445 coordinators would be worse than no export at all. The row count goes in
+// the toast so it is never a surprise.
+function _rptExportRows(cols, rows, slug) {
+  if (!rows.length) { if (typeof toast === 'function') toast('Nothing to export for the current filters.', 'info', 3000); return; }
+  const lines = [cols.map(_csvEsc).join(',')];
+  rows.forEach(r => lines.push(r.map(_csvEsc).join(',')));
+  const stamp = new Date().toISOString().slice(0, 10);
+  // Record what the numbers were filtered to, so a file opened next month is
+  // still interpretable rather than an anonymous pile of figures.
+  const scope = [];
+  try {
+    if (typeof stateFilter !== 'undefined' && stateFilter) scope.push(_fileSlug(stateFilter));
+    if (typeof ngoFilter !== 'undefined' && ngoFilter) scope.push(_fileSlug(ngoFilter));
+  } catch (_) {}
+  const name = ['KRSF', slug, scope.join('-'), rptRange + 'd', stamp].filter(Boolean).join('_') + '.csv';
+  _downloadCsv(name, lines.join('\r\n'));
+  if (typeof toast === 'function') toast('Exported all ' + rows.length.toLocaleString('en-IN') + ' rows to ' + name, 'success', 4500);
+}
+
+window.rptExportFc = function () {
+  const A = _rptAggregate(filteredAll(), loadAdv(), loadUsers(), Date.now(), rptRange * 86400000);
+  const keyFns = [
+    a => (a.u.fullName || a.u.username || ''), a => a.enrolledWin, a => a.applied,
+    a => a.benefits, a => a.livelihood,
+    a => (a.tot ? ((a.phone / a.tot + a.gps / a.tot + a.photo / a.tot) / 3) * 100 : 0),
+    a => a.last || 0
+  ];
+  const sorted = _rptSortRows(A.fcList.filter(a => a.tot > 0), keyFns[rptFcSort] || keyFns[1], rptFcDir);
+  // V12.3: the file carries BOTH the window figure and the all-time total for
+  // each measure. The table can only show one; a spreadsheet has no such limit,
+  // and someone opening it later should not have to know which the screen was
+  // set to when it was made.
+  const rows = sorted.map(a => [
+    a.u.fullName || a.u.username || '', a.u.ngo || '',
+    a.enrolledWin, a.appliedWin, a.benefitsWin, a.livelihoodWin,
+    a.tot, a.applied, a.benefits, a.livelihood,
+    a.tot ? Math.round(((a.phone / a.tot + a.gps / a.tot + a.photo / a.tot) / 3) * 100) : 0,
+    a.last ? new Date(a.last).toISOString().slice(0, 10) : ''
+  ]);
+  const W = ' (' + rptRange + 'd)';
+  _rptExportRows(
+    ['Coordinator', 'NGO',
+     'Enrollments' + W, 'Schemes applied' + W, 'Benefits received' + W, 'Livelihood' + W,
+     'Total beneficiaries (all-time)', 'Schemes applied (all-time)',
+     'Benefits received (all-time)', 'Livelihood (all-time)',
+     'Data quality %', 'Last active'],
+    rows, 'coordinators');
+};
+
+window.rptExportNgo = function () {
+  const A = _rptAggregate(filteredAll(), loadAdv(), loadUsers(), Date.now(), rptRange * 86400000);
+  const totE = (A.ngoRows || []).reduce((s, r) => s + r.enrolled, 0);
+  // Export always carries BOTH lenses, whichever the screen is showing — the
+  // per-FC average is the whole point of the tab and a spreadsheet that dropped
+  // it would need the reader to recompute it by hand.
+  const rows = _rptSortRows(A.ngoRows || [], r => r.enrolled, -1).map(r => [
+    r.ngo, r.activeFcs,
+    r.enrolled, r.applied, r.benefits, r.livelihood,
+    r.activeFcs ? Math.round((r.enrolled / r.activeFcs) * 10) / 10 : '',
+    r.activeFcs ? Math.round((r.applied / r.activeFcs) * 10) / 10 : '',
+    r.activeFcs ? Math.round((r.benefits / r.activeFcs) * 10) / 10 : '',
+    r.activeFcs ? Math.round((r.livelihood / r.activeFcs) * 10) / 10 : '',
+    r.appliedAll, r.benefitsAll, r.livelihoodAll,
+    totE ? Math.round((r.enrolled / totE) * 1000) / 10 : 0
+  ]);
+  const W = ' (' + rptRange + 'd)';
+  _rptExportRows(
+    ['NGO', 'Active FCs',
+     'Enrollments' + W, 'Schemes applied' + W, 'Benefits received' + W, 'Livelihood' + W,
+     'Enrollments per FC' + W, 'Applied per FC' + W, 'Benefits per FC' + W, 'Livelihood per FC' + W,
+     'Schemes applied (all-time)', 'Benefits received (all-time)', 'Livelihood (all-time)',
+     'Share of enrollments %'],
+    rows, 'partners');
+};
+
 // ── V12: NGO comparison tab ─────────────────────────────────────────────────
 // Two lenses on one table. RAW answers "who delivers the most"; PER-FC answers
 // "whose team works hardest". Showing only raw would let a 30-coordinator
@@ -25104,6 +25545,15 @@ function _rptRenderNgo(A) {
 
   const COLS = ['NGO','Active FCs','Enrollments','Applied','Benefits received',
                 'Livelihood','Share of enrollments'];
+  const TIPS = [
+    '',
+    'Coordinators from this partner who enrolled someone or logged an advocacy update inside the selected window. This is also the number the per-FC average divides by — so a partner is not penalised for staff on leave or a vacant post.',
+    'Beneficiaries enrolled inside the selected window.',
+    'Scheme applications filed inside the selected window — every entry past "Need to Apply". Applications filed from 29 July 2026 onward carry their own exact filing date; older ones fall back to the advocacy record’s creation date.',
+    'Benefits that arrived inside the selected window. ⚠ The date a benefit was received has only been recorded since 29 July 2026, so earlier benefits cannot appear here — they are still counted in the all-time column of the CSV export.',
+    'Beneficiaries enrolled inside the window who have at least one REAL livelihood activity. The "Advocacy (Govt. Schemes)" entry is excluded, so a partner doing only advocacy work shows 0 here.',
+    "This partner's share of all enrollments in the window, across every partner currently shown."
+  ];
   // A dash sorts as "lowest", never as 0 — otherwise an idle partner would
   // outrank a real one whose average happens to be 0.
   const K = [ r => r.ngo, r => r.activeFcs,
@@ -25130,9 +25580,12 @@ function _rptRenderNgo(A) {
   }).join('');
 
   return `<div class="rpt-card">
-    <div class="rpt-card-h">
-      <h3>Which partners are doing the best work</h3>
-      <div class="rpt-note"><b>Raw totals</b> shows scale; <b>Per-FC average</b> shows how hard each team works, dividing by the coordinators who were active in this window. Click any heading to re-rank. Enrollments are within the window; the rest are all-time.</div>
+    <div class="rpt-card-h rpt-card-h-row">
+      <div class="rpt-hg">
+        <h3>Which partners are doing the best work</h3>
+        <div class="rpt-note"><b>Raw totals</b> shows scale; <b>Per-FC average</b> shows how hard each team works, dividing by the coordinators who were active in this window. Click any heading to re-rank. <b>Every figure is for the selected date window.</b></div>
+      </div>
+      ${_rptExportBtn('rptExportNgo')}
     </div>
     <div class="rpt-mode" role="group" aria-label="Comparison mode">
       <button class="${pfc ? '' : 'on'}" onclick="rptSetNgoMode('raw')">Raw totals</button>
@@ -25140,7 +25593,7 @@ function _rptRenderNgo(A) {
     </div>
     <div class="rpt-tblwrap">
       <table class="rpt-tbl">
-        <thead><tr>${_rptTh(COLS, rptNgoSort, rptNgoDir, 'rptSortNgo')}</tr></thead>
+        <thead><tr>${_rptTh(COLS, rptNgoSort, rptNgoDir, 'rptSortNgo', TIPS)}</tr></thead>
         <tbody>${body || `<tr><td colspan="${COLS.length}" class="rpt-empty">No partner activity found for the current filters.</td></tr>`}</tbody>
       </table>
     </div>
@@ -25156,14 +25609,19 @@ const _RPT_ICONS = {
   gift:   '<polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5"/><line x1="12" y1="22" x2="12" y2="7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/>',
   sprout: '<path d="M7 20h10"/><path d="M12 20v-9"/><path d="M12 11C12 6 8 3 3 3c0 5 3 8 9 8z"/><path d="M12 11c0-3.5 2.5-6 8-6 0 4-2 7-8 7z"/>'
 };
+// V12.3: the optional 5th element is the all-time total. It is rendered on its
+// own line below the window figure so nothing is hidden — the complaint was not
+// that all-time was wrong, it was that all-time was shown while a 7-day chip
+// was selected, with no way to tell which you were looking at.
 function _rptKpiRow(cards) {
   return '<div class="rpt-kpis">' + cards.map(c => {
-    const [label, icon, val, sub] = c;
-    const n = typeof val === 'number' ? val.toLocaleString('en-IN') : val;
+    const [label, icon, val, sub, allTime] = c;
+    const fmt = v => typeof v === 'number' ? v.toLocaleString('en-IN') : v;
     return `<div class="rpt-kpi">
       <div class="rpt-kpi-lab"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${_RPT_ICONS[icon] || ''}</svg>${escHtml(label)}</div>
-      <div class="rpt-kpi-val">${n}</div>
+      <div class="rpt-kpi-val">${fmt(val)}</div>
       <div class="rpt-kpi-sub">${escHtml(sub || '')}</div>
+      ${allTime == null ? '' : `<div class="rpt-kpi-all">All-time <b>${fmt(allTime)}</b></div>`}
     </div>`;
   }).join('') + '</div>';
 }
@@ -25192,7 +25650,13 @@ function _rptChrome(body) {
   // The NGO tab is driven by the same window as FC + Trends, so it gets the
   // range chips too. Advocacy and Livelihood remain all-time views.
   const showChips = (rptTab === 'fc' || rptTab === 'ngo' || rptTab === 'trend');
-  return `<div style="max-width:1080px">
+  // 1400px, not 1080 and not full-bleed. The old 1080 cap left roughly a third
+  // of a laptop screen empty; removing the cap entirely was worse — measured at
+  // 1900px the coordinator name column ballooned to 842px, half the table, so
+  // the space was filled with whitespace rather than used. 1400 gives the
+  // numbers room without stretching names across the screen.
+  return `<div style="max-width:1400px">
+      <div class="rpt-head">
       <div class="rpt-head">
         <div>
           <div class="rpt-title">Reports</div>
@@ -25220,7 +25684,7 @@ function renderReports() {
   const advParents = loadAdv();
   const now = Date.now(), winMs = rptRange * 86400000;
   const _A = _rptAggregate(allB, advParents, users, now, winMs);
-  const { fcAgg, fcByName, fcList, ngoRows, benefitDayCounts, activeFcs, inactiveFcs, convDen, convNum, ADVI, dayCounts, ngoWin, villageFirst, enrolledWinTotal, livN, endN, sumBase, sumEnd, overdue, stage, byInt, byNgoLiv, overdueNgo, suspects, uName, newVillages, statusCount, stuckByScheme, schemeStats, stuckTotal, advTotal, latestRows, bById, inWin, fcs } = _A;
+  const { fcAgg, fcByName, fcList, ngoRows, benefitDayCounts, totalEverEnrolled, benefitFirstStamp, activeFcs, inactiveFcs, convDen, convNum, ADVI, dayCounts, ngoWin, villageFirst, enrolledWinTotal, livN, endN, sumBase, sumEnd, overdue, stage, byInt, byNgoLiv, overdueNgo, suspects, uName, newVillages, statusCount, stuckByScheme, schemeStats, stuckTotal, advTotal, latestRows, bById, inWin, fcs } = _A;
 
 
   // ── shared HTML helpers ───────────────────────────────────────────────────
