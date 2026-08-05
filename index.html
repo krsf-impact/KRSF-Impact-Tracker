@@ -2,6 +2,40 @@
 <!--
   KRSF Beneficiary Impact Tracker  -  V6.7.2-LIVE
   ============================================================================
+  V12.9-LIVE (2026-07-31 - the screen cache could not see any filter, so a
+  second drill-down replayed the first one's screen):
+    + REPORTED: from Reports -> FC Performance, clicking a coordinator showed
+      that coordinator's beneficiaries. Going back and clicking a DIFFERENT
+      coordinator showed the FIRST one's beneficiaries again, every time.
+    + CAUSE. _v357ComputeSig built its cache signature by reading each filter as
+      window[name]:
+          try { v = window[name]; } catch(_) {}
+      but stateFilter / ngoFilter / fcFilter (~15668), the four baseline/endline
+      date fields, and the three page counters are ALL declared with a top-level
+      `let`. A top-level `let` lives in the global DECLARATIVE environment
+      record and is never a property of window, so every one of those reads
+      returned undefined and pushed a constant '' into the signature. Changing
+      an FC could not change the signature, the signature matched, and
+      _v357WrapRoute restored the previously cached HTML instead of rendering.
+    + FIX: read the bindings directly by name, exactly as the Reports block
+      immediately below already does for rptTab after the identical defect bit
+      it in V12. Client-side only - no Firebase read, write or schema change.
+    + SCOPE was wider than the report. The same blindness covered EVERY
+      drill-down into `list` (NGO Partners rows, the dashboard NGO rows, the FC
+      leaderboard), plus the date-range filters and pagination. ADMINS ONLY -
+      _v357CacheEnabled() requires role === 'admin', so no NGO partner or
+      coordinator was ever affected.
+    + NOT A DATA-VISIBILITY BUG. NGO scoping is enforced at the Firebase query
+      and in _v367TryFastPath, never through these variables, so nobody could
+      see beyond their own records because of this.
+    + DELIBERATELY NOT FIXED HERE: _filterByNgoFromRow (~23150) and the role
+      lock (~36474) both assign `window.ngoFilter`, which is that same phantom
+      property rather than the `let` the renderers read - so neither actually
+      filters. Making them real would newly HIDE any beneficiary whose ngo is
+      blank from their own FC's list, which is a live state (see the Bethel Life
+      enrolments). That needs its own change with a backfill, not a side effect
+      of a cache fix.
+  ============================================================================
   V12.8-LIVE (2026-07-30 - two FAIL-OPEN scope defects found by auditing V12.7
   before it shipped. V12.7 was never uploaded; these are its corrections):
     + ⛔ DEFECT 1 - THE ONE THAT LEAKED RECORDS. filteredAll() runs an indexed
@@ -9148,7 +9182,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V12.8-LIVE';
+const APP_VERSION = 'V12.9-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -26348,16 +26382,29 @@ function _v357GetMainEl() {
 // invalidates the cache for this view automatically.
 function _v357ComputeSig(view) {
   const parts = [view, 'dv', _v357DataVersion];
-  const filterVars = [
-    'stateFilter','ngoFilter','fcFilter',
-    'baselineFrom','baselineTo','endlineFrom','endlineTo',
-    'allBCurrentPage','livCurrentPage','advBCurrentPage'
-  ];
-  for (const name of filterVars) {
-    let v = null;
-    try { v = window[name]; } catch(_) {}
-    parts.push(name, v == null ? '' : String(v));
-  }
+  // ── V12.9: the filters, read DIRECTLY ─────────────────────────────────────
+  // These were read as window[name] in a loop. Every one of them is declared
+  // with a top-level `let` (stateFilter/ngoFilter/fcFilter at ~15668, the four
+  // date fields just below, and the three page counters near their renderers).
+  // A top-level `let` lives in the global DECLARATIVE environment record and is
+  // NEVER a property of window, so window['fcFilter'] was always undefined and
+  // every one of these contributed a constant '' to the signature.
+  //
+  // THE BUG THAT EXPOSED IT: drilling from the Reports FC leaderboard into a
+  // coordinator's beneficiaries worked once, then every later FC showed the
+  // FIRST one's list — the signature never changed, so the cache returned the
+  // previously rendered HTML. It applies to every drill-down into `list` (NGO
+  // Partners rows, the dashboard NGO rows, the FC leaderboard), and to the date
+  // filters and pagination, for admins only — _v357CacheEnabled() is admin-only.
+  //
+  // This is the SAME defect the Reports block below already documents for
+  // rptTab; reading the bindings by name is the only thing that works.
+  try {
+    parts.push('flt',
+      stateFilter, ngoFilter, fcFilter,
+      baselineFrom, baselineTo, endlineFrom, endlineTo,
+      allBCurrentPage, livCurrentPage, advBCurrentPage);
+  } catch (_) { parts.push('flt', 'unavailable'); }
   // ── V12: the Reports state, read DIRECTLY ─────────────────────────────────
   // rptTab and friends are declared with `let`, and a top-level `let` lives in
   // the global DECLARATIVE environment record — it is never a property of
