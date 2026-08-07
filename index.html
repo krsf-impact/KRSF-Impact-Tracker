@@ -2,6 +2,34 @@
 <!--
   KRSF Beneficiary Impact Tracker  -  V6.7.2-LIVE
   ============================================================================
+  V13-LIVE (2026-08-05 - a drill-down left its filter switched on, so going back
+  to Reports showed one coordinator instead of the partner you were looking at):
+    + REPORTED: filter Reports to an NGO, click a coordinator to see their
+      beneficiaries, then click Reports again. You get that ONE coordinator, and
+      the NGO filter is gone. Not all the coordinators under that partner.
+    + CAUSE, and it is two faults in one click. The row handler read
+          stateFilter='';ngoFilter='';fcFilter='<that FC>';nav('list')
+      so (a) it cleared the NGO filter you had set, and (b) nothing ever cleared
+      fcFilter afterwards. renderReports() draws from filteredAll(), which
+      applies fcFilter - so Reports obeyed a filter that was never set ON it.
+    + FIX: _v13RptDrill() stashes what Reports was filtered by, applies the
+      drill-down, and renderReports() hands it back on the way in - BEFORE
+      filteredAll() runs. The stash is a one-shot and is dropped by
+      _v13RptForgetReturn() the moment the user changes a filter themselves, so
+      a deliberate choice always beats a restore.
+    + ⚠️ THE REASON THIS MATTERED MORE THAN THE EXTRA CLICK: a filtered Reports
+      page looked EXACTLY like an unfiltered one. The numbers were simply
+      smaller. Anyone reading them in good faith would under-report a partner -
+      341 in place of 4,100 - with nothing on screen to contradict them. So the
+      release also adds _v13RptFilterBanner(): whenever any filter is active,
+      however it got there, Reports says so in a bar naming what is applied,
+      with one click to clear. Reports can no longer be quietly narrowed.
+    + All four drill-downs now route through the helper - the FC leaderboard,
+      the Partners rows inside Reports, and both rows on the NGO Partners page.
+    + Client-side only. No Firebase read, write or schema change.
+    + SIBLING OF V12.9, NOT THE SAME BUG. V12.9 fixed the cache failing to
+      NOTICE a filter change. This is the filter being LEFT SET on the way back.
+  ============================================================================
   V12.9-LIVE (2026-07-31 - the screen cache could not see any filter, so a
   second drill-down replayed the first one's screen):
     + REPORTED: from Reports -> FC Performance, clicking a coordinator showed
@@ -7673,6 +7701,10 @@ body[data-shell="coord"] #_v352-install-btn {
   box-shadow:0 1px 2px rgba(16,24,40,.05),0 1px 3px rgba(16,24,40,.06)}
 .rpt-seg button:focus-visible{outline:2px solid var(--navy2);outline-offset:-2px}
 
+.rpt-fbanner{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:#FFFAEB;border:1px solid #FEC84B;border-radius:9px;padding:9px 14px;margin:0 0 14px;font-size:13px;color:#7A4708;line-height:1.5}
+.rpt-fbanner b{font-weight:700;color:#5A3405}
+.rpt-fbanner button{background:#fff;border:1px solid #FEC84B;color:#B54708;font:600 12px/1 inherit;padding:6px 11px;border-radius:6px;cursor:pointer;white-space:nowrap;font-family:inherit}
+.rpt-fbanner button:hover{background:#FEF0C7}
 .rpt-chips{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}
 .rpt-chips button{padding:7px 14px;min-height:36px;border-radius:99px;border:1px solid var(--rbd);
   background:#fff;font-size:12.5px;color:var(--ink2);font-family:var(--font);cursor:pointer;
@@ -8205,19 +8237,19 @@ body[data-shell="coord"] #_v352-install-btn {
            default. Without a flex-providing CSS class, align-items + gap would be
            ignored and icon/label would mis-align. Inline-block + margin avoids that. -->
       <button data-admin-only id="topbar-refresh-btn" onclick="_v373AdminRefresh()" title="Refresh: fetch any new records since last sync" style="display:none;padding:5px 11px;background:#DBEAFE;color:#1E40AF;border:1px solid #93C5FD;border-radius:18px;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font);transition:all .15s;margin-right:6px;vertical-align:middle;white-space:nowrap"><span id="topbar-refresh-icon" style="display:inline-block;font-size:14px;line-height:1;margin-right:5px;vertical-align:middle">↻</span><span id="topbar-refresh-label" style="vertical-align:middle">Refresh</span></button>
-      <select class="fsel" id="state-filter" onchange="stateFilter=this.value;renderCurrent()">
+      <select class="fsel" id="state-filter" onchange="_v13RptForgetReturn();stateFilter=this.value;renderCurrent()">
         <option value="">All States</option>
         <option>Andhra Pradesh</option><option>Arunachal Pradesh</option><option>Assam</option><option>Bihar</option><option>Chhattisgarh</option><option>Goa</option><option>Gujarat</option><option>Haryana</option><option>Himachal Pradesh</option><option>Jharkhand</option><option>Karnataka</option><option>Kerala</option><option>Madhya Pradesh</option><option>Maharashtra</option><option>Manipur</option><option>Meghalaya</option><option>Mizoram</option><option>Nagaland</option><option>Odisha</option><option>Punjab</option><option>Rajasthan</option><option>Sikkim</option><option>Tamil Nadu</option><option>Telangana</option><option>Tripura</option><option>Uttar Pradesh</option><option>Uttarakhand</option><option>West Bengal</option><option>Andaman & Nicobar Islands</option><option>Chandigarh</option><option>Dadra & Nagar Haveli and Daman & Diu</option><option>Delhi</option><option>Jammu & Kashmir</option><option>Ladakh</option><option>Lakshadweep</option><option>Puducherry</option>
       </select>
-      <select class="fsel" id="ngo-filter" onchange="ngoFilter=this.value;_rebuildStateFilterOptions();renderCurrent()">
+      <select class="fsel" id="ngo-filter" onchange="_v13RptForgetReturn();ngoFilter=this.value;_rebuildStateFilterOptions();renderCurrent()">
         <option value="">All NGOs</option>
       </select>
       <button class="btn btn-primary" id="topbar-enroll-btn" onclick="openEnroll()">+ Enroll Beneficiary</button>
     </div>
   </div>
   <div class="mob-filter-row" id="mob-filter-row">
-    <select class="fsel" id="mob-state-filter" onchange="stateFilter=this.value;document.getElementById('state-filter').value=this.value;renderCurrent()"><option value="">All States</option><option>Andhra Pradesh</option><option>Arunachal Pradesh</option><option>Assam</option><option>Bihar</option><option>Chhattisgarh</option><option>Goa</option><option>Gujarat</option><option>Haryana</option><option>Himachal Pradesh</option><option>Jharkhand</option><option>Karnataka</option><option>Kerala</option><option>Madhya Pradesh</option><option>Maharashtra</option><option>Manipur</option><option>Meghalaya</option><option>Mizoram</option><option>Nagaland</option><option>Odisha</option><option>Punjab</option><option>Rajasthan</option><option>Sikkim</option><option>Tamil Nadu</option><option>Telangana</option><option>Tripura</option><option>Uttar Pradesh</option><option>Uttarakhand</option><option>West Bengal</option><option>Andaman & Nicobar Islands</option><option>Chandigarh</option><option>Dadra & Nagar Haveli and Daman & Diu</option><option>Delhi</option><option>Jammu & Kashmir</option><option>Ladakh</option><option>Lakshadweep</option><option>Puducherry</option></select>
-    <select class="fsel" id="mob-ngo-filter" onchange="ngoFilter=this.value;document.getElementById('ngo-filter').value=this.value;_rebuildStateFilterOptions();renderCurrent()"><option value="">All NGOs</option></select>
+    <select class="fsel" id="mob-state-filter" onchange="_v13RptForgetReturn();stateFilter=this.value;document.getElementById('state-filter').value=this.value;renderCurrent()"><option value="">All States</option><option>Andhra Pradesh</option><option>Arunachal Pradesh</option><option>Assam</option><option>Bihar</option><option>Chhattisgarh</option><option>Goa</option><option>Gujarat</option><option>Haryana</option><option>Himachal Pradesh</option><option>Jharkhand</option><option>Karnataka</option><option>Kerala</option><option>Madhya Pradesh</option><option>Maharashtra</option><option>Manipur</option><option>Meghalaya</option><option>Mizoram</option><option>Nagaland</option><option>Odisha</option><option>Punjab</option><option>Rajasthan</option><option>Sikkim</option><option>Tamil Nadu</option><option>Telangana</option><option>Tripura</option><option>Uttar Pradesh</option><option>Uttarakhand</option><option>West Bengal</option><option>Andaman & Nicobar Islands</option><option>Chandigarh</option><option>Dadra & Nagar Haveli and Daman & Diu</option><option>Delhi</option><option>Jammu & Kashmir</option><option>Ladakh</option><option>Lakshadweep</option><option>Puducherry</option></select>
+    <select class="fsel" id="mob-ngo-filter" onchange="_v13RptForgetReturn();ngoFilter=this.value;document.getElementById('ngo-filter').value=this.value;_rebuildStateFilterOptions();renderCurrent()"><option value="">All NGOs</option></select>
   </div>
   <!-- Date range filter row. Visible to admin + NGO roles (V318); hidden
        for coordinators (they see only their own records). Controlled by
@@ -9182,7 +9214,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V12.9-LIVE';
+const APP_VERSION = 'V13-LIVE';
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -20996,8 +21028,8 @@ function renderNGO() {
     const clickHandler = _isFcMode
       ? (r._fcId === '__orphan__'
           ? ''
-          : `onclick="stateFilter='';ngoFilter='';fcFilter='${r._fcId.replace(/'/g, "\\'")}';currentView='list';nav('list')"`)
-      : `onclick="stateFilter='';ngoFilter='${r.name.replace(/'/g, "\\'")}';fcFilter='';currentView='list';nav('list')"`;
+          : `onclick="_v13RptDrill('${r._fcId.replace(/'/g, "\\'")}')"`)
+      : `onclick="_v13RptDrill('', '${r.name.replace(/'/g, "\\'")}')"`;
     const clickTitle = _isFcMode
       ? (r._fcId === '__orphan__' ? 'Legacy / unknown creators — drill-down not available' : `Click to see ${r.name}'s beneficiaries`)
       : `Click to see ${r.name}'s beneficiaries`;
@@ -25617,7 +25649,7 @@ function _rptRenderFc(A, nowMs) {
     const stale = a.last && (now - a.last) > 30 * 86400000;
     // V4.9: click-through to this FC's beneficiary list — reuses the same
     // fcFilter + nav('list') pattern the NGO Partners drill-down already uses.
-    const fcClick = `stateFilter='';ngoFilter='';fcFilter='${(a.u.id || '').replace(/'/g, "\\'")}';currentView='list';nav('list')`;
+    const fcClick = `_v13RptDrill('${(a.u.id || '').replace(/'/g, "\\'")}')`;
     return `<tr class="${a === bestFc ? 'rpt-top' : ''}" style="cursor:pointer" onclick="${fcClick}" title="Click to see ${esc(nm)}'s beneficiaries">
       <td><div class="rpt-person"><span class="rpt-av" style="background:${_rptNgoColor(a.u.ngo)}">${esc(inits)}</span><span><span class="rpt-pname">${esc(nm)}</span><span class="rpt-psub">${esc(a.u.ngo || '\u2014')}</span></span></div></td>
       <td class="rpt-strong">${a.enrolledWin.toLocaleString('en-IN')}</td>
@@ -26029,6 +26061,82 @@ function _rptKpiRow(cards) {
 // Header, segmented tab bar and range chips. Split out so it can be rendered in
 // _tests/rptrender.js — the chrome is shared by all five tabs, so a mistake here
 // is a mistake on every one of them.
+// ── V13: the filter a drill-down leaves behind ──────────────────────────────
+// Clicking a coordinator on Reports set a global filter and jumped to the
+// beneficiary list. Nothing cleared it, so coming BACK to Reports left the page
+// silently narrowed to that one person — and because the same click also blanked
+// ngoFilter, you landed on one coordinator under no partner at all. The numbers
+// simply looked smaller; nothing on screen said the page was filtered, which is
+// how a partner's work gets under-reported by somebody reading in good faith.
+//
+// One-shot stash: remember what Reports was filtered by, apply the drill-down,
+// put it back the next time Reports renders. A manual filter change drops the
+// stash, so the user's own choice always beats a restore.
+let _v13RptReturn = null;
+
+function _v13RptDrill(fcId, ngoName) {
+  try {
+    _v13RptReturn = { state: stateFilter, ngo: ngoFilter, fc: fcFilter };
+  } catch (_) { _v13RptReturn = null; }
+  stateFilter = '';
+  ngoFilter   = ngoName || '';
+  fcFilter    = fcId || '';
+  currentView = 'list';
+  nav('list');
+}
+window._v13RptDrill = _v13RptDrill;
+
+// Any deliberate filter change makes the pending restore wrong — forget it.
+function _v13RptForgetReturn() { _v13RptReturn = null; }
+window._v13RptForgetReturn = _v13RptForgetReturn;
+
+// Put the topbar controls back in step with the variables after a restore.
+function _v13SyncFilterSelects() {
+  try {
+    const s = document.getElementById('state-filter');
+    const n = document.getElementById('ngo-filter');
+    const ms = document.getElementById('mob-state-filter');
+    const mn = document.getElementById('mob-ngo-filter');
+    if (s)  s.value  = stateFilter;
+    if (ms) ms.value = stateFilter;
+    if (n)  n.value  = ngoFilter;
+    if (mn) mn.value = ngoFilter;
+  } catch (_) {}
+}
+
+// The banner. Reports gave no sign at all that it was narrowed, so even a
+// filter the user set deliberately was invisible once they scrolled. It names
+// what is applied and offers one click to clear.
+function _v13RptFilterBanner() {
+  const bits = [];
+  try {
+    if (fcFilter) {
+      let who = fcFilter;
+      try {
+        const u = (loadUsers() || []).find(x => x && x.id === fcFilter);
+        if (u) who = u.fullName || u.username || fcFilter;
+      } catch (_) {}
+      bits.push('one coordinator only — <b>' + escHtml(String(who)) + '</b>');
+    }
+    if (ngoFilter) bits.push('partner <b>' + escHtml(String(ngoFilter)) + '</b>');
+    if (stateFilter) bits.push('district <b>' + escHtml(String(stateFilter)) + '</b>');
+  } catch (_) {}
+  if (!bits.length) return '';
+  return '<div class="rpt-fbanner">'
+    + '<span>Showing ' + bits.join(' · ') + '. These figures are not the full programme.</span>'
+    + '<button type="button" onclick="_v13RptClearFilters()">✕ Show all</button>'
+    + '</div>';
+}
+
+function _v13RptClearFilters() {
+  stateFilter = ''; ngoFilter = ''; fcFilter = '';
+  _v13RptForgetReturn();
+  _v13SyncFilterSelects();
+  try { if (typeof _rebuildStateFilterOptions === 'function') _rebuildStateFilterOptions(); } catch (_) {}
+  renderReports();
+}
+window._v13RptClearFilters = _v13RptClearFilters;
+
 function _rptChrome(body) {
   // SVG icons, never emoji. An emoji is a different glyph on every platform,
   // cannot take the active colour, and reads as decoration rather than as part
@@ -26072,6 +26180,7 @@ function _rptChrome(body) {
         ${tab('fc', 'FC Performance')}${fleet ? tab('ngo', 'Partners') : ''}${tab('trend', 'Enrollment Trends')}${tab('adv', 'Advocacy Pipeline')}${tab('liv', 'Livelihood Impact')}
       </div>
       ${showChips ? `<div class="rpt-chips">${chipBtn(0)}${chipBtn(7)}${chipBtn(30)}${chipBtn(90)}${chipBtn(365)}</div>` : ''}
+      ${_v13RptFilterBanner()}
       ${body}
     </div>`;
 }
@@ -26091,6 +26200,16 @@ function renderReports() {
   // their saved tab is that one — or they arrive with it set — bounce to the
   // leaderboard rather than render an empty comparison.
   if (!fleet && rptTab === 'ngo') rptTab = 'fc';
+  // V13: hand back the filters a drill-down borrowed. Must run BEFORE
+  // filteredAll() below, which is what would otherwise narrow this whole page
+  // to the coordinator the user merely looked at and came back from.
+  if (_v13RptReturn) {
+    stateFilter = _v13RptReturn.state;
+    ngoFilter   = _v13RptReturn.ngo;
+    fcFilter    = _v13RptReturn.fc;
+    _v13RptReturn = null;
+    _v13SyncFilterSelects();
+  }
   const esc = s => escHtml(String(s == null ? '' : s));
   const allB = filteredAll();                 // topbar State/NGO filters apply here
   // ⚠️ NOT loadUsers(). See _rptScopedUsers — the roster is the only Reports
@@ -26177,7 +26296,7 @@ function renderReports() {
       (!fleet ? '' : card('NGO comparison — window', 'Per FC = enrollments ÷ FCs who enrolled at least one beneficiary in the window.',
         tblWrap(`<table style="width:100%;border-collapse:collapse">
           <tr><th style="${TH}">NGO</th><th style="${THR}">Enrolled</th><th style="${THR}">Active FCs</th><th style="${THR}">Per FC</th><th style="${TH}">Share</th></tr>
-          ${ngoRows.map(([ngo, g]) => `<tr style="cursor:pointer" onclick="stateFilter='';ngoFilter='${(ngo || '').replace(/'/g, "\\'")}';fcFilter='';currentView='list';nav('list')" title="Click to see ${esc(ngo || '—')}'s beneficiaries">
+          ${ngoRows.map(([ngo, g]) => `<tr style="cursor:pointer" onclick="_v13RptDrill('', '${(ngo || '').replace(/'/g, "\\'")}')" title="Click to see ${esc(ngo || '—')}'s beneficiaries">
             <td style="${TD}"><b>${esc(ngo || '—')}</b></td>
             <td style="${TDR}">${g.n.toLocaleString('en-IN')}</td>
             <td style="${TDR}">${g.fcs.size}</td>
