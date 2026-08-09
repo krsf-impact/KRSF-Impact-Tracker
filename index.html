@@ -2,6 +2,35 @@
 <!--
   KRSF Beneficiary Impact Tracker  -  V6.7.2-LIVE
   ============================================================================
+  V13.1-LIVE (2026-08-05 - every date was stamped in UTC, so 5.5 hours of every
+  day were filed under YESTERDAY):
+    + REPORTED: coordinators enrolled at 4:00 AM IST; Reports showed 0 for today.
+    + CAUSE. enrollDate came from new Date().toISOString(), which is ALWAYS UTC.
+      India is UTC+5:30, so 04:00 IST is 22:30 UTC the PREVIOUS day. Anything
+      recorded between 00:00 and 05:29 IST was dated a day early. Reports was
+      counting correctly - it was handed a date that was already wrong. The same
+      flaw sat in inProgressDate, endlineDate, the income-log default, the V12
+      _aAt/_bAt scheme stamps, the Trends day buckets, and every "date cannot be
+      in the future" check - which would have rejected a correct IST date typed
+      before 05:30.
+    + FIX: one helper, _istDate(). It shifts the clock +5:30 and reads the UTC
+      calendar date, which yields the IST date on ANY device - it does not trust
+      the phone's timezone, which across 559 field handsets is not a safe
+      assumption. Applied at 23 call sites.
+    + DELIBERATELY NOT CHANGED: three week-start calculations (~33463, ~33605,
+      ~33883). They convert a GIVEN date to its Monday and never ask what day it
+      is now, so they are internally consistent; touching them would shift
+      existing weekly groupings for no gain.
+    + HISTORY IS NOT REWRITTEN - the user's explicit decision. Records written
+      before this release keep their UTC date, so for the 00:00-05:29 window old
+      rows sit one day earlier than new ones. A seam, not a corruption: no
+      record is lost, mis-attributed to a person, or double-counted.
+    + ALSO: the Reports drill-down now lands on INTEGRATED VIEW, not Livelihood.
+      Livelihood shows only the income side, so opening a coordinator hid
+      whatever advocacy work they had done - half their record, shown as all of
+      it. Integrated shows both.
+    + Client-side only. No Firebase read, write or schema change. No migration.
+  ============================================================================
   V13-LIVE (2026-08-05 - a drill-down left its filter switched on, so going back
   to Reports showed one coordinator instead of the partner you were looking at):
     + REPORTED: filter Reports to an NGO, click a coordinator to see their
@@ -9214,7 +9243,31 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V13-LIVE';
+const APP_VERSION = 'V13.1-LIVE';
+
+// ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
+// Every date in this app was stamped with new Date().toISOString(), which is
+// ALWAYS UTC. India is UTC+5:30, so anything recorded between 00:00 and 05:29
+// IST was filed under YESTERDAY. A coordinator enrolling at 4am appeared on the
+// previous day's count, and Reports showed zero for today - correctly counting a
+// date that was wrong before it ever reached them. That is 5.5 hours of every
+// single day, and early-morning field work is normal here.
+//
+// Shifting the clock by +5:30 and then reading the UTC calendar date gives the
+// IST date on ANY device - it does not depend on the phone's timezone being set
+// correctly, which on a fleet of 559 field phones is not a safe assumption.
+//
+// Historical records are NOT rewritten (user's decision, 2026-08-05). Records
+// written before this release keep their UTC date, so there is a seam: for the
+// 00:00-05:29 window, old rows sit one day earlier than new ones.
+const _IST_OFFSET_MS = 5.5 * 3600000;
+function _istDate(ms) {
+  const t = (ms == null) ? Date.now() : (ms instanceof Date ? ms.getTime() : ms);
+  if (!isFinite(t)) return '';
+  return new Date(t + _IST_OFFSET_MS).toISOString().slice(0, 10);
+}
+window._istDate = _istDate;
+
 try { window.APP_VERSION = APP_VERSION; } catch(_){}
 
 // V354: pantry cache validity is decoupled from APP_VERSION. Pantries are
@@ -15798,7 +15851,7 @@ function _ensureIncomeLogMigrated(b) {
     if (!Array.isArray(b.incomeLog)) b.incomeLog = [];
     return false;
   }
-  const dt = b.endlineDate || b.inProgressDate || new Date().toISOString().split('T')[0];
+  const dt = b.endlineDate || b.inProgressDate || _istDate();
   const migratedAmount = (parseFloat(b.endIncome) || 0) - (b.baseIncome || 0);
   b.incomeLog = [{
     date: dt,
@@ -16233,7 +16286,7 @@ async function updateStatus(id, status) {
   b.status = status;
   // Forward transition to In Progress: stamp today as the inProgressDate
   if (status === 'Intervention In Progress' && !b.inProgressDate) {
-    b.inProgressDate = new Date().toISOString().split('T')[0];
+    b.inProgressDate = _istDate();
   }
   // Backward revert: clear the stage-specific date that no longer applies.
   // Reverting Completed → In Progress: clear endlineDate + endIncome (they
@@ -16298,7 +16351,7 @@ async function restoreRevertedEndline(id) {
   b.endIncome = (b.incomeLog.length > 0 && typeof _incomeLogGrandTotal === 'function')
     ? _incomeLogGrandTotal(b)
     : (arc.endIncome != null ? arc.endIncome : null);
-  b.endlineDate = arc.endlineDate || b.endlineDate || new Date().toISOString().split('T')[0];
+  b.endlineDate = arc.endlineDate || b.endlineDate || _istDate();
   b.status = 'Completed';
   delete b._revertedEndline;
   if (!await _trySave(() => saveData(all), 'restore endline')) return;
@@ -19024,7 +19077,7 @@ async function _submitEnrollInner() {
     const b = {
       id, ...fields,
       status: livOn ? 'Enrolled' : null,
-      enrollDate: new Date().toISOString().split('T')[0],
+      enrollDate: _istDate(),
       inProgressDate: null, inputDate: null, endlineDate: null, endIncome: null, incomeLog: [],
       createdBy: me.userId || 'u-admin',
       createdByName: me.fullName || me.username || fields.coord || 'Admin',
@@ -20036,7 +20089,7 @@ async function submitEndline() {
   const wasEdit = b.endIncome != null;
   b.endIncome = total;
   b.status = 'Completed';
-  if (!wasEdit) b.endlineDate = new Date().toISOString().split('T')[0];
+  if (!wasEdit) b.endlineDate = _istDate();
   // V4.1: removed pmjayEnd, pmkisanEnd, schemeBenefitEnd — those baseline
   // fields are gone, no endline counterpart. Removed inc1End/inc2End/inc3End —
   // single-field income, no components.
@@ -20165,7 +20218,7 @@ function _renderLogIncomeBody(b) {
   const grandTotal = (b.baseIncome || 0) + additionalTotal;
   const pct = b.baseIncome ? Math.round(additionalTotal / b.baseIncome * 100) : 0;
   const isAdmin = (currentUser() || {}).role === 'admin';
-  const today = new Date().toISOString().split('T')[0];
+  const today = _istDate();
   // Source chips pool: this beneficiary's own livelihood interventions
   // (excludes the Advocacy tag — that's a different programme). Matches
   // the approved mockup: FCs can only tag a log entry to interventions this
@@ -20390,7 +20443,7 @@ async function _submitNewLogEntryInner() {
   const showErr = msg => { if (err) { err.textContent = msg; err.classList.add('show'); } };
   if (!dateRaw) { showErr('Please pick a date.'); return; }
   // V392 [3.4]: reject a future date on submit (input max= is only a UI hint).
-  if (dateRaw > new Date().toISOString().split('T')[0]) { showErr('Date cannot be in the future.'); return; }
+  if (dateRaw > _istDate()) { showErr('Date cannot be in the future.'); return; }
   if (amountRaw === '' || amountRaw == null) { showErr('Please enter an amount.'); return; }
   const amount = parseFloat(amountRaw);
   if (isNaN(amount) || amount < 0) { showErr('Amount must be a valid non-negative number.'); return; }
@@ -20462,8 +20515,8 @@ async function _submitNewLogEntryInner() {
 // attribute); still creates a real ₹0 entry so the endline is genuinely
 // marked Completed rather than left hanging.
 async function _submitZeroIncomeEntry() {
-  const dateRaw = document.getElementById('li-date')?.value || new Date().toISOString().split('T')[0];
-  if (dateRaw > new Date().toISOString().split('T')[0]) {
+  const dateRaw = document.getElementById('li-date')?.value || _istDate();
+  if (dateRaw > _istDate()) {
     const err = document.getElementById('li-err');
     if (err) { err.textContent = 'Date cannot be in the future.'; err.classList.add('show'); }
     return;
@@ -20542,7 +20595,7 @@ async function _submitEditLogEntry() {
   const showErr = msg => { if (err) { err.textContent = msg; err.classList.add('show'); } };
   if (!dateRaw) { showErr('Please pick a date.'); return; }
   // V392 [3.4]: reject a future date on submit (input max= is only a UI hint).
-  if (dateRaw > new Date().toISOString().split('T')[0]) { showErr('Date cannot be in the future.'); return; }
+  if (dateRaw > _istDate()) { showErr('Date cannot be in the future.'); return; }
   if (amountRaw === '' || amountRaw == null) { showErr('Please enter an amount.'); return; }
   const amount = parseFloat(amountRaw);
   if (isNaN(amount) || amount < 0) { showErr('Amount must be a valid non-negative number.'); return; }
@@ -22061,7 +22114,7 @@ function _rptStampOk(d) {
 }
 
 function _rptStampRowDates(outgoing, stored, todayIso) {
-  const today = todayIso || new Date().toISOString().slice(0, 10);
+  const today = todayIso || _istDate();
   // If today's date would itself be ignored by _rptStampOk (a clock stuck on /
   // before the poisoned day), write nothing rather than bytes the reader is
   // hardcoded to skip.
@@ -25745,7 +25798,7 @@ function _rptTrendChart(A, nowMs, days) {
     let n = 0, bn = null, label = '';
     for (let j = 0; j < bucketDays; j++) {
       if ((i - j) < 0) break;
-      const key = new Date(now - (i - j) * 86400000).toISOString().slice(0, 10);
+      const key = _istDate(now - (i - j) * 86400000);
       n += A.dayCounts.get(key) || 0;
       const b = A.benefitDayCounts.get(key);
       if (b != null) bn = (bn || 0) + b;
@@ -25853,7 +25906,7 @@ function _rptExportRows(cols, rows, slug) {
   if (!rows.length) { if (typeof toast === 'function') toast('Nothing to export for the current filters.', 'info', 3000); return; }
   const lines = [cols.map(_csvEsc).join(',')];
   rows.forEach(r => lines.push(r.map(_csvEsc).join(',')));
-  const stamp = new Date().toISOString().slice(0, 10);
+  const stamp = _istDate();
   // Record what the numbers were filtered to, so a file opened next month is
   // still interpretable rather than an anonymous pile of figures.
   const scope = [];
@@ -25891,7 +25944,7 @@ window.rptExportFc = function () {
     a.enrolledWin, a.appliedWin, a.benefitsWin, a.livelihoodWin,
     a.tot, a.applied, a.benefits, a.livelihood,
     a.tot ? Math.round(((a.phone / a.tot + a.gps / a.tot + a.photo / a.tot) / 3) * 100) : 0,
-    a.last ? new Date(a.last).toISOString().slice(0, 10) : ''
+    a.last ? _istDate(a.last) : ''
   ]);
   const W = ' (' + (rptRange ? rptRange + 'd' : 'all-time') + ')';
   // When Benefits fell back, its "window" column is really the all-time figure.
@@ -26081,8 +26134,11 @@ function _v13RptDrill(fcId, ngoName) {
   stateFilter = '';
   ngoFilter   = ngoName || '';
   fcFilter    = fcId || '';
-  currentView = 'list';
-  nav('list');
+  // V13.1: Integrated view, not Livelihood. Livelihood shows only the income
+  // side, so drilling into a coordinator hid whatever advocacy work they had
+  // done - half their record, presented as all of it.
+  currentView = 'integrated';
+  nav('integrated');
 }
 window._v13RptDrill = _v13RptDrill;
 
@@ -29453,7 +29509,7 @@ function exportAuditLogCsv() {
     e.changes ? JSON.stringify(e.changes) : '',
   ]);
   const csv = [headers, ...csvRows].map(r => r.map(_csvEsc).join(',')).join('\n');
-  const dateStr = new Date().toISOString().split('T')[0];
+  const dateStr = _istDate();
   _downloadCsv(`KRSF_AuditLog_${dateStr}.csv`, csv);
   toast(`Exported ${rows.length} audit entries`, 'success');
 }
@@ -30049,7 +30105,7 @@ function exportBeneficiariesCsv() {
   // Filename — NGO name + date. Admin exports across all NGOs use "All".
   const u = currentUser();
   const scopeLabel = (u && u.role === 'ngo' && u.ngo) ? _fileSlug(u.ngo) : 'All';
-  const dateStr = new Date().toISOString().split('T')[0];
+  const dateStr = _istDate();
   _downloadCsv(`KRSF_Beneficiaries_${scopeLabel}_${dateStr}.csv`, csv);
   toast(`Exported ${data.length} beneficiaries`, 'success');
 }
@@ -30093,7 +30149,7 @@ function exportAdvocacyCsv() {
   const csv = [headers, ...dataRows].map(r => r.map(_csvEsc).join(',')).join('\n');
   const u = currentUser();
   const scopeLabel = (u && u.role === 'ngo' && u.ngo) ? _fileSlug(u.ngo) : 'All';
-  const dateStr = new Date().toISOString().split('T')[0];
+  const dateStr = _istDate();
   _downloadCsv(`KRSF_Advocacy_${scopeLabel}_${dateStr}.csv`, csv);
   toast(`Exported ${dataRows.length} advocacy rows`, 'success');
 }
@@ -36776,7 +36832,7 @@ function downloadImportTemplateCsv() {
   ];
   const csvRows = examples.map(r => r.map(_csvEsc).join(','));
   const csv = [headers, ...csvRows].join('\n');
-  const dateStr = new Date().toISOString().split('T')[0];
+  const dateStr = _istDate();
   _downloadCsv(`KRSF_Import_Template_${dateStr}.csv`, csv);
   toast('CSV template downloaded. Fill and re-upload.', 'success');
 }
@@ -37033,7 +37089,7 @@ async function downloadImportTemplateXlsx() {
     const url = URL.createObjectURL(finalBlob);
     const a = document.createElement('a');
     a.href = url;
-    const dateStr = new Date().toISOString().split('T')[0];
+    const dateStr = _istDate();
     a.download = `KRSF_Import_Template_${dateStr}.xlsx`;
     document.body.appendChild(a);
     a.click();
@@ -37652,7 +37708,7 @@ async function confirmBulkImport() {
   const data = loadData();
   const advData = loadAdv();
   const me = currentUser() || {};
-  const today = new Date().toISOString().split('T')[0];
+  const today = _istDate();
   const nowIso = new Date().toISOString();
   // V3.1: One batch ID per import run, stamped onto every record created in
   // this batch. This is what undo uses to find them back later. The same ID
@@ -37928,7 +37984,7 @@ function downloadImportErrorsCsv() {
     return cells.map(_csvEsc).join(',');
   });
   const csv = [headers.join(','), ...rows].join('\n');
-  const dateStr = new Date().toISOString().split('T')[0];
+  const dateStr = _istDate();
   _downloadCsv(`KRSF_Import_Errors_${dateStr}.csv`, csv);
   toast('Error rows downloaded — fix and re-upload.', 'success');
 }
@@ -39097,7 +39153,7 @@ async function downloadEndlineTemplateXlsx() {
     XLSX.utils.book_append_sheet(wb, wsMain, 'Endline Update');
 
     // Instructions sheet — concise, focused on this feature only
-    const today = new Date().toISOString().split('T')[0];
+    const today = _istDate();
     const instructions = [
       ['KRSF Endline Bulk Update — Instructions'],
       [''],
@@ -39303,7 +39359,7 @@ async function confirmEndlineBulkUpdate() {
 
   const data = loadData();
   const me = currentUser() || {};
-  const today = new Date().toISOString().split('T')[0];
+  const today = _istDate();
   const nowIso = new Date().toISOString();
   // Post-audit fix: every bulk endline update carries a batch id. It gets
   // stamped on each modified record (along with a full pre-state snapshot)
