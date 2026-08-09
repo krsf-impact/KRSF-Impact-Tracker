@@ -2,6 +2,80 @@
 <!--
   KRSF Beneficiary Impact Tracker  -  V6.7.2-LIVE
   ============================================================================
+  V14-LIVE (2026-08-09 - the map showed 3.8% of the work, and 559 phones that
+  cannot open it were downloading the map library anyway):
+    + MEASURED FIRST, on production. Of 126,058 beneficiaries, 2,373 (1.9%)
+      carry GPS coordinates and 4,765 (3.8%) appear on the map at all. The
+      village lookup table holds 39 villages; the data contains 1,544. Even in
+      August - a month after V408 made GPS capture automatic - only 29% of new
+      records got a fix.
+
+  PHASE 1 - stop losing GPS on new records
+    + CAUSE. Every one of the five GPS call sites used maximumAge:0, which
+      REFUSES a position the browser already holds and demands a fresh
+      satellite fix. Indoors, under cloud, or on a cheap handset that can take
+      the full 15 s or never arrive - and nothing made the form wait. Advocacy-
+      only forms are the shortest (the livelihood fields are hidden), so they
+      are submitted fastest and lose that race most often.
+    + FIX: one helper, _v14GetPosition(). It accepts a fix up to 60 s old
+      (nobody has left the household in 60 s) and, if the precise attempt
+      fails, falls back to the coarse network fix rather than recording
+      nothing. It never rejects, and it cannot return a position without its
+      accuracy. All five call sites now go through it.
+    + AND the form keeps asking. _v14StartGpsWatch() retries in the background
+      while the FC fills the form - up to 6 attempts over ~2 minutes - and
+      stops on success, on close, or on a permission denial. openEnroll starts
+      it; closeEnroll stops it. Editing an existing record still never
+      auto-fetches, so office edits cannot overwrite field coordinates.
+    + THE TRADE, approved by the user 2026-08-09: a coarse fix can be 100 m to
+      1 km out. That is right for a village map and wrong for anything finer.
+      So accuracy in metres is always stored beside the coordinates, and
+      anything over 100 m is labelled "Approximate location" on screen instead
+      of being shown with a confident tick. Nothing is hidden from the FC.
+
+  PHASE 1 also fixed three real bugs found while reading that code:
+    + handlePhotoUpload set capturedLat/capturedLng but NEVER touched
+      capturedGpsAccuracy - so a new position silently inherited the previous
+      fix's accuracy. A precise-looking number attached to a different place.
+      It also stored full float precision where every other site rounds to 6dp.
+    + fetchGPS, fetchEndlineGPS and fetchElphGPS all nulled lat/lng in their
+      error handler UNCONDITIONALLY. openEnroll fired fetchGPS at t=0 with a
+      15 s timeout; if the FC uploaded a photo at t=5 s and that captured a
+      position, the original call timing out at t=15 s WIPED IT. A good fix
+      destroyed by a stale failure that knew nothing about it. Failure now
+      only reports, and only when there is no fix to report over.
+    + those same handlers left gpsAccuracy stale after clearing lat/lng, so a
+      record could be saved with no coordinates but an accuracy figure.
+
+  PHASE 2 - the map library loads only when the map is opened
+    + Leaflet sat in <head> as two blocking tags, so every cold start on all
+      559 coordinator handsets downloaded it. Coordinators cannot reach the
+      map at all - nav() bounces every view except beneficiaries and alerts -
+      so this was pure load-time cost against constraint 2.
+    + FIX: _v14EnsureLeaflet() injects the CSS and JS on first open of the map
+      view and resolves when window.L is usable. A failed download is NOT
+      cached, so re-opening retries instead of staying broken for the session;
+      the map area shows a plain message and a Try again button.
+    + _v14MapToken guards the two races this introduces - navigating away mid-
+      download, and re-entering the map before the first attempt finishes.
+      Only the newest attempt may touch the DOM.
+    + Every L.* use is inside renderMap/refreshMapMarkers/makeSvgMarker, all
+      reached only from the map view. The two outside references are
+      mapInstance.closePopup() calls already guarded by if (mapInstance).
+
+  CONSTRAINTS
+    + DATA: nothing existing is touched. No migration, no backfill, no write to
+      any historical record. Phase 1 affects only records created from now on.
+    + LOAD: strictly faster. 559 coordinators stop downloading Leaflet; nobody
+      else loads it until they open the map.
+    + FIREBASE: no new field - lat, lng and gpsAccuracy already exist in the
+      record schema. More new records will now carry coordinates, which is the
+      point of the change; that is about 55 bytes on a record that is already
+      several hundred, on new records only. No new reads, no new listeners.
+
+  NOT DONE, deliberately: village geocoding (Phase 3) and the map redesign
+  with Bhuvan tiles (Phase 4). Agreed with the user to ship 1 and 2 first.
+
   V13.1-LIVE (2026-08-05 - every date was stamped in UTC, so 5.5 hours of every
   day were filed under YESTERDAY):
     + REPORTED: coordinators enrolled at 4:00 AM IST; Reports showed 0 for today.
@@ -5711,8 +5785,11 @@
 <meta name="apple-mobile-web-app-title" content="KRSF">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<!-- V14: Leaflet used to load here as two blocking tags in <head>, so all
+     559 coordinator phones downloaded the mapping library on every cold
+     start. Coordinators cannot open the map at all - nav() bounces them
+     to beneficiaries - so it was pure load-time cost. It is now fetched
+     on first open of the map view; see _v14EnsureLeaflet(). -->
 <!-- V3: Bulk import libraries. PapaParse handles CSV (BOM, delimiters, quoted
      fields, encodings). SheetJS converts .xlsx → JSON so we can run the same
      validation pipeline. Both are CDN-loaded — no build step needed. -->
@@ -9243,7 +9320,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V13.1-LIVE';
+const APP_VERSION = 'V14-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -14439,19 +14516,10 @@ function _v405CanDeletePhoto() {
 // ANY failure (denied, timeout, no geolocation API) resolves to null; never
 // rejects, so callers never need a catch just for this.
 function _v405CaptureGpsBestEffort() {
-  return new Promise(function(resolve) {
-    if (!navigator.geolocation) { resolve(null); return; }
-    navigator.geolocation.getCurrentPosition(
-      function(pos) {
-        resolve({
-          lat: parseFloat(pos.coords.latitude.toFixed(6)),
-          lng: parseFloat(pos.coords.longitude.toFixed(6)),
-          acc: Math.round(pos.coords.accuracy)
-        });
-      },
-      function() { resolve(null); },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-    );
+  // V14: same two-stage strategy as every other GPS call site, so a photo
+  // cannot end up with a location captured under different rules.
+  return _v14GetPosition().then(function (res) {
+    return res.ok ? { lat: res.lat, lng: res.lng, acc: res.acc } : null;
   });
 }
 // Outer wrapper (stable across refreshes) + inner grid (re-rendered in place
@@ -14777,29 +14845,168 @@ function _cameraErrorMessage(err) {
   }
 }
 
-function fetchGPS() {
-  const gpsDiv = document.getElementById('gps-status');
-  if (!navigator.geolocation) {
-    gpsDiv.innerHTML = '<span class="gps-badge gps-badge-miss">⚠  GPS not available on this device</span>';
+// ── V14: one way to ask this device where it is ──────────────────────
+// Every GPS call site used { enableHighAccuracy: true, timeout: 15000,
+// maximumAge: 0 }. maximumAge:0 REFUSES a position the browser already holds
+// and demands a fresh satellite fix, which indoors, under cloud, or on a
+// cheap handset can take the full 15 s or never arrive. Measured on
+// production 2026-08-09: of 126,058 beneficiaries only 2,373 (1.9%) carry
+// coordinates, and even in August - a month after V408 made capture
+// automatic - only 29% of new records got one. The form is submitted before
+// the fix lands, and advocacy-only forms are the shortest, so they lose that
+// race most often.
+//
+// Two changes. Accept a position up to 60 s old - nobody has left the
+// household in 60 s. And when the precise attempt fails, fall back to the
+// coarse network fix instead of recording nothing at all.
+//
+// The fallback is a deliberate trade, approved 2026-08-09: a coarse fix can
+// be 100 m to 1 km out. That is right for a village map and wrong for
+// anything finer. So the accuracy in metres is ALWAYS stored beside the
+// coordinates - _v14GetPosition cannot return a position without one - and
+// anything over 100 m is labelled approximate on screen instead of being
+// shown with a confident tick.
+const _V14_FINE   = { enableHighAccuracy: true,  timeout: 12000, maximumAge:  60000 };
+const _V14_COARSE = { enableHighAccuracy: false, timeout:  8000, maximumAge: 300000 };
+const _V14_COARSE_OVER_M = 100;
+
+// Resolves { ok:true, lat, lng, acc } or { ok:false, code }, where code is
+// 1 = permission denied, 3 = timeout, 0 = no geolocation API. NEVER rejects,
+// so no call site needs a catch just for GPS.
+function _v14GetPosition() {
+  return new Promise(function (resolve) {
+    if (!navigator.geolocation) { resolve({ ok: false, code: 0 }); return; }
+    const ok = function (pos) {
+      resolve({
+        ok:  true,
+        lat: parseFloat(pos.coords.latitude.toFixed(6)),
+        lng: parseFloat(pos.coords.longitude.toFixed(6)),
+        acc: Math.round(pos.coords.accuracy || 0)
+      });
+    };
+    navigator.geolocation.getCurrentPosition(ok, function (e1) {
+      // Permission denied is not about precision - asking again in coarse
+      // mode puts the same question and gets the same no. Anything else is
+      // worth one cheaper attempt.
+      if (e1 && e1.code === 1) { resolve({ ok: false, code: 1 }); return; }
+      navigator.geolocation.getCurrentPosition(
+        ok,
+        function (e2) { resolve({ ok: false, code: (e2 && e2.code) || 0 }); },
+        _V14_COARSE
+      );
+    }, _V14_FINE);
+  });
+}
+
+// One renderer for every GPS badge in the app, so an approximate fix can
+// never appear as a confident tick on one screen and a warning on another.
+function _v14GpsBadge(el, res) {
+  if (!el) return;
+  if (res && res.ok) {
+    if (res.acc == null) {
+      // A position with no accuracy figure. Old records predate V14's
+      // guarantee that the two always travel together; say what we know
+      // and claim nothing about precision.
+      el.innerHTML = '<span class="gps-badge">✓ Location: ' + res.lat + ', ' + res.lng + '</span>';
+    } else if (res.acc > _V14_COARSE_OVER_M) {
+      el.innerHTML = '<span class="gps-badge" style="background:var(--amber2);color:var(--amber)">📍 Approximate location: '
+        + res.lat + ', ' + res.lng + ' (±' + res.acc + 'm)</span>';
+    } else {
+      el.innerHTML = '<span class="gps-badge">✓ GPS: ' + res.lat + ', ' + res.lng + ' (±' + res.acc + 'm)</span>';
+    }
     return;
   }
-  gpsDiv.innerHTML = '<span class="gps-badge" style="background:var(--navy3);color:var(--navy)">📡 Getting GPS location...</span>';
-  navigator.geolocation.getCurrentPosition(
-    pos => {
-      capturedLat = parseFloat(pos.coords.latitude.toFixed(6));
-      capturedLng = parseFloat(pos.coords.longitude.toFixed(6));
-      capturedGpsAccuracy = Math.round(pos.coords.accuracy);
-      gpsDiv.innerHTML = '<span class="gps-badge">✓ GPS: ' + capturedLat + ', ' + capturedLng + ' (±' + capturedGpsAccuracy + 'm)</span>';
-    },
-    err => {
-      capturedLat = null; capturedLng = null;
-      let msg = 'GPS unavailable';
-      if (err.code === 1) msg = 'GPS permission denied — allow location access';
-      else if (err.code === 3) msg = 'GPS timeout — try in open area';
-      gpsDiv.innerHTML = '<span class="gps-badge gps-badge-miss">⚠  ' + msg + '</span>';
-    },
-    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-  );
+  const code = res ? res.code : 0;
+  const msg = code === 1 ? 'GPS permission denied — allow location access'
+            : code === 3 ? 'Still looking for GPS — leave the form open'
+            : 'GPS unavailable';
+  el.innerHTML = '<span class="gps-badge gps-badge-miss">⚠  ' + msg + '</span>';
+}
+
+// ── V14: keep asking while the enrolment form is open ──────────────────
+// One attempt at form-open was never going to be enough on a handset that
+// has just woken up. This retries in the background while the FC fills the
+// form - which takes 30 s to 2 minutes - and stops the moment it succeeds,
+// the form closes, or permission is refused. It writes into the same
+// capturedLat / capturedLng / capturedGpsAccuracy the save path already
+// reads, so nothing downstream changes.
+//
+// It NEVER clears an existing fix: a later failure must not delete an
+// earlier success. That was a real bug before V14 - see fetchGPS().
+let _v14GpsTimer = null;
+let _v14GpsTries = 0;
+const _V14_GPS_MAX_TRIES = 6;
+const _V14_GPS_GAP_MS    = 15000;
+
+function _v14EnrollFormOpen() {
+  const ov = document.getElementById('enroll-overlay');
+  return !!(ov && ov.classList.contains('open'));
+}
+
+function _v14StopGpsWatch() {
+  if (_v14GpsTimer) { clearTimeout(_v14GpsTimer); _v14GpsTimer = null; }
+}
+
+function _v14StartGpsWatch() {
+  _v14StopGpsWatch();
+  _v14GpsTries = 0;
+  // Overwrite unconditionally: resetPhotoSection() does not clear this node,
+  // so a badge left over from the previous enrolment would otherwise sit
+  // there looking like this record's location.
+  const first = document.getElementById('gps-status');
+  if (first && capturedLat == null) first.innerHTML = '<span class="gps-badge" style="background:var(--navy3);color:var(--navy)">📡 Getting GPS location...</span>';
+  const tick = function () {
+    _v14GpsTimer = null;
+    if (!_v14EnrollFormOpen()) return;
+    if (capturedLat != null && capturedLng != null) return;
+    _v14GpsTries++;
+    _v14GetPosition().then(function (res) {
+      if (!_v14EnrollFormOpen()) return;
+      if (res.ok) {
+        capturedLat = res.lat; capturedLng = res.lng; capturedGpsAccuracy = res.acc;
+        _v14GpsBadge(document.getElementById('gps-status'), res);
+        _v14StopGpsWatch();
+        return;
+      }
+      if (capturedLat == null) _v14GpsBadge(document.getElementById('gps-status'), res);
+      if (res.code === 1 || _v14GpsTries >= _V14_GPS_MAX_TRIES) return;
+      _v14GpsTimer = setTimeout(tick, _V14_GPS_GAP_MS);
+    });
+  };
+  tick();
+}
+
+// V14: a single attempt that delegates to _v14GetPosition and, critically,
+// never clears a fix it did not obtain.
+//
+// The old error handler ran `capturedLat = null; capturedLng = null;`
+// unconditionally. openEnroll fired fetchGPS at t=0 with a 15 s timeout; if
+// the FC uploaded a photo at t=5 s and THAT captured a position, the original
+// call timing out at t=15 s wiped it. A good fix was thrown away by a stale
+// failure that knew nothing about it. Failure now only reports.
+function fetchGPS() {
+  const gpsDiv = document.getElementById('gps-status');
+  if (!navigator.geolocation) { _v14GpsBadge(gpsDiv, { ok: false, code: 0 }); return; }
+  // Only show the spinner when there is nothing to show instead. Painting
+  // it over a fix we already hold, then returning early on failure, left
+  // the FC looking at a spinner that never resolved - the coordinates
+  // were safe but the screen said otherwise. Found in live testing.
+  const had = (capturedLat != null && capturedLng != null);
+  if (!had) gpsDiv.innerHTML = '<span class="gps-badge" style="background:var(--navy3);color:var(--navy)">📡 Getting GPS location...</span>';
+  _v14GetPosition().then(function (res) {
+    const el = document.getElementById('gps-status');
+    if (res.ok) {
+      capturedLat = res.lat; capturedLng = res.lng; capturedGpsAccuracy = res.acc;
+      _v14GpsBadge(el, res);
+      return;
+    }
+    if (capturedLat != null) {
+      // Keep showing the fix we have rather than a failure over it.
+      _v14GpsBadge(el, { ok: true, lat: capturedLat, lng: capturedLng, acc: capturedGpsAccuracy });
+      return;
+    }
+    _v14GpsBadge(el, res);
+  });
 }
 
 function handlePhotoUpload(input) {
@@ -14825,14 +15032,16 @@ function handlePhotoUpload(input) {
     // Update status bar
     const bar = document.getElementById('photo-status-bar');
     if (bar) { bar.style.background='var(--green2)'; bar.style.color='var(--green)'; bar.textContent='✅ Photo uploaded successfully'; }
-    // Try GPS
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(pos => {
-        capturedLat = pos.coords.latitude; capturedLng = pos.coords.longitude;
-        const g = document.getElementById('gps-status');
-        if (g) g.innerHTML = `<span class="gps-badge">📍 GPS: ${capturedLat.toFixed(5)}, ${capturedLng.toFixed(5)}</span>`;
-      }, () => {});
-    }
+    // V14: this set lat/lng but never touched capturedGpsAccuracy, so a new
+    // position inherited the PREVIOUS fix's accuracy - a precise-looking
+    // number attached to a different place. It also stored full float
+    // precision where every other site rounds to 6 dp. Both go through the
+    // shared helper now, which cannot return a position without its accuracy.
+    _v14GetPosition().then(function (res) {
+      if (!res.ok) return;   // never clear a fix we already have
+      capturedLat = res.lat; capturedLng = res.lng; capturedGpsAccuracy = res.acc;
+      _v14GpsBadge(document.getElementById('gps-status'), res);
+    });
   };
   reader.readAsDataURL(file);
 }
@@ -16796,7 +17005,9 @@ function openEnroll() {
   // (best-effort — denied/timeout just leaves lat/lng empty, same as before).
   // New enrollments only; openEdit does NOT auto-fetch, so editing a record
   // from the office can never overwrite field-captured coordinates.
-  try { fetchGPS(); } catch(_) {}
+  // V14: was one shot at form-open. Now it keeps trying in the background
+  // while the form is filled, and stops on success / close / denial.
+  try { _v14StartGpsWatch(); } catch(_) {}
   // Reset all chip groups (gender, sources, programme, livelihood types)
   document.querySelectorAll('.ichip').forEach(c => { c.classList.remove('on'); const bx = c.querySelector('.ichip-box'); if (bx) bx.textContent=''; });
   // Reset the livelihood "Other" text box.
@@ -17864,6 +18075,7 @@ function openEdit(id) {
   closeDrawer();
 }
 function closeEnroll() {
+  _v14StopGpsWatch();   // V14: no background GPS polling once the form is gone
   document.getElementById('enroll-overlay').classList.remove('open');
   _v410ResetEnrollPhoto();  // V410: discard any optional enroll photo not yet submitted
   editingId = null;
@@ -19481,26 +19693,30 @@ function openEndlineCamera() {
 }
 
 function fetchEndlineGPS() {
+  // V14: shared two-stage helper; failure no longer wipes a fix we already
+  // have (the old handler nulled lat/lng unconditionally).
   const gpsDiv = document.getElementById('el-gps-status');
-  if (!navigator.geolocation) {
-    gpsDiv.innerHTML = '<span class="gps-badge gps-badge-miss">⚠  GPS not available on this device</span>';
-    return;
-  }
-  gpsDiv.innerHTML = '<span class="gps-badge" style="background:var(--navy3);color:var(--navy)">📡 Getting GPS location...</span>';
-  navigator.geolocation.getCurrentPosition(
-    pos => {
-      endlineCapturedLat = parseFloat(pos.coords.latitude.toFixed(6));
-      endlineCapturedLng = parseFloat(pos.coords.longitude.toFixed(6));
-      endlineCapturedAcc = Math.round(pos.coords.accuracy);
-      gpsDiv.innerHTML = '<span class="gps-badge">✓ GPS: ' + endlineCapturedLat + ', ' + endlineCapturedLng + ' (±' + endlineCapturedAcc + 'm)</span>';
-    },
-    err => {
-      endlineCapturedLat = null; endlineCapturedLng = null;
-      let msg = err.code===1 ? 'GPS permission denied' : err.code===3 ? 'GPS timeout — try outdoors' : 'GPS unavailable';
-      gpsDiv.innerHTML = '<span class="gps-badge gps-badge-miss">⚠  ' + msg + '</span>';
-    },
-    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-  );
+  if (!navigator.geolocation) { _v14GpsBadge(gpsDiv, { ok: false, code: 0 }); return; }
+  // Only show the spinner when there is nothing to show instead. Painting
+  // it over a fix we already hold, then returning early on failure, left
+  // the FC looking at a spinner that never resolved - the coordinates
+  // were safe but the screen said otherwise. Found in live testing.
+  const had = (endlineCapturedLat != null && endlineCapturedLng != null);
+  if (!had) gpsDiv.innerHTML = '<span class="gps-badge" style="background:var(--navy3);color:var(--navy)">📡 Getting GPS location...</span>';
+  _v14GetPosition().then(function (res) {
+    const el = document.getElementById('el-gps-status');
+    if (res.ok) {
+      endlineCapturedLat = res.lat; endlineCapturedLng = res.lng; endlineCapturedAcc = res.acc;
+      _v14GpsBadge(el, res);
+      return;
+    }
+    if (endlineCapturedLat != null) {
+      // Keep showing the fix we have rather than a failure over it.
+      _v14GpsBadge(el, { ok: true, lat: endlineCapturedLat, lng: endlineCapturedLng, acc: endlineCapturedAcc });
+      return;
+    }
+    _v14GpsBadge(el, res);
+  });
 }
 
 async function captureEndlinePhoto() {
@@ -19678,26 +19894,30 @@ function openElphCamera() {
 }
 
 function fetchElphGPS() {
+  // V14: shared two-stage helper; failure no longer wipes a fix we already
+  // have (the old handler nulled lat/lng unconditionally).
   const gpsDiv = document.getElementById('elph-gps-status');
-  if (!navigator.geolocation) {
-    gpsDiv.innerHTML = '<span class="gps-badge gps-badge-miss">⚠ GPS not available on this device</span>';
-    return;
-  }
-  gpsDiv.innerHTML = '<span class="gps-badge" style="background:var(--navy3);color:var(--navy)">📡 Getting GPS location...</span>';
-  navigator.geolocation.getCurrentPosition(
-    pos => {
-      elphCapturedLat = parseFloat(pos.coords.latitude.toFixed(6));
-      elphCapturedLng = parseFloat(pos.coords.longitude.toFixed(6));
-      elphCapturedAcc = Math.round(pos.coords.accuracy);
-      gpsDiv.innerHTML = '<span class="gps-badge">✓ GPS: ' + elphCapturedLat + ', ' + elphCapturedLng + ' (±' + elphCapturedAcc + 'm)</span>';
-    },
-    err => {
-      elphCapturedLat = null; elphCapturedLng = null;
-      const msg = err.code === 1 ? 'GPS permission denied' : err.code === 3 ? 'GPS timeout — try outdoors' : 'GPS unavailable';
-      gpsDiv.innerHTML = '<span class="gps-badge gps-badge-miss">⚠ ' + msg + '</span>';
-    },
-    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-  );
+  if (!navigator.geolocation) { _v14GpsBadge(gpsDiv, { ok: false, code: 0 }); return; }
+  // Only show the spinner when there is nothing to show instead. Painting
+  // it over a fix we already hold, then returning early on failure, left
+  // the FC looking at a spinner that never resolved - the coordinates
+  // were safe but the screen said otherwise. Found in live testing.
+  const had = (elphCapturedLat != null && elphCapturedLng != null);
+  if (!had) gpsDiv.innerHTML = '<span class="gps-badge" style="background:var(--navy3);color:var(--navy)">📡 Getting GPS location...</span>';
+  _v14GetPosition().then(function (res) {
+    const el = document.getElementById('elph-gps-status');
+    if (res.ok) {
+      elphCapturedLat = res.lat; elphCapturedLng = res.lng; elphCapturedAcc = res.acc;
+      _v14GpsBadge(el, res);
+      return;
+    }
+    if (elphCapturedLat != null) {
+      // Keep showing the fix we have rather than a failure over it.
+      _v14GpsBadge(el, { ok: true, lat: elphCapturedLat, lng: elphCapturedLng, acc: elphCapturedAcc });
+      return;
+    }
+    _v14GpsBadge(el, res);
+  });
 }
 
 async function captureElphPhoto() {
@@ -21551,6 +21771,35 @@ function closeMapPopupOpenDrawer(id) {
   }, 50);
 }
 
+// ── V14: Leaflet is fetched only when the map is actually opened ────────
+// Resolves once window.L is usable. A failed download is NOT cached, so
+// re-opening the map retries rather than staying broken for the session.
+let _v14LeafletPromise = null;
+let _v14MapToken = 0;
+function _v14EnsureLeaflet() {
+  if (window.L && window.L.map) return Promise.resolve();
+  if (_v14LeafletPromise) return _v14LeafletPromise;
+  _v14LeafletPromise = new Promise(function (resolve, reject) {
+    const css = document.createElement('link');
+    css.rel  = 'stylesheet';
+    css.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
+    document.head.appendChild(css);
+    const js = document.createElement('script');
+    js.src   = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
+    js.async = true;
+    js.onload = function () {
+      if (window.L && window.L.map) resolve();
+      else { _v14LeafletPromise = null; reject(new Error('Leaflet loaded but L.map is missing')); }
+    };
+    js.onerror = function () {
+      _v14LeafletPromise = null;
+      reject(new Error('Could not download the map library'));
+    };
+    document.head.appendChild(js);
+  });
+  return _v14LeafletPromise;
+}
+
 function renderMap() {
   document.getElementById('content').innerHTML = `
     <div class="map-wrap">
@@ -21577,26 +21826,52 @@ function renderMap() {
       <div class="map-container"><div id="field-map"></div></div>
     </div>`;
 
-  // Init map centred on India
-  setTimeout(() => {
-    try {
-      if (mapInstance) { mapInstance.remove(); mapInstance = null; }
-      // Leaflet leaves a _leaflet_id on the container after .remove() which
-      // can cause "Map container is already initialized" if the DOM element
-      // was re-rendered before the cleanup completed. Reset it explicitly.
-      const mapEl = document.getElementById('field-map');
-      if (mapEl && mapEl._leaflet_id) { mapEl._leaflet_id = null; }
-      if (!mapEl) return; // nav switched away before setTimeout fired
-      mapInstance = L.map('field-map', {zoomControl:true}).setView([22.5, 82.0], 5);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',
-        maxZoom: 18
-      }).addTo(mapInstance);
-      refreshMapMarkers();
-    } catch (err) {
-      console.warn('Map init failed (likely nav raced):', err);
-    }
-  }, 50);
+  // V14: the library is fetched on demand now, so init waits for it instead
+  // of assuming window.L already exists. The 50 ms delay is kept - it let the
+  // container reach its final size before Leaflet measured it.
+  //
+  // _v14MapToken guards the two races this introduces: navigating away while
+  // the download is in flight, and re-entering the map (which re-renders the
+  // container) before the first attempt finishes. Only the newest attempt
+  // may touch the DOM.
+  const myToken = ++_v14MapToken;
+  const host = document.getElementById('field-map');
+  if (host) host.innerHTML = '<div style="padding:28px;text-align:center;color:var(--gray2);font-size:13px">Loading map…</div>';
+  _v14EnsureLeaflet()
+    .then(function () { return new Promise(function (r) { setTimeout(r, 50); }); })
+    .then(function () {
+      if (myToken !== _v14MapToken || currentView !== 'map') return;
+      try {
+        if (mapInstance) { mapInstance.remove(); mapInstance = null; }
+        // Leaflet leaves a _leaflet_id on the container after .remove() which
+        // can cause "Map container is already initialized" if the DOM element
+        // was re-rendered before the cleanup completed. Reset it explicitly.
+        const mapEl = document.getElementById('field-map');
+        if (!mapEl) return; // nav switched away while the library loaded
+        if (mapEl._leaflet_id) { mapEl._leaflet_id = null; }
+        mapEl.innerHTML = '';   // clear the loading placeholder
+        mapInstance = L.map('field-map', {zoomControl:true}).setView([22.5, 82.0], 5);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',
+          maxZoom: 18
+        }).addTo(mapInstance);
+        refreshMapMarkers();
+      } catch (err) {
+        console.warn('Map init failed (likely nav raced):', err);
+      }
+    })
+    .catch(function (err) {
+      console.warn('Leaflet load failed:', err);
+      if (myToken !== _v14MapToken || currentView !== 'map') return;
+      const el = document.getElementById('field-map');
+      if (!el) return;
+      el.innerHTML =
+        '<div style="padding:34px 20px;text-align:center;color:var(--gray2);font-size:13px;line-height:1.7">'
+        + '<div style="font-size:15px;font-weight:600;color:var(--navy);margin-bottom:6px">Could not load the map</div>'
+        + 'The map library could not be downloaded. Check your internet connection, then try again.<br>'
+        + '<button class="btn btn-sm btn-primary" style="margin-top:12px" onclick="nav(\'map\')">Try again</button>'
+        + '</div>';
+    });
 }
 
 function refreshMapMarkers() {
