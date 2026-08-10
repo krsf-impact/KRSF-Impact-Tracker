@@ -2,6 +2,131 @@
 <!--
   KRSF Beneficiary Impact Tracker  -  V6.7.2-LIVE
   ============================================================================
+  V16.5-LIVE (2026-08-10 - the village lookup rebuilt around the TALUKA):
+    + ⚠ TWO FILES SHIP: index.html AND villages.js. The lookup format has
+      changed; an old villages.js beside the new index.html places nobody.
+
+    + THE MAP DREW REAL PEOPLE HUNDREDS OF KM FROM WHERE THEY LIVE. Two
+      faults, both from using DISTRICT as the constraint, both reported from
+      the field as Chikhli and Zanzva:
+        * the fallback was keyed on the village NAME ALONE and its 39 entries
+          were TALUKA centres, so Chikhli of Sabarkantha was drawn at Chikhli
+          taluka in NAVSARI - 230 beneficiaries, 354 km out. 375 records
+          depended on that district-blind table. It is now DELETED, not fixed:
+          a lookup that ignores where a place is cannot be a safety net.
+        * the harvest's plausibility filter allowed 45 km from a district
+          anchor, loose enough to admit a wrong village. zanzv|sabarkanth sat
+          at 23.030, 72.577 - Ahmedabad, 112 km out.
+
+    + THE RULE IS NOW: FOLLOW THE VILLAGES INSIDE THAT TALUKA; IF THE VILLAGE
+      IS NOT IN THE TALUKA, USE THE TALUKA. A district is ~80 km across, a
+      taluka ~20, and the records carry a taluka for 125,443 of 126,096
+      people. So the candidate villages are taken from INSIDE the taluka
+      first, and only then is the recorded name matched against them.
+      That ordering matters more than it sounds: searching the whole state
+      for an exact name and then checking the distance - which is what the
+      first attempt did - found only a Chikhli 323 km away and gave up, while
+      Chikhla, the same village one letter different, sat 3.3 km from
+      Khedbrahma and was never considered.
+
+    + COVERAGE 74.6% -> 98.0%. Village-level 73.8% (each one verified to sit
+      inside its own taluka), taluka-level 24.2%, unplaced 2.0% - and the
+      unplaced are now only records with no taluka at all. Nobody is silently
+      dropped for being unfindable any more; they are shown at their taluka
+      and labelled as such.
+
+    + A THIRD TIER OF CERTAINTY, DRAWN SO IT CANNOT BE MISTAKEN FOR THE
+      SECOND. A solid dot is one real GPS fix; a dashed circle is a village
+      centre; a dotted amber SQUARE is a whole taluka, ~20 km across. The
+      count line reports the two tiers separately rather than merging them
+      into one "approximate" figure that would hide how coarse a quarter of
+      the map is. The taluka popup names the TALUKA, never a village inside
+      it, and says how many villages it stands for.
+
+    + Taluka names vary exactly as village names do - Khedbrahma / Khedbhrma /
+      Khedbhrahma is one taluka typed three ways - so the folding is resolved
+      once in the generator and shipped as an alias map. "Khedbhrma" scores
+      0.82 against "Khedbrahma", just under the grouping cutoff, and stranded
+      221 people in a taluka with no centre until orphan spellings got a
+      second pass.
+
+    + THE COORDINATORS' OWN GPS IS NOW THE TOP AUTHORITY, where it is solid.
+      A fix was taken by a person standing in the village; it owes nothing to
+      Bhuvan or to my name matching. Believed when >=3 fixes agree within
+      5 km AND the result agrees with the record's own taluka.
+      That last condition is not paperwork: Zanzva has ELEVEN fixes with a
+      spread of 0.00 km sitting 123 km from a Khedbrahma centre that is
+      independently correct - eleven forms filled at one desk, not a village.
+      Real GPS has noise; a perfect repeat does not. Where GPS and taluka
+      disagree, the better-founded side wins: a taluka centre backed by 3+
+      located villages holds and the GPS is written off as a capture error;
+      a centre backed by nothing but a same-named town is CORRECTED by the
+      GPS. That is Dhamdi - 84 fixes over 0.05 km against a "Vad" centre
+      taken from a village of that name 278 km away.
+
+    + A RECORD'S OWN GPS IS NOW SANITY-CHECKED BEFORE IT IS BELIEVED.
+      b.lat/b.lng bypasses the lookup entirely and is drawn as a solid dot -
+      the symbol that means "measured", the most confident thing on the map.
+      But a fix is only as good as where the phone was when the form was
+      filled. 23 fixes sit more than 50 km from the taluka their own record
+      names. Chithoda's single fix is 140 km out and Guru confirms Chithoda
+      IS in Vijaynagar - so the fix is wrong, not the record.
+      Measured over 2,358 field fixes: 98.8% are within 30 km of their own
+      taluka, so a 50 km cut rejects only the indefensible ones. A rejected
+      fix does NOT hide the beneficiary - they fall through to the village or
+      taluka placement, a weaker claim honestly drawn - and the count line
+      says how many were ignored rather than hiding it. Nothing is written
+      back to the record; the data is untouched, only the symbol changes.
+      "GPS-located only" uses the same test, so the strictest filter on the
+      map is no longer the one showing the least trustworthy pins.
+
+    + AUDITED, NOT SPOT-CHECKED. Chikhli and Zanzva were two examples of a
+      class, so every village with trustworthy field GPS was compared against
+      the lookup: 150 rows, and ALL now sit within 2 km of where the FCs
+      actually stood. Before this pass the same comparison found Dhamdi
+      278 km out, Zanzava 123 km, Khodamali 53 km and Tejpura 39 km. The
+      check is permanent - villagekey.js §3 - so it cannot regress silently.
+      The disagreements that remain all rest on a SINGLE fix, where nothing
+      can tell which side is wrong; the largest is Chithoda, 1,120 people.
+
+    + villages.js 24,597 -> 42,905 bytes (6.4 KB -> 8.3 KB gzipped), still
+      fetched ONLY when the map is opened, so the 559 coordinators who cannot
+      reach the map still download nothing. No Firebase read or write added.
+      No coordinate is ever written back onto a record.
+
+  V16.4-LIVE (2026-08-10 - the map stuck on "Loading map..."):
+    + ONLY index.html CHANGES. villages.js is untouched - do not re-upload it.
+
+    + THE MAP STUCK ON "Loading map..." AFTER VISITING ANOTHER TAB, and only a
+      page reload brought it back. Reported from the field on V16.3.
+      Leaving the map replaces #content's innerHTML, which destroys the div
+      Leaflet is attached to WITHOUT telling Leaflet, and nothing clears
+      mapInstance on the way out. Coming back, renderMap called
+      mapInstance.remove() on a container no longer in the document, which can
+      throw - and it sat inside the SAME try block as the whole init, so the
+      throw skipped the line that clears the host. The "Loading map..."
+      placeholder was therefore never replaced, and mapInstance stayed set, so
+      every later attempt failed in exactly the same place.
+      Teardown now has its own try/catch and mapInstance is cleared whatever
+      happens, so a failed teardown can no longer abort the init after it.
+
+    + KNOWN, NOT YET FIXED - village placement (next release). Two separate
+      faults, both measured on the real data, both mine:
+        * The fallback VILLAGE_COORDS[b.village] is keyed on the village NAME
+          ALONE with no district, and its 39 entries are TALUKA centres. So
+          Chikhli in Sabarkantha is drawn at Chikhli taluka in NAVSARI -
+          230 beneficiaries, 354 km from where they are. 375 records rely on
+          this district-blind fallback.
+        * Some harvested coordinates are simply wrong for their district and
+          the 45 km plausibility filter was too loose to catch them:
+          zanzv|sabarkanth sits at 23.030, 72.577 - Ahmedabad, 112 km out
+          (116 people); ramnagar|sabarkanth 101 km (259 people).
+          31 villages / 3,868 people sit beyond 50 km of their district.
+      The fix is the one Guru proposed: key on TALUKA, not just district,
+      constrain every coordinate to its taluka, and place a village we cannot
+      find at its TALUKA HEADQUARTERS instead of dropping it. A taluka is
+      ~20 km across, so it is a far tighter test than a district.
+
   V16.3-LIVE (2026-08-10 - the 13 phantom NGOs on the Dashboard filter):
     + ONLY index.html CHANGES. villages.js is untouched - do not re-upload it.
 
@@ -9668,7 +9793,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V16.3-LIVE';
+const APP_VERSION = 'V16.5-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -22080,22 +22205,15 @@ function renderAlerts() {
 }
 
 
-// ── Village coordinates ───────────────────────────────────────────────────
-const VILLAGE_COORDS = {
-  "Modasa":[23.4627,73.3002],"Meghraj":[23.5167,73.1333],"Bayad":[23.2500,73.2333],
-  "Bhiloda":[23.7833,73.0167],"Dhansura":[23.3500,73.1167],"Vijapur":[23.5667,72.7500],
-  "Kheralu":[23.8833,72.6167],"Idar":[23.8333,73.0000],"Vadali":[23.6667,73.0833],
-  "Dediapada":[21.9167,73.5333],"Sagbara":[21.6333,73.6667],"Nandod":[21.8667,73.5000],
-  "Rajpipla":[21.8667,73.4833],"Lunawada":[23.1333,73.6167],"Santrampur":[23.1667,73.6833],
-  "Kadana":[23.2667,73.7167],"Chikhli":[20.7500,73.0667],"Waghai":[20.7667,73.6333],
-  "Ahwa":[20.7500,73.6833],"Yavatmal":[20.3888,78.1204],"Amravati":[20.9333,77.7500],
-  "Chandrapur":[19.9500,79.2833],"Chimur":[20.4667,79.4167],"Rajura":[19.7833,79.3333],
-  "Gadchiroli":[20.1833,80.0000],"Etapalli":[19.5667,80.3167],"Sironcha":[18.8500,79.9833],
-  "Akola":[20.7059,77.0044],"Buldhana":[20.5287,76.1847],"Melghat":[21.5000,77.0833],
-  "Tezpur":[26.6338,92.7928],"Nagaon":[26.3500,92.6833],"Dhemaji":[27.4667,94.5667],
-  "Sivasagar":[26.9833,94.6333],"Golaghat":[26.5167,93.9667],"Jorhat":[26.7500,94.2167],
-  "Majuli":[27.0000,94.2000],"Lakhimpur":[27.2333,94.1000],"Dibrugarh":[27.4833,94.9167]
-};
+// ── Village coordinates ─────────────────────────────────────────────────
+// V16.5: VILLAGE_COORDS is DELETED. It held 39 entries, they were TALUKA
+// centres, and it was keyed on the village NAME with no district or taluka -
+// so it answered "Chikhli" with Chikhli taluka in NAVSARI and drew 230
+// Sabarkantha beneficiaries 354 km from where they live. Leaving a dead table
+// called VILLAGE_COORDS in the file is an invitation to wire it back in.
+// Coordinates now come only from villages.js, where every village has been
+// verified to sit inside its own taluka. See _v16VillageCoords.
+
 
 const INTERV_COLORS_MAP = {
   'Organic Farming':'#1D9E75','Animal Husbandry':'#185FA5','Vermi-composting':'#639922',
@@ -22273,16 +22391,43 @@ function _v15VillageIcon(n) {
   });
 }
 
-function _v15VillagePopup(village, members, variants) {
+// V16.5: the third tier of certainty, and it must not be mistakable for the
+// second. A GPS dot is a measurement; a dashed circle is a village centre; this
+// is a whole TALUKA - roughly 20 km across - so it is drawn bigger, in a
+// warmer colour, with a square-ish shape no round bubble can be confused with.
+// Reading the map, size never means "more certain", so the count still sizes it,
+// but the FORM says how much ground it covers.
+function _v165TalukaIcon(n) {
+  const size = Math.min(54, 26 + Math.sqrt(n) * 3.2);
+  return L.divIcon({
+    html: '<div style="width:' + size + 'px;height:' + size + 'px;border-radius:22%;'
+        + 'border:2px dotted #92400E;background:rgba(255,250,235,.86);color:#6B3105;'
+        + 'display:flex;align-items:center;justify-content:center;'
+        + 'font:700 ' + (n > 999 ? 10 : 11) + 'px/1 DM Sans,system-ui,sans-serif;'
+        + 'box-shadow:0 1px 3px rgba(0,0,0,.2)">' + n + '</div>',
+    className: '',
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    popupAnchor: [0, -size / 2]
+  });
+}
+
+function _v15VillagePopup(village, members, variants, tier) {
   const liv = members.filter(_v15HasLiv).length;
   const adv = members.filter(_v15HasAdv).length;
   const ngos = [];
   members.forEach(function (b) { if (b.ngo && ngos.indexOf(b.ngo) === -1) ngos.push(b.ngo); });
+  // V16.5: a taluka bubble is a different claim from a village bubble, so it
+  // says so in words as well as in shape. It is labelled with the TALUKA, not
+  // with whichever village name happens to be commonest inside it - naming it
+  // after one village would imply everyone is in that village.
+  const isTal = tier === 'taluka';
+  const label = isTal ? ((members[0] && members[0].taluka) || village) : village;
   return '<div class="map-popup">'
-    + '<div class="map-popup-head" style="background:#EEF1F5">'
-    +   '<div class="map-avatar" style="background:#5B6675">' + members.length + '</div>'
-    +   '<div><div class="map-popup-name">' + escHtml(village) + '</div>'
-    +   '<div class="map-popup-id">village centre</div></div>'
+    + '<div class="map-popup-head" style="background:' + (isTal ? '#FFFAEB' : '#EEF1F5') + '">'
+    +   '<div class="map-avatar" style="background:' + (isTal ? '#92400E' : '#5B6675') + '">' + members.length + '</div>'
+    +   '<div><div class="map-popup-name">' + escHtml(label) + (isTal ? ' taluka' : '') + '</div>'
+    +   '<div class="map-popup-id">' + (isTal ? 'taluka centre' : 'village centre') + '</div></div>'
     + '</div>'
     + '<div class="map-popup-body">'
     +   (liv ? '<div class="map-popup-row"><span class="map-popup-label">Livelihood</span><span class="map-popup-val">' + liv + '</span></div>' : '')
@@ -22290,12 +22435,21 @@ function _v15VillagePopup(village, members, variants) {
     +   '<div class="map-popup-row"><span class="map-popup-label">Partner</span><span class="map-popup-val">' + escHtml(ngos.join(', ')) + '</span></div>'
     // V16.2: this village's records were typed under more than one spelling.
     // They are one bubble now; before, each spelling drew its own bubble on
-    // this exact pixel and hid the others.
-    +   (variants > 1 ? '<div class="map-popup-row"><span class="map-popup-label">Spelt</span><span class="map-popup-val">'
-                      + variants + ' different ways in the records</span></div>' : '')
-    +   '<div class="map-popup-delta pend" style="line-height:1.45">◎ <b>Approximate.</b> None of these '
-    +      members.length + ' has a GPS fix, so this sits on the centre of '
-    +      escHtml(village) + ' - not on any household.</div>'
+    // this exact pixel and hid the others. On a taluka bubble the same number
+    // means something different - distinct villages, not spellings - so it is
+    // reported in the taluka note below instead of here.
+    +   (!isTal && variants > 1
+          ? '<div class="map-popup-row"><span class="map-popup-label">Spelt</span><span class="map-popup-val">'
+            + variants + ' different ways in the records</span></div>' : '')
+    +   (isTal
+        ? '<div class="map-popup-delta pend" style="line-height:1.45">▣ <b>Taluka level.</b> '
+          + 'These ' + members.length + ' are recorded in ' + (variants || 1)
+          + ' village' + ((variants || 1) === 1 ? '' : 's') + ' we could not locate inside '
+          + escHtml(label) + ', so this sits on the taluka centre. They are somewhere in this '
+          + 'taluka - roughly 20 km across - not at this point.</div>'
+        : '<div class="map-popup-delta pend" style="line-height:1.45">◎ <b>Approximate.</b> None of these '
+          + members.length + ' has a GPS fix, so this sits on the centre of '
+          + escHtml(village) + ' - not on any household.</div>')
     + '</div></div>';
 }
 
@@ -22375,6 +22529,20 @@ function _v16LookupKey(village, district) {
   return kv + '|' + kd;
 }
 
+// V16.5: the taluka a record belongs to, folded, with spelling variants
+// resolved through the generated alias map. Taluka names vary exactly as
+// village names do - Khedbrahma / Khedbhrma / Khedbhrahma are one taluka typed
+// three ways - and the app cannot afford fuzzy matching on every record, so
+// the folding is resolved once in the generator and shipped as a lookup.
+function _v165TalukaKey(taluka, district) {
+  const kt = _v16VillageKey(taluka);
+  const kd = _v16VillageKey(String(district || '').split(',')[0]);
+  if (!kt || !kd) return '';
+  const raw = kt + '|' + kd;
+  const al = window.KRSF_TAL_ALIAS;
+  return (al && al[raw]) || raw;
+}
+
 // Fetched on first open of the map, like Leaflet. NEVER rejects: if the file
 // is missing the map still works, falling back to the original 39 entries.
 let _v16VillagesPromise = null;
@@ -22397,12 +22565,63 @@ function _v16EnsureVillages() {
 }
 
 // The lookup itself. Village+district first, then the legacy 39 by raw name.
+// V16.5: taluka first, then the village inside it. Returns
+//   { pt: [lat,lng], tier: 'village' | 'taluka' }   or null.
+//
+// The old fallback - VILLAGE_COORDS[b.village] - is GONE, and it had to go.
+// It was keyed on the village NAME ALONE with no district or taluka, and its
+// 39 entries are TALUKA centres, so Chikhli in Sabarkantha was drawn at
+// Chikhli taluka in NAVSARI: 230 beneficiaries, 354 km from where they are.
+// A lookup that ignores where a place is cannot be a safety net.
+//
+// Now every village coordinate in the file has already been verified to sit
+// inside its own taluka, and a village we cannot find in its taluka is NOT
+// guessed at - it falls back to the taluka centre and is drawn as such.
+// V16.5: great-circle km. Small and exact enough for a sanity check.
+function _v165Km(a, b) {
+  const R = 6371, r = function (x) { return x * Math.PI / 180; };
+  const s = Math.pow(Math.sin(r(b[0] - a[0]) / 2), 2)
+          + Math.cos(r(a[0])) * Math.cos(r(b[0])) * Math.pow(Math.sin(r(b[1] - a[1]) / 2), 2);
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+
+// V16.5: is a record's OWN GPS fix believable?
+//
+// A record's lat/lng bypasses the whole lookup and is drawn as a solid dot -
+// the symbol that means "measured", the most confident thing on the map. But a
+// fix is only as good as where the phone was when the form was filled, and
+// some were plainly not in the village: 23 fixes sit more than 50 km from the
+// taluka their own record names. Chithoda's single fix is 140 km out, and the
+// user confirms Chithoda is in Vijaynagar - so the fix is wrong, not the
+// record. Measured across 2,358 field fixes: 98.8% are within 30 km of their
+// own taluka, so 50 km rejects only the indefensible ones.
+//
+// Rejecting a fix does NOT hide the beneficiary: they fall through to the
+// village or taluka placement, which is a weaker claim honestly drawn. And
+// nothing is written back to the record - the data is untouched, only the
+// symbol changes.
+function _v165GpsPlausible(b) {
+  if (!(b.lat && b.lng)) return false;
+  const T = window.KRSF_TALUKAS;
+  const tk = _v165TalukaKey(b.taluka, b.district);
+  if (!tk || !T || !T[tk]) return true;   // nothing to check it against — keep it
+  return _v165Km([b.lat, b.lng], T[tk]) <= 50;
+}
+
 function _v16VillageCoords(b) {
-  if (window.KRSF_VILLAGES) {
-    const k = _v16LookupKey(b.village, b.district);
-    if (k && window.KRSF_VILLAGES[k]) return window.KRSF_VILLAGES[k];
+  const tk = _v165TalukaKey(b.taluka, b.district);
+  if (!tk) return null;
+  const V = window.KRSF_VILLAGES, T = window.KRSF_TALUKAS;
+  const kv = _v16VillageKey(b.village);
+  if (kv && V) {
+    const p = V[kv + '|' + tk];
+    if (p) return { pt: p, tier: 'village' };
   }
-  return VILLAGE_COORDS[b.village] || null;
+  if (T) {
+    const p = T[tk];
+    if (p) return { pt: p, tier: 'taluka' };
+  }
+  return null;
 }
 
 function renderMap() {
@@ -22454,6 +22673,7 @@ function renderMap() {
         <span style="width:1px;height:15px;background:var(--gray3)"></span>
         <span><span class="legend-dot" style="background:var(--gray)"></span><b>Precise</b> — one real GPS fix</span>
         <span><span style="display:inline-block;width:13px;height:13px;border-radius:50%;border:2px dashed var(--gray);vertical-align:-2px;margin-right:5px"></span><b>Approximate</b> — a count, on the village centre</span>
+        <span><span style="display:inline-block;width:13px;height:13px;border-radius:22%;border:2px dotted var(--amber);vertical-align:-2px;margin-right:5px"></span><b>Taluka</b> — village not found, shown on the taluka centre</span>
       </div>
       <div class="map-container"><div id="field-map"></div></div>
     </div>`;
@@ -22472,7 +22692,19 @@ function renderMap() {
     .then(function () {
       if (myToken !== _v14MapToken || currentView !== 'map') return;
       try {
-        if (mapInstance) { mapInstance.remove(); mapInstance = null; }
+        // V16.4: tearing down the old map gets its own try/catch, and
+        // mapInstance is cleared whatever happens. Leaving the map replaces
+        // #content's innerHTML, which destroys the div Leaflet is attached to
+        // WITHOUT telling Leaflet. Coming back, remove() then runs against a
+        // container that is no longer in the document and can throw - and
+        // because it threw inside the one big try below, init never reached
+        // the line that clears the host, so the panel sat on "Loading map…"
+        // for good. That is the stuck map reported from the field: it needed
+        // a page reload to recover.
+        try { if (mapInstance) mapInstance.remove(); } catch (e) {
+          console.warn('[V16.4] old map teardown threw (ignored):', e && e.message);
+        }
+        mapInstance = null;
         const mapEl = document.getElementById('field-map');
         if (!mapEl) return;
         if (mapEl._leaflet_id) { mapEl._leaflet_id = null; }
@@ -22573,7 +22805,10 @@ function refreshMapMarkers() {
   if (mapFilterStatus) list = list.filter(function (b) { return b.status === mapFilterStatus; });
   if (mapFilterNgo)    list = list.filter(function (b) { return b.ngo === mapFilterNgo; });
   if (intervF)         list = list.filter(function (b) { return (b.interventions || []).indexOf(intervF) !== -1; });
-  if (_v15GpsOnly)     list = list.filter(function (b) { return b.lat && b.lng; });
+  // V16.5: "GPS-located only" must mean a fix we are willing to stand behind,
+  // otherwise the strictest filter on the map would be the one showing the
+  // least trustworthy pins.
+  if (_v15GpsOnly)     list = list.filter(_v165GpsPlausible);
   if (_v16PhotoOnly)   list = list.filter(_v16HasPhoto);
 
   // A real fix gets its own dot. Everyone else is rolled up by village.
@@ -22595,22 +22830,35 @@ function refreshMapMarkers() {
   // "constructor" cannot hit Object.prototype - with a plain {} that record
   // threw and took the whole map render down with it.
   const villages = Object.create(null);
-  let precise = 0, unmapped = 0;
+  let precise = 0, unmapped = 0, gpsRejected = 0;
   list.forEach(function (b) {
+    // V16.5: a fix has to be believable before it is drawn as a measurement.
+    // One that sits 140 km from the taluka its own record names was not taken
+    // at that household, and drawing it as a solid dot claims more certainty
+    // than the village bubble next to it. Rejected fixes are not dropped -
+    // they fall through to the village or taluka placement below.
     if (b.lat && b.lng) {
-      precise++;
-      L.circleMarker([b.lat, b.lng], {
-        radius: 5, weight: 1.5, color: '#fff', opacity: 1,
-        fillColor: getMarkerColor(b), fillOpacity: 1
-      }).bindPopup(buildPopup(b), { maxWidth: 240, minWidth: 220 }).addTo(_v15Layer);
-      return;
+      if (_v165GpsPlausible(b)) {
+        precise++;
+        L.circleMarker([b.lat, b.lng], {
+          radius: 5, weight: 1.5, color: '#fff', opacity: 1,
+          fillColor: getMarkerColor(b), fillOpacity: 1
+        }).bindPopup(buildPopup(b), { maxWidth: 240, minWidth: 220 }).addTo(_v15Layer);
+        return;
+      }
+      gpsRejected++;
     }
     // V16: village+district against the generated lookup, falling back to
     // the original 39 taluka entries.
-    const coords = _v16VillageCoords(b);
-    if (!coords) { unmapped++; return; }
-    const gk = coords[0].toFixed(5) + ',' + coords[1].toFixed(5);
-    if (!villages[gk]) villages[gk] = { coords: coords, members: [], names: Object.create(null) };
+    const loc = _v16VillageCoords(b);
+    if (!loc) { unmapped++; return; }
+    const coords = loc.pt;
+    // V16.5: the tier is part of the group key. A village bubble and a
+    // taluka bubble can land on the same point (the taluka town IS a village),
+    // and merging them would claim village-level precision for records that
+    // only have taluka-level.
+    const gk = loc.tier + '@' + coords[0].toFixed(5) + ',' + coords[1].toFixed(5);
+    if (!villages[gk]) villages[gk] = { coords: coords, tier: loc.tier, members: [], names: Object.create(null) };
     villages[gk].members.push(b);
     villages[gk].names[b.village] = (villages[gk].names[b.village] || 0) + 1;
   });
@@ -22624,8 +22872,9 @@ function refreshMapMarkers() {
     Object.keys(g.names).forEach(function (n) {
       if (g.names[n] > best) { best = g.names[n]; name = n; }
     });
-    L.marker(g.coords, { icon: _v15VillageIcon(g.members.length) })
-     .bindPopup(_v15VillagePopup(name, g.members, Object.keys(g.names).length),
+    const isTal = g.tier === 'taluka';
+    L.marker(g.coords, { icon: isTal ? _v165TalukaIcon(g.members.length) : _v15VillageIcon(g.members.length) })
+     .bindPopup(_v15VillagePopup(name, g.members, Object.keys(g.names).length, g.tier),
                 { maxWidth: 240, minWidth: 220 })
      .addTo(_v15Layer);
   });
@@ -22641,9 +22890,23 @@ function refreshMapMarkers() {
       cnt.style.color = 'var(--amber)';
       return;
     }
-    let txt = precise + ' precise · ' + approx + ' approximate in ' + nv + ' village' + (nv === 1 ? '' : 's');
+    // V16.5: village-level and taluka-level are counted separately. Rolling
+    // them into one "approximate" figure would hide that a quarter of the map
+    // is only accurate to a taluka.
+    let nVil = 0, nTal = 0, atVil = 0, atTal = 0;
+    Object.keys(villages).forEach(function (k) {
+      const g = villages[k];
+      if (g.tier === 'taluka') { nTal++; atTal += g.members.length; }
+      else                     { nVil++; atVil += g.members.length; }
+    });
+    let txt = precise + ' precise · ' + atVil + ' in ' + nVil + ' village' + (nVil === 1 ? '' : 's');
+    if (atTal > 0) txt += ' · ' + atTal + ' at taluka level in ' + nTal + ' taluka' + (nTal === 1 ? '' : 's');
     if (_v16PhotoOnly) txt = 'with a photo: ' + txt;
-    if (unmapped > 0) txt += ' · ' + unmapped + ' not shown (village not in the lookup)';
+    if (unmapped > 0) txt += ' · ' + unmapped + ' not shown (no taluka on the record)';
+    // V16.5: say it out loud. A silently discarded GPS fix is a data-quality
+    // problem worth someone's attention, not something to hide.
+    if (gpsRejected > 0) txt += ' · ' + gpsRejected + ' GPS fix' + (gpsRejected === 1 ? '' : 'es')
+                              + ' ignored, over 50 km from their own taluka';
     cnt.textContent = txt;
     cnt.style.color = unmapped > 0 ? 'var(--amber)' : 'var(--gray2)';
   }
