@@ -8,6 +8,49 @@
   cost every user ~155 KB of gzipped download on every load for text no
   browser reads. The two most recent releases are kept below.
   ============================================================================
+  V17-LIVE (2026-08-11 - the stuck map, properly this time; and bubbles that lead somewhere):
+    + ONLY index.html CHANGES. sw.js, login-bg.jpg and villages.js are all
+      unchanged from V16.9 - do not re-upload them.
+
+    + THE MAP STUCK ON "Loading map..." - THE REAL CAUSE, AND IT IS NOT WHAT
+      V16.4 FIXED. I said this was fixed in V16.4. It was not, and the symptom
+      came straight back: open the map, go to Dashboard, come back, "Loading
+      map..." forever.
+      The actual cause is the V357 tab cache. It snapshots #content's innerHTML
+      after a renderer runs and, on return, restores the snapshot and RETURNS
+      WITHOUT CALLING THE RENDERER. That is sound for a view whose HTML is its
+      content. renderMap is not one: it writes "Loading map..." into the
+      container and Leaflet builds the map about 50 ms later, asynchronously.
+      So the cache captured the loading message and replayed it every time.
+      It could never have worked even with better timing - restoring innerHTML
+      builds a BRAND NEW #field-map element while the live Leaflet instance is
+      still bound to the old detached one. A canvas a renderer draws into
+      cannot be rebuilt from a string.
+      Fix: a _v357NeverCache set, checked BEFORE the cache lookup, containing
+      'map'. The V16.4 teardown guard stays - it protects a real, separate
+      path - but it was not this.
+
+    + WHY ONLY ONE PERSON EVER SAW IT. _v357CacheEnabled() returns true only
+      for role 'admin'. All 559 coordinators were never served from this cache,
+      so the map worked for every one of them and broke for the single person
+      who opens it most.
+
+    + A BUBBLE WAS A DEAD END. It told you six people were here and gave no way
+      to reach any of them: the precise GPS pins had "View Full Profile" and the
+      bubbles - which hold 97% of everyone on the map - had nothing at all.
+      The popup now lists who is inside, each name clicking through to that
+      person's profile. Listed in place rather than sending you to another
+      screen to re-filter, because the bubble already knows exactly who it
+      stands for. Capped at 12 with an honest "showing 12 of 400", since a
+      bubble can hold thousands and a popup cannot. Taluka bubbles get the same
+      treatment - they carry 20% of everyone on the map.
+
+    + mapv15.js grows to 79 checks (was 67). All 12 new ones were confirmed
+      FAILING against V16.9 before being accepted.
+
+    + No Firebase read or write changed. No data touched. Nothing new is
+      fetched: the names in the popup come from records already in memory.
+
   V16.9-LIVE (2026-08-10 - the app was re-downloading itself on EVERY open):
     + FOUR FILES: sw.js (CHANGED - upload it), login-bg.jpg (new in V16.7),
       index.html LAST. villages.js is unchanged since V16.5 - do not touch it.
@@ -3859,7 +3902,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V16.9-LIVE';
+const APP_VERSION = 'V17-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -16516,7 +16559,44 @@ function _v15VillagePopup(village, members, variants, tier) {
         : '<div class="map-popup-delta pend" style="line-height:1.45">◎ <b>Approximate.</b> None of these '
           + members.length + ' has a GPS fix, so this sits on the centre of '
           + escHtml(village) + ' - not on any household.</div>')
+    // V17: the bubble was a dead end. It told you SIX people are here and gave
+    // you no way to reach any of them - the precise GPS pins had "View Full
+    // Profile" and the bubbles, which hold 97% of everyone on the map, had
+    // nothing. The names are listed right here rather than sending you to
+    // another screen to re-filter: the popup already knows exactly who it is
+    // standing for. Capped at 12 with an honest count of the rest, because a
+    // bubble can hold thousands and a popup cannot.
+    +   _v17MemberList(members)
     + '</div></div>';
+}
+
+// The people inside a bubble, each one clickable through to their profile.
+// Sorted by name so the same bubble always reads the same way.
+function _v17MemberList(members) {
+  const MAX = 12;
+  const sorted = members.slice().sort(function (a, b) {
+    return String(a && a.name || '').localeCompare(String(b && b.name || ''));
+  });
+  const shown = sorted.slice(0, MAX);
+  let html = '<div style="margin-top:9px;border-top:1px solid var(--gray3);padding-top:7px">'
+           + '<div style="font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;'
+           + 'color:var(--gray2);margin-bottom:4px">Who is here</div>'
+           + '<div style="max-height:132px;overflow-y:auto;margin:0 -2px">';
+  shown.forEach(function (b) {
+    const nm = String(b && b.name || '').trim() || '(no name)';
+    html += '<button type="button" onclick="closeMapPopupOpenDrawer(\'' + escHtml(String(b && b.id || '')) + '\')" '
+          + 'style="display:block;width:100%;text-align:left;background:none;border:0;padding:4px 2px;'
+          + 'font:500 12px/1.3 DM Sans,system-ui,sans-serif;color:var(--navy2);cursor:pointer;'
+          + 'border-bottom:1px solid #F1F3F7">'
+          + escHtml(nm) + '</button>';
+  });
+  html += '</div>';
+  if (sorted.length > MAX) {
+    html += '<div style="font-size:11px;color:var(--gray2);margin-top:5px">'
+          + 'Showing ' + MAX + ' of ' + sorted.length + '. Use the NGO or status filters above '
+          + 'to narrow this bubble down.</div>';
+  }
+  return html + '</div>';
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -21974,8 +22054,29 @@ function _v361LoadingSkeleton(viewName) {
     + '<style>@keyframes _v361Spin { to { transform: rotate(360deg); } }</style>';
 }
 
+// V17: views whose content is NOT the HTML the renderer returns.
+//
+// The tab cache works by snapshotting #content's innerHTML after the renderer
+// runs and replaying it later instead of re-rendering. That is only valid when
+// the renderer produces its output synchronously. renderMap does not: it writes
+// "Loading map…" into the container and Leaflet builds the actual map ~50ms
+// later, asynchronously. So the snapshot captured the loading message, and
+// every later visit restored it and returned WITHOUT calling renderMap — the
+// map sat on "Loading map…" until a full page reload.
+//
+// It could not have worked even with better timing: restoring innerHTML builds
+// a brand-new #field-map element, while the live Leaflet instance is still
+// bound to the old detached one. A canvas the renderer draws into can never be
+// rebuilt from a string.
+//
+// Admin-only, because _v357CacheEnabled() is admin-only — which is why this was
+// invisible to all 559 coordinators and only ever hit the one person who could
+// open the map most often.
+const _v357NeverCache = new Set(['map']);
+
 function _v357WrapRoute(view, originalFn) {
   const wrapped = function() {
+    if (_v357NeverCache.has(view)) { return originalFn.apply(this, arguments); }
     if (!_v357CacheEnabled()) { return originalFn.apply(this, arguments); }
     const sig = _v357ComputeSig(view);
     const el = _v357GetMainEl();
