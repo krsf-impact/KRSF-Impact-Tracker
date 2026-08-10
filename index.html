@@ -2,6 +2,78 @@
 <!--
   KRSF Beneficiary Impact Tracker  -  V6.7.2-LIVE
   ============================================================================
+  V15-LIVE (2026-08-09 - the map redesign, Phase 4):
+    + BHUVAN (ISRO) REPLACES OPENSTREETMAP as the base layer. Tested side by
+      side over Sabarkantha at zoom 13: OSM labelled ONE place across a 3x3
+      tile area (Bhiloda). Bhuvan labelled every village AND drew village
+      boundaries. 27 of 30 village names read off a single Bhuvan screen are
+      villages in this database, covering 11,731 beneficiaries - including
+      Malasa (1,185), which OSM's geocoder could not find at all.
+      Bhuvan also draws India's national boundary as India defines it.
+      A tileerror falls back to OSM automatically: Bhuvan is a government
+      server and its uptime is not ours to control.
+    + THE INVENTED RING IS GONE. The old map fanned same-village records onto
+      a 0.022 degree (~2.4 km) circle so pins would not stack. Those were
+      positions the app made up, shown to donors as household locations.
+      Now: a real GPS fix gets its own dot; everyone else is rolled into ONE
+      bubble per village carrying a count. "6 people, this village" is true.
+    + SHAPE CARRIES CERTAINTY, COLOUR CARRIES STATUS. A solid status-coloured
+      dot is a measurement; a dashed neutral bubble is an estimate. The
+      existing status legend keeps its meaning instead of being overloaded.
+    + OPENS EMPTY. Nothing is drawn until Livelihood or Advocacy is picked.
+      Previously it drew everything it could the moment the page opened.
+    + OPENS ON GUJARAT (23.0, 72.4 at z7), not all-India. 125,515 of 126,070
+      beneficiaries are in Gujarat; the old view spent most of the screen on
+      ocean and states with no work in them.
+    + The village popup states plainly that the location is approximate and
+      that none of those beneficiaries has a GPS fix.
+    + Precise pins are canvas circleMarkers (preferCanvas), not DOM pins - at
+      up to 2,373 of them that is the difference between smooth and sluggish.
+
+  CONSTRAINTS: reads only data already in memory - no new Firebase read or
+  write, no new field. Load is unchanged: the map and its library are still
+  fetched only when the map view is opened (V14), and coordinators cannot
+  reach the map at all. No historical record is touched.
+
+  NOT DONE: Phase 3, the village lookup, still holds only 39 places against
+  1,631 village+district combinations in the data. Bhuvan rendering those
+  village names is a strong lead that it holds the underlying data - that is
+  the next thing to chase.
+
+  V14.1-LIVE (2026-08-09 - the Documents / Schemes grouping vanished whenever
+  you opened an existing beneficiary):
+    + REPORTED from the field with a screenshot: the enrolment form showed one
+      flat wall of schemes - Ayushman Bharat, Birth Certificate, Caste
+      Certificate, Aadhar Card all in a single list - with no group headers.
+    + CAUSE. openEdit rebuilds the scheme panel from the beneficiary's stored
+      advocacy state, and starts with `advList.innerHTML = ''`. That destroys
+      the two group containers. advEnrollAppendSchemeRow was written to
+      SILENTLY fall back to appending into the bare list when no group body is
+      found, so every row landed flat and nothing looked obviously broken in
+      the code. Present in V12.9, V13, V13.1 and V14 - broken since the
+      grouping shipped in V327-DEV, NOT a V14 regression.
+    + FIX: the groups are self-healing. advEnrollEnsureGroups() recreates the
+      shells whenever they are missing AND re-homes any rows already appended
+      flat (re-parenting, so listeners and the edit-mode dataset survive).
+      appendSchemeRow calls it before choosing a parent, so no code path can
+      produce an ungrouped list. openEdit also calls it right after its wipe.
+    + Group counts now come from the rows actually present rather than from
+      getSchemes(). In edit mode the panel also carries custom schemes that are
+      not in the catalog, and a header that disagrees with what sits under it
+      reads as a bug of its own.
+    + NOTE for whoever looks next: a scheme only lands in Documents if its type
+      is explicitly set to 'Document' in admin config; everything else defaults
+      to Scheme. If Documents shows (0) with items like Birth Certificate and
+      Aadhar Card sitting under Schemes, the types were never configured - that
+      is data, not this bug.
+
+  CONSTRAINTS: no data touched, no Firebase read or write added, no change to
+  load time - this is DOM structure inside a modal that was already rendering.
+
+  GPS: left exactly as V14 shipped it, at the user's decision 2026-08-09. It is
+  captured quietly in the background while the form is filled; the FC is never
+  asked to do anything and nothing blocks the save.
+
   V14-LIVE (2026-08-09 - the map showed 3.8% of the work, and 559 phones that
   cannot open it were downloading the map library anyway):
     + MEASURED FIRST, on production. Of 126,058 beneficiaries, 2,373 (1.9%)
@@ -5855,6 +5927,12 @@ html,body{height:100%;font-family:var(--font);background:#EEF2F7;color:var(--tex
 .map-popup-delta.neg{background:var(--red2);color:var(--red)}
 .map-popup-delta.pend{background:var(--amber2);color:var(--amber)}
 .map-popup-btn{display:block;margin-top:8px;padding:5px 10px;background:var(--navy);color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;width:100%;text-align:center;font-family:'DM Sans',system-ui,sans-serif}
+.v15-seg{display:inline-flex;border:1px solid var(--gray3);border-radius:8px;overflow:hidden}
+.v15-seg button{font:inherit;font-size:12.5px;font-weight:600;padding:6px 13px;border:0;background:#fff;color:var(--gray);cursor:pointer;border-right:1px solid var(--gray3);font-family:'DM Sans',system-ui,sans-serif}
+.v15-seg button:last-child{border-right:0}
+.v15-seg button.on{background:var(--navy);color:#fff}
+.v15-chk{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--gray);border:1px solid var(--gray3);border-radius:8px;padding:6px 11px;cursor:pointer;user-select:none;background:#fff}
+.v15-chk input{margin:0}
 .map-legend{display:flex;gap:12px;flex-wrap:wrap;background:#fff;border:1px solid var(--gray3);border-radius:8px;padding:8px 12px;font-size:12px;align-items:center}
 .legend-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;display:inline-block;margin-right:4px}
 
@@ -9320,7 +9398,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V14-LIVE';
+const APP_VERSION = 'V15-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -17983,6 +18061,7 @@ function openEdit(id) {
     const advList = document.getElementById('adv-enroll-scheme-list');
     if (advList) {
       advList.innerHTML = '';
+      advEnrollEnsureGroups();   // V14.1: the wipe above destroyed the group shells
       const latest = _advLatestRowsForBeneficiary(b.id);
       // #1: Group by scheme name, keeping the LIST of stored rows (not just
       // the last). Multiple rows with the same scheme name but different
@@ -18237,38 +18316,77 @@ function advSyncProgrammeVisibility() {
 // Schemes — based on each scheme's `type` in schemes_meta. Items without a
 // type default to 'Scheme' so existing setups behave unchanged. Both groups
 // are collapsed by default.
+// ── V14.1: the Documents / Schemes groups are now self-healing ─────────
+// openEdit rebuilds this panel with `advList.innerHTML = ''`, which destroyed
+// the two group containers. advEnrollAppendSchemeRow then quietly fell back to
+// appending into the bare list, so every edit of an existing beneficiary showed
+// ONE FLAT LIST with no headers - reported from the field 2026-08-09. Broken
+// since the grouping shipped in V327; not a V14 regression.
+//
+// Rather than chase every caller that might wipe the panel, the shells are
+// rebuilt on demand and any rows already appended flat are re-homed into the
+// right group. No code path can produce an ungrouped list now.
+function _advEnrollGroupShellHtml() {
+  const card = function (type, icon, label, extra) {
+    return '<div class="adv-enroll-group" data-group="' + type + '"' + (extra || '') + '>'
+         +   '<div class="adv-enroll-group-head" onclick="advEnrollToggleGroup(this)" style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#FAFAFA;cursor:pointer;border-bottom:1px solid var(--gray3);user-select:none">'
+         +     '<div style="display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;color:var(--ink)">'
+         +       '<span class="adv-enroll-caret" style="display:inline-block;width:10px;font-size:10px;color:var(--gray2);transition:transform .15s">▶</span>'
+         +       '<span>' + icon + ' ' + label + '</span>'
+         +       '<span class="adv-enroll-group-count" style="color:var(--gray2);font-weight:400;font-size:12px">(0)</span>'
+         +     '</div>'
+         +   '</div>'
+         +   '<div class="adv-enroll-group-body" data-group-body="' + type + '" style="display:none"></div>'
+         + '</div>';
+  };
+  return card('Document', '📄', 'Documents', '')
+       + card('Scheme',   '🏛', 'Schemes',   ' style="border-top:1px solid var(--gray3)"');
+}
+
+// Idempotent. Safe to call before every append.
+function advEnrollEnsureGroups() {
+  const list = document.getElementById('adv-enroll-scheme-list');
+  if (!list) return null;
+  if (list.querySelector('[data-group-body="Document"]') &&
+      list.querySelector('[data-group-body="Scheme"]')) return list;
+  // Rows may already have been appended flat by a caller that wiped the
+  // shells. Keep them - re-parenting preserves their listeners and dataset,
+  // which rebuilding from scratch would lose along with any edit-mode state.
+  const orphans = Array.prototype.slice.call(list.querySelectorAll('.adv-enroll-row'));
+  list.innerHTML = _advEnrollGroupShellHtml();
+  orphans.forEach(function (r) {
+    const t = (r.dataset.custom === '1') ? 'Scheme' : (getSchemeType(r.dataset.scheme) || 'Scheme');
+    const body = list.querySelector('[data-group-body="' + t + '"]') || list;
+    body.appendChild(r);
+  });
+  advEnrollUpdateGroupCounts();
+  return list;
+}
+
+// Counts come from the rows actually present, not from getSchemes(). In edit
+// mode the panel also carries custom schemes that are not in the catalog, and
+// a header that disagrees with what is under it reads as a bug.
+function advEnrollUpdateGroupCounts() {
+  const list = document.getElementById('adv-enroll-scheme-list');
+  if (!list) return;
+  ['Document', 'Scheme'].forEach(function (t) {
+    const body = list.querySelector('[data-group-body="' + t + '"]');
+    const cnt  = list.querySelector('[data-group="' + t + '"] .adv-enroll-group-count');
+    if (body && cnt) cnt.textContent = '(' + body.querySelectorAll('.adv-enroll-row').length + ')';
+  });
+}
+
 function advEnrollBuildDefaultSchemes() {
   const list = document.getElementById('adv-enroll-scheme-list');
   if (!list) return;
   const allSchemes = getSchemes();
-  const docs    = allSchemes.filter(s => getSchemeType(s) === 'Document');
-  const schemes = allSchemes.filter(s => getSchemeType(s) !== 'Document');
-  list.innerHTML = `
-    <div class="adv-enroll-group" data-group="Document">
-      <div class="adv-enroll-group-head" onclick="advEnrollToggleGroup(this)"
-           style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#FAFAFA;cursor:pointer;border-bottom:1px solid var(--gray3);user-select:none">
-        <div style="display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;color:var(--ink)">
-          <span class="adv-enroll-caret" style="display:inline-block;width:10px;font-size:10px;color:var(--gray2);transition:transform .15s">▶</span>
-          <span>📄 Documents</span>
-          <span style="color:var(--gray2);font-weight:400;font-size:12px">(${docs.length})</span>
-        </div>
-      </div>
-      <div class="adv-enroll-group-body" data-group-body="Document" style="display:none"></div>
-    </div>
-    <div class="adv-enroll-group" data-group="Scheme" style="border-top:1px solid var(--gray3)">
-      <div class="adv-enroll-group-head" onclick="advEnrollToggleGroup(this)"
-           style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#FAFAFA;cursor:pointer;border-bottom:1px solid var(--gray3);user-select:none">
-        <div style="display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;color:var(--ink)">
-          <span class="adv-enroll-caret" style="display:inline-block;width:10px;font-size:10px;color:var(--gray2);transition:transform .15s">▶</span>
-          <span>🏛 Schemes</span>
-          <span style="color:var(--gray2);font-weight:400;font-size:12px">(${schemes.length})</span>
-        </div>
-      </div>
-      <div class="adv-enroll-group-body" data-group-body="Scheme" style="display:none"></div>
-    </div>
-  `;
-  docs.forEach(s => advEnrollAppendSchemeRow(s, false, 'Need to Apply', false));
-  schemes.forEach(s => advEnrollAppendSchemeRow(s, false, 'Need to Apply', false));
+  const docs    = allSchemes.filter(function (x) { return getSchemeType(x) === 'Document'; });
+  const schemes = allSchemes.filter(function (x) { return getSchemeType(x) !== 'Document'; });
+  list.innerHTML = '';
+  advEnrollEnsureGroups();
+  docs.forEach(function (x) { advEnrollAppendSchemeRow(x, false, 'Need to Apply', false); });
+  schemes.forEach(function (x) { advEnrollAppendSchemeRow(x, false, 'Need to Apply', false); });
+  advEnrollUpdateGroupCounts();
 }
 
 // V327-DEV: collapse/expand a group when its header is clicked.
@@ -18297,8 +18415,10 @@ function advEnrollToggleGroup(headEl) {
 function advEnrollAppendSchemeRow(schemeName, checked, status, isCustom, originalStored) {
   const list = document.getElementById('adv-enroll-scheme-list');
   if (!list) return;
-  // V327-DEV: route into the appropriate group body. If groups don't exist yet
-  // (legacy callers or edit-mode rebuilds), fall back to appending into `list`.
+  // V14.1: CREATE the groups when they are missing instead of silently
+  // falling back to a flat list. That fallback is what turned every edit of
+  // an existing beneficiary into an ungrouped wall of schemes.
+  advEnrollEnsureGroups();
   const targetType = isCustom ? 'Scheme' : (getSchemeType(schemeName) || 'Scheme');
   let parent = list.querySelector(`[data-group-body="${targetType}"]`);
   if (!parent) parent = list;
@@ -18364,9 +18484,10 @@ function advEnrollAppendSchemeRow(schemeName, checked, status, isCustom, origina
   `;
   // Make the row a column container so the remarks line stacks below.
   row.style.cssText = 'display:flex;flex-direction:column;align-items:stretch;gap:0;padding:9px 12px;border-bottom:1px solid var(--gray3)';
-  // V327-DEV: append to the matched group body if groups exist; else fall
-  // back to appending into `list` directly (legacy behaviour).
+  // The `|| list` is a last-resort guard only - advEnrollEnsureGroups() above
+  // means parent is effectively always a group body now.
   (parent || list).appendChild(row);
+  advEnrollUpdateGroupCounts();
 }
 
 // Checkbox click — enable/disable the segmented status toggle visually.
@@ -21714,20 +21835,11 @@ function getMarkerColor(b) {
   return STATUS_MAP_COLORS[b.status] || '#888';
 }
 
-function makeSvgMarker(color, initials) {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="44" viewBox="0 0 36 44">
-    <path d="M18 0C8.059 0 0 8.059 0 18c0 13.5 18 26 18 26S36 31.5 36 18C36 8.059 27.941 0 18 0z" fill="${color}"/>
-    <circle cx="18" cy="17" r="12" fill="white" opacity="0.25"/>
-    <text x="18" y="22" font-family="DM Sans,system-ui,sans-serif" font-size="10" font-weight="700" fill="white" text-anchor="middle">${initials}</text>
-  </svg>`;
-  return L.divIcon({
-    html: svg,
-    className: '',
-    iconSize: [36, 44],
-    iconAnchor: [18, 44],
-    popupAnchor: [0, -46]
-  });
-}
+// V15: makeSvgMarker was removed here. It built a teardrop DOM pin carrying the
+// beneficiary's initials, used by the old refreshMapMarkers. V15 draws precise
+// records as canvas circleMarkers - 2,373 DOM pins was the slow path - and
+// village rollups via _v15VillageIcon, so nothing called it any more. Dead code
+// that still dereferenced the lazily-loaded Leaflet global.
 
 function buildPopup(b) {
   const d = delta(b), p = pct(b);
@@ -21800,10 +21912,102 @@ function _v14EnsureLeaflet() {
   return _v14LeafletPromise;
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// V15 - THE MAP, REDESIGNED
+// ════════════════════════════════════════════════════════════════════════════
+// Measured on production 2026-08-09: of 126,058 beneficiaries only 2,373
+// (1.9%) carry a GPS fix and 4,765 (3.8%) appeared on the map at all. The old
+// map drew everything it could the moment it opened, and fanned same-village
+// records onto a 0.022 degree (~2.4 km) ring so the pins would not stack.
+//
+// Those rings were invented positions. A donor reading that map saw precise
+// household locations that did not exist. V15 deletes the ring outright: a
+// real GPS fix gets its own dot, and everybody else is rolled into ONE bubble
+// on their village carrying a count. "6 people, this village" is true;
+// six dots in a circle is not.
+//
+// Shape carries certainty, colour carries status - so the existing status
+// legend keeps its meaning and the new distinction does not fight it.
+
+// Which programme is being shown. '' means nothing is drawn, which is the
+// state the map opens in. Drawing 126,058 records before being asked is what
+// made this page heavy.
+let _v15Programme = '';
+let _v15GpsOnly   = false;
+let _v15Layer     = null;   // every marker lives here so clearing is exact
+
+const _V15_ADVOCACY = 'Advocacy (Govt. Schemes)';
+
+function _v15HasLiv(b) {
+  return (b.interventions || []).some(function (i) { return i !== _V15_ADVOCACY; });
+}
+function _v15HasAdv(b) {
+  return (b.interventions || []).indexOf(_V15_ADVOCACY) !== -1;
+}
+function _v15MatchProgramme(b) {
+  if (_v15Programme === 'liv')  return _v15HasLiv(b);
+  if (_v15Programme === 'adv')  return _v15HasAdv(b);
+  if (_v15Programme === 'both') return _v15HasLiv(b) || _v15HasAdv(b);
+  return false;
+}
+
+function _v15SetProgramme(p) {
+  _v15Programme = p || '';
+  document.querySelectorAll('.v15-prog').forEach(function (b) {
+    b.classList.toggle('on', b.dataset.p === _v15Programme);
+  });
+  refreshMapMarkers();
+}
+
+// A village bubble: dashed, neutral, and carrying its count. Deliberately
+// unlike the status-coloured GPS dot - the reader must be able to tell an
+// estimate from a measurement at a glance.
+function _v15VillageIcon(n) {
+  const size = Math.min(46, 22 + Math.sqrt(n) * 3.2);
+  return L.divIcon({
+    html: '<div style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;'
+        + 'border:2px dashed #5B6675;background:rgba(255,255,255,.82);color:#374151;'
+        + 'display:flex;align-items:center;justify-content:center;'
+        + 'font:700 ' + (n > 999 ? 10 : 11) + 'px/1 DM Sans,system-ui,sans-serif;'
+        + 'box-shadow:0 1px 3px rgba(0,0,0,.2)">' + n + '</div>',
+    className: '',
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    popupAnchor: [0, -size / 2]
+  });
+}
+
+function _v15VillagePopup(village, members) {
+  const liv = members.filter(_v15HasLiv).length;
+  const adv = members.filter(_v15HasAdv).length;
+  const ngos = [];
+  members.forEach(function (b) { if (b.ngo && ngos.indexOf(b.ngo) === -1) ngos.push(b.ngo); });
+  return '<div class="map-popup">'
+    + '<div class="map-popup-head" style="background:#EEF1F5">'
+    +   '<div class="map-avatar" style="background:#5B6675">' + members.length + '</div>'
+    +   '<div><div class="map-popup-name">' + escHtml(village) + '</div>'
+    +   '<div class="map-popup-id">village centre</div></div>'
+    + '</div>'
+    + '<div class="map-popup-body">'
+    +   (liv ? '<div class="map-popup-row"><span class="map-popup-label">Livelihood</span><span class="map-popup-val">' + liv + '</span></div>' : '')
+    +   (adv ? '<div class="map-popup-row"><span class="map-popup-label">Advocacy</span><span class="map-popup-val">' + adv + '</span></div>' : '')
+    +   '<div class="map-popup-row"><span class="map-popup-label">Partner</span><span class="map-popup-val">' + escHtml(ngos.join(', ')) + '</span></div>'
+    +   '<div class="map-popup-delta pend" style="line-height:1.45">◎ <b>Approximate.</b> None of these '
+    +      members.length + ' has a GPS fix, so this sits on the centre of '
+    +      escHtml(village) + ' - not on any household.</div>'
+    + '</div></div>';
+}
+
 function renderMap() {
   document.getElementById('content').innerHTML = `
     <div class="map-wrap">
       <div class="map-controls">
+        <div class="v15-seg">
+          <button class="v15-prog on" data-p=""     onclick="_v15SetProgramme('')">None</button>
+          <button class="v15-prog"    data-p="liv"  onclick="_v15SetProgramme('liv')">Livelihood</button>
+          <button class="v15-prog"    data-p="adv"  onclick="_v15SetProgramme('adv')">Advocacy</button>
+          <button class="v15-prog"    data-p="both" onclick="_v15SetProgramme('both')">Both</button>
+        </div>
         <select class="fsel" id="map-status-f" onchange="mapFilterStatus=this.value;refreshMapMarkers()">
           <option value="">All Statuses</option>
           <option value="Enrolled">Baseline Completed</option><option value="Intervention In Progress">Intervention In Progress</option>
@@ -21811,29 +22015,29 @@ function renderMap() {
         </select>
         <select class="fsel" id="map-ngo-f" onchange="mapFilterNgo=this.value;refreshMapMarkers()">
           <option value="">All NGOs</option>
-          ${[...new Set(filteredAll().map(b=>b.ngo))].sort().map(n=>`<option>${n}</option>`).join('')}
+          ${[...new Set(filteredAll().map(b=>b.ngo))].sort().map(n=>`<option>${escHtml(n)}</option>`).join('')}
         </select>
         <select class="fsel" id="map-interv-f" onchange="refreshMapMarkers()">
           <option value="">All Interventions</option>
-          ${getLivTypes().concat(['Advocacy (Govt. Schemes)']).map(i=>`<option>${i}</option>`).join('')}
+          ${getLivTypes().concat([_V15_ADVOCACY]).map(i=>`<option>${escHtml(i)}</option>`).join('')}
         </select>
-        <span style="font-size:12px;color:var(--gray2);margin-left:4px" id="map-count"></span>
+        <label class="v15-chk"><input type="checkbox" id="map-gps-only" onchange="_v15GpsOnly=this.checked;refreshMapMarkers()"> GPS-located only</label>
+        <span style="font-size:12px;color:var(--gray2);margin-left:auto" id="map-count"></span>
       </div>
       <div class="map-legend">
         <span style="font-weight:600;font-size:11px;color:var(--gray2);text-transform:uppercase;letter-spacing:.05em">Status:</span>
-        ${Object.entries(STATUS_MAP_COLORS).map(([s,c])=>`<span><span class="legend-dot" style="background:${c}"></span>${stageLabel(s)}</span>`).join('')}
+        ${Object.entries(STATUS_MAP_COLORS).map(([st,c])=>`<span><span class="legend-dot" style="background:${c}"></span>${stageLabel(st)}</span>`).join('')}
+        <span style="width:1px;height:15px;background:var(--gray3)"></span>
+        <span><span class="legend-dot" style="background:var(--gray)"></span><b>Precise</b> — one real GPS fix</span>
+        <span><span style="display:inline-block;width:13px;height:13px;border-radius:50%;border:2px dashed var(--gray);vertical-align:-2px;margin-right:5px"></span><b>Approximate</b> — a count, on the village centre</span>
       </div>
       <div class="map-container"><div id="field-map"></div></div>
     </div>`;
 
-  // V14: the library is fetched on demand now, so init waits for it instead
-  // of assuming window.L already exists. The 50 ms delay is kept - it let the
-  // container reach its final size before Leaflet measured it.
-  //
-  // _v14MapToken guards the two races this introduces: navigating away while
-  // the download is in flight, and re-entering the map (which re-renders the
-  // container) before the first attempt finishes. Only the newest attempt
-  // may touch the DOM.
+  // V14: the library is fetched on demand, so init waits for it instead of
+  // assuming window.L exists. The 50 ms delay lets the container reach its
+  // final size before Leaflet measures it. _v14MapToken guards navigating
+  // away mid-download and re-entering the map before the first attempt ends.
   const myToken = ++_v14MapToken;
   const host = document.getElementById('field-map');
   if (host) host.innerHTML = '<div style="padding:28px;text-align:center;color:var(--gray2);font-size:13px">Loading map…</div>';
@@ -21843,18 +22047,17 @@ function renderMap() {
       if (myToken !== _v14MapToken || currentView !== 'map') return;
       try {
         if (mapInstance) { mapInstance.remove(); mapInstance = null; }
-        // Leaflet leaves a _leaflet_id on the container after .remove() which
-        // can cause "Map container is already initialized" if the DOM element
-        // was re-rendered before the cleanup completed. Reset it explicitly.
         const mapEl = document.getElementById('field-map');
-        if (!mapEl) return; // nav switched away while the library loaded
+        if (!mapEl) return;
         if (mapEl._leaflet_id) { mapEl._leaflet_id = null; }
-        mapEl.innerHTML = '';   // clear the loading placeholder
-        mapInstance = L.map('field-map', {zoomControl:true}).setView([22.5, 82.0], 5);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',
-          maxZoom: 18
-        }).addTo(mapInstance);
+        mapEl.innerHTML = '';
+        // V15: opens on Gujarat, not all-India. 125,515 of 126,070
+        // beneficiaries are in Gujarat; the old all-India view spent most of
+        // the screen on ocean and states with no work in them.
+        mapInstance = L.map('field-map', { zoomControl: true, preferCanvas: true })
+                        .setView([23.0, 72.4], 7);
+        _v15AddTiles();
+        _v15Layer = L.layerGroup().addTo(mapInstance);
         refreshMapMarkers();
       } catch (err) {
         console.warn('Map init failed (likely nav raced):', err);
@@ -21874,60 +22077,87 @@ function renderMap() {
     });
 }
 
+// Bhuvan (ISRO) is the base layer. Compared side by side against OSM over
+// Sabarkantha at zoom 13: OSM labelled ONE place in a 3x3 tile area, Bhuvan
+// labelled every village and drew village boundaries. 27 of 30 names read off
+// one Bhuvan screen are villages in this database. It also draws India's
+// national boundary as India defines it, which OSM does not.
+//
+// Bhuvan is a government server and its uptime is not something we control,
+// so a failed tile silently falls back to OSM rather than leaving grey squares.
+function _v15AddTiles() {
+  const bhuvan = L.tileLayer(
+    'https://bhuvan-vec1.nrsc.gov.in/bhuvan/gwc/service/wmts?layer=india3'
+    + '&tilematrixset=EPSG:900913&Service=WMTS&Request=GetTile&Version=1.0.0'
+    + '&Format=image/png&TileMatrix=EPSG:900913:{z}&TileCol={x}&TileRow={y}',
+    { attribution: '© <a href="https://bhuvan.nrsc.gov.in">Bhuvan</a>, ISRO', maxZoom: 16 }
+  );
+  let fellBack = false;
+  bhuvan.on('tileerror', function () {
+    if (fellBack || !mapInstance) return;
+    fellBack = true;
+    console.warn('[V15] Bhuvan tiles unavailable - falling back to OpenStreetMap');
+    mapInstance.removeLayer(bhuvan);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>', maxZoom: 18
+    }).addTo(mapInstance);
+  });
+  bhuvan.addTo(mapInstance);
+}
+
 function refreshMapMarkers() {
-  if (!mapInstance) return;
-  // Remove all existing markers
-  mapInstance.eachLayer(l => { if (l instanceof L.Marker) mapInstance.removeLayer(l); });
+  if (!mapInstance || !_v15Layer) return;
+  _v15Layer.clearLayers();
+  const cnt = document.getElementById('map-count');
 
-  const intervF = document.getElementById('map-interv-f')?.value || '';
-  // Use filteredAll() so the map respects the global state/NGO filters set
-  // from the topbar — matches every other view. Previously used getData()
-  // directly, which ignored the topbar and showed everything regardless of
-  // the visible filter pills (bug #9).
-  let list = filteredAll();
-  if (mapFilterStatus) list = list.filter(b => b.status === mapFilterStatus);
-  if (mapFilterNgo)    list = list.filter(b => b.ngo === mapFilterNgo);
-  if (intervF)         list = list.filter(b => (b.interventions||[]).includes(intervF));
+  // V15: nothing is drawn until a programme is chosen. The map opens
+  // instantly because it opens empty.
+  if (!_v15Programme) {
+    if (cnt) { cnt.textContent = 'Choose Livelihood or Advocacy to draw the map'; cnt.style.color = 'var(--navy2)'; }
+    return;
+  }
 
-  // Jitter coords slightly so overlapping pins spread apart
-  const used = {};
-  let placed = 0;
-  let unmapped = 0;
+  const intervF = document.getElementById('map-interv-f') ? document.getElementById('map-interv-f').value : '';
+  // filteredAll() so the map respects the topbar state/NGO/FC filters, same
+  // as every other view.
+  let list = filteredAll().filter(_v15MatchProgramme);
+  if (mapFilterStatus) list = list.filter(function (b) { return b.status === mapFilterStatus; });
+  if (mapFilterNgo)    list = list.filter(function (b) { return b.ngo === mapFilterNgo; });
+  if (intervF)         list = list.filter(function (b) { return (b.interventions || []).indexOf(intervF) !== -1; });
+  if (_v15GpsOnly)     list = list.filter(function (b) { return b.lat && b.lng; });
 
-  list.forEach(b => {
-    // Prefer precise GPS captured from photo; fall back to village lookup
-    let baseLat, baseLng, hasGPS = false;
+  // A real fix gets its own dot. Everyone else is rolled up by village.
+  // There is NO jitter: the 0.022 degree ring the old map used invented a
+  // position for every record after the first.
+  const villages = {};
+  let precise = 0, unmapped = 0;
+  list.forEach(function (b) {
     if (b.lat && b.lng) {
-      baseLat = b.lat; baseLng = b.lng; hasGPS = true;
-    } else {
-      const coords = VILLAGE_COORDS[b.village];
-      if (!coords) { unmapped++; return; }
-      baseLat = coords[0]; baseLng = coords[1];
+      precise++;
+      L.circleMarker([b.lat, b.lng], {
+        radius: 5, weight: 1.5, color: '#fff', opacity: 1,
+        fillColor: getMarkerColor(b), fillOpacity: 1
+      }).bindPopup(buildPopup(b), { maxWidth: 240, minWidth: 220 }).addTo(_v15Layer);
+      return;
     }
-    const key = hasGPS ? b.id : b.village;  // GPS pins don't need jitter — each is unique
-    used[key] = (used[key] || 0) + 1;
-    const n = used[key];
-    const angle = (n - 1) * 137.5 * Math.PI / 180;
-    // Widened from 0.012 to 0.022 degrees (~2.4 km) so clustered markers
-    // visibly separate at zoom level 10+ where many coordinators view the map.
-    const radius = hasGPS ? 0 : (n === 1 ? 0 : 0.022 * Math.sqrt(n - 1));
-    const lat = baseLat + radius * Math.sin(angle);
-    const lng = baseLng + radius * Math.cos(angle);
-
-    const color   = getMarkerColor(b);
-    const initials = getAvatarInitials(b.name);
-    const marker  = L.marker([lat, lng], { icon: makeSvgMarker(color, initials) });
-    marker.bindPopup(buildPopup(b), { maxWidth: 240, minWidth: 220 });
-    marker.addTo(mapInstance);
-    placed++;
+    const coords = VILLAGE_COORDS[b.village];
+    if (!coords) { unmapped++; return; }
+    if (!villages[b.village]) villages[b.village] = { coords: coords, members: [] };
+    villages[b.village].members.push(b);
   });
 
-  const cnt = document.getElementById('map-count');
+  Object.keys(villages).forEach(function (v) {
+    const g = villages[v];
+    L.marker(g.coords, { icon: _v15VillageIcon(g.members.length) })
+     .bindPopup(_v15VillagePopup(v, g.members), { maxWidth: 240, minWidth: 220 })
+     .addTo(_v15Layer);
+  });
+
   if (cnt) {
-    let txt = placed + ' beneficiar' + (placed===1?'y':'ies') + ' shown';
-    if (unmapped > 0) {
-      txt += ` · ${unmapped} not mapped (no GPS, village not in coord table)`;
-    }
+    const nv = Object.keys(villages).length;
+    const approx = list.length - precise - unmapped;
+    let txt = precise + ' precise · ' + approx + ' approximate in ' + nv + ' village' + (nv === 1 ? '' : 's');
+    if (unmapped > 0) txt += ' · ' + unmapped + ' not shown (village not in the lookup)';
     cnt.textContent = txt;
     cnt.style.color = unmapped > 0 ? 'var(--amber)' : 'var(--gray2)';
   }
