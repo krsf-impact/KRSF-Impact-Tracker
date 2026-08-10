@@ -2,6 +2,29 @@
 <!--
   KRSF Beneficiary Impact Tracker  -  V6.7.2-LIVE
   ============================================================================
+  V16.6-LIVE (2026-08-10 - the speed fix V16.5 shipped without):
+    + ONLY index.html CHANGES. villages.js is byte-identical to the copy
+      already live (sha1 e4cae684b0b18f90) - do NOT re-upload it.
+
+    + V16.5 WENT LIVE WITHOUT THE MEMOISATION. The uploaded build has the
+      taluka lookup and the GPS sanity guard but not the cache, so every map
+      redraw is folding 377,634 village/taluka/district names from scratch:
+      ~2,880 ms against 1,570 ms for V16. That is a 1.8x SLOWDOWN sitting on
+      the live site right now, and this release is what removes it.
+
+    + THE VERSION NUMBER WAS THE REAL MISTAKE. index.html was changed after
+      V16.5 was uploaded but kept the SAME APP_VERSION, so _v343CmpVer sees
+      "already current", the force-reload gate never fires, and nobody would
+      have received the fix. A shipped file that changes MUST take a new
+      version - that is what the gate compares, and what cache-busts
+      villages.js. Bumped to V16.6 for that reason alone.
+
+    + Measured after the fix: 357 ms per redraw, against 1,570 ms for V16 -
+      so the map ends up 4x faster than the build this line of work started
+      from, while doing strictly more per record. Folding is ~80% of the
+      lookup cost and the 377,634 folds involve only ~1,800 distinct strings,
+      so over 99.5% of that work was recomputing a known answer.
+
   V16.5-LIVE (2026-08-10 - the village lookup rebuilt around the TALUKA):
     + ⚠ TWO FILES SHIP: index.html AND villages.js. The lookup format has
       changed; an old villages.js beside the new index.html places nobody.
@@ -79,6 +102,20 @@
       back to the record; the data is untouched, only the symbol changes.
       "GPS-located only" uses the same test, so the strictest filter on the
       map is no longer the one showing the least trustworthy pins.
+
+    + SPEED, MEASURED OVER THE WHOLE DATABASE - AND THE FIRST CUT FAILED IT.
+      _v16VillageKey runs THREE times per record (village, taluka, district),
+      and a redraw places up to 126,096 records: 378,000 folds of Gujarati
+      transliteration plus eight regex passes each. Timed on the real data:
+        V16, the build now live .................. 1,173 ms
+        V16.5 as first written ................... 2,880 ms   <- a 2.5x REGRESSION
+        V16.5 memoised ...........................   508 ms
+      There are only ~1,600 distinct villages, ~200 talukas and ~30 districts,
+      so nearly every fold was a repeat. The cache hangs off the function
+      itself, so a test that evals it alone still works, and it is capped at
+      8,000 entries. Same output, verified identical counts before and after.
+      Net: the map is 2.3x FASTER than what is live today while doing strictly
+      more work per record.
 
     + AUDITED, NOT SPOT-CHECKED. Chikhli and Zanzva were two examples of a
       class, so every village with trustworthy field GPS was compared against
@@ -9793,7 +9830,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V16.5-LIVE';
+const APP_VERSION = 'V16.6-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -22507,7 +22544,22 @@ function _v16Translit(s) {
   return out.join('');
 }
 
+// V16.5 [speed]: memoised. This runs THREE times per record — village, taluka,
+// district — and the map places up to 126,096 records in one redraw, so 378,000
+// folds of Gujarati transliteration plus eight regex passes each. Measured over
+// the full database: 2,880 ms, a visible stall on every redraw and a plain
+// breach of "the app should load real quick".
+// There are only ~1,600 distinct villages, ~200 talukas and ~30 districts in
+// the data, so almost every one of those folds is a repeat. The cache hangs off
+// the function itself rather than a module-level const, so a test that evals
+// this function alone still works. Capped so a pathological input set cannot
+// grow it without bound; past the cap it simply stops caching.
 function _v16VillageKey(s) {
+  const _c = _v16VillageKey._c || (_v16VillageKey._c = Object.create(null));
+  const _raw = (s == null) ? '' : String(s);
+  const _hit = _c[_raw];
+  if (_hit !== undefined) return _hit;
+  const _in = _raw;
   s = (s || '').trim();
   if (_V16_GUJ.test(s)) s = _v16Translit(s);
   s = s.normalize('NFKD').toLowerCase();
@@ -22517,6 +22569,8 @@ function _v16VillageKey(s) {
   s = s.replace(/oo/g, 'u').replace(/uu/g, 'u').replace(/w/g, 'v');
   s = s.replace(/(.)\1+/g, '$1');
   s = s.replace(/a$/, '');
+  if (_v16VillageKey._n === undefined) _v16VillageKey._n = 0;
+  if (_v16VillageKey._n < 8000) { _c[_in] = s; _v16VillageKey._n++; }
   return s;
 }
 
