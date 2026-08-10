@@ -2,6 +2,140 @@
 <!--
   KRSF Beneficiary Impact Tracker  -  V6.7.2-LIVE
   ============================================================================
+  V16.3-LIVE (2026-08-10 - the 13 phantom NGOs on the Dashboard filter):
+    + ONLY index.html CHANGES. villages.js is untouched - do not re-upload it.
+
+    + THE TOPBAR NGO FILTER LISTED 13 ORGANISATIONS THAT DO NOT EXIST, while
+      the database holds 20 real partners. Reported from the Dashboard.
+      Two independent faults had to line up, and both are fixed:
+
+      1. THE STORED PARTNER LIST COULD ONLY EVER BE FAKE. loadPartners()
+         carried 13 hard-coded demo NGOs as a "first run on a new device"
+         fallback, and that seed path was the ONLY writer of the
+         krsf_partners_v2 localStorage copy. Partners fetched from Firebase
+         were hydrated into memory and NEVER persisted. So once the seed had
+         run - once, on any device, ever - the stored copy stayed fictional
+         permanently and primed the cache on every cold start afterwards.
+         Now: the demo list is deleted outright, and _hydratePartnersCache
+         persists what Firebase actually returned. The key is bumped v2 -> v3
+         so the poisoned copy is retired on every device with no migration
+         code, and v2 is deleted on the normal path, not only on error.
+         This is the same call V11.6 made about the hard-coded user accounts,
+         and its reasoning applies unchanged: restoring an emptied database is
+         a job for the weekly backup, not for records baked into the app.
+
+      2. THE DROPDOWN WAS NEVER REBUILT WHEN THE REAL LIST ARRIVED.
+         injectDynamicOptions() runs from nav() and from mount, and nowhere
+         else. The partners fetch calls renderCurrentView(), which redraws the
+         page body but does not touch the topbar selects. So the filter kept
+         whatever was built at mount - from the stale cache - until the user
+         happened to change page. That is exactly why the Dashboard showed 13
+         phantoms while NGO Partners, reached by a nav, showed the correct 20.
+         _hydratePartnersCache now rebuilds the dropdowns itself.
+
+    + DATA-LOSS GUARD ON savePartners. fbSyncCollection DELETES every id that
+      is in FB.lastPart but missing from the array handed to it. A save built
+      from a cold or partial cache could therefore remove real partners - and
+      a partner is the name every one of their beneficiaries is filed under.
+      FB.lastPart is set only by the two Firebase hydration paths, so a save
+      is now refused outright until the cloud has answered.
+
+    + Returning [] instead of 13 invented records also restores the
+      cache/last-map invariant: RecordCache.partners and FB.lastPart are now
+      both empty until Firebase answers, so a save can never diff a fabricated
+      list against the real one.
+
+    + NO FIREBASE INCREASE: no read or write added anywhere. The new
+      persistence is localStorage only, and it means a cold start now shows
+      the correct partners with no extra fetch. The save guard removes a path
+      that could have written 13 phantom partners INTO the database.
+
+  V16.2-LIVE (2026-08-10 - found by reviewing V14-V16.1, not reported):
+    + ONLY index.html CHANGES. villages.js is untouched - do not re-upload it.
+
+    + THE MAP WAS DRAWING 60,417 PEOPLE IN STACKED, HIDDEN BUBBLES, AND 315
+      OF THEM IN THE WRONG DISTRICT. The village rollup grouped records with
+        villages[b.village]
+      - the name a coordinator typed - while the COORDINATE was correctly
+      looked up on village+district. So the rollup threw away the very
+      distinction the V16 lookup was built to make. Measured on the real
+      1,631 village+district rows:
+        * 197 map points carried MORE THAN ONE bubble stacked on the same
+          pixel, covering 60,417 beneficiaries - 48% of the database.
+          Bhiloda drew as SIX bubbles splitting 2,343 people, and only the
+          top one could be clicked. This silently undid the 163 spelling
+          merges that took V16 from 63.3% to 71.0% coverage.
+        * 9 village names exist in more than one district, so 315
+          beneficiaries were grouped with a same-named village elsewhere and
+          drawn there. Vajapur in Aravalli and Vajapur in Mehsana are ~80 km
+          apart; 169 people were shown at the wrong one.
+      Now grouped by the COORDINATE, which is the only thing that decides
+      where a bubble lands. The bubble is labelled with the spelling most of
+      its own records use, and the popup says how many spellings were folded
+      in - that number is a real data-quality signal.
+      The village count in the header is now distinct PLACES, not distinct
+      spellings, so it will read lower than before and be correct.
+
+    + THE MAP CAME BACK FILTERED WITH ITS FILTERS SHOWING "OFF". Programme,
+      status, NGO, GPS-only and photo-only are module-level; renderMap wrote
+      the controls out in their default state but never reset the state
+      behind them. Leave the map with Advocacy + "Has photo" set, come back,
+      and you got a near-empty map with every control reading "all". Reset
+      on render, so V15's "opens empty" holds for every open, not just the
+      first. (Viewing a profile opens a drawer, not a navigation, so nothing
+      is lost mid-task.)
+
+    + V16.1's LAYOUT FIX ONLY HELD ON TALL WINDOWS. .map-container kept a
+      400px floor, so at 1280x600 the page was 26px too tall again and the
+      scrollbar - and the cut-off controls - came straight back. Floor is
+      240px, and the legend no longer shrinks ahead of the map. Measured
+      clean at 1280x600 and 1280x500.
+
+    + A village named "constructor" would have crashed the whole map render.
+      Grouping used a plain {}, so that name hit Object.prototype and the
+      push threw. The rollup now uses Object.create(null).
+
+    + THE REGRESSION TEST ASSERTED THE BUG. mapv15.js §5 checked FOR
+      `villages[b.village]` and passed happily throughout. It now drives the
+      real refreshMapMarkers over the real collision cases, and every new
+      check was confirmed to FAIL against V16.1 before being accepted.
+
+    + No data touched, no Firebase read or write added, nothing new fetched.
+
+  V16.1-LIVE (2026-08-10 - three faults reported from the field):
+    + ONLY index.html CHANGES. villages.js is untouched - do not re-upload it.
+
+    + THE MAP KEPT TURNING INTO OPENSTREETMAP, AND STAYED THAT WAY.
+      Measured before fixing. 40 real village locations taken from
+      villages.js, asking Bhuvan for the tile under each one:
+          z12 100%   z13 100%   z14 69%   z15 38%   z16 2.6%   z17 0%
+      Bhuvan is COMPLETE only to zoom 13. Deeper it is a patchwork whose
+      holes have square edges landing exactly on z13 tile corners. The layer
+      was declared maxZoom 16, so zooming in did not risk a missing tile, it
+      guaranteed one - and the fallback fired on the FIRST error and was
+      permanent, so the map dropped to OSM and stayed there through every
+      later pan, click and zoom-out. Two changes: maxNativeZoom 13 means a
+      level that does not exist is never requested (the z13 tile is upscaled
+      instead, soft but continuous, capped at z15 so it cannot go to mush);
+      and a fallback now needs SIX failures with NOT ONE tile ever loaded -
+      a real outage. The first successful tile disarms it for good.
+
+    + THE FILTER ROW WAS CUT IN HALF WHEN SCROLLED - ADMINS ONLY.
+      .map-wrap's height subtracted the topbar and .content's padding but not
+      the date-range bar, ~43px, which sits between them. So .map-wrap was
+      43px taller than its room, .content grew a scrollbar, and the controls
+      scrolled up under the bar. Invisible to every other role because that
+      bar is display:none for them - which is how it survived V15 and V16.
+      Now height:100% of the scroll container: no viewport arithmetic to get
+      wrong, correct whether the date bar is shown or not.
+
+    + SPACING IS ONE VALUE. Was 30px above the controls then 12 / 12 below;
+      now 20px throughout, matching .content's own padding (12 on phones,
+      matching theirs). The date bar also moves from 16px to 22px of side
+      padding so its left edge lines up with every view beneath it.
+
+    + No data touched, no Firebase read or write added, nothing new fetched.
+
   V16-LIVE (2026-08-10 - the village lookup, Phase 3):
     + ⚠ TWO FILES SHIP THIS TIME: index.html AND villages.js. If villages.js
       is not uploaded the map silently falls back to the old 39 entries - no
@@ -6013,13 +6147,28 @@ html,body{height:100%;font-family:var(--font);background:#EEF2F7;color:var(--tex
 
 
 /* ── Field Map ────────────────────────────────────────────────── */
-/* V15.1: the controls row sat 20px under the date-range bar - a filled grey
-   band with its own border - and read as cramped against it. box-sizing is
-   border-box, so this padding comes out of the height calc rather than
-   adding to it: the map container shrinks 10px, the page does not grow. */
-.map-wrap{position:relative;height:calc(100vh - 54px - 40px);display:flex;flex-direction:column;gap:12px;padding-top:10px}
+/* V16.1: height is 100% of the scroll container, not a viewport calc.
+   The old calc subtracted the topbar (54) and .content's padding (40) but
+   NOT the date-range bar, which is ~43px and sits between them. So for an
+   admin .map-wrap was 43px taller than the room it had: .content grew a
+   scrollbar and the controls row scrolled up under the bar and got cut in
+   half. Nobody else ever saw it, because that bar is display:none for every
+   role except admin - which is why it survived V15 and V16.
+   .content is a flex child of a 100vh column with overflow hidden, so its
+   height is definite and 100% here resolves against it. Correct whether the
+   date bar is showing or not, at any window size, on any device.
+
+   V16.1: and one spacing value everywhere - .content's own 20px above and
+   below, the same 20px between controls, legend and map. It used to be
+   30 / 12 / 12. */
+.map-wrap{position:relative;height:100%;display:flex;flex-direction:column;gap:20px}
 .map-controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;flex-shrink:0}
-.map-container{flex:1;border-radius:10px;overflow:hidden;border:1px solid var(--gray3);min-height:400px}
+/* V16.2: the floor was 400px, which re-created the very overflow V16.1 fixed
+   - measured at 1280x600 the page was 26px too tall again, so the scrollbar
+   and the cut-off controls came back on any short window. The map should give
+   up height before the page starts scrolling; 240px is still a usable map and
+   only bites below a ~490px viewport, where nothing would fit anyway. */
+.map-container{flex:1;border-radius:10px;overflow:hidden;border:1px solid var(--gray3);min-height:240px}
 #field-map{width:100%;height:100%}
 .leaflet-popup-content-wrapper{border-radius:10px!important;box-shadow:0 8px 24px rgba(0,0,0,.15)!important;padding:0!important;overflow:hidden}
 .leaflet-popup-content{margin:0!important;width:220px!important}
@@ -6043,7 +6192,10 @@ html,body{height:100%;font-family:var(--font);background:#EEF2F7;color:var(--tex
 .v15-seg button.on{background:var(--navy);color:#fff}
 .v15-chk{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--gray);border:1px solid var(--gray3);border-radius:8px;padding:6px 11px;cursor:pointer;user-select:none;background:#fff}
 .v15-chk input{margin:0}
-.map-legend{display:flex;gap:12px;flex-wrap:wrap;background:#fff;border:1px solid var(--gray3);border-radius:8px;padding:8px 12px;font-size:12px;align-items:center}
+/* V16.2: flex-shrink:0 like .map-controls. Without it the legend is the one
+   thing the flex algorithm is allowed to squeeze once the map hits its floor,
+   and it loses a line of its own text rather than the map losing height. */
+.map-legend{display:flex;gap:12px;flex-wrap:wrap;background:#fff;border:1px solid var(--gray3);border-radius:8px;padding:8px 12px;font-size:12px;align-items:center;flex-shrink:0}
 .legend-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;display:inline-block;margin-right:4px}
 
 
@@ -6559,7 +6711,12 @@ body[data-role="coordinator"] #sync-pill { display: none !important; }
   .cmp-base { margin-bottom: 0; }
 
   /* ── Map ── */
-  .map-wrap { height: calc(100dvh - 50px - 64px); }
+  /* V16.1: no height override any more - .map-wrap is height:100% and the
+     shell already accounts for the bottom nav via .content's padding.
+     Only the rhythm changes: .content drops to 12px padding on a phone, so
+     the gaps drop to 12 too and stay uniform with it. */
+  .map-wrap { gap: 12px; }
+  #date-range-filter-row { padding-left: 12px !important; padding-right: 12px !important; }
   .map-controls { gap: 6px; }
   .map-controls .fsel { font-size: 12px; }
 
@@ -8551,7 +8708,10 @@ body[data-shell="coord"] #_v352-install-btn {
        queries like "how many beneficiaries were added between Jan 30 and
        Mar 15?" or "which endlines were completed in Q1?". Applies to EVERY
        view via filteredAll() — dashboard KPIs, livelihood list, map, CSV. -->
-  <div id="date-range-filter-row" style="display:none;padding:8px 16px;background:var(--gray4);border-bottom:1px solid var(--gray3);align-items:center;gap:12px;flex-wrap:wrap;font-size:12px">
+  <!-- V16.1: 22px side padding, not 16px, so this bar's left edge lines up
+       with .content below it (padding:20px 22px). At 16px every view sat 6px
+       to the right of "Date ranges" and the column read as bent. -->
+  <div id="date-range-filter-row" style="display:none;padding:8px 22px;background:var(--gray4);border-bottom:1px solid var(--gray3);align-items:center;gap:12px;flex-wrap:wrap;font-size:12px">
     <span style="font-weight:600;color:var(--navy);display:inline-flex;align-items:center;gap:5px">📅 Date ranges</span>
     <div style="display:inline-flex;align-items:center;gap:6px">
       <span style="color:var(--gray2)">Baseline:</span>
@@ -9508,7 +9668,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V16-LIVE';
+const APP_VERSION = 'V16.3-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -9735,7 +9895,10 @@ function _ensureCachePrimed() {
     // The literal sidesteps the issue. Same pattern is already used for
     // 'krsf_advocacy_v9' above. STORE_KEY and USERS_KEY are safe because
     // their declarations precede every load* call site.
-    const partRaw = localStorage.getItem('krsf_partners_v2');
+    // V16.3: v3, not v2. The v2 copy is the 13 demo partners and is dead —
+    // drop it so it stops priming the cache and stops taking up quota.
+    try { localStorage.removeItem('krsf_partners_v2'); } catch(_){}
+    const partRaw = localStorage.getItem('krsf_partners_v3');
     if (partRaw) {
       const arr = JSON.parse(partRaw) || [];
       for (const r of arr) { if (r && r.id) RecordCache.partners.set(r.id, r); }
@@ -9744,7 +9907,7 @@ function _ensureCachePrimed() {
     console.warn('[V310] partners prime failed:', e);
     // V389: self-heal — delete the corrupted key so next session re-fetches
     // from Firebase instead of staying locked out with an empty partners cache.
-    try { localStorage.removeItem('krsf_partners_v2'); } catch(_){}
+    try { localStorage.removeItem('krsf_partners_v3'); } catch(_){}
   }
   // V315: explicitly clear any stale benef/adv from previous V310 bug.
   // Safe to call repeatedly — only affects in-memory cache.
@@ -10829,6 +10992,20 @@ function _hydratePartnersCache(arr) {
   RecordCache.partners.clear();
   for (const r of arr) { if (r && r.id) RecordCache.partners.set(r.id, r); }
   RecordCache.primed = true;
+  // V16.3: persist what Firebase actually returned, so the NEXT cold start
+  // primes from the real partner list. Previously only the demo seed was ever
+  // written here, which is why the stored copy stayed fictional forever.
+  // Literal key, not PARTNERS_KEY — this function is defined far above that
+  // const, and the file already documents that trap two screens up.
+  // localStorage only: no Firebase read, no Firebase write.
+  try { localStorage.setItem('krsf_partners_v3', JSON.stringify(arr || [])); } catch(_){}
+  // V16.3: rebuild the NGO dropdowns now. renderCurrentView() re-renders the
+  // page body after this but does NOT touch the topbar selects, and nav() was
+  // the only thing that did — so the filter kept whatever was built at mount
+  // time, from the stale cache, until the user happened to change page. That
+  // is precisely why the Dashboard showed 13 phantom NGOs while NGO Partners,
+  // reached by a nav, showed the correct 20.
+  try { if (typeof injectDynamicOptions === 'function') injectDynamicOptions(); } catch(_){}
 }
 
 // ── Tiny helpers ──────────────────────────────────────────────────────────
@@ -22096,7 +22273,7 @@ function _v15VillageIcon(n) {
   });
 }
 
-function _v15VillagePopup(village, members) {
+function _v15VillagePopup(village, members, variants) {
   const liv = members.filter(_v15HasLiv).length;
   const adv = members.filter(_v15HasAdv).length;
   const ngos = [];
@@ -22111,6 +22288,11 @@ function _v15VillagePopup(village, members) {
     +   (liv ? '<div class="map-popup-row"><span class="map-popup-label">Livelihood</span><span class="map-popup-val">' + liv + '</span></div>' : '')
     +   (adv ? '<div class="map-popup-row"><span class="map-popup-label">Advocacy</span><span class="map-popup-val">' + adv + '</span></div>' : '')
     +   '<div class="map-popup-row"><span class="map-popup-label">Partner</span><span class="map-popup-val">' + escHtml(ngos.join(', ')) + '</span></div>'
+    // V16.2: this village's records were typed under more than one spelling.
+    // They are one bubble now; before, each spelling drew its own bubble on
+    // this exact pixel and hid the others.
+    +   (variants > 1 ? '<div class="map-popup-row"><span class="map-popup-label">Spelt</span><span class="map-popup-val">'
+                      + variants + ' different ways in the records</span></div>' : '')
     +   '<div class="map-popup-delta pend" style="line-height:1.45">◎ <b>Approximate.</b> None of these '
     +      members.length + ' has a GPS fix, so this sits on the centre of '
     +      escHtml(village) + ' - not on any household.</div>'
@@ -22224,6 +22406,22 @@ function _v16VillageCoords(b) {
 }
 
 function renderMap() {
+  // V16.2: the controls below are written out in their default state - None
+  // highlighted, every select on "All", both checkboxes clear - but the state
+  // they stand for is module-level and used to survive navigation. So leaving
+  // the map with Advocacy and "Has photo" set, then coming back, gave a map
+  // still filtered down to almost nothing while every control on screen said
+  // nothing was filtered. Unreadable, and it also broke V15's promise that
+  // the map opens empty. Reset them here so the controls and the state cannot
+  // disagree. (The intervention filter is already read from the DOM each time,
+  // so it always reset - which is why the inconsistency looked arbitrary.)
+  // Viewing a profile opens a drawer rather than navigating, so this does not
+  // discard a selection mid-task.
+  _v15Programme   = '';
+  mapFilterStatus = '';
+  mapFilterNgo    = '';
+  _v15GpsOnly     = false;
+  _v16PhotoOnly   = false;
   document.getElementById('content').innerHTML = `
     <div class="map-wrap">
       <div class="map-controls">
@@ -22318,13 +22516,36 @@ function _v15AddTiles() {
     'https://bhuvan-vec1.nrsc.gov.in/bhuvan/gwc/service/wmts?layer=india3'
     + '&tilematrixset=EPSG:900913&Service=WMTS&Request=GetTile&Version=1.0.0'
     + '&Format=image/png&TileMatrix=EPSG:900913:{z}&TileCol={x}&TileRow={y}',
-    { attribution: '© <a href="https://bhuvan.nrsc.gov.in">Bhuvan</a>, ISRO', maxZoom: 16 }
+    {
+      attribution: '© <a href="https://bhuvan.nrsc.gov.in">Bhuvan</a>, ISRO',
+      // V16.1: MEASURED, not assumed. 40 real village locations taken from
+      // villages.js, asking Bhuvan for the tile sitting under each one:
+      //   z12 100%  z13 100%  z14 69%  z15 38%  z16 2.6%  z17 0%
+      // Bhuvan is COMPLETE only to z13. Deeper it is a patchwork, and the
+      // holes have square edges landing exactly on z13 tile corners - so
+      // zooming past 13 is not a maybe, it reliably hits missing tiles.
+      // maxNativeZoom stops Leaflet ever requesting a level that is not
+      // there; it upscales the z13 tile instead. maxZoom bounds how far
+      // that upscale is stretched, so it goes soft rather than to mush.
+      maxNativeZoom: 13,
+      maxZoom: 15
+    }
   );
-  let fellBack = false;
+  // V16.1: the old rule was "one tileerror, switch to OSM, permanently".
+  // Paired with a maxZoom of 16 on a layer complete to 13, ONE zoom-in made
+  // every tile fail, so the map flipped to OpenStreetMap and stayed there -
+  // even after zooming back out, and on every pan and click afterwards.
+  // That is the fault reported from the field.
+  //
+  // A fallback now means a real outage: Bhuvan has served nothing at all.
+  // The first tile that does load disarms it for good.
+  let ok = 0, bad = 0, fellBack = false;
+  bhuvan.on('tileload', function () { ok++; });
   bhuvan.on('tileerror', function () {
-    if (fellBack || !mapInstance) return;
+    bad++;
+    if (fellBack || ok > 0 || bad < 6 || !mapInstance) return;
     fellBack = true;
-    console.warn('[V15] Bhuvan tiles unavailable - falling back to OpenStreetMap');
+    console.warn('[V16.1] Bhuvan served no tiles at all - falling back to OpenStreetMap');
     mapInstance.removeLayer(bhuvan);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>', maxZoom: 18
@@ -22358,7 +22579,22 @@ function refreshMapMarkers() {
   // A real fix gets its own dot. Everyone else is rolled up by village.
   // There is NO jitter: the 0.022 degree ring the old map used invented a
   // position for every record after the first.
-  const villages = {};
+  // V16.2: group by WHERE THE BUBBLE WILL BE DRAWN, not by the typed name.
+  // villages[b.village] was wrong twice over, both measured on the real data:
+  //   * 9 village names exist in more than one district, so 315 beneficiaries
+  //     were grouped with a same-named village elsewhere and drawn there.
+  //     Vajapur in Aravalli and Vajapur in Mehsana are ~80 km apart. The
+  //     coordinate lookup was right; this rollup threw its answer away.
+  //   * 197 points carried MORE THAN ONE bubble stacked on the same pixel,
+  //     covering 60,417 people, because one village spelled several ways
+  //     stayed several groups. Bhiloda drew as 6 bubbles splitting 2,343
+  //     beneficiaries, and only the top one could be clicked - which quietly
+  //     undid the 163 spelling merges the V16 lookup was built on.
+  // The coordinate is the only thing that decides where a bubble lands, so it
+  // is the only correct key. Object.create(null) so a village named
+  // "constructor" cannot hit Object.prototype - with a plain {} that record
+  // threw and took the whole map render down with it.
+  const villages = Object.create(null);
   let precise = 0, unmapped = 0;
   list.forEach(function (b) {
     if (b.lat && b.lng) {
@@ -22373,14 +22609,24 @@ function refreshMapMarkers() {
     // the original 39 taluka entries.
     const coords = _v16VillageCoords(b);
     if (!coords) { unmapped++; return; }
-    if (!villages[b.village]) villages[b.village] = { coords: coords, members: [] };
-    villages[b.village].members.push(b);
+    const gk = coords[0].toFixed(5) + ',' + coords[1].toFixed(5);
+    if (!villages[gk]) villages[gk] = { coords: coords, members: [], names: Object.create(null) };
+    villages[gk].members.push(b);
+    villages[gk].names[b.village] = (villages[gk].names[b.village] || 0) + 1;
   });
 
-  Object.keys(villages).forEach(function (v) {
-    const g = villages[v];
+  Object.keys(villages).forEach(function (gk) {
+    const g = villages[gk];
+    // Label the bubble with the spelling most of its own records use, and say
+    // how many other spellings were folded in - that count is a genuine
+    // data-quality signal, not decoration.
+    let name = '', best = -1;
+    Object.keys(g.names).forEach(function (n) {
+      if (g.names[n] > best) { best = g.names[n]; name = n; }
+    });
     L.marker(g.coords, { icon: _v15VillageIcon(g.members.length) })
-     .bindPopup(_v15VillagePopup(v, g.members), { maxWidth: 240, minWidth: 220 })
+     .bindPopup(_v15VillagePopup(name, g.members, Object.keys(g.names).length),
+                { maxWidth: 240, minWidth: 220 })
      .addTo(_v15Layer);
   });
 
@@ -27572,7 +27818,12 @@ function _adminSecurityBanner() {
 // Partner list — canonical source of NGO names used in topbar filter,
 // enrollment dropdown, and user-NGO assignment. Stored separately from
 // users so a partner org can exist before any users are created for it.
-const PARTNERS_KEY = 'krsf_partners_v2';  // v2: 13-partner list from username.xlsx
+// V16.3: key bumped v2 -> v3 deliberately. The v2 copy on every existing
+// device holds the 13 DEMO partners and nothing in the app could ever
+// overwrite it (see loadPartners below), so it poisoned every cold start.
+// Bumping the key retires that copy for everyone at once, with no migration
+// code, and v3 is only ever written with partners actually read from Firebase.
+const PARTNERS_KEY = 'krsf_partners_v3';  // v3: real partners only, written on hydrate
 function loadPartners() {
   // V310: deep clones — see loadData() for full rationale.
   _ensureCachePrimed();
@@ -27583,31 +27834,25 @@ function loadPartners() {
     }
     return out;
   }
-  // First-run default — 13 KRSF partner NGOs (as of Apr 2026). On a brand-new
-  // device with no localStorage AND before fbInitialSync has populated the
-  // cache, seed the defaults. fbSeedCollection inside fbInitialSync uploads
-  // these to the cloud if the cloud is also empty (first device ever).
-  const defaults = [
-    {id:'p-sesta', name:"SeSTA", state:"Assam", focus:"Livelihood + Advocacy"},
-    {id:'p-blf', name:"Better Life Foundation", state:"Nagaland", focus:"Livelihood + Community"},
-    {id:'p-khoj', name:"Khoj", state:"Maharashtra", focus:"Forest-based Livelihood"},
-    {id:'p-vncs', name:"VNCS", state:"Maharashtra", focus:"Nature Conservation + Livelihood"},
-    {id:'p-aaa', name:"AAA", state:"Maharashtra", focus:"Livelihood + Health"},
-    {id:'p-gramurja', name:"GramUrja", state:"Maharashtra", focus:"Advocacy (Scheme convergence)"},
-    {id:'p-navchetna', name:"Navchetna", state:"Maharashtra", focus:"Livelihood + Women Empowerment"},
-    {id:'p-kaarigar', name:"Kaarigar Clinic", state:"Gujarat", focus:"Artisan Livelihood"},
-    {id:'p-sristi', name:"Sristi", state:"Gujarat", focus:"Grassroots Innovation"},
-    {id:'p-jankalyan', name:"Jankalyan", state:"Gujarat", focus:"Livelihood + Advocacy"},
-    {id:'p-sarvangi', name:"Sarvangi Vikas", state:"Gujarat", focus:"Holistic Rural Development"},
-    {id:'p-kartavya', name:"Kartavya", state:"Gujarat", focus:"Livelihood + Education"},
-    {id:'p-vssm', name:"VSSM", state:"Gujarat", focus:"Livelihood (Nomadic Communities)"}
-  ];
-  // V310: populate the cache so subsequent loadPartners() calls don't
-  // re-run the seed path. LS write retained (Session 2 removes it) so a
-  // page reload before fbInitialSync completes still finds defaults.
-  for (const p of defaults) RecordCache.partners.set(p.id, p);
-  try { localStorage.setItem(PARTNERS_KEY, JSON.stringify(defaults)); } catch(_){}
-  return defaults;
+  // V16.3: the 13 hard-coded demo partners are GONE. They were written here
+  // as a "first run on a brand-new device" seed, and the seed was the ONLY
+  // thing that ever wrote the localStorage copy — real partners fetched from
+  // Firebase were hydrated into memory and never persisted. So the stored
+  // copy stayed the 13 fictional names permanently, and every cold start
+  // built the topbar NGO filter and the enrollment NGO dropdown from them.
+  // On a real database with 20 partners the filter listed 13 that do not
+  // exist, and picking one returned nothing.
+  //
+  // This is the same decision V11.6 made about the hard-coded user accounts,
+  // for the same reason, and its note applies word for word: restoring an
+  // emptied database is a job for the weekly backup, not for hard-coded
+  // records. An empty list now shows as empty, which is true and visible,
+  // instead of being papered over with names nobody can act on.
+  //
+  // Returning [] also keeps the cache/last-map invariant: RecordCache.partners
+  // and FB.lastPart are both empty until Firebase answers, so a save can never
+  // diff a fabricated list against the real one.
+  return [];
 }
 async function savePartners(arr) {
   // V375 [Fix #2 — defense in depth]: block scopedViewer console calls.
@@ -27622,6 +27867,17 @@ async function savePartners(arr) {
       if (typeof toast === 'function') toast('Team Leader is view-only — partner edits are disabled.', 'error', 4000);
       throw new SaveError('read-only', new Error('scopedViewerByFc cannot save partners'));
     }
+  }
+  // V16.3 [data-loss guard]: never write the partner list back before it has
+  // been read from Firebase. fbSyncCollection DELETES every id present in
+  // FB.lastPart but absent from the array handed to it, so a save built from a
+  // cold or partial cache can remove real partners — and deleting a partner is
+  // not a small thing, it is the name every one of their beneficiaries is
+  // filed under. FB.lastPart is set ONLY by the two Firebase hydration paths,
+  // so null means "the cloud has not answered yet".
+  if (!FB.lastPart) {
+    if (typeof toast === 'function') toast('Still loading the partner list — please try again in a moment.', 'error', 4000);
+    throw new SaveError('not-ready', new Error('partners not yet loaded from Firebase'));
   }
   // V310-S2: Firebase-only writes. Cache after Firebase confirms.
   await fbSyncCollection('partners', arr || [], 'id', 'lastPart');
