@@ -2,6 +2,112 @@
 <!--
   KRSF Beneficiary Impact Tracker  -  V6.7.2-LIVE
   ============================================================================
+  V16-LIVE (2026-08-10 - the village lookup, Phase 3):
+    + ⚠ TWO FILES SHIP THIS TIME: index.html AND villages.js. If villages.js
+      is not uploaded the map silently falls back to the old 39 entries - no
+      error, it just looks like nothing improved.
+
+    + THE PROBLEM. VILLAGE_COORDS held 39 entries and they were TALUKAS -
+      Modasa, Bhiloda, Idar - while the village field on a record holds an
+      actual village name. So almost nothing ever matched. With Livelihood
+      selected the map reported "126 precise, 0 approximate in 0 villages,
+      808 not shown". The village half of the map had never worked.
+
+    + THE SOURCE. Bhuvan (ISRO) has the villages - it renders their names and
+      boundaries - but its WFS is DISABLED, so there is no way to ask "where
+      is Padhara?". GetFeatureInfo answers the opposite question, "what
+      village is at this point?", so a grid of sample points was walked and
+      the villages enumerated themselves. Every coordinate is a point Bhuvan
+      itself placed inside that village. 4 passes, 11,037 hits, 0 errors.
+      OpenStreetMap was tried first and found 1 village in 12.
+
+    + RESULT: 665 villages in the lookup, up from 39.
+      94,049 of 126,096 beneficiaries can now be placed - 74.6%, against
+      4,765 (3.8%) before. A 20x increase.
+      Sources: 32,396 Bhuvan name-only . 29,436 Bhuvan district-confirmed .
+      17,085 from the coordinators' OWN GPS . 9,708 recovered by spelling
+      merges (below) . 911 ambiguous names settled by a GPS fix.
+
+    + SPELLING MERGES. 178 villages that looked 'not found' were villages
+      already located, typed differently by different coordinators:
+      Paravath/PARVATH, Kishanagadh/Kishangadha, Anshol/Ansol, Demati/Demti,
+      and Gujarati forms like નેત્રામલી/Netramli.
+      Every one was checked against TALUKA, not just district, at the user's
+      condition - two villages can share a district and sit 40 km apart.
+      163 confirmed and merged (9,708 people). 14 REJECTED as genuinely
+      different places: Aamali is in Khedbrahma, Mali is in Himmatnagar.
+      1 left out with no taluka recorded.
+      Taluka names vary in spelling too - Satalsana/Satlasana,
+      Vijaynagar/Vijayanagar - so they are compared with the same folding.
+      Comparing them exactly had rejected 25 sound merges.
+
+    + CHECKED AGAINST YOUR OWN DATA. For the 28 villages where Bhuvan and the
+      coordinators' GPS both have a position, they agree to a median of
+      2.08 km - two unrelated methods measuring the same places.
+
+    + WHAT WAS REFUSED, and why that matters more than the coverage figure:
+      - 854 villages (35,825 people) were not found. Villages smaller than the
+        2 km grid, or spelled differently by Bhuvan than by the FCs.
+      - 131 (10,050) have names occurring in several places with no evidence
+        of which one is meant. Vasai appears in 4. Left out, not guessed.
+      - 30 (363) matched a name but in an implausible place for their district.
+        This filter is why Kherwada is absent rather than wrong: Kherwada is in
+        Tapi and the only match was 297 km north. Nearest-neighbour district
+        inference was measured at 83-96% and rejected as not good enough.
+      - 3 (30) have a phone number or a single letter in the village field.
+      UNDER-MAP RATHER THAN MIS-MAP. A missing pin is a gap; a wrong pin is a
+      lie told to a donor.
+
+    + PHOTO FILTER added on request. A "Has photo" tick beside "GPS-located
+      only". It counts all three places a photo can live - the V405 gallery
+      b.photos[], and the older b.photoUrl / b.photo pair.
+      Coverage is 0.1% (189 of 126,096), so it will usually return almost
+      nothing; when it returns nothing at all the map SAYS so rather than
+      showing a blank screen that looks broken.
+
+    + AMBIGUOUS NAMES, settled by TALUKA TOWN. 131 villages matched several
+      places with no way to tell which. First attempt predicted each
+      candidate's taluka by voting among nearby villages - 93% accurate, and
+      REJECTED anyway once the exposure was measured: the candidates being
+      chosen between are a MEDIAN OF 85 KM APART, worst 352 km, none closer
+      than 10 km. A 7% error there is not a slightly wrong pin, it is a
+      village on the far side of Gujarat - the Kherwada failure again.
+      What worked instead is direct geometry. Most talukas are named after a
+      town Bhuvan knows, and a village sits a median of 9.5 km from its own
+      taluka town (measured on 363 already-located villages, 90% within
+      25 km). Candidates 85 km apart separate cleanly at a 30 km radius.
+      Rule: exactly ONE candidate within 30 km of the town named on the
+      record. Two qualifying, or none, stays unresolved.
+      44 resolved, 4,539 people. Vasai - the largest, 1,128 - sits 2.9 km
+      from Vijaynagar town. 87 remain out, mostly because their taluka town
+      is not itself in the harvest.
+
+    + KEYS are "village|district", both folded: Gujarati transliterated to
+      Latin, long vowels collapsed, bracketed suffixes and trailing 'a'
+      dropped. નવાપુર and Navapur resolve to one entry; Pal in Aravalli stays
+      separate from Pal in Sabarkantha, 36 km apart. District is in the key
+      because village alone merged them.
+      The folding in index.html and the folding in the generator MUST agree -
+      a divergence is a village that stops resolving with NO error anywhere.
+      _tests/villagekey.js checks them on all 1,631 real village+district
+      pairs, and rejects any key in the file the app cannot reproduce.
+
+    + CONSTRAINTS. villages.js is 25 KB raw, 6 KB gzipped, and is fetched
+      ONLY when the map view opens - the 559 coordinators who cannot reach the
+      map download nothing extra. No Firebase read or write. No record is
+      touched: coordinates are NEVER written back onto beneficiaries, which
+      would be 121,000 writes and a permanent size increase on every record.
+      If villages.js fails to load the map still works on the old 39 entries.
+
+  V15.1-LIVE (2026-08-09 - spacing, reported from the field):
+    + The map controls row sat 20px below the date-range bar. That bar is a
+      filled grey band with its own bottom border, and the controls are bare
+      chips with no background, so they read as stuck to it. +10px on
+      .map-wrap. box-sizing is border-box and .map-wrap has a fixed height
+      calc, so the padding eats into the map container rather than growing
+      the page - no new scrollbar at any width.
+    + Nothing else changed. No data, no Firebase, no logic.
+
   V15-LIVE (2026-08-09 - the map redesign, Phase 4):
     + BHUVAN (ISRO) REPLACES OPENSTREETMAP as the base layer. Tested side by
       side over Sabarkantha at zoom 13: OSM labelled ONE place across a 3x3
@@ -5907,7 +6013,11 @@ html,body{height:100%;font-family:var(--font);background:#EEF2F7;color:var(--tex
 
 
 /* ── Field Map ────────────────────────────────────────────────── */
-.map-wrap{position:relative;height:calc(100vh - 54px - 40px);display:flex;flex-direction:column;gap:12px}
+/* V15.1: the controls row sat 20px under the date-range bar - a filled grey
+   band with its own border - and read as cramped against it. box-sizing is
+   border-box, so this padding comes out of the height calc rather than
+   adding to it: the map container shrinks 10px, the page does not grow. */
+.map-wrap{position:relative;height:calc(100vh - 54px - 40px);display:flex;flex-direction:column;gap:12px;padding-top:10px}
 .map-controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;flex-shrink:0}
 .map-container{flex:1;border-radius:10px;overflow:hidden;border:1px solid var(--gray3);min-height:400px}
 #field-map{width:100%;height:100%}
@@ -9398,7 +9508,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V15-LIVE';
+const APP_VERSION = 'V16-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -21934,6 +22044,7 @@ function _v14EnsureLeaflet() {
 // made this page heavy.
 let _v15Programme = '';
 let _v15GpsOnly   = false;
+let _v16PhotoOnly = false;   // V16: show only beneficiaries who have a photograph
 let _v15Layer     = null;   // every marker lives here so clearing is exact
 
 const _V15_ADVOCACY = 'Advocacy (Govt. Schemes)';
@@ -21962,6 +22073,14 @@ function _v15SetProgramme(p) {
 // A village bubble: dashed, neutral, and carrying its count. Deliberately
 // unlike the status-coloured GPS dot - the reader must be able to tell an
 // estimate from a measurement at a glance.
+// A record can carry a photo in three places: the V405 gallery (b.photos[]),
+// and the older baseline b.photoUrl / b.photo pair. All three count, or the
+// filter would hide records that plainly do have a photograph.
+function _v16HasPhoto(b) {
+  if (Array.isArray(b.photos) && b.photos.length) return true;
+  return !!(b.photoUrl || b.photo);
+}
+
 function _v15VillageIcon(n) {
   const size = Math.min(46, 22 + Math.sqrt(n) * 3.2);
   return L.divIcon({
@@ -21998,6 +22117,112 @@ function _v15VillagePopup(village, members) {
     + '</div></div>';
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// V16 - THE VILLAGE LOOKUP
+// ════════════════════════════════════════════════════════════════════════
+// VILLAGE_COORDS holds 39 entries and they are TALUKAS - Modasa, Bhiloda, Idar
+// - not villages. The village field on a record holds an actual village name,
+// so almost nothing ever matched: with Livelihood selected the map reported
+// "126 precise, 0 approximate in 0 villages, 808 not shown". The village half
+// of the map has never worked.
+//
+// villages.js is built from Bhuvan (ISRO), whose WFS is disabled, by sampling
+// a grid and asking "what village is at this point?" - so every coordinate is
+// a point Bhuvan itself placed inside that village. Cross-checked against the
+// coordinators' own GPS where both exist: median 2.2 km apart.
+//
+// Keys are folded so that Navapur / Navapura / નવાપુર all resolve to one
+// entry, and keyed on village AND district so Pal in Aravalli stays separate
+// from Pal in Sabarkantha - 36 km apart, different villages.
+//
+// THE FOLDING BELOW MUST MATCH the generator exactly. It is checked against
+// all 1,631 real village+district pairs by _tests/villagekey.js. A silent
+// divergence here is a village that stops resolving with no error anywhere.
+const _V16_CONS = {
+  'ક':'k','ખ':'kh','ગ':'g','ઘ':'gh','ઙ':'ng','ચ':'ch','છ':'chh','જ':'j','ઝ':'jh','ઞ':'ny',
+  'ટ':'t','ઠ':'th','ડ':'d','ઢ':'dh','ણ':'n','ત':'t','થ':'th','દ':'d','ધ':'dh','ન':'n',
+  'પ':'p','ફ':'ph','બ':'b','ભ':'bh','મ':'m','ય':'y','ર':'r','લ':'l','ળ':'l','વ':'v',
+  'શ':'sh','ષ':'sh','સ':'s','હ':'h'
+};
+const _V16_IVOW = {'અ':'a','આ':'aa','ઇ':'i','ઈ':'i','ઉ':'u','ઊ':'u','ઋ':'ri',
+                   'એ':'e','ઐ':'ai','ઓ':'o','ઔ':'au'};
+const _V16_MATRA = {'ા':'aa','િ':'i','ી':'i','ુ':'u','ૂ':'u','ૃ':'ri',
+                    'ે':'e','ૈ':'ai','ો':'o','ૌ':'au'};
+const _V16_VIRAMA = '્', _V16_ANUSVARA = 'ં', _V16_CHANDRA = 'ઁ', _V16_VISARGA = 'ઃ';
+const _V16_GUJ = /[઀-૿]/;
+
+function _v16Translit(s) {
+  const out = []; let i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (_V16_CONS[c]) {
+      out.push(_V16_CONS[c]);
+      const nxt = (i + 1 < s.length) ? s[i + 1] : '';
+      if (_V16_MATRA[nxt]) { out.push(_V16_MATRA[nxt]); i += 2; continue; }
+      if (nxt === _V16_VIRAMA) { i += 2; continue; }
+      out.push('a'); i += 1; continue;
+    }
+    if (_V16_IVOW[c]) { out.push(_V16_IVOW[c]); i += 1; continue; }
+    if (c === _V16_ANUSVARA || c === _V16_CHANDRA) { out.push('n'); i += 1; continue; }
+    if (c === _V16_VISARGA) { out.push('h'); i += 1; continue; }
+    if (_V16_MATRA[c]) { out.push(_V16_MATRA[c]); i += 1; continue; }
+    out.push(c); i += 1;
+  }
+  return out.join('');
+}
+
+function _v16VillageKey(s) {
+  s = (s || '').trim();
+  if (_V16_GUJ.test(s)) s = _v16Translit(s);
+  s = s.normalize('NFKD').toLowerCase();
+  s = s.replace(/\([^)]*\)/g, ' ');
+  s = s.replace(/[^a-z]/g, '');
+  s = s.replace(/aa/g, 'a').replace(/ee/g, 'i').replace(/ii/g, 'i');
+  s = s.replace(/oo/g, 'u').replace(/uu/g, 'u').replace(/w/g, 'v');
+  s = s.replace(/(.)\1+/g, '$1');
+  s = s.replace(/a$/, '');
+  return s;
+}
+
+// Returns '' for an unusable village name ('-', '1', a phone number), so junk
+// never becomes a lookup and can never collide with a real village.
+function _v16LookupKey(village, district) {
+  const kv = _v16VillageKey(village);
+  if (!kv) return '';
+  const kd = _v16VillageKey(String(district || '').split(',')[0]);
+  return kv + '|' + kd;
+}
+
+// Fetched on first open of the map, like Leaflet. NEVER rejects: if the file
+// is missing the map still works, falling back to the original 39 entries.
+let _v16VillagesPromise = null;
+function _v16EnsureVillages() {
+  if (window.KRSF_VILLAGES) return Promise.resolve();
+  if (_v16VillagesPromise) return _v16VillagesPromise;
+  _v16VillagesPromise = new Promise(function (resolve) {
+    const js = document.createElement('script');
+    js.src = 'villages.js?v=' + encodeURIComponent(APP_VERSION);
+    js.async = true;
+    js.onload  = function () { resolve(); };
+    js.onerror = function () {
+      console.warn('[V16] villages.js unavailable - falling back to the 39 built-in entries');
+      _v16VillagesPromise = null;   // let a later open retry
+      resolve();
+    };
+    document.head.appendChild(js);
+  });
+  return _v16VillagesPromise;
+}
+
+// The lookup itself. Village+district first, then the legacy 39 by raw name.
+function _v16VillageCoords(b) {
+  if (window.KRSF_VILLAGES) {
+    const k = _v16LookupKey(b.village, b.district);
+    if (k && window.KRSF_VILLAGES[k]) return window.KRSF_VILLAGES[k];
+  }
+  return VILLAGE_COORDS[b.village] || null;
+}
+
 function renderMap() {
   document.getElementById('content').innerHTML = `
     <div class="map-wrap">
@@ -22022,6 +22247,7 @@ function renderMap() {
           ${getLivTypes().concat([_V15_ADVOCACY]).map(i=>`<option>${escHtml(i)}</option>`).join('')}
         </select>
         <label class="v15-chk"><input type="checkbox" id="map-gps-only" onchange="_v15GpsOnly=this.checked;refreshMapMarkers()"> GPS-located only</label>
+        <label class="v15-chk"><input type="checkbox" id="map-photo-only" onchange="_v16PhotoOnly=this.checked;refreshMapMarkers()"> Has photo</label>
         <span style="font-size:12px;color:var(--gray2);margin-left:auto" id="map-count"></span>
       </div>
       <div class="map-legend">
@@ -22041,7 +22267,9 @@ function renderMap() {
   const myToken = ++_v14MapToken;
   const host = document.getElementById('field-map');
   if (host) host.innerHTML = '<div style="padding:28px;text-align:center;color:var(--gray2);font-size:13px">Loading map…</div>';
-  _v14EnsureLeaflet()
+  // Both in parallel. _v16EnsureVillages never rejects, so a missing lookup
+  // file can never stop the map from opening.
+  Promise.all([_v14EnsureLeaflet(), _v16EnsureVillages()])
     .then(function () { return new Promise(function (r) { setTimeout(r, 50); }); })
     .then(function () {
       if (myToken !== _v14MapToken || currentView !== 'map') return;
@@ -22125,6 +22353,7 @@ function refreshMapMarkers() {
   if (mapFilterNgo)    list = list.filter(function (b) { return b.ngo === mapFilterNgo; });
   if (intervF)         list = list.filter(function (b) { return (b.interventions || []).indexOf(intervF) !== -1; });
   if (_v15GpsOnly)     list = list.filter(function (b) { return b.lat && b.lng; });
+  if (_v16PhotoOnly)   list = list.filter(_v16HasPhoto);
 
   // A real fix gets its own dot. Everyone else is rolled up by village.
   // There is NO jitter: the 0.022 degree ring the old map used invented a
@@ -22140,7 +22369,9 @@ function refreshMapMarkers() {
       }).bindPopup(buildPopup(b), { maxWidth: 240, minWidth: 220 }).addTo(_v15Layer);
       return;
     }
-    const coords = VILLAGE_COORDS[b.village];
+    // V16: village+district against the generated lookup, falling back to
+    // the original 39 taluka entries.
+    const coords = _v16VillageCoords(b);
     if (!coords) { unmapped++; return; }
     if (!villages[b.village]) villages[b.village] = { coords: coords, members: [] };
     villages[b.village].members.push(b);
@@ -22156,7 +22387,16 @@ function refreshMapMarkers() {
   if (cnt) {
     const nv = Object.keys(villages).length;
     const approx = list.length - precise - unmapped;
+    // Photo coverage is 0.1% (189 of 126,096), so this filter legitimately
+    // returns almost nothing. Say that plainly rather than showing an empty
+    // map that looks broken.
+    if (_v16PhotoOnly && list.length === 0) {
+      cnt.textContent = 'No beneficiaries with a photo match these filters — only about 1 record in 600 has one';
+      cnt.style.color = 'var(--amber)';
+      return;
+    }
     let txt = precise + ' precise · ' + approx + ' approximate in ' + nv + ' village' + (nv === 1 ? '' : 's');
+    if (_v16PhotoOnly) txt = 'with a photo: ' + txt;
     if (unmapped > 0) txt += ' · ' + unmapped + ' not shown (village not in the lookup)';
     cnt.textContent = txt;
     cnt.style.color = unmapped > 0 ? 'var(--amber)' : 'var(--gray2)';
