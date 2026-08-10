@@ -24,7 +24,7 @@
 // Bump CACHE_VERSION whenever you change this file. activate prunes old caches;
 // the page auto-reloads onto the new worker (skipWaiting + clients.claim).
 
-const CACHE_VERSION = 'krsf-v7-1';
+const CACHE_VERSION = 'krsf-v8-0';
 const APP_CACHE = 'krsf-app-' + CACHE_VERSION;
 const NETWORK_TIMEOUT_MS = 3000;
 
@@ -122,7 +122,25 @@ self.addEventListener('activate', function(event) {
 // something that looked like a successful fetch and cached it right back.
 // Confirmed live: pushing V6.5 and reloading within that 10-minute window
 // kept showing V6.1 despite this function's entire reason for existing.
-// Fixed by building a fresh Request with { cache: 'reload' }, the same
+// Fixed by building a fresh Request that bypasses the browser's HTTP cache.
+//
+// V16.9: that fix used { cache: 'reload' }, which forces a FULL re-download of
+// index.html on every single app open. Measured against the live site, that is
+// 1,002,526 bytes each time a coordinator opens the app - several MB a day out
+// of their own mobile data, for a file that usually has not changed.
+// { cache: 'no-cache' } keeps the V400 guarantee exactly: the browser must
+// still revalidate with the SERVER before using any cached copy, so a stale
+// version can never be served silently - that was the whole bug. The only
+// difference is that it sends the conditional headers, so an unchanged file
+// comes back as 304 Not Modified with an EMPTY body and the browser hands us
+// the cached bytes. Verified against GitHub Pages: conditional GET on
+// index.html returns "HTTP 304, 0 bytes". A changed file still returns 200
+// with the new content, so releases reach the fleet exactly as before.
+// If a proxy ever strips the validators, the server answers 200 with the full
+// body and behaviour falls back to what it is today. Strictly better.
+//
+// Original V400 note, kept because it explains WHY the plain fetch was wrong:
+// Fixed by building a fresh Request with an explicit cache mode, the same
 // explicit bypass the install handler already correctly uses below — this
 // forces an actual round-trip to the server every time, not just whenever
 // the browser's HTTP cache happens to have expired.
@@ -135,7 +153,7 @@ function networkFirstHTML(req) {
       var timer = setTimeout(function() {
         cache.match('./index.html').then(function(cached) { if (cached) finish(cached); });
       }, NETWORK_TIMEOUT_MS);
-      fetch(new Request(req.url, { cache: 'reload' })).then(function(resp) {
+      fetch(new Request(req.url, { cache: 'no-cache' })).then(function(resp) {
         clearTimeout(timer);
         if (resp && resp.ok) {
           // Keep the offline copy current for next time.
