@@ -8,6 +8,95 @@
   cost every user ~155 KB of gzipped download on every load for text no
   browser reads. The two most recent releases are kept below.
   ============================================================================
+  V17.1-LIVE (2026-08-12 - the enrolment form: what it demands, and whether you can read it):
+    + ONLY index.html CHANGES. sw.js, login-bg.jpg and villages.js are all
+      unchanged from V16.9 - do not re-upload them.
+
+    + 1.7 (FAMILY MEMBERS) AND 1.10 (SOURCES OF LIVELIHOOD) ARE NO LONGER
+      COMPULSORY FOR AN ADVOCACY-ONLY BENEFICIARY. The case that drove it: a
+      six-year-old enrolled for an Ayushman card. That child has no livelihood
+      source and nobody surveyed the household, but both fields were mandatory,
+      so the only way past the screen was to type a number that is not true.
+      An invented "1" is worse than an honest blank - it is the same made-up
+      data the V15/V16 map work spent a week removing.
+      A blank is now stored as a blank. Checked first that nothing divides by
+      hhSize (it is displayed and exported, nothing else) and that every reader
+      of b.sources already guards for an empty list - family-member records
+      have stored exactly that since V5.3. 1.11 was already exempt (V319);
+      1.6 / 1.8 / 1.9 were already optional and are untouched.
+      parseInt('') is NaN, which is not valid JSON - a blank family size is
+      now stored as an explicit empty value rather than reaching Firebase.
+
+    + THE ASTERISK NOW TELLS THE TRUTH, IN BOTH LANGUAGES. It used to live
+      inside the data-en / data-gu strings, and SIX required labels carried no
+      asterisk in the Gujarati string at all - 1.4a State, 1.4b District, 1.10,
+      1.11, 2.1 NGO Partner and Livelihood Intervention Types. A Gujarati-
+      reading FC could not see those fields were compulsory until the form
+      refused to save. The marker is now a <span class="req"> sibling of the
+      label text, so it is the same in every language, and turning it off for
+      an advocacy-only record is one class on the overlay instead of a rewrite
+      of the very attributes the language switcher renders from.
+
+    + THE FORM WAS HARD TO READ, AND THE NUMBERS SAY WHY. Field borders were
+      #E5E7EB: 1.24:1 against white, where 3:1 is the floor for the boundary of
+      a control. The boxes were being found by the text inside them, not by
+      their edges. Now #8A93A6, 3.09:1. Labels were 11px GREY CAPITALS on a
+      laptop - the phone stylesheet had already fixed this and the desktop rule
+      never got it; both now agree at 12.5px sentence case. And a question sat
+      10px from the next one, the same 10px separating a label from its own
+      input, so there was no visual difference between "next field" and "same
+      field": now 18px, with 30px between sections.
+
+    + THE FORM OVERFLOWED ITS OWN MODAL ON A PHONE, AND HAD FOR A LONG TIME.
+      At 375px the content ran 21 px past the right edge on V17, cutting
+      "Daily Labour", "Forest-based" and "Other" in half. Reported from the
+      field, not found by me. Two causes with one shape: a CSS grid track
+      defaults to min-width:auto, so it cannot shrink below its content's
+      intrinsic minimum. The sources chips were pinned to three columns by an
+      INLINE style - which no media query can override - and the State /
+      District selects are as wide as their longest option. Both forced their
+      track wider than the modal.
+      Fix: the column count moves out of the inline style so a phone can use
+      two columns, and min-width:0 on the grid items lets a track shrink to
+      the space that actually exists. Nothing overflows now, at 375px or on a
+      laptop. formcss.js gains 5 checks, all failing against V17.
+
+    + 1.11 IS NO LONGER YELLOW. The amber background was hard-coded onto that
+      one input in V4.1 to mark it as the baseline income figure. Nothing else
+      in the form is amber; the .fg input.required rule that uses the same
+      colour is DEAD CSS (nothing ever adds the class - a missed field is
+      flagged by the red banner plus scroll-and-focus); and against V17.1's
+      stronger borders a permanently tinted box reads as a permanent warning.
+      The red * and the note underneath carry the weight instead.
+
+    + --gray1 WAS REFERENCED 66 TIMES AND NEVER DEFINED. An undefined custom
+      property makes the whole declaration invalid, so every one of those
+      colours silently fell back to whatever the container had. On light
+      surfaces it landed close enough that nobody noticed. Now defined.
+
+    + WHY THE CSS IS EDITED IN PLACE RATHER THAN SCOPED TO THE FORM. The
+      obvious "#enroll-overlay .fg input { ... }" carries specificity (1,1,1),
+      which outranks .fg input:focus (0,2,1) and .ichip.on (0,2,0) - both
+      plain-class rules. It would have flattened the navy focus ring and the
+      selected-chip colour to one dead border, with nothing thrown and nothing
+      logged: on a phone the focus ring is the only signal of which field the
+      keyboard is attached to. Only spacing is scoped, where nothing competes.
+      _tests/formcss.js locks this in and fails the moment an ID-scoped colour
+      rule reappears.
+      (Noted while checking: .fg input.required - the amber highlight - is
+      DEAD CSS. Nothing anywhere adds that class; a missed field is flagged by
+      the red banner at the top of the modal plus scroll-and-focus. Left in
+      place, but it is not a working state and should not be cited as one.)
+
+    + _tests/enrollreq.js 15 -> 21 checks, plus formcss.js (27, new). All
+      confirmed FAILING against V17 first. enrollreq.js also gained the ability
+      to read an older snapshot - without it, it silently re-read the current
+      build and reported ALL CLEAR against V17, a green that proved nothing.
+
+    + Four releases of changelog (V16.9 back to V16.6) moved out of this file
+      into CHANGELOG.md. The header said it kept the two most recent and was
+      keeping six. No Firebase read or write changed. No data touched.
+
   V17-LIVE (2026-08-11 - the stuck map, properly this time; and bubbles that lead somewhere):
     + ONLY index.html CHANGES. sw.js, login-bg.jpg and villages.js are all
       unchanged from V16.9 - do not re-upload them.
@@ -51,260 +140,6 @@
     + No Firebase read or write changed. No data touched. Nothing new is
       fetched: the names in the popup come from records already in memory.
 
-  V16.9-LIVE (2026-08-10 - the app was re-downloading itself on EVERY open):
-    + FOUR FILES: sw.js (CHANGED - upload it), login-bg.jpg (new in V16.7),
-      index.html LAST. villages.js is unchanged since V16.5 - do not touch it.
-
-    + THE REAL LOAD COST WAS NOT THE FILE SIZE, IT WAS THE FREQUENCY.
-      sw.js fetched the app shell with { cache: 'reload' }. That flag means
-      "ignore every cache and download the whole thing again", so a coordinator
-      opening the app five times a day downloaded index.html five times -
-      about 5 MB of their own mobile data per day for a file that had not
-      changed. Shrinking the file 41% in V16.7/V16.8 made each of those
-      downloads smaller; it did not stop them happening.
-
-    + { cache: 'no-cache' } INSTEAD. This is NOT a weakening of the V400 fix,
-      and the distinction is the whole point:
-        'reload'   - skip all caches, download the body every time
-        'no-cache' - ALWAYS ask the server first; only reuse what we already
-                     have if the server says it is unchanged
-      Both contact the server on every open, so the V398/V400 incident - a
-      device wedged on an old version because the browser's own HTTP cache
-      answered without asking - remains impossible. The only difference is
-      that an unchanged file now comes back as 304 Not Modified with an EMPTY
-      BODY. Verified against the live host: a conditional GET on index.html
-      returns "HTTP 304, 0 bytes". A real release still returns 200 with the
-      new file, so updates reach the fleet exactly as fast as before.
-
-    + WHAT AN FC ACTUALLY DOWNLOADS, per app open:
-        before V16.7 .......... 1,002,526 bytes, every open
-        V16.8 ..................  588,737 bytes, every open
-        V16.9 ..................  588,737 bytes ONCE, then ~0 on every open
-      The first open after this release still pays full price - CACHE_VERSION
-      is bumped to krsf-v8-0, which prunes the old cache by design. After that
-      the shell is only re-downloaded when it genuinely changes.
-
-    + If a proxy ever strips the validators the server answers 200 with the
-      full body, which is exactly today's behaviour. There is no case where
-      this is worse.
-
-    + _tests/swcache.js (12 checks) drives the real networkFirstHTML with
-      stubbed caches and fetch: it asserts the cache mode, that a changed
-      shell is served and cached, that offline still falls back, that a 5xx
-      falls back, and that a slow network cannot block start-up. All 12 were
-      confirmed FAILING against the previous sw.js first.
-
-    + No Firebase read or write changed. No data touched.
-
-  V16.8-LIVE (2026-08-10 - fixes found by an independent review of V16.7):
-    + THREE FILES: index.html, NEW login-bg.jpg, and villages.js (UNCHANGED
-      since V16.5 - do not re-upload it). Upload login-bg.jpg FIRST.
-
-    + 129 STRAY CARRIAGE RETURNS, introduced by my own V16.7 header rewrite.
-      The script did a replace of newline with CRLF over text whose lines
-      already ended CRLF, turning all 129 into CR CR LF. They sat inside the
-      HTML comment so nothing rendered or parsed wrong - but the same tool pass
-      40 lines lower would have been inside a <style> block or a JS template
-      literal, where a stray CR IS a content change. Normalise first, convert
-      once. Repaired: 0 lone LF, 0 CR CR LF.
-
-    + THE LOGIN PHOTO HAD NO CACHE-BUSTER. sw.js caches it cache-first in
-      APP_CACHE with no revalidation, so replacing the image would have left
-      every returning user on the old one indefinitely - the same trap as the
-      V16.5 "same APP_VERSION" incident. Now url('login-bg.jpg?v=1') with the
-      rule written beside it: change the image, change the number.
-
-    + A COMMENT THAT HAD BECOME FALSE. The block above #login-overlay still
-      said the background was "embedded as base64 so it works offline". Both
-      halves stopped being true in V16.7. It now states plainly that the login
-      screen is no longer offline-safe, and why that is an accepted cosmetic
-      cost - the login form itself is unaffected.
-
-    + THE RUNBOOK SAID TO UPLOAD index.html ALONE. It now carries a table of
-      which supporting file matters when, and the part that actually bites:
-      the ORDER. Supporting files first, index.html last, because index.html
-      self-promotes _minVersion and force-reloads the fleet the moment it
-      lands. It also warns never to open a new LIVE build against production
-      Firebase before uploading, which would reload all 559 devices onto a
-      version GitHub Pages does not have yet.
-
-    + EVERY FAILURE MODE HERE IS SILENT. A missing login-bg.jpg degrades to a
-      cream background that nobody sees, because the coordinators are already
-      signed in and never reach that screen. That is why the runbook now says
-      to curl the file after uploading: it is the one failure with no symptom.
-
-  V16.7-LIVE (2026-08-10 - load time: 41% less to download):
-    + THREE FILES NOW: index.html, villages.js (unchanged) and NEW login-bg.jpg.
-      If login-bg.jpg is missing the app still works - the login screen falls
-      back to its cream background colour. Nothing else changes.
-
-    + MEASURED FIRST. The download from GitHub Pages was 1,002,526 bytes and
-      took ~1.1s on a good connection; far worse on field 4G, and paid on every
-      cold load by all 559 coordinators. Breaking the file down:
-        base64 JPEG embedded in <style> ... 345,892 bytes (266 KB gzipped)
-        HTML changelog .................... 401,748 bytes (155 KB gzipped)
-        JS comments ....................... 854,863 bytes (253 KB gzipped)
-        CSS + markup + actual code ........ the rest
-
-    + THE LOGIN BACKGROUND WAS THE SINGLE BIGGEST ITEM AND ALMOST NOBODY SAW IT.
-      A 259 KB photograph was inlined as a base64 data: URI, so it was part of
-      index.html and downloaded by EVERY user on EVERY load - including the
-      coordinators who are already signed in and never see the login screen at
-      all. #login-overlay is display:none until someone logs out.
-      As an external file the browser fetches it ONLY when that element becomes
-      visible, and then caches it. This is the same reasoning sw.js already
-      applies to the badge images: do not make anyone pay for bytes they do not
-      use.
-
-    + THE CHANGELOG MOVED TO CHANGELOG.md. 401,748 bytes of release history was
-      being shipped to every browser on every load, for text no browser reads.
-      The two most recent releases stay in index.html so the file still
-      explains itself; the rest is in CHANGELOG.md beside it.
-
-    + JS COMMENTS ARE STAYING. They are 253 KB gzipped - the largest remaining
-      item - and removing them would be the easy win. They are also the only
-      record of WHY this code is the shape it is, and this file has no build
-      step, so stripping them would mean maintaining two copies that drift.
-      Not worth it. If more speed is needed the next lever is the Firebase
-      sync, not the comments.
-
-    + RESULT, stated honestly (V16.8 corrected this - the first wording was
-      "41% for every user", which is not true for everyone):
-        already signed in (the 559 coordinators, every load) .. 41% less
-        signing in / first ever visit ......................... 14% less
-      The gap is the login photo: it is no longer inside index.html, so a user
-      who actually reaches the login screen downloads it separately. Everyone
-      comes out ahead, just not by 41%.
-      No Firebase read or write changed. No data touched.
-
-  V16.6-LIVE (2026-08-10 - the speed fix V16.5 shipped without):
-    + ONLY index.html CHANGES. villages.js is byte-identical to the copy
-      already live (sha1 e4cae684b0b18f90) - do NOT re-upload it.
-
-    + V16.5 WENT LIVE WITHOUT THE MEMOISATION. The uploaded build has the
-      taluka lookup and the GPS sanity guard but not the cache, so every map
-      redraw is folding 377,634 village/taluka/district names from scratch:
-      ~2,880 ms against 1,570 ms for V16. That is a 1.8x SLOWDOWN sitting on
-      the live site right now, and this release is what removes it.
-
-    + THE VERSION NUMBER WAS THE REAL MISTAKE. index.html was changed after
-      V16.5 was uploaded but kept the SAME APP_VERSION, so _v343CmpVer sees
-      "already current", the force-reload gate never fires, and nobody would
-      have received the fix. A shipped file that changes MUST take a new
-      version - that is what the gate compares, and what cache-busts
-      villages.js. Bumped to V16.6 for that reason alone.
-
-    + Measured after the fix: 357 ms per redraw, against 1,570 ms for V16 -
-      so the map ends up 4x faster than the build this line of work started
-      from, while doing strictly more per record. Folding is ~80% of the
-      lookup cost and the 377,634 folds involve only ~1,800 distinct strings,
-      so over 99.5% of that work was recomputing a known answer.
-
-  V16.5-LIVE (2026-08-10 - the village lookup rebuilt around the TALUKA):
-    + ⚠ TWO FILES SHIP: index.html AND villages.js. The lookup format has
-      changed; an old villages.js beside the new index.html places nobody.
-
-    + THE MAP DREW REAL PEOPLE HUNDREDS OF KM FROM WHERE THEY LIVE. Two
-      faults, both from using DISTRICT as the constraint, both reported from
-      the field as Chikhli and Zanzva:
-        * the fallback was keyed on the village NAME ALONE and its 39 entries
-          were TALUKA centres, so Chikhli of Sabarkantha was drawn at Chikhli
-          taluka in NAVSARI - 230 beneficiaries, 354 km out. 375 records
-          depended on that district-blind table. It is now DELETED, not fixed:
-          a lookup that ignores where a place is cannot be a safety net.
-        * the harvest's plausibility filter allowed 45 km from a district
-          anchor, loose enough to admit a wrong village. zanzv|sabarkanth sat
-          at 23.030, 72.577 - Ahmedabad, 112 km out.
-
-    + THE RULE IS NOW: FOLLOW THE VILLAGES INSIDE THAT TALUKA; IF THE VILLAGE
-      IS NOT IN THE TALUKA, USE THE TALUKA. A district is ~80 km across, a
-      taluka ~20, and the records carry a taluka for 125,443 of 126,096
-      people. So the candidate villages are taken from INSIDE the taluka
-      first, and only then is the recorded name matched against them.
-      That ordering matters more than it sounds: searching the whole state
-      for an exact name and then checking the distance - which is what the
-      first attempt did - found only a Chikhli 323 km away and gave up, while
-      Chikhla, the same village one letter different, sat 3.3 km from
-      Khedbrahma and was never considered.
-
-    + COVERAGE 74.6% -> 98.0%. Village-level 73.8% (each one verified to sit
-      inside its own taluka), taluka-level 24.2%, unplaced 2.0% - and the
-      unplaced are now only records with no taluka at all. Nobody is silently
-      dropped for being unfindable any more; they are shown at their taluka
-      and labelled as such.
-
-    + A THIRD TIER OF CERTAINTY, DRAWN SO IT CANNOT BE MISTAKEN FOR THE
-      SECOND. A solid dot is one real GPS fix; a dashed circle is a village
-      centre; a dotted amber SQUARE is a whole taluka, ~20 km across. The
-      count line reports the two tiers separately rather than merging them
-      into one "approximate" figure that would hide how coarse a quarter of
-      the map is. The taluka popup names the TALUKA, never a village inside
-      it, and says how many villages it stands for.
-
-    + Taluka names vary exactly as village names do - Khedbrahma / Khedbhrma /
-      Khedbhrahma is one taluka typed three ways - so the folding is resolved
-      once in the generator and shipped as an alias map. "Khedbhrma" scores
-      0.82 against "Khedbrahma", just under the grouping cutoff, and stranded
-      221 people in a taluka with no centre until orphan spellings got a
-      second pass.
-
-    + THE COORDINATORS' OWN GPS IS NOW THE TOP AUTHORITY, where it is solid.
-      A fix was taken by a person standing in the village; it owes nothing to
-      Bhuvan or to my name matching. Believed when >=3 fixes agree within
-      5 km AND the result agrees with the record's own taluka.
-      That last condition is not paperwork: Zanzva has ELEVEN fixes with a
-      spread of 0.00 km sitting 123 km from a Khedbrahma centre that is
-      independently correct - eleven forms filled at one desk, not a village.
-      Real GPS has noise; a perfect repeat does not. Where GPS and taluka
-      disagree, the better-founded side wins: a taluka centre backed by 3+
-      located villages holds and the GPS is written off as a capture error;
-      a centre backed by nothing but a same-named town is CORRECTED by the
-      GPS. That is Dhamdi - 84 fixes over 0.05 km against a "Vad" centre
-      taken from a village of that name 278 km away.
-
-    + A RECORD'S OWN GPS IS NOW SANITY-CHECKED BEFORE IT IS BELIEVED.
-      b.lat/b.lng bypasses the lookup entirely and is drawn as a solid dot -
-      the symbol that means "measured", the most confident thing on the map.
-      But a fix is only as good as where the phone was when the form was
-      filled. 23 fixes sit more than 50 km from the taluka their own record
-      names. Chithoda's single fix is 140 km out and Guru confirms Chithoda
-      IS in Vijaynagar - so the fix is wrong, not the record.
-      Measured over 2,358 field fixes: 98.8% are within 30 km of their own
-      taluka, so a 50 km cut rejects only the indefensible ones. A rejected
-      fix does NOT hide the beneficiary - they fall through to the village or
-      taluka placement, a weaker claim honestly drawn - and the count line
-      says how many were ignored rather than hiding it. Nothing is written
-      back to the record; the data is untouched, only the symbol changes.
-      "GPS-located only" uses the same test, so the strictest filter on the
-      map is no longer the one showing the least trustworthy pins.
-
-    + SPEED, MEASURED OVER THE WHOLE DATABASE - AND THE FIRST CUT FAILED IT.
-      _v16VillageKey runs THREE times per record (village, taluka, district),
-      and a redraw places up to 126,096 records: 378,000 folds of Gujarati
-      transliteration plus eight regex passes each. Timed on the real data:
-        V16, the build now live .................. 1,173 ms
-        V16.5 as first written ................... 2,880 ms   <- a 2.5x REGRESSION
-        V16.5 memoised ...........................   508 ms
-      There are only ~1,600 distinct villages, ~200 talukas and ~30 districts,
-      so nearly every fold was a repeat. The cache hangs off the function
-      itself, so a test that evals it alone still works, and it is capped at
-      8,000 entries. Same output, verified identical counts before and after.
-      Net: the map is 2.3x FASTER than what is live today while doing strictly
-      more work per record.
-
-    + AUDITED, NOT SPOT-CHECKED. Chikhli and Zanzva were two examples of a
-      class, so every village with trustworthy field GPS was compared against
-      the lookup: 150 rows, and ALL now sit within 2 km of where the FCs
-      actually stood. Before this pass the same comparison found Dhamdi
-      278 km out, Zanzava 123 km, Khodamali 53 km and Tejpura 39 km. The
-      check is permanent - villagekey.js §3 - so it cannot regress silently.
-      The disagreements that remain all rest on a SINGLE fix, where nothing
-      can tell which side is wrong; the largest is Chithoda, 1,120 people.
-
-    + villages.js 24,597 -> 42,905 bytes (6.4 KB -> 8.3 KB gzipped), still
-      fetched ONLY when the map is opened, so the 559 coordinators who cannot
-      reach the map still download nothing. No Firebase read or write added.
-      No coordinate is ever written back onto a record.
 -->
 <html lang="en">
 <head>
@@ -360,6 +195,18 @@
   --red:#991B1B;--red2:#FEE2E2;
   --purple:#5B21B6;--purple2:#EDE9FE;
   --gray:#374151;--gray2:#6B7280;--gray3:#E5E7EB;--gray4:#F9FAFB;
+  /* V17.1: --gray1 was referenced in 66 declarations and NEVER defined. An
+     undefined custom property makes the whole declaration invalid, so `color`
+     silently fell back to the inherited value instead of the dark grey that was
+     asked for. On light surfaces it landed close enough that nobody noticed;
+     anywhere the container was itself grey it quietly lost the contrast step.
+     Verified first that no --gray1 usage sits on a dark background. */
+  --gray1:#1F2937;
+  /* Field border. Deliberately NOT --gray3: at #E5E7EB a box edge is 1.24:1
+     against white, where 3:1 is the floor for a control boundary — the boxes
+     were being found by the text inside them, not by their edges. #8A93A6 is
+     3.09:1. Separate token so the app's other #E5E7EB hairlines stay put. */
+  --field-bd:#8A93A6;
   --white:#FFFFFF;--text:#111827;
   --font:'DM Sans',system-ui,sans-serif;
   --mono:'DM Mono',monospace;
@@ -576,8 +423,16 @@ html,body{height:100%;font-family:var(--font);background:#EEF2F7;color:var(--tex
 .frow{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
 .frow.full{grid-template-columns:1fr}
 .fg{display:flex;flex-direction:column;gap:5px}
-.fg label{font-size:11px;font-weight:600;color:var(--gray2);text-transform:uppercase;letter-spacing:.05em}
-.fg input,.fg select,.fg textarea{padding:8px 10px;border:1px solid var(--gray3);border-radius:7px;font-size:13px;color:var(--text);background:#fff;font-family:var(--font);transition:.15s}
+/* V17.1: 11px GREY CAPITALS made the label compete with its own hint text
+   instead of leading it, and capitals read slower than sentence case. The
+   phone stylesheet had already fixed this in the max-width:768px block; the
+   desktop rule never got the same treatment. Both now agree.
+   Edited IN PLACE on purpose — a #enroll-overlay-scoped override would have
+   outranked .fg input:focus, .fg input.required and .ichip.on and silently
+   killed the focus ring, the amber "you missed this" highlight and the
+   selected-chip colour, all of which are lower-specificity rules below. */
+.fg label{font-size:12.5px;font-weight:600;color:var(--gray1);text-transform:none;letter-spacing:0;line-height:1.35}
+.fg input,.fg select,.fg textarea{padding:8px 10px;border:1px solid var(--field-bd);border-radius:7px;font-size:13px;color:var(--text);background:#fff;font-family:var(--font);transition:.15s}
 .fg input:focus,.fg select:focus,.fg textarea:focus{outline:none;border-color:var(--navy2);box-shadow:0 0 0 3px var(--navy3)}
 .fg input.required{border-color:#FBBF24;background:#FFFBEB}
 /* V4.1: .livestock-grid removed — livestock is now a single input, no 3-field grid. */
@@ -587,11 +442,46 @@ html,body{height:100%;font-family:var(--font);background:#EEF2F7;color:var(--tex
 .livestock-item input{width:100%;padding:6px 8px;border:1px solid var(--gray3);border-radius:5px;font-size:14px;font-weight:600;text-align:center;color:var(--text);font-family:var(--mono)}
 .livestock-item input:focus{outline:none;border-color:var(--navy2)}
 .ichips{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-.ichip{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--gray3);border-radius:7px;cursor:pointer;font-size:12px;font-weight:500;transition:.15s;user-select:none}
+.ichip{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--field-bd);border-radius:7px;cursor:pointer;font-size:12px;font-weight:500;transition:.15s;user-select:none}
 .ichip:hover{border-color:var(--navy2);background:var(--navy4)}
 .ichip.on{border-color:var(--navy);background:var(--navy3);color:var(--navy)}
-.ichip-box{width:14px;height:14px;border-radius:3px;border:1.5px solid var(--gray3);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff}
+.ichip-box{width:14px;height:14px;border-radius:3px;border:1.5px solid var(--field-bd);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff}
 .ichip.on .ichip-box{background:var(--navy);border-color:var(--navy)}
+/* V17.1: the required marker. Lives in the markup as a <span class="req">,
+   NOT inside data-en / data-gu — see _v17SyncRequiredMarks for why. Kept as a
+   plain "*" rather than a heavier glyph: red + bold already carries the
+   meaning, and a dingbat is one more thing to render wrong on 559 unknown
+   Android handsets. text-transform/letter-spacing are neutralised so the span
+   is unaffected if a label above it is ever set in capitals again. */
+.req{color:var(--red);font-weight:700;margin-left:3px;text-transform:none;letter-spacing:0}
+.req-opt{display:none;margin-left:5px;font-weight:400;font-size:11px;color:var(--gray2);text-transform:none;letter-spacing:0}
+/* Advocacy-only: 1.7, 1.10 and 1.11 are not required, so the marker goes and
+   an explicit "(optional)" takes its place — a vanished asterisk tells the FC
+   the field is not compulsory, but not that leaving it blank is ALLOWED. */
+#enroll-overlay.adv-only .req-liv{display:none}
+#enroll-overlay.adv-only .req-opt{display:inline}
+/* V17.1 — enrolment form rhythm. A question was separated from the next one by
+   10px, the same 10px that separates a label from its own input, so there was
+   no visual difference between "next field" and "same field". Scoped to the
+   overlay: .frow / .msec are shared with eight other dialogs and making those
+   taller was not what was asked for. Spacing is the only Option A change that
+   moves anything, so it is the one that stays inside the form in question. */
+/* V17.1: the form overflowed its own modal on a phone — 21px past the right
+   edge, which is what cut "Daily Labour", "Forest-based" and "Other" in half.
+   Two causes, one shape: a grid track defaults to min-width:auto, so it cannot
+   shrink below its content's intrinsic minimum. The sources chips (three
+   columns of "Animal Husbandry"-length words) and the State / District selects
+   (as wide as their longest option) each forced their track wider than the
+   modal. min-width:0 lets the track shrink to the space that actually exists;
+   the select then ellipsises and the chip label wraps, which is correct on a
+   375px screen. Predates this release — V17 overflowed by 21px, V17.1 by 15. */
+#enroll-overlay .frow > .fg{min-width:0}
+#enroll-overlay .ichip{min-width:0}
+#enroll-overlay .ichip span{min-width:0;overflow-wrap:break-word}
+#sources-chips{grid-template-columns:repeat(3,1fr)}
+#enroll-overlay .frow{margin-bottom:18px}
+#enroll-overlay .msec{margin-bottom:30px}
+#enroll-overlay .msec-title{font-size:11px;background:var(--navy4);color:var(--navy);padding:9px 11px;border-radius:6px;border-bottom:none;margin-bottom:14px}
 /* V5.8: locked programme chip (Livelihood, on the fresh "+ Add Family Member"
    form) — visually distinct from a plain unticked chip so it reads as
    "tap to unlock", not "already considered and declined". */
@@ -842,6 +732,14 @@ body[data-role="coordinator"] #sync-pill { display: none !important; }
   }
   .frow { grid-template-columns: 1fr !important; gap: 8px; }
   .frow.full { grid-template-columns: 1fr !important; }
+  /* V17.1: on a phone a .frow stacks, so its `gap` is the space between two
+     QUESTIONS, not between two columns. At 8px it was tighter than the 18px
+     between rows, which made the rhythm depend on which fields happened to
+     share a row. Matching them makes every question evenly spaced. */
+  #enroll-overlay .frow { gap: 18px; }
+  /* Three columns do not fit a phone. Two do, with room for the longest
+     label ("Animal Husbandry") to sit on two lines rather than be clipped. */
+  #sources-chips { grid-template-columns: 1fr 1fr; }
 
   /* Enrollment form — optimized for field coordinator phone data entry.
      Labels get more room so section numbers + long questions don't cramp.
@@ -855,11 +753,12 @@ body[data-role="coordinator"] #sync-pill { display: none !important; }
     background: var(--navy4); border-radius: 6px;
     border-bottom: none; color: var(--navy);
   }
-  .fg label {
-    font-size: 12px; line-height: 1.35; text-transform: none;
-    letter-spacing: 0; font-weight: 600; color: var(--gray1);
-    white-space: normal;  /* allow long labels to wrap naturally */
-  }
+  /* V17.1: this block used to be where the readable label treatment lived —
+     the desktop rule was 11px grey capitals and only the phone got the fix.
+     The base rule now carries all of it, so the only thing still needed here
+     is letting a long label wrap. Kept as one declaration rather than a copy
+     of the base, so the two can no longer drift apart. */
+  .fg label { white-space: normal; }
   .fg input, .fg select, .fg textarea {
     font-size: 16px;           /* prevents iOS zoom on focus */
     min-height: 44px;          /* WCAG/HIG touch target */
@@ -3079,14 +2978,14 @@ body[data-shell="coord"] #_v352-install-btn {
            data-en="Section 1 — Household Profile"
            data-gu="પરિવારની વિગતો">Section 1 — Household Profile</div>
       <div class="frow">
-        <div class="fg"><label data-en="1.1 Beneficiary Name *" data-gu="લાભાર્થીનું નામ *">1.1 Beneficiary Name *</label><input id="f-name" placeholder="Full name of beneficiary" data-en-ph="Full name of beneficiary" data-gu-ph="લાભાર્થીનું પૂરું નામ"></div>
+        <div class="fg"><label data-en="1.1 Beneficiary Name" data-gu="લાભાર્થીનું નામ">1.1 Beneficiary Name<span class="req">*</span></label><input id="f-name" placeholder="Full name of beneficiary" data-en-ph="Full name of beneficiary" data-gu-ph="લાભાર્થીનું પૂરું નામ"></div>
         <!-- V4.1: phone numeric only, 10 digits max, mobile number pad -->
         <div class="fg"><label data-en="1.2 Contact Number " data-gu="સંપર્ક નંબર ">1.2 Contact Number <span style="font-weight:400;color:var(--gray2);font-size:11px" data-en="(10 digits)" data-gu="(૧૦ અંક)">(10 digits)</span></label><input id="f-phone" type="tel" inputmode="numeric" pattern="[6-9][0-9]{9}" maxlength="10" minlength="10" placeholder="e.g. 9876543210" title="Indian mobile: 10 digits starting with 6, 7, 8 or 9" data-en-ph="e.g. 9876543210" data-gu-ph="દા.ત. 9876543210"></div>
       </div>
       <!-- V4.1: Gender — new field, single-select Male/Female -->
       <div class="frow full">
         <div class="fg">
-          <label style="margin-bottom:8px;display:block" data-en="1.3 Gender *" data-gu="જાતિ *">1.3 Gender *</label>
+          <label style="margin-bottom:8px;display:block" data-en="1.3 Gender" data-gu="જાતિ">1.3 Gender<span class="req">*</span></label>
           <div class="ichips" id="gender-chips" style="grid-template-columns:1fr 1fr;max-width:280px">
             <div class="ichip" data-gender="Male" onclick="selectGender(this)"><div class="ichip-box"></div><span data-en="Male" data-gu="પુરુષ">Male</span></div>
             <div class="ichip" data-gender="Female" onclick="selectGender(this)"><div class="ichip-box"></div><span data-en="Female" data-gu="સ્ત્રી">Female</span></div>
@@ -3100,7 +2999,7 @@ body[data-shell="coord"] #_v352-install-btn {
            wrapper id. -->
       <div class="frow full" id="family-relation-wrap" style="display:none">
         <div class="fg">
-          <label data-en="Relation to head of family *" data-gu="મુખ્ય સભ્ય સાથેનો સંબંધ *">Relation to head of family *</label>
+          <label data-en="Relation to head of family" data-gu="મુખ્ય સભ્ય સાથેનો સંબંધ">Relation to head of family<span class="req">*</span></label>
           <select id="f-relation">
             <option value="" data-en="— Select relation —" data-gu="— સંબંધ પસંદ કરો —">— Select relation —</option>
             <option value="Wife"     data-en="Wife"     data-gu="પત્ની">Wife</option>
@@ -3116,7 +3015,7 @@ body[data-shell="coord"] #_v352-install-btn {
         </div>
       </div>
       <div class="frow">
-        <div class="fg"><label data-en="1.4a State *" data-gu="રાજ્ય">1.4a State *</label>
+        <div class="fg"><label data-en="1.4a State" data-gu="રાજ્ય">1.4a State<span class="req">*</span></label>
           <select id="f-state" onchange="onStateChange()">
 <option value="" data-en="— Select State —" data-gu="— રાજ્ય પસંદ કરો —">— Select State —</option>
             <option value="Andhra Pradesh">Andhra Pradesh</option>
@@ -3157,7 +3056,7 @@ body[data-shell="coord"] #_v352-install-btn {
             <option value="Puducherry">Puducherry</option>
           </select>
         </div>
-        <div class="fg"><label data-en="1.4b District *" data-gu="જિલ્લો">1.4b District *</label>
+        <div class="fg"><label data-en="1.4b District" data-gu="જિલ્લો">1.4b District<span class="req">*</span></label>
           <select id="f-district-sel" onchange="onDistrictChange()">
             <option value="" data-en="— Select State first —" data-gu="— પહેલા રાજ્ય પસંદ કરો —">— Select State first —</option>
           </select>
@@ -3165,13 +3064,13 @@ body[data-shell="coord"] #_v352-install-btn {
       </div>
       <div class="frow">
         <div class="fg"><label data-en="1.4c Taluka / Block" data-gu="તાલુકો / બ્લોક">1.4c Taluka / Block</label><input id="f-taluka" placeholder="Enter taluka or block name" data-en-ph="Enter taluka or block name" data-gu-ph="તાલુકા કે બ્લોકનું નામ"></div>
-        <div class="fg"><label data-en="1.5 Village / Gram Panchayat *" data-gu="ગામ / ગ્રામ પંચાયત *">1.5 Village / Gram Panchayat *</label><input id="f-village" placeholder="Enter village name" data-en-ph="Enter village name" data-gu-ph="ગામનું નામ"></div>
+        <div class="fg"><label data-en="1.5 Village / Gram Panchayat" data-gu="ગામ / ગ્રામ પંચાયત">1.5 Village / Gram Panchayat<span class="req">*</span></label><input id="f-village" placeholder="Enter village name" data-en-ph="Enter village name" data-gu-ph="ગામનું નામ"></div>
       </div>
       <div class="frow">
         <div class="fg"><label data-en="1.6 Social Category" data-gu="જ્ઞાતિ">1.6 Social Category</label>
           <select id="f-cat"><option value="ST">ST</option><option value="SC">SC</option><option value="OBC">OBC</option><option value="General" data-en="General" data-gu="સામાન્ય">General</option><option value="Other" data-en="Other" data-gu="અન્ય">Other</option></select>
         </div>
-        <div class="fg" id="hhsize-wrap"><label data-en="1.7 No. of Family Members *" data-gu="કુટુંબના સભ્યોની સંખ્યા *">1.7 No. of Family Members *</label><input id="f-hhsize" type="number" min="1" placeholder="Number of members" data-en-ph="Number of members" data-gu-ph="સભ્યોની સંખ્યા"></div>
+        <div class="fg" id="hhsize-wrap"><label id="lbl-hhsize" data-en="1.7 No. of Family Members" data-gu="કુટુંબના સભ્યોની સંખ્યા">1.7 No. of Family Members<span class="req req-liv">*</span><span class="req-opt" data-en="(optional)" data-gu="(વૈકલ્પિક)">(optional)</span></label><input id="f-hhsize" type="number" min="1" placeholder="Number of members" data-en-ph="Number of members" data-gu-ph="સભ્યોની સંખ્યા"></div>
       </div>
       <!-- Livelihood-only data block. Wrapped together so "Add Family Member"
            mode can hide all of it in one go (land/livestock/sources/income
@@ -3186,8 +3085,11 @@ body[data-shell="coord"] #_v352-install-btn {
       <!-- V4.1: Current Sources of Livelihood — multi-select chips, "Other" reveals text input -->
       <div class="frow full">
         <div class="fg">
-          <label style="margin-bottom:8px;display:block" data-en="1.10 Current Sources of Livelihood * " data-gu="હાલના આવકના સ્ત્રોત">1.10 Current Sources of Livelihood * <span style="font-weight:400;color:var(--gray2);font-size:11px" data-en="(multi-select — tick all that apply)" data-gu="(બહુવિધ — લાગુ પડતા બધા પસંદ કરો)">(multi-select — tick all that apply)</span></label>
-          <div class="ichips" id="sources-chips" style="grid-template-columns:repeat(3,1fr)">
+          <label id="lbl-sources" style="margin-bottom:8px;display:block" data-en="1.10 Current Sources of Livelihood" data-gu="હાલના આવકના સ્ત્રોત">1.10 Current Sources of Livelihood<span class="req req-liv">*</span><span class="req-opt" data-en="(optional)" data-gu="(વૈકલ્પિક)">(optional)</span> <span style="font-weight:400;color:var(--gray2);font-size:11px" data-en="(multi-select — tick all that apply)" data-gu="(બહુવિધ — લાગુ પડતા બધા પસંદ કરો)">(multi-select — tick all that apply)</span></label>
+          <!-- V17.1: the column count moved to CSS. As an inline style no media
+               query could beat it, so three columns of "Animal Husbandry" were
+               forced onto a 375px phone and the last column was cut off. -->
+          <div class="ichips" id="sources-chips">
             <div class="ichip" data-src="Farming"          onclick="toggleSourceChip(this)"><div class="ichip-box"></div><span data-en="Farming" data-gu="ખેતી">Farming</span></div>
             <div class="ichip" data-src="Animal Husbandry" onclick="toggleSourceChip(this)"><div class="ichip-box"></div><span data-en="Animal Husbandry" data-gu="પશુપાલન">Animal Husbandry</span></div>
             <div class="ichip" data-src="Daily Labour"     onclick="toggleSourceChip(this)"><div class="ichip-box"></div><span data-en="Daily Labour" data-gu="દૈનિક મજૂરી">Daily Labour</span></div>
@@ -3206,8 +3108,13 @@ body[data-shell="coord"] #_v352-install-btn {
       <!-- V4.1: Single annual income field — no 2.1/2.2/2.3 breakdown -->
       <div class="frow full">
         <div class="fg">
-          <label data-en="1.11 Annual Household Income (Rs/yr) *" data-gu="પરિવારની વાર્ષિક આવક ( રૂ/વર્ષ)">1.11 Annual Household Income (Rs/yr) *</label>
-          <input id="f-total" type="number" min="0" placeholder="Total annual income in rupees" style="border-color:#FBBF24;background:#FFFBEB" data-en-ph="Total annual income in rupees" data-gu-ph="રૂપિયામાં કુલ વાર્ષિક આવક">
+          <label data-en="1.11 Annual Household Income (Rs/yr)" data-gu="પરિવારની વાર્ષિક આવક ( રૂ/વર્ષ)">1.11 Annual Household Income (Rs/yr)<span class="req req-liv">*</span><span class="req-opt" data-en="(optional)" data-gu="(વૈકલ્પિક)">(optional)</span></label>
+          <!-- V17.1: the amber inline style is gone. It was hard-coded onto this one
+               field in V4.1 to mark it as the important baseline number, but nothing
+               else in the form is amber, the matching .fg input.required rule is dead
+               CSS, and against V17.1's stronger borders a permanently tinted box reads
+               as a permanent warning. The red * and the note below carry the weight. -->
+          <input id="f-total" type="number" min="0" placeholder="Total annual income in rupees" data-en-ph="Total annual income in rupees" data-gu-ph="રૂપિયામાં કુલ વાર્ષિક આવક">
           <div style="font-size:11px;color:var(--gray2);margin-top:6px;line-height:1.5"
                data-en="Sum of all household income (farming + wages + NREGA + remittance + other). This is the baseline for impact measurement."
                data-gu="પરિવારની  કૂલ આવકનો સરવાળો (ખેતી + મજૂરી + નરેગા + નોકરી કે ધંધાની  આવક + અન્ય). આ કર્યાની અસરકારક્તા માટેનો આધાર રેહશે .">
@@ -3221,20 +3128,20 @@ body[data-shell="coord"] #_v352-install-btn {
     <div class="msec">
       <div class="msec-title" id="sec2-title" data-en="Section 2 — Programme" data-gu="વિભાગ ૨ — કાર્યક્રમ">Section 2 — Programme</div>
       <div class="frow">
-        <div class="fg"><label data-en="2.1 NGO Partner *" data-gu="પાર્ટનર NGO">2.1 NGO Partner *</label>
+        <div class="fg"><label data-en="2.1 NGO Partner" data-gu="પાર્ટનર NGO">2.1 NGO Partner<span class="req">*</span></label>
           <select id="f-ngo" onchange="_checkProgrammePlanning()"></select>
         </div>
-        <div class="fg"><label data-en="2.2 Field Coordinator *" data-gu="ફિલ્ડ કોઓર્ડિનેટર *">2.2 Field Coordinator *</label><input id="f-coord" list="coord-name-list" placeholder="Coordinator name" autocomplete="off" oninput="_checkProgrammePlanning()" data-en-ph="Coordinator name" data-gu-ph="કોઓર્ડિનેટરનું નામ"><datalist id="coord-name-list"></datalist></div>
+        <div class="fg"><label data-en="2.2 Field Coordinator" data-gu="ફિલ્ડ કોઓર્ડિનેટર">2.2 Field Coordinator<span class="req">*</span></label><input id="f-coord" list="coord-name-list" placeholder="Coordinator name" autocomplete="off" oninput="_checkProgrammePlanning()" data-en-ph="Coordinator name" data-gu-ph="કોઓર્ડિનેટરનું નામ"><datalist id="coord-name-list"></datalist></div>
       </div>
       <div class="fg" id="programme-chip-wrap" style="margin-top:4px">
-        <label style="margin-bottom:8px;display:block" data-en="2.3 Programme * " data-gu="કાર્યક્રમ * ">2.3 Programme * <span style="font-weight:400;color:var(--gray2);font-size:11px" data-en="(select one or both)" data-gu="(એક અથવા બંને પસંદ કરો)">(select one or both)</span></label>
+        <label style="margin-bottom:8px;display:block" data-en="2.3 Programme" data-gu="કાર્યક્રમ">2.3 Programme<span class="req">*</span> <span style="font-weight:400;color:var(--gray2);font-size:11px" data-en="(select one or both)" data-gu="(એક અથવા બંને પસંદ કરો)">(select one or both)</span></label>
         <div class="ichips" id="prog-chips" style="grid-template-columns:1fr 1fr">
           <div class="ichip" data-prog="Livelihood" onclick="toggleProgChip(this)"><div class="ichip-box"></div><span data-en="Livelihood" data-gu="આવક વધારવાની કામગીરી">Livelihood</span></div>
           <div class="ichip" data-prog="Advocacy"   onclick="toggleProgChip(this)"><div class="ichip-box"></div><span data-en="Advocacy" data-gu="સરકારી લાભ અપાવવાની કામગીરી">Advocacy</span></div>
         </div>
       </div>
       <div class="fg" id="livelihood-types-wrap" style="margin-top:10px;display:none">
-        <label style="margin-bottom:8px;display:block" data-en="Livelihood Intervention Type(s) * " data-gu="આવક વધારવાની કામગીરીમાં - પ્રવૃતિઓ">Livelihood Intervention Type(s) * <span style="font-weight:400;color:var(--gray2);font-size:11px" data-en="(multi-select)" data-gu="(બહુવિધ પસંદગી)">(multi-select)</span></label>
+        <label style="margin-bottom:8px;display:block" data-en="Livelihood Intervention Type(s)" data-gu="આવક વધારવાની કામગીરીમાં - પ્રવૃતિઓ">Livelihood Intervention Type(s)<span class="req">*</span> <span style="font-weight:400;color:var(--gray2);font-size:11px" data-en="(multi-select)" data-gu="(બહુવિધ પસંદગી)">(multi-select)</span></label>
         <div class="ichips" id="ichips">
           <!-- Populated dynamically via _refreshLivelihoodChips() — reads getLivTypes() -->
         </div>
@@ -3902,7 +3809,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V17-LIVE';
+const APP_VERSION = 'V17.1-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -12751,6 +12658,38 @@ function toggleLivOtherChip(el) {
   if (!on && inp) inp.value = '';
 }
 
+// V17.1: the asterisk has to tell the truth. 1.7, 1.10 and 1.11 stop being
+// required the moment Advocacy-only is chosen, so the marker must go with them.
+// Otherwise the form says "compulsory" while the code says otherwise, and the
+// FC is left deciding which to believe. That is how people learn to type a 1
+// just to get past a screen — exactly the invented data this line of work is
+// removing.
+//
+// The marker is a <span class="req"> sibling of the label's text node, NOT part
+// of the data-en / data-gu strings, so this function only has to flip one class
+// on the overlay. That matters for three reasons:
+//   • It cannot corrupt anything. The first version edited the very attributes
+//     _applyLanguage treats as the source of truth; if any open path had missed
+//     the call, the damaged string would then have been rendered as the label.
+//   • It is language-independent. Six required labels (1.4a, 1.4b, 1.10, 1.11,
+//     2.1, Intervention Types) carried no asterisk in Gujarati AT ALL, so a
+//     Gujarati-reading FC could not see they were compulsory. Moving the marker
+//     out of the translated string fixes all six.
+//   • It is idempotent — calling it twice, or never, cannot leave a half-state.
+// Every path into the form funnels through advSyncProgrammeVisibility(), which
+// calls this; hooking the five chip/open sites individually would guarantee one
+// gets missed.
+//
+// Known limit: in Add-Family-Member mode 1.7 is also not required, but there it
+// is pre-filled from the head and locked, so the marker cannot mislead anyone.
+function _v17SyncRequiredMarks() {
+  const ov = document.getElementById('enroll-overlay');
+  if (!ov) return;
+  const livOn = !!document.querySelector('#prog-chips .ichip[data-prog="Livelihood"].on');
+  const advOn = !!document.querySelector('#prog-chips .ichip[data-prog="Advocacy"].on');
+  ov.classList.toggle('adv-only', advOn && !livOn);
+}
+
 // Programme chip toggles — show/hide the livelihood sub-chips and advocacy note.
 // V5.8: a chip carrying the 'locked' class (only the Livelihood chip, only in
 // the fresh "+ Add Family Member" create flow) doesn't toggle on first tap —
@@ -12809,6 +12748,11 @@ function advSyncProgrammeVisibility() {
   const advWrap = document.getElementById('advocacy-note-wrap');
   if (livWrap) livWrap.style.display = livOn ? 'block' : 'none';
   if (advWrap) advWrap.style.display = advOn ? 'block' : 'none';
+  // V17.1: keep the required-markers honest from the one place every path
+  // already funnels through — chip clicks, opening the form, loading a record
+  // for edit, and the family-member flows all call this. Hooking the five call
+  // sites individually would guarantee one gets missed later.
+  try { _v17SyncRequiredMarks(); } catch (_) {}
   // If Livelihood was deselected, clear any picked livelihood sub-chips so we
   // don't save orphaned interventions from a previously-expanded state. Also
   // clear the "Other" text box.
@@ -13322,7 +13266,15 @@ async function _submitEnrollInner() {
   const hhSizeVal = isFamilyMemberMode
     ? 1   // family-member records don't track their own household size; stored as 1 to satisfy any downstream code that assumes >0.
     : parseInt(document.getElementById('f-hhsize').value);
-  if (!isFamilyMemberMode) {
+  // V17.1: 1.7 is not required for an Advocacy-only beneficiary, matching what
+  // V319 already did for 1.11. Enrol a six-year-old for an Ayushman card and
+  // there is no household survey behind the record — demanding a family size
+  // only teaches the FC to type a number to get past the screen, and an
+  // invented 1 is worse than an honest blank.
+  // Checked before allowing it: NOTHING divides by hhSize. It is displayed
+  // (the profile already renders `p.hhSize || '—'`) and exported to CSV as
+  // `b.hhSize||''`. A blank is already a handled value everywhere it is read.
+  if (!isFamilyMemberMode && !isAdvocacyOnly) {
     if (!hhSizeVal || hhSizeVal < 1) { showError('Please enter a valid Number of Family Members (field 1.7) — must be at least 1.', 'f-hhsize'); return; }
   }
 
@@ -13347,8 +13299,16 @@ async function _submitEnrollInner() {
   const sourceLabels  = sourceChipsOn.map(c => c.dataset.src);
   const sourcesOtherOn   = sourceLabels.includes('Other');
   const sourcesOtherText = sourcesOtherOn ? (document.getElementById('f-sources-other')?.value || '').trim() : '';
+  // V17.1: 1.10 is not required for an Advocacy-only beneficiary either. A
+  // six-year-old enrolled for an Ayushman card HAS no source of livelihood —
+  // that is a fact about them, not a gap in the form. Every reader of
+  // b.sources already guards with `Array.isArray(...) && .length > 0`, and
+  // family-member records have stored an empty array since V5.3, so an empty
+  // list is an established, handled value rather than a new edge case.
+  // The "Other is ticked but empty" check still applies: if the FC did tick
+  // something, it must say what.
   if (!familySkipsLivelihoodFields) {
-    if (sourceLabels.length === 0) { showError('Please tick at least one Current Source of Livelihood (field 1.10).', 'sources-chips'); return; }
+    if (sourceLabels.length === 0 && !isAdvocacyOnly) { showError('Please tick at least one Current Source of Livelihood (field 1.10).', 'sources-chips'); return; }
     if (sourcesOtherOn && !sourcesOtherText) { showError('"Other" source is ticked — please type the source name in the text box, or untick it.', 'f-sources-other'); return; }
   }
   // Replace 'Other' with the typed value in the stored array
@@ -13606,7 +13566,12 @@ async function _submitEnrollInner() {
     fields._baselineInheritedFromHeadId = _editingFamilyHeadId;
   } else {
     // Normal beneficiary (livelihood and/or advocacy).
-    fields.hhSize       = hhSizeVal;
+    // V17.1: parseInt('') is NaN, and NaN is not valid JSON — Firebase would
+    // reject the write or silently store null. Now that 1.7 is optional for an
+    // Advocacy-only record, a blank must become an explicit empty string: that
+    // is what every reader already expects (`p.hhSize || '—'`, `b.hhSize||''`)
+    // and it says "not recorded" rather than inventing a household of 1.
+    fields.hhSize       = Number.isFinite(hhSizeVal) ? hhSizeVal : '';
     fields.sources      = sources;
     fields.land         = landVal;
     fields.livestock    = livestockVal;
