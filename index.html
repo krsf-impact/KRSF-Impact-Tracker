@@ -8,6 +8,86 @@
   cost every user ~155 KB of gzipped download on every load for text no
   browser reads. The two most recent releases are kept below.
   ============================================================================
+  V17.5-LIVE (2026-08-12 - a livelihood activity can be taken back OFF a family member):
+    + ONLY index.html CHANGES. sw.js, login-bg.jpg and villages.js are all
+      unchanged from V16.9 - do not re-upload them.
+
+    + THE DEAD END. A family member (wife, son, father - linked to a head) can
+      be given a livelihood activity with "+ Add Livelihood Intervention". If
+      that was a mis-tap there was NO way to undo it: opening her record with
+      Edit Details routes into the same mode, and un-ticking Livelihood there
+      was refused with "...To edit only her advocacy schemes, use Edit Details
+      instead." The FC was already in Edit Details. The instruction named the
+      screen they were standing on, so it could never be followed.
+      Live data, 11 Aug: 91,340 family members, 8 carrying a livelihood
+      activity, ALL created in the three weeks to 10 Aug - so the rate is
+      rising, not static. Two are plainly wrong: KRSF-GJ-127077 is recorded as
+      the "Wife" of a head with the IDENTICAL name, KRSF-GJ-128826 as the
+      "Father" of a head with the identical name. Each counts toward the
+      livelihood totals with a baseline income of Rs 50k-95k attached.
+
+    + REMOVAL IS NOW POSSIBLE, and asks first. The confirm says what will
+      happen, is marked destructive (red), and the audit entry now reads
+      "Removed livelihood intervention X" instead of "Edited 3 fields".
+      The stage is cleared so she leaves the pipeline properly. Household
+      facts and baseline income are deliberately NOT written: baseline income
+      is a HOUSEHOLD figure, two-way synced with the head by
+      _cascadeFamilySync, so blanking it here would damage the HEAD's record.
+
+    + REFUSED WHEN REAL IMPACT EXISTS. If an endline income is recorded the
+      removal is blocked outright rather than confirmed away - that is a
+      measured before-and-after pair, and stranding it would be a worse bug
+      than the one being fixed. endIncome alone was NOT the whole test: when
+      an NGO Partner reverts a Completed record, updateStatus archives the
+      real figures on _revertedEndline and leaves endIncome null, so the first
+      version of this guard passed and the removal made a measured income gain
+      permanently unreachable (the "restore archived endline" button is gated
+      on the record still being livelihood). Now checks _revertedEndline and
+      incomeLog too - the shape _cascadeFamilySync already used.
+
+    + ⛔ THE REGRESSION THIS RELEASE ALMOST SHIPPED. Two predicates decide
+      "does she have livelihood" and they DISAGREE. openEdit arms the un-enrol
+      gate with "any intervention that is not advocacy"; the programme CHIP is
+      ticked only for a type in getLivTypes(). They differ for a free-text
+      "Other" value, for a type an admin has removed from config, and - on a
+      cold device - for ANY admin-added type, because getLivTypes() falls back
+      to seven hardcoded defaults until config/livtypes hydrates over the
+      network. In every one of those the form opens with Livelihood UNTICKED,
+      so an ordinary save (correcting a phone digit) computed livOn === false
+      and would have offered to DELETE her intervention - and Cancel discards
+      the edit too, so both answers were wrong. V17.4 REFUSED that save, so
+      this would have turned a hard stop into silent data loss.
+      Fix: _v175LivChipOnAtOpen. The gate now requires the chip to have been
+      ON when the record loaded, so removal can only mean the FC turned it off.
+      Live data says 2 beneficiaries hold free-text interventions today (both
+      non-family), so this was latent rather than live - by luck, not design.
+
+    + 7 OF THE 8 ARE LIVELIHOOD-ONLY, and the first version of this fix did
+      not work on them. Un-ticking Livelihood on a record with no advocacy tag
+      leaves both programmes off, so "please select at least one programme"
+      fired first and the removal was still impossible. Forcing the FC to tick
+      Advocacy instead would have meant inventing a government-scheme
+      enrolment to undo a mis-tap - the same manufactured data V17.1 and V17.3
+      were about removing. The check now runs above that rule, and the
+      advocacy tag is written explicitly: a family member with no livelihood
+      is advocacy-only by definition, which is how "+ Add Family Member" and
+      the bulk importer both create them.
+
+    + Also from the review: openEdit's own predicate gained the "i &&" guard
+      (a stray null beside the advocacy tag read as livelihood there while
+      getLivelihoodData and _v174Stage read the record as advocacy-only);
+      _baselineInheritedFromHeadId is no longer stamped onto a record that has
+      just LEFT livelihood; and the audit note is cleared on every save so a
+      removal cannot mislabel the next unrelated edit.
+
+    + _tests/famunenrol.js, 49 checks, 25 confirmed FAILING against V17.4.
+      §7 RUNS the two disagreeing predicates over eight record shapes -
+      including the free-text value and the cold-device case - because 20 of
+      the other checks are regex over source and none of them could have
+      caught the regression above.
+
+    + No Firebase read or write added. No data touched.
+
   V17.4-LIVE (2026-08-12 - a livelihood record with no stage, and the zero V17.3 threw away):
     + ONLY index.html CHANGES. sw.js, login-bg.jpg and villages.js are all
       unchanged from V16.9 - do not re-upload them.
@@ -131,77 +211,6 @@
       confirm modal or photo upload is open can be read as blank and stamped
       'Enrolled'. The surrounding save already writes a stale whole-array, so
       the lost update is pre-existing and not introduced here.
-
-  V17.3-LIVE (2026-08-12 - a livelihood record with no baseline, and a form that never said so):
-    + ONLY index.html CHANGES. sw.js, login-bg.jpg and villages.js are all
-      unchanged from V16.9 - do not re-upload them.
-
-    + REPORTED: a Livelihood enrolment should not go through with the income,
-      sources and land-holding questions empty, and the FC should be TOLD what
-      is needed rather than discovering it when Save refuses.
-
-    + 1.8 LAND HOLDING AND 1.9 LIVESTOCK ARE NOW REQUIRED FOR LIVELIHOOD.
-      They never were. Worse, a blank one was silently written as
-      `parseFloat('') || 0` - the FACT "0 acres", indistinguishable from a
-      genuinely landless household. Requiring the field is what makes that 0
-      mean something. Advocacy-only records are unaffected: for them all five
-      of 1.7 / 1.8 / 1.9 / 1.10 / 1.11 stay optional, as of V17.1.
-
-    + ZERO IS A REAL ANSWER, AND THIS IS THE BUG THIS RELEASE MOST NEARLY
-      SHIPPED. A landless household holds 0 acres; a household with no animals
-      owns 0 livestock. Both are common. Written the obvious way - `if (!land)`
-      - a presence check treats 0 as missing and makes every landless farmer
-      IMPOSSIBLE TO ENROL. The test is "is the box empty", never "is the value
-      falsy". _v173NumBlank does that, and _tests/enrollreq.js §7 is the guard.
-
-    + A NEGATIVE NUMBER PASSED EVERY CHECK IN THE FORM. `!total || isNaN(total)`
-      is false for -50000, and the only other guards are upper caps (> 50
-      acres, > 500 livestock, > 500000 income). The inputs carry min="0", but
-      the Save button is not inside a <form> and nothing calls reportValidity,
-      so min was decorative. A stray minus wrote baseIncome: -50000; an endline
-      of 60,000 then reported +110,000 of impact that never happened, straight
-      into the aggregate figure the foundation reports on. Now refused for
-      every field and every programme.
-
-    + THE VALIDATOR WAS MANUFACTURING THE INVENTED DATA IT EXISTS TO PREVENT.
-      The 1.7 / 1.10 / 1.11 checks ran BEFORE the "please select a programme"
-      check, and were gated on !isAdvocacyOnly - which is TRUE when nothing has
-      been picked yet. So an FC who had not yet chosen a programme was stopped
-      at 1.11 and told income was required, while the form showed no asterisk
-      on it (correctly - V17.2 - since it does not know yet). They typed a
-      number to get past the screen, THEN ticked Advocacy; the check skipped,
-      the typed number stayed in the DOM, and baseIncome: 1 was written.
-      All five checks are now gated on livOn, so the question is only asked
-      once it can be answered.
-
-    + THE FC IS NOW TOLD, IN BOTH LANGUAGES. Section 1 sits ABOVE the Programme
-      chip, so by the time Livelihood is ticked those fields have scrolled out
-      of view. A note under the chips now names the ones still empty and
-      updates as they are filled, so it disappears by itself. On Save, one
-      message lists every missing field instead of refusing one at a time.
-      Both read from the SAME _v173LivMissing, so the form cannot warn about
-      one set of fields and then refuse for another.
-
-    + "Advocacy is selected - please tick at least one scheme" was written
-      straight into the banner without scrolling to it, so an FC scrolled down
-      to the scheme panel saw the Save button re-enable and nothing else. It
-      now goes through showError like every other refusal.
-
-    + _tests/enrollreq.js rewritten, 22 -> 36 checks; 18 confirmed FAILING
-      against V17.2. Behaviour verified by lifting the real functions into a
-      harness and driving twelve states, including the landless case: 0 acres
-      and 0 animals must SAVE, and does.
-
-    + KNOWN AND DELIBERATELY NOT FIXED HERE, found by the same audit:
-      - Promoting a beneficiary to Livelihood by editing leaves `status` null,
-        so the record joins the livelihood pipeline with no lifecycle stage and
-        no stage filter can surface her. Real, and bigger than this release.
-      - Income of exactly 0 is still refused. Kept on purpose: baseIncome 0
-        divides by zero in the percentage-change maths used in Reports.
-      - A family member cannot be un-enrolled from Livelihood; the error tells
-        the FC to use the screen they are already on.
-      - "+ Add Family Member" with Livelihood still writes hhSize: 1 without
-        asking. Documented as deliberate since V5.8.
 
 -->
 <html lang="en">
@@ -3904,7 +3913,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V17.4-LIVE';
+const APP_VERSION = 'V17.5-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -11444,6 +11453,13 @@ let _addLivToFamilyId = null;
 // modal — an ordinary edit should save silently like everywhere else.
 // Reset in closeEnroll().
 let _editingExistingFamilyLivelihood = false;
+// V17.5: was the Livelihood programme chip ticked when this record loaded?
+// Un-enrolling must mean the FC turned it OFF, not that it never went on.
+let _v175LivChipOnAtOpen = false;
+// V17.5: set when a save removes a livelihood activity, so the audit entry can
+// say so instead of the generic "Edited 3 fields: relation, interventions,
+// status" — which read identically to a name correction.
+let _v175UnenrolNote = '';
 
 // V326: Double-submit guard. submitEnroll() sets this true the moment the
 // button is tapped and clears it only when the function exits (success or
@@ -11693,7 +11709,10 @@ function openAddLivelihoodToFamilyMember(id) {
   const b = loadData().find(x => x.id === id);
   if (!b) return;
   if (!b.headId) { toast('Not a family-member record.', 'error'); return; }
-  if ((b.interventions||[]).some(i => i !== 'Advocacy (Govt. Schemes)')) {
+  // V17.5: `i &&` matches openEdit, getLivelihoodData and _v174Stage. Without
+  // it a stray null beside the advocacy tag reads as livelihood and this route
+  // refuses someone who never had one.
+  if ((b.interventions||[]).some(i => i && i !== 'Advocacy (Govt. Schemes)')) {
     toast('This person already has a livelihood intervention — use Edit Details to change it.', 'error');
     return;
   }
@@ -12446,6 +12465,7 @@ function openEdit(id) {
   // reset _addLivToFamilyId — openAddLivelihoodToFamilyMember() deliberately
   // sets that BEFORE calling openEdit() and depends on it surviving this call.
   _editingExistingFamilyLivelihood = false;
+  _v175LivChipOnAtOpen = false;
   // For an editable family-member record (b.headId present), still show the
   // family-member UI mode: hide livelihood section, show Relation dropdown.
   // The save path stays in the normal edit branch and preserves b.headId via
@@ -12469,8 +12489,12 @@ function openEdit(id) {
   // she already has real livelihood data, this is just an ordinary edit of
   // it. _editingExistingFamilyLivelihood distinguishes this from a genuine
   // NEW promotion so the "Add Intervention" confirm modal doesn't fire.
+  // V17.5: `i &&` added. Without it a stray null beside the advocacy tag reads
+  // as livelihood here while getLivelihoodData and _v174Stage both read the
+  // record as advocacy-only — and this predicate is what arms the un-enrol
+  // gate, so the app would offer to remove a livelihood she was never on.
   const editingFamilyMemberHasLivelihood = editingFamilyMember &&
-    (b.interventions || []).some(i => i !== 'Advocacy (Govt. Schemes)');
+    (b.interventions || []).some(i => i && i !== 'Advocacy (Govt. Schemes)');
   if (editingFamilyMemberHasLivelihood) {
     const headRec = loadData().find(x => x.id === b.headId);
     const head = headRec || { id: b.headId, name: '(head record removed)' };
@@ -12609,6 +12633,20 @@ function openEdit(id) {
   // Restore programme chips + livelihood sub-chips from stored interventions.
   const LIV_TYPES_ENR = getLivTypes();
   const hasLivInt = (b.interventions||[]).some(i => LIV_TYPES_ENR.includes(i));
+  // V17.5: remember whether the Livelihood PROGRAMME chip actually ended up
+  // ticked when this record was loaded. The un-enrol path must mean "the FC
+  // turned this off", and only this tells us it was ever on.
+  //
+  // It is NOT the same question as editingFamilyMemberHasLivelihood above.
+  // That one asks "is any intervention non-advocacy"; this one asks "is it in
+  // the configured chip list". They disagree for a free-text "Other" value, for
+  // a type an admin has since removed from config/livtypes, and — on a cold
+  // device — for ANY admin-added type, because getLivTypes() falls back to the
+  // seven hardcoded defaults until config hydrates over the network. In every
+  // one of those cases the form opens with Livelihood UNTICKED, so without this
+  // flag an ordinary save (fixing a phone number) would compute livOn === false
+  // and offer to delete an intervention the FC never touched.
+  _v175LivChipOnAtOpen = hasLivInt;
   const hasAdvInt = (b.interventions||[]).includes('Advocacy (Govt. Schemes)');
   // Programme chips
   document.querySelectorAll('#prog-chips .ichip').forEach(c => {
@@ -12755,6 +12793,7 @@ function closeEnroll() {
   // form the FC opens.
   _addLivToFamilyId = null;
   _editingExistingFamilyLivelihood = false;
+  _v175LivChipOnAtOpen = false;
   const _livHint = document.getElementById('liv-baseline-hint');
   if (_livHint) _livHint.remove();
   _applyFamilyMemberModeUI(null);
@@ -13702,7 +13741,40 @@ async function _submitEnrollInner() {
   // so this check now genuinely enforces "no orphaned family members" —
   // a family member can no longer be saved without being enrolled in at
   // least one real programme (Livelihood, Advocacy, or both).
-  if (!livOn && !advOn) { showError('Please select at least one programme — Livelihood, Advocacy, or both.', 'prog-chips'); return; }
+  // V17.5: computed HERE, above the programme rule, because 7 of the 8 live
+  // records this release exists to correct are livelihood-ONLY family members
+  // — no advocacy tag at all. Un-ticking Livelihood on one of them leaves both
+  // programmes off, so the rule below fired first and the removal was still
+  // impossible. Forcing the FC to tick Advocacy instead would have meant
+  // inventing a government-scheme enrolment to undo a mis-tap, which is the
+  // same manufactured data V17.1 and V17.3 were about removing.
+  //
+  // A family member with no livelihood is advocacy-only BY DEFINITION — that
+  // is how "+ Add Family Member" creates them and how the bulk importer
+  // records them. So the removal returns her to her natural state rather than
+  // leaving her with no programme, and the write below sets the advocacy tag
+  // explicitly instead of relying on the chip.
+  //
+  // ⛔ _v175LivChipOnAtOpen is what makes this safe — see its declaration.
+  // Cleared on EVERY save, not just un-enrolling ones — otherwise a removal
+  // would leave the note set and the next unrelated edit of any record would
+  // be logged as "Removed livelihood intervention …".
+  _v175UnenrolNote = '';
+  const isUnenrollingFamilyLivelihood =
+    isAddingLivelihoodToFamily && !livOn &&
+    _editingExistingFamilyLivelihood && _v175LivChipOnAtOpen;
+  // The other half of that split: she HAS a livelihood activity, but the form
+  // cannot show it — a free-text "Other" value, or a type missing from
+  // getLivTypes() (which on a cold device is every admin-added type until
+  // config/livtypes hydrates). The programme chip is off, so removal must not
+  // be offered; but refusing the save left the record BOTH un-removable and
+  // un-editable, with a message saying "nothing is selected" while her activity
+  // was visible on screen in the Other box. Let the save through as an ordinary
+  // edit and leave `interventions` untouched, so her phone number can be fixed.
+  const isPreservingHiddenLivelihood =
+    isAddingLivelihoodToFamily && !livOn &&
+    _editingExistingFamilyLivelihood && !_v175LivChipOnAtOpen;
+  if (!livOn && !advOn && !isUnenrollingFamilyLivelihood && !isPreservingHiddenLivelihood) { showError('Please select at least one programme — Livelihood, Advocacy, or both.', 'prog-chips'); return; }
   if (livOn && livChips.length === 0) { showError('Livelihood is selected — please pick at least one intervention type.', 'ichips'); return; }
   if (livOn && livOtherOn && !livOtherText) { showError('"Other" is ticked — please type the intervention name in the text box, or untick it.', 'liv-other-text'); return; }
   // V5.3: this whole flow exists to add a REAL livelihood intervention — if
@@ -13711,8 +13783,22 @@ async function _submitEnrollInner() {
   // inherited baseline onto a record that's still advocacy-only, which is
   // pointless data and defeats the button's own purpose. Block it plainly
   // instead of letting it through inert.
-  if (isAddingLivelihoodToFamily && !livOn) {
-    showError('Please select at least one livelihood intervention type — that\'s what this form is for. To edit only her advocacy schemes, use Edit Details instead.', 'prog-chips');
+  // V17.5: un-ticking Livelihood used to be refused outright, with a message
+  // telling the FC to "use Edit Details instead" — the screen they were
+  // already on. There was no way anywhere in the app to take a livelihood
+  // activity back off a family member, so a mis-tap was permanent. The live
+  // data has 8 such records, all created in the three weeks to 10 Aug 2026,
+  // two of them plainly wrong (a man recorded as his own wife, another as his
+  // own father). Each was counted in the livelihood totals with a baseline
+  // income attached, and no one in the field could correct it.
+  //
+  // Now: removing it is allowed when she ALREADY has the intervention (the
+  // Edit Details route). The refusal is kept only for the "+ Add Livelihood
+  // Intervention" button itself, where there is nothing to remove and the
+  // right answer is simply to cancel — reworded, because the old sentence
+  // named the screen the FC was standing on.
+  if (isAddingLivelihoodToFamily && !livOn && !isUnenrollingFamilyLivelihood && !isPreservingHiddenLivelihood) {
+    showError('No livelihood intervention is selected, so there is nothing to add. Tap Cancel to leave this record as it is.', 'prog-chips');
     return;
   }
 
@@ -13916,19 +14002,61 @@ async function _submitEnrollInner() {
     // none of the land/livestock/sources/income validation above was
     // skipped for her.
     fields.relation      = relation;
-    fields.hhSize        = 1;
-    fields.sources       = sources;
-    fields.land          = landVal;
-    fields.livestock     = livestockVal;
-    fields.baseIncome    = isNaN(total) ? 0 : total;
-    fields.interventions = interventions;
+    // V17.5: on removal the advocacy tag is written EXPLICITLY, not taken from
+    // the chip. 7 of the 8 live records are livelihood-only, so `interventions`
+    // would be [] here — and an empty list is not a valid beneficiary. A family
+    // member with no livelihood is advocacy-only by definition, which is how
+    // "+ Add Family Member" and the bulk importer both create them.
+    //
+    // ⚠ advOn is FALSE on this path for those 7, so no advocacy record is
+    // created and she is left tagged Advocacy with no schemes. That state is
+    // NOT new — 74 live records (0.1%), 16 of them family members, are already
+    // in it — but it is uncommon, and after ~60 days it raises the "advocacy-
+    // tagged but no schemes logged" alert. The confirm therefore tells the FC
+    // to log a scheme. An earlier comment here claimed advOn must be true;
+    // that was written before the programme rule was exempted above, and was
+    // wrong.
+    // isPreservingHiddenLivelihood writes NOTHING here: the spread
+    // {...data[idx], ...fields} then keeps her stored interventions, which is
+    // the only correct answer when the form cannot represent them.
+    if (!isPreservingHiddenLivelihood) {
+      fields.interventions = isUnenrollingFamilyLivelihood
+        ? ['Advocacy (Govt. Schemes)']
+        : interventions;
+    }
+    if (isUnenrollingFamilyLivelihood) {
+      // V17.5: taking the livelihood activity back OFF. `interventions` is
+      // already advocacy-only here — livChips are cleared the moment the
+      // Livelihood chip is unticked, and advOn must be true or the "select at
+      // least one programme" check above would have stopped us.
+      //
+      // status is cleared because she is leaving the livelihood pipeline; a
+      // stale 'Enrolled' would keep her in the stage filters and the funnel.
+      //
+      // land / livestock / sources / baseIncome are deliberately NOT written.
+      // The spread {...data[idx], ...fields} preserves whatever is already
+      // stored. Baseline income in particular is a HOUSEHOLD figure, two-way
+      // synced with the head by _cascadeFamilySync — blanking it here would
+      // reach across and damage the head's record too.
+      fields.status = null;
+    } else {
+      fields.hhSize        = 1;
+      fields.sources       = sources;
+      fields.land          = landVal;
+      fields.livestock     = livestockVal;
+      fields.baseIncome    = isNaN(total) ? 0 : total;
+    }
     // Cheap marker: this record's baseline concept originated from the
     // head's household income rather than her own independent history.
     // Never read by any save/validation path today — costs nothing to
     // store, and lets a future report change (e.g. "count each household's
     // starting income once, not per promoted member") identify these
     // records without guessing from the data alone.
-    fields._baselineInheritedFromHeadId = _editingFamilyHeadId;
+    // V17.5: only on a PROMOTION. Stamping it on a removal would tag a record
+    // that has just LEFT livelihood as one whose livelihood baseline came from
+    // the head — the opposite of what the marker means, and misleading for the
+    // very future report the comment above anticipates.
+    if (!isUnenrollingFamilyLivelihood) fields._baselineInheritedFromHeadId = _editingFamilyHeadId;
   } else {
     // Normal beneficiary (livelihood and/or advocacy).
     // V17.1: parseInt('') is NaN, and NaN is not valid JSON — Firebase would
@@ -14026,6 +14154,48 @@ async function _submitEnrollInner() {
         { okLabel: 'Add Intervention', title: 'Add Livelihood Intervention' });
       if (!ok) return;
     }
+    // V17.5: removing the livelihood activity from a family member.
+    if (isUnenrollingFamilyLivelihood) {
+      const _rec = data.find(x => x.id === editingId) || {};
+      // ⛔ REFUSE if an endline income exists. That is a real, measured
+      // before-and-after pair — the thing the whole programme is here to
+      // record. Quietly stranding it while "fixing" a mis-tap would be a
+      // worse bug than the one being fixed, so the destructive case is
+      // blocked outright rather than confirmed away. None of the 8 records
+      // in the live data has one, so every one of them is correctable today.
+      // V17.5: `endIncome != null` alone was NOT the whole test. When an NGO
+      // Partner reverts a Completed record, updateStatus moves the real figures
+      // onto `_revertedEndline` and leaves endIncome null — so the guard passed
+      // and the removal went through. The archive can only be restored from a
+      // drawer button gated on the record still being livelihood, so removing
+      // the activity put a measured income gain permanently out of reach. The
+      // codebase already had the right shape in _cascadeFamilySync; this now
+      // matches it, plus the revert archive.
+      const _hasMeasuredImpact = _rec.endIncome != null || !!_rec._revertedEndline ||
+                                 (Array.isArray(_rec.incomeLog) && _rec.incomeLog.length > 0);
+      if (_hasMeasuredImpact) {
+        showError('This person already has endline income recorded, so the livelihood activity cannot be removed here — that would leave the measured income change with nothing attached to it. Ask your NGO Partner to review the record.', 'prog-chips');
+        return;
+      }
+      const _had = (_rec.interventions || [])
+        .filter(i => i && i !== 'Advocacy (Govt. Schemes)').join(', ') || 'the livelihood activity';
+      const _headRec = _editingFamilyHeadId ? data.find(x => x.id === _editingFamilyHeadId) : null;
+      const _headNm  = _headRec ? (_headRec.name || _headRec.id) : 'the head of family';
+      const ok2 = await showConfirmModal(
+        `Remove "${_had}" from ${name}?\n\n` +
+        `${name} will go back to being tracked for Advocacy only, and will no longer appear in livelihood reports.\n\n` +
+        `The household details and baseline income stay on the record, and ${_headNm}'s record is not affected. ` +
+        `You can add a livelihood intervention again later if this was a mistake.\n\n` +
+        `If no government scheme has been logged for ${name} yet, please log one from Advocacy → Log — ` +
+        `otherwise this record will show up as an alert for having no schemes.`,
+        // danger:true turns the OK button red. Without it this deletion looked
+        // pixel-identical to the ADDITIVE "Add Intervention" confirm twenty
+        // lines above — the file's own convention marks destructive confirms
+        // (see the stage revert), and this is the only destructive one here.
+        { okLabel: 'Remove Livelihood', title: 'Remove Livelihood Intervention', danger: true });
+      if (!ok2) return;
+      _v175UnenrolNote = _had;
+    }
     // EDIT mode — update existing record, preserve status/dates/endline
     const idx = data.findIndex(b => b.id === editingId);
     if (idx >= 0) {
@@ -14083,9 +14253,14 @@ async function _submitEnrollInner() {
       const diff = _auditDiff(before, data[idx], ['photo','endlinePhoto','photoUrl','endlinePhotoUrl']);
       if (diff) {
         const changedKeys = Object.keys(diff);
-        auditLog('update', 'beneficiary', editingId, data[idx].name,
-          `Edited ${changedKeys.length} field${changedKeys.length===1?'':'s'}: ${changedKeys.slice(0,5).join(', ')}${changedKeys.length>5?' ':''}`,
-          diff);
+        // V17.5: a removal is not an ordinary edit. Without this the log read
+        // "Edited 3 fields: relation, interventions, status" — indistinguishable
+        // from a name correction, so the additive and the destructive action
+        // looked the same to anyone reviewing the log afterwards.
+        const _summary = _v175UnenrolNote
+          ? 'Removed livelihood intervention "' + _v175UnenrolNote + '" — now tracked for Advocacy only'
+          : `Edited ${changedKeys.length} field${changedKeys.length===1?'':'s'}: ${changedKeys.slice(0,5).join(', ')}${changedKeys.length>5?' …':''}`;
+        auditLog('update', 'beneficiary', editingId, data[idx].name, _summary, diff);
       }
       // V5.6: one summary audit entry for the household-field cascade (not
       // one per family member) — matches the pattern Move FC to NGO / NGO
