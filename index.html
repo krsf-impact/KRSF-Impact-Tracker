@@ -8,137 +8,200 @@
   cost every user ~155 KB of gzipped download on every load for text no
   browser reads. The two most recent releases are kept below.
   ============================================================================
-  V17.1-LIVE (2026-08-12 - the enrolment form: what it demands, and whether you can read it):
+  V17.4-LIVE (2026-08-12 - a livelihood record with no stage, and the zero V17.3 threw away):
     + ONLY index.html CHANGES. sw.js, login-bg.jpg and villages.js are all
       unchanged from V16.9 - do not re-upload them.
 
-    + 1.7 (FAMILY MEMBERS) AND 1.10 (SOURCES OF LIVELIHOOD) ARE NO LONGER
-      COMPULSORY FOR AN ADVOCACY-ONLY BENEFICIARY. The case that drove it: a
-      six-year-old enrolled for an Ayushman card. That child has no livelihood
-      source and nobody surveyed the household, but both fields were mandatory,
-      so the only way past the screen was to type a number that is not true.
-      An invented "1" is worse than an honest blank - it is the same made-up
-      data the V15/V16 map work spent a week removing.
-      A blank is now stored as a blank. Checked first that nothing divides by
-      hhSize (it is displayed and exported, nothing else) and that every reader
-      of b.sources already guards for an empty list - family-member records
-      have stored exactly that since V5.3. 1.11 was already exempt (V319);
-      1.6 / 1.8 / 1.9 were already optional and are untouched.
-      parseInt('') is NaN, which is not valid JSON - a blank family size is
-      now stored as an explicit empty value rather than reaching Firebase.
+    + THE BLANK LIFECYCLE STAGE. Only the CREATE branch ever stamped one
+      (status: livOn ? 'Enrolled' : null). The edit branch is
+      { ...data[idx], ...fields } and 'fields' has never contained status - the
+      comment above it says "preserve status/dates/endline", which is exactly
+      what it did. So promoting an Advocacy-only beneficiary to Livelihood by
+      EDITING her record left her with no stage at all, and:
+        - the drawer tests 'Enrolled', then 'Intervention In Progress', and
+          otherwise prints "Lifecycle complete" - so the app told the FC she had
+          FINISHED the programme, directly under a "Current stage: -";
+        - the endline photo screen refused her outright;
+        - no stage filter could surface her (b.status === livStage);
+        - the funnel counted her in the livelihood total and in no bucket.
+      Fixed on BOTH sides: the write path now stamps the stage, and _v174Stage
+      reads a blank as 'Enrolled' at the 13 places it mattered, which repairs
+      records already saved that way with no data write and no Firebase cost.
+      ONLY when the stage is absent - a beneficiary at 'Intervention In
+      Progress' or 'Completed' edited for an unrelated reason must never be
+      reset to 'Enrolled'. That guard is the assertion that matters most.
+      Deliberately NOT done inside loadData(), which deep-clones every record
+      on every call: a per-record pass there is paid ~124,000 times per call.
 
-    + THE ASTERISK NOW TELLS THE TRUTH, IN BOTH LANGUAGES. It used to live
-      inside the data-en / data-gu strings, and SIX required labels carried no
-      asterisk in the Gujarati string at all - 1.4a State, 1.4b District, 1.10,
-      1.11, 2.1 NGO Partner and Livelihood Intervention Types. A Gujarati-
-      reading FC could not see those fields were compulsory until the form
-      refused to save. The marker is now a <span class="req"> sibling of the
-      label text, so it is the same in every language, and turning it off for
-      an advocacy-only record is one class on the overlay instead of a rewrite
-      of the very attributes the language switcher renders from.
+    + THE ZERO V17.3 THREW AWAY - AND IT WOULD HAVE HIT HALF THE LIVELIHOOD
+      RECORDS. V17.3 made 0 a deliberate answer for 1.8 / 1.9 (a landless
+      household holds 0 acres). But openEdit's own setter is
+      `el.value = val || ''`, which turns a stored 0 back into an EMPTY BOX.
+      So a landless household saved correctly under V17.3, and then - opened
+      two weeks later to fix a spelling - was told "1.8, 1.9 still need an
+      answer" and could not be saved at all. Measured against the May export:
+      54 of 102 livelihood records (53%) carry a zero in land or livestock.
+      The guard on the way IN is worth nothing while the way OUT is a falsy
+      check. Found by an independent review, not by me.
 
-    + THE FORM WAS HARD TO READ, AND THE NUMBERS SAY WHY. Field borders were
-      #E5E7EB: 1.24:1 against white, where 3:1 is the floor for the boundary of
-      a control. The boxes were being found by the text inside them, not by
-      their edges. Now #8A93A6, 3.09:1. Labels were 11px GREY CAPITALS on a
-      laptop - the phone stylesheet had already fixed this and the desktop rule
-      never got it; both now agree at 12.5px sentence case. And a question sat
-      10px from the next one, the same 10px separating a label from its own
-      input, so there was no visual difference between "next field" and "same
-      field": now 18px, with 30px between sections.
+    + THE NOTE AND THE VALIDATOR DID DISAGREE, DESPITE "SHARING" A FUNCTION.
+      _v173LivMissing took a {skipHhSize} option that the save path passed and
+      the note did not. In Add-Family-Member mode - where 1.7 is hidden because
+      household size is inherited from the head - the note listed "1.7" for
+      ever, naming a question that was not on the screen, while the save went
+      through. Sharing a function guarantees nothing if the callers can
+      parameterise it differently. It now takes NO arguments: a field the FC
+      cannot SEE is never demanded, decided identically for both. That also
+      closes a latent unsaveable record, where the save error could scroll to
+      and focus a field inside a display:none wrapper.
 
-    + THE FORM OVERFLOWED ITS OWN MODAL ON A PHONE, AND HAD FOR A LONG TIME.
-      At 375px the content ran 21 px past the right edge on V17, cutting
-      "Daily Labour", "Forest-based" and "Other" in half. Reported from the
-      field, not found by me. Two causes with one shape: a CSS grid track
-      defaults to min-width:auto, so it cannot shrink below its content's
-      intrinsic minimum. The sources chips were pinned to three columns by an
-      INLINE style - which no media query can override - and the State /
-      District selects are as wide as their longest option. Both forced their
-      track wider than the modal.
-      Fix: the column count moves out of the inline style so a phone can use
-      two columns, and min-width:0 on the grid items lets a track shrink to
-      the space that actually exists. Nothing overflows now, at 375px or on a
-      laptop. formcss.js gains 5 checks, all failing against V17.
+    + THE NOTE COULD NOT BE CLEARED. Two flows set the income box from script
+      AFTER the note had been computed, and one of them then makes the box
+      readOnly. Setting .value fires no input event, so the note kept naming
+      1.11 beside a visibly filled, locked box that no typing could refresh.
+      Both flows now re-sync.
 
-    + 1.11 IS NO LONGER YELLOW. The amber background was hard-coded onto that
-      one input in V4.1 to mark it as the baseline income figure. Nothing else
-      in the form is amber; the .fg input.required rule that uses the same
-      colour is DEAD CSS (nothing ever adds the class - a missed field is
-      flagged by the red banner plus scroll-and-focus); and against V17.1's
-      stronger borders a permanently tinted box reads as a permanent warning.
-      The red * and the note underneath carry the weight instead.
+    + "STILL EMPTY" WAS A FALSEHOOD ABOUT 1.11. Income of exactly 0 is refused
+      on purpose - a zero baseline divides by zero in the Reports percentage
+      maths - but the box is visibly FILLED, and a note calling it empty leaves
+      the FC one rational move: invent a number. The message now says what is
+      actually wrong: "needs a figure above 0".
 
-    + --gray1 WAS REFERENCED 66 TIMES AND NEVER DEFINED. An undefined custom
-      property makes the whole declaration invalid, so every one of those
-      colours silently fell back to whatever the container had. On light
-      surfaces it landed close enough that nobody noticed. Now defined.
+    + 1e3 WAS ACCEPTED AS AN ANSWER AND STORED AS SOMETHING ELSE. The new
+      guards used Number() while the storage code uses parseInt: Number('1e3')
+      is 1000 and passes every check, parseInt('1e3') is 1. The form accepted
+      one answer and recorded another. Plain decimals only now.
 
-    + WHY THE CSS IS EDITED IN PLACE RATHER THAN SCOPED TO THE FORM. The
-      obvious "#enroll-overlay .fg input { ... }" carries specificity (1,1,1),
-      which outranks .fg input:focus (0,2,1) and .ichip.on (0,2,0) - both
-      plain-class rules. It would have flattened the navy focus ring and the
-      selected-chip colour to one dead border, with nothing thrown and nothing
-      logged: on a phone the focus ring is the only signal of which field the
-      keyboard is attached to. Only spacing is scoped, where nothing competes.
-      _tests/formcss.js locks this in and fails the moment an ID-scoped colour
-      rule reappears.
-      (Noted while checking: .fg input.required - the amber highlight - is
-      DEAD CSS. Nothing anywhere adds that class; a missed field is flagged by
-      the red banner at the top of the modal plus scroll-and-focus. Left in
-      place, but it is not a working state and should not be cited as one.)
+    + THE FILTER CHIP WOULD HAVE LIED. Making the livelihood stage filter count
+      blank-stage records meant the chip said 12 and clicking it listed 15. The
+      counts and the filter are now computed the same way. Caught in review of
+      my own change, before shipping.
 
-    + _tests/enrollreq.js 15 -> 21 checks, plus formcss.js (27, new). All
-      confirmed FAILING against V17 first. enrollreq.js also gained the ability
-      to read an older snapshot - without it, it silently re-read the current
-      build and reported ALL CLEAR against V17, a green that proved nothing.
+    + WHY V17.3 SHIPPED WITH THE ZERO BUG: its 36 tests never executed a single
+      line of the new code. They were regex against the source, and the one
+      described as "the single most important assertion here" checked that
+      `if (!land)` does not appear - which was true, while a different falsy
+      check three thousand lines away undid the whole thing. enrollreq.js is
+      now 64 checks and RUNS the code, including the openEdit round trip that
+      would have caught it. livstatus.js (42, new) lifts _v174Stage out and
+      drives it over twelve records. All confirmed FAILING against V17.3.
 
-    + Four releases of changelog (V16.9 back to V16.6) moved out of this file
-      into CHANGELOG.md. The header said it kept the two most recent and was
-      keeping six. No Firebase read or write changed. No data touched.
+    + FOUND BY A SECOND REVIEW, BEFORE THIS SHIPPED - a half-migrated helper is
+      worse than none. _v174Stage was used in the Livelihood tab and the
+      funnels but NOT in seven other places, so the app disagreed with itself:
+        - the drawer's STATUS PILL said "-" while the Update Progress block
+          110 lines below it, in the same drawer, said "Baseline Completed";
+        - the CSV EXPORT wrote "-" while the screen counted the same record as
+          Enrolled. That is the file the foundation reports from;
+        - the 90-day and 180-day FOLLOW-UP ALERTS were silent on precisely
+          these records - and after the write-path fix, the only ones left with
+          a blank stage are the oldest promoted-by-edit backlog, the ones most
+          likely to be genuinely stuck;
+        - the MAP drew them as grey "unknown" pins labelled "Status -" and the
+          stage filter hid them;
+        - the DAILY PULSE counted them in no bucket.
+      All seven now read through the helper. The stage <select> in the table,
+      Reports and the portfolio percentages already agreed and were untouched.
 
-  V17-LIVE (2026-08-11 - the stuck map, properly this time; and bubbles that lead somewhere):
+    + 1.7 WAS THE ONE FIELD THE 1e3 GUARD MISSED - and the only one where the
+      mismatch was real. Its storage uses parseInt, so typing 1e3 passed the
+      validator and recorded a household of 1: the form accepted "1000" and
+      stored "1", the exact defect this changelog claimed to have closed, one
+      field away. (1.8 stores via parseFloat, where Number and parseFloat
+      agree, so it never had the problem.) And a value that is PRESENT but
+      unusable now says why for 1.8 / 1.9 as well as 1.11 - refusing a save
+      with "needs an answer" while the box visibly contains one is the same
+      falsehood, reintroduced next door.
+
+    + THE NOTE RE-SYNC WAS INSIDE AN `if`, SO IT MISSED THE CASE IT WAS ADDED
+      FOR. Both family flows reveal the livelihood fields AFTER the note has
+      been computed against a display:none section. The re-sync was nested in
+      the "no baseline income yet" branch, so for a family member who DOES
+      have an income it never fired: the note stayed hidden, the form looked
+      complete, and Save then refused with "1.10 Sources of Livelihood" from a
+      section scrolled far above - precisely the surprise the note exists to
+      prevent. Both now recompute LAST, unconditionally.
+
+    + _v174Stage's livelihood test now matches getLivelihoodData's exactly
+      (`i && i !== ADV_SENTINEL`). Without the truthiness guard a record
+      holding a null entry beside the advocacy tag was advocacy-only to the
+      Livelihood tab and livelihood to the helper.
+
+    + KNOWN, NOT FIXED: a stage change arriving from another device while a
+      confirm modal or photo upload is open can be read as blank and stamped
+      'Enrolled'. The surrounding save already writes a stale whole-array, so
+      the lost update is pre-existing and not introduced here.
+
+  V17.3-LIVE (2026-08-12 - a livelihood record with no baseline, and a form that never said so):
     + ONLY index.html CHANGES. sw.js, login-bg.jpg and villages.js are all
       unchanged from V16.9 - do not re-upload them.
 
-    + THE MAP STUCK ON "Loading map..." - THE REAL CAUSE, AND IT IS NOT WHAT
-      V16.4 FIXED. I said this was fixed in V16.4. It was not, and the symptom
-      came straight back: open the map, go to Dashboard, come back, "Loading
-      map..." forever.
-      The actual cause is the V357 tab cache. It snapshots #content's innerHTML
-      after a renderer runs and, on return, restores the snapshot and RETURNS
-      WITHOUT CALLING THE RENDERER. That is sound for a view whose HTML is its
-      content. renderMap is not one: it writes "Loading map..." into the
-      container and Leaflet builds the map about 50 ms later, asynchronously.
-      So the cache captured the loading message and replayed it every time.
-      It could never have worked even with better timing - restoring innerHTML
-      builds a BRAND NEW #field-map element while the live Leaflet instance is
-      still bound to the old detached one. A canvas a renderer draws into
-      cannot be rebuilt from a string.
-      Fix: a _v357NeverCache set, checked BEFORE the cache lookup, containing
-      'map'. The V16.4 teardown guard stays - it protects a real, separate
-      path - but it was not this.
+    + REPORTED: a Livelihood enrolment should not go through with the income,
+      sources and land-holding questions empty, and the FC should be TOLD what
+      is needed rather than discovering it when Save refuses.
 
-    + WHY ONLY ONE PERSON EVER SAW IT. _v357CacheEnabled() returns true only
-      for role 'admin'. All 559 coordinators were never served from this cache,
-      so the map worked for every one of them and broke for the single person
-      who opens it most.
+    + 1.8 LAND HOLDING AND 1.9 LIVESTOCK ARE NOW REQUIRED FOR LIVELIHOOD.
+      They never were. Worse, a blank one was silently written as
+      `parseFloat('') || 0` - the FACT "0 acres", indistinguishable from a
+      genuinely landless household. Requiring the field is what makes that 0
+      mean something. Advocacy-only records are unaffected: for them all five
+      of 1.7 / 1.8 / 1.9 / 1.10 / 1.11 stay optional, as of V17.1.
 
-    + A BUBBLE WAS A DEAD END. It told you six people were here and gave no way
-      to reach any of them: the precise GPS pins had "View Full Profile" and the
-      bubbles - which hold 97% of everyone on the map - had nothing at all.
-      The popup now lists who is inside, each name clicking through to that
-      person's profile. Listed in place rather than sending you to another
-      screen to re-filter, because the bubble already knows exactly who it
-      stands for. Capped at 12 with an honest "showing 12 of 400", since a
-      bubble can hold thousands and a popup cannot. Taluka bubbles get the same
-      treatment - they carry 20% of everyone on the map.
+    + ZERO IS A REAL ANSWER, AND THIS IS THE BUG THIS RELEASE MOST NEARLY
+      SHIPPED. A landless household holds 0 acres; a household with no animals
+      owns 0 livestock. Both are common. Written the obvious way - `if (!land)`
+      - a presence check treats 0 as missing and makes every landless farmer
+      IMPOSSIBLE TO ENROL. The test is "is the box empty", never "is the value
+      falsy". _v173NumBlank does that, and _tests/enrollreq.js §7 is the guard.
 
-    + mapv15.js grows to 79 checks (was 67). All 12 new ones were confirmed
-      FAILING against V16.9 before being accepted.
+    + A NEGATIVE NUMBER PASSED EVERY CHECK IN THE FORM. `!total || isNaN(total)`
+      is false for -50000, and the only other guards are upper caps (> 50
+      acres, > 500 livestock, > 500000 income). The inputs carry min="0", but
+      the Save button is not inside a <form> and nothing calls reportValidity,
+      so min was decorative. A stray minus wrote baseIncome: -50000; an endline
+      of 60,000 then reported +110,000 of impact that never happened, straight
+      into the aggregate figure the foundation reports on. Now refused for
+      every field and every programme.
 
-    + No Firebase read or write changed. No data touched. Nothing new is
-      fetched: the names in the popup come from records already in memory.
+    + THE VALIDATOR WAS MANUFACTURING THE INVENTED DATA IT EXISTS TO PREVENT.
+      The 1.7 / 1.10 / 1.11 checks ran BEFORE the "please select a programme"
+      check, and were gated on !isAdvocacyOnly - which is TRUE when nothing has
+      been picked yet. So an FC who had not yet chosen a programme was stopped
+      at 1.11 and told income was required, while the form showed no asterisk
+      on it (correctly - V17.2 - since it does not know yet). They typed a
+      number to get past the screen, THEN ticked Advocacy; the check skipped,
+      the typed number stayed in the DOM, and baseIncome: 1 was written.
+      All five checks are now gated on livOn, so the question is only asked
+      once it can be answered.
+
+    + THE FC IS NOW TOLD, IN BOTH LANGUAGES. Section 1 sits ABOVE the Programme
+      chip, so by the time Livelihood is ticked those fields have scrolled out
+      of view. A note under the chips now names the ones still empty and
+      updates as they are filled, so it disappears by itself. On Save, one
+      message lists every missing field instead of refusing one at a time.
+      Both read from the SAME _v173LivMissing, so the form cannot warn about
+      one set of fields and then refuse for another.
+
+    + "Advocacy is selected - please tick at least one scheme" was written
+      straight into the banner without scrolling to it, so an FC scrolled down
+      to the scheme panel saw the Save button re-enable and nothing else. It
+      now goes through showError like every other refusal.
+
+    + _tests/enrollreq.js rewritten, 22 -> 36 checks; 18 confirmed FAILING
+      against V17.2. Behaviour verified by lifting the real functions into a
+      harness and driving twelve states, including the landless case: 0 acres
+      and 0 animals must SAVE, and does.
+
+    + KNOWN AND DELIBERATELY NOT FIXED HERE, found by the same audit:
+      - Promoting a beneficiary to Livelihood by editing leaves `status` null,
+        so the record joins the livelihood pipeline with no lifecycle stage and
+        no stage filter can surface her. Real, and bigger than this release.
+      - Income of exactly 0 is still refused. Kept on purpose: baseIncome 0
+        divides by zero in the percentage-change maths used in Reports.
+      - A family member cannot be un-enrolled from Livelihood; the error tells
+        the FC to use the screen they are already on.
+      - "+ Add Family Member" with Livelihood still writes hhSize: 1 without
+        asking. Documented as deliberate since V5.8.
 
 -->
 <html lang="en">
@@ -455,10 +518,20 @@ html,body{height:100%;font-family:var(--font);background:#EEF2F7;color:var(--tex
    is unaffected if a label above it is ever set in capitals again. */
 .req{color:var(--red);font-weight:700;margin-left:3px;text-transform:none;letter-spacing:0}
 .req-opt{display:none;margin-left:5px;font-weight:400;font-size:11px;color:var(--gray2);text-transform:none;letter-spacing:0}
-/* Advocacy-only: 1.7, 1.10 and 1.11 are not required, so the marker goes and
-   an explicit "(optional)" takes its place — a vanished asterisk tells the FC
-   the field is not compulsory, but not that leaving it blank is ALLOWED. */
-#enroll-overlay.adv-only .req-liv{display:none}
+/* Three states, not two — V17.2.
+   The question that decides whether 1.7 / 1.10 / 1.11 are required is 2.3
+   Programme, which sits BELOW them in the form. So an FC filling top-to-bottom
+   met the demand before reaching the question that waives it, typed an
+   invented family size, and only then ticked Advocacy. V17.1 removed the star
+   correctly but too late to help anyone.
+     Livelihood on            -> red *      (genuinely required)
+     Advocacy on, no Livelihood -> (optional)  (genuinely not)
+     nothing picked yet       -> NEITHER    (the form does not know, so it
+                                             must not claim it does)
+   Staying silent is the honest third state: the form cannot be saved with no
+   programme selected anyway, so nothing is lost by waiting to be told. */
+#enroll-overlay.adv-only .req-liv,
+#enroll-overlay.prog-unset .req-liv{display:none}
 #enroll-overlay.adv-only .req-opt{display:inline}
 /* V17.1 — enrolment form rhythm. A question was separated from the next one by
    10px, the same 10px that separates a label from its own input, so there was
@@ -475,6 +548,14 @@ html,body{height:100%;font-family:var(--font);background:#EEF2F7;color:var(--tex
    modal. min-width:0 lets the track shrink to the space that actually exists;
    the select then ellipsises and the chip label wraps, which is correct on a
    375px screen. Predates this release — V17 overflowed by 21px, V17.1 by 15. */
+/* V17.3: the "you still owe these" note under the Programme chips. Amber is
+   used deliberately and is now the ONLY amber left in the form — V17.1 removed
+   the permanent tint from 1.11 precisely so the colour could mean one thing:
+   something needs your attention, right now, and will go away when you fix it. */
+#liv-req-note{margin-top:10px;padding:10px 12px;border-radius:8px;
+  background:var(--amber2);color:var(--amber);border-left:3px solid var(--amber);
+  font-size:12.5px;line-height:1.5}
+#liv-req-note strong{font-weight:700;white-space:nowrap}
 #enroll-overlay .frow > .fg{min-width:0}
 #enroll-overlay .ichip{min-width:0}
 #enroll-overlay .ichip span{min-width:0;overflow-wrap:break-word}
@@ -3078,9 +3159,9 @@ body[data-shell="coord"] #_v352-install-btn {
            via the family-livelihood-fields id. -->
       <div id="family-livelihood-fields">
       <div class="frow">
-        <div class="fg"><label data-en="1.8 Land Holding (acres)" data-gu="જમીન (એકરમાં )">1.8 Land Holding (acres)</label><input id="f-land" type="number" min="0" max="50" step="0.1" placeholder="0.0"></div>
+        <div class="fg"><label data-en="1.8 Land Holding (acres)" data-gu="જમીન (એકરમાં )">1.8 Land Holding (acres)<span class="req req-liv">*</span><span class="req-opt" data-en="(optional)" data-gu="(વૈકલ્પિક)">(optional)</span></label><input id="f-land" type="number" min="0" max="50" step="0.1" placeholder="0.0"></div>
         <!-- V4.1: livestock collapsed from 3 fields to single total -->
-        <div class="fg"><label data-en="1.9 No. of Livestock" data-gu="પશુધનની સંખ્યા">1.9 No. of Livestock</label><input id="f-livestock" type="number" min="0" max="500" placeholder="cow + buffalo + goat" data-en-ph="cow + buffalo + goat" data-gu-ph="ગાય + ભેંસ + બકરી"></div>
+        <div class="fg"><label data-en="1.9 No. of Livestock" data-gu="પશુધનની સંખ્યા">1.9 No. of Livestock<span class="req req-liv">*</span><span class="req-opt" data-en="(optional)" data-gu="(વૈકલ્પિક)">(optional)</span></label><input id="f-livestock" type="number" min="0" max="500" placeholder="cow + buffalo + goat" data-en-ph="cow + buffalo + goat" data-gu-ph="ગાય + ભેંસ + બકરી"></div>
       </div>
       <!-- V4.1: Current Sources of Livelihood — multi-select chips, "Other" reveals text input -->
       <div class="frow full">
@@ -3139,6 +3220,20 @@ body[data-shell="coord"] #_v352-install-btn {
           <div class="ichip" data-prog="Livelihood" onclick="toggleProgChip(this)"><div class="ichip-box"></div><span data-en="Livelihood" data-gu="આવક વધારવાની કામગીરી">Livelihood</span></div>
           <div class="ichip" data-prog="Advocacy"   onclick="toggleProgChip(this)"><div class="ichip-box"></div><span data-en="Advocacy" data-gu="સરકારી લાભ અપાવવાની કામગીરી">Advocacy</span></div>
         </div>
+      </div>
+      <!-- V17.3: Section 1 sits ABOVE this chip, so by the time an FC ticks
+           Livelihood the fields it makes compulsory have already scrolled out
+           of view. Without this note the first they hear of it is the form
+           refusing to save. Lists only the ones still empty, and updates as
+           they are filled, so it disappears by itself. -->
+      <div id="liv-req-note" style="display:none">
+        <!-- V17.4: said "are still empty". 1.11 is also listed when it holds a
+             visible 0, so for that field the sentence was simply untrue — and
+             an FC told a filled box is empty will type something else into it.
+             "still need an answer" is true of every case in the list. -->
+        <span data-en="Livelihood selected — these questions in Section 1 above still need an answer before you can save:"
+              data-gu="આવક વધારવાની કામગીરી પસંદ કરી છે — સેવ કરતાં પહેલાં ઉપર વિભાગ ૧ ના આ પ્રશ્નોના જવાબ જરૂરી છે:">Livelihood selected — these questions in Section 1 above still need an answer before you can save:</span>
+        <strong id="liv-req-note-list"></strong>
       </div>
       <div class="fg" id="livelihood-types-wrap" style="margin-top:10px;display:none">
         <label style="margin-bottom:8px;display:block" data-en="Livelihood Intervention Type(s)" data-gu="આવક વધારવાની કામગીરીમાં - પ્રવૃતિઓ">Livelihood Intervention Type(s)<span class="req">*</span> <span style="font-weight:400;color:var(--gray2);font-size:11px" data-en="(multi-select)" data-gu="(બહુવિધ પસંદગી)">(multi-select)</span></label>
@@ -3809,7 +3904,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V17.1-LIVE';
+const APP_VERSION = 'V17.4-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -10605,6 +10700,40 @@ function toast(msg, type='') {
 let searchQ='', statusF='', intervF='';
 const INTERVS = ['Organic Farming','Animal Husbandry','Vermi-composting','Poultry','Fisheries','Forest-based Livelihood','Artisan / Craftsmanship','Advocacy (Govt. Schemes)'];
 const STAGES  = ['Enrolled','Intervention In Progress','Completed'];
+
+// V17.4: the livelihood stage of a record, treating a MISSING status as
+// 'Enrolled'.
+//
+// Only the CREATE branch ever stamped one — `status: livOn ? 'Enrolled' : null`
+// — while the edit branch is `data[idx] = { ...data[idx], ...fields }` and
+// `fields` has never contained `status`. The comment above it says "preserve
+// status/dates/endline", which is exactly what it did: promoting an
+// Advocacy-only beneficiary to Livelihood by editing her record left the
+// status null, and she joined the livelihood pipeline with no lifecycle stage.
+// What that did to her, in the app:
+//   • the drawer tests 'Enrolled', then 'Intervention In Progress', and
+//     otherwise prints "✓ Lifecycle complete" — so it told the FC she had
+//     FINISHED the programme, under a "Current stage: —" saying the opposite;
+//   • the endline photo screen refused her outright;
+//   • no stage filter could surface her (`b.status === livStage`);
+//   • the funnel counted her in the livelihood total and in no bucket.
+//
+// V17.4 stamps the stage on the write path so it cannot happen again. This
+// helper is for the records ALREADY saved that way — a repair that costs no
+// data write and no Firebase round-trip. Deliberately NOT done inside
+// loadData(): that returns a deep clone of every record on every call, so a
+// per-record pass there is paid ~124,000 times per call.
+//
+// An advocacy-only record returns '' and keeps no lifecycle, which is correct
+// — `status` was only ever designed for the livelihood pipeline.
+function _v174Stage(b) {
+  if (!b) return '';
+  if (b.status) return b.status;
+  // The `i &&` matters: getLivelihoodData uses the same guard, and without it
+  // a record holding a null entry alongside the advocacy tag counts as
+  // livelihood here and advocacy-only there.
+  return (b.interventions || []).some(i => i && i !== 'Advocacy (Govt. Schemes)') ? 'Enrolled' : '';
+}
 const STAGE_COLORS_LIST = {'Enrolled':'#F59E0B','Intervention In Progress':'#A78BFA','Completed':'#10B981'};
 const STAGE_TEXT  = {'Enrolled':'#B45309','Intervention In Progress':'var(--purple)','Completed':'#065F46'};
 const STAGE_BG    = {'Enrolled':'#FEF3C7','Intervention In Progress':'var(--purple2)','Completed':'#D1FAE5'};
@@ -10765,7 +10894,7 @@ function openDrawer(id) {
     ${_bulkStatusBannerHtml}
     ${hasLiv ? `<div class="ds">
       <div class="ds-title">Status</div>
-      <span class="status-pill ${SC[b.status]||''}" style="font-size:13px;padding:5px 12px"><span class="dot"></span>${stageLabel(b.status)}</span>
+      <span class="status-pill ${SC[_v174Stage(b)]||''}" style="font-size:13px;padding:5px 12px"><span class="dot"></span>${stageLabel(_v174Stage(b))}</span>
     </div>` : `<div class="ds">
       <div class="ds-title">Programme</div>
       <span class="pill pill-purple" style="font-size:13px;padding:5px 12px">Advocacy only</span>
@@ -10877,15 +11006,19 @@ function openDrawer(id) {
     ${hasLiv ? `<div class="ds"><div class="ds-title">Update Progress</div>
       <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
         <div style="font-size:12px;color:var(--gray2)">
-          Current stage: <strong style="color:${STAGE_COLORS[b.status]||'var(--gray2)'}">${stageLabel(b.status)}</strong>${b.status==='Intervention In Progress' && b.inProgressDate ? ` · Logged on ${fmtD(b.inProgressDate)}` : ''}${b.status==='Completed' && b.endlineDate ? ` · Endline on ${fmtD(b.endlineDate)}` : ''}
+          Current stage: <strong style="color:${STAGE_COLORS[_v174Stage(b)]||'var(--gray2)'}">${stageLabel(_v174Stage(b))}</strong>${b.status==='Intervention In Progress' && b.inProgressDate ? ` · Logged on ${fmtD(b.inProgressDate)}` : ''}${b.status==='Completed' && b.endlineDate ? ` · Endline on ${fmtD(b.endlineDate)}` : ''}
         </div>
-        ${b.status === 'Enrolled'
+        ${/* V17.4: a blank stage used to fall through BOTH tests to the else,
+              printing "✓ Lifecycle complete" for a beneficiary who had done
+              nothing at all — the most damaging thing the app could say about
+              her, and it said it under a "Current stage: —". */''}
+        ${_v174Stage(b) === 'Enrolled'
           ? `<button class="btn btn-sm btn-primary" onclick="updateStatus('${b.id}','Intervention In Progress')">Intervention In Progress</button>`
-          : b.status === 'Intervention In Progress'
+          : _v174Stage(b) === 'Intervention In Progress'
             ? `<button class="btn btn-sm btn-primary" onclick="openLogIncomeFor('${b.id}')">+ Log Income to Complete</button>`
             : `<span style="font-size:12px;color:var(--green);font-weight:600">✓ Lifecycle complete</span>`}
       </div>
-      ${_u && (_u.role === 'ngo' || _u.role === 'admin') && b.status !== 'Enrolled'
+      ${_u && (_u.role === 'ngo' || _u.role === 'admin') && _v174Stage(b) !== 'Enrolled'
         ? `<!-- V11: NGO Partners and Admins can revert stage transitions.
                  Field coordinators cannot — they must ask their NGO Partner to
                  correct mistakes. updateStatus() also enforces this at the JS
@@ -11621,7 +11754,15 @@ function openEnrollAsFamilyMember(headId) {
   // Step 3: Pre-fill shared household fields from the head. The FC can still
   // edit these (e.g. if the family member happens to live in a different
   // village) — they're inherited as a convenience, not locked.
-  const set = (elId, val) => { const el = document.getElementById(elId); if(el) el.value = val || ''; };
+  // V17.4: `val || ''` turned a stored ZERO into an empty box. Harmless while
+  // nothing required 1.8 / 1.9 — but V17.3 made 0 a deliberate answer for a
+  // landless household, and this threw it away on the way back in. Opening
+  // such a record to fix a spelling then showed "1.8, 1.9 are still empty" and
+  // refused to save, on a form asserting the FC had never answered. Measured
+  // against the May export: 54 of 102 livelihood records (53%) carry a zero in
+  // land or livestock and would have become uneditable. The guard on the way
+  // IN is worth nothing while the way OUT is a falsy check.
+  const set = (elId, val) => { const el = document.getElementById(elId); if(el) el.value = (val === 0 ? 0 : (val || '')); };
   // Build a list of what gets pre-filled, for display in the banner so the
   // FC can see at a glance what came from the head and what they need to
   // fill themselves (name, gender, phone — person-specific). Only fields
@@ -12039,6 +12180,16 @@ function _applyAddLivelihoodToFamilyUI(head, b) {
   });
   const unlockWrap = document.getElementById('family-member-unlock-wrap');
   if (unlockWrap) unlockWrap.style.display = (_familyMemberLockedFields.length > 0) ? '' : 'none';
+  // V17.4b: recompute the note LAST, unconditionally.
+  // advSyncProgrammeVisibility ran while #family-livelihood-fields was still
+  // display:none, so every gated field was invisible, _v173LivMissing returned
+  // nothing and the note hid itself. This function then reveals those fields.
+  // The first version of this re-sync sat inside the "no baseline income yet"
+  // branch above, so for a family member who DOES have an income it never
+  // fired: the note stayed hidden, she looked complete, and Save then refused
+  // with "1.10 Sources of Livelihood" from a section scrolled far above —
+  // precisely the surprise the note exists to prevent.
+  try { _v173SyncLivNote(); } catch (_) {}
 }
 
 // Inline warning state for the >₹5L baseline sanity check (replaces native
@@ -12365,7 +12516,15 @@ function openEdit(id) {
   _refreshLivelihoodChips();
   _refreshAdvocacySchemePanel();
   // Fill all fields with existing values
-  const set = (elId, val) => { const el = document.getElementById(elId); if(el) el.value = val || ''; };
+  // V17.4: `val || ''` turned a stored ZERO into an empty box. Harmless while
+  // nothing required 1.8 / 1.9 — but V17.3 made 0 a deliberate answer for a
+  // landless household, and this threw it away on the way back in. Opening
+  // such a record to fix a spelling then showed "1.8, 1.9 are still empty" and
+  // refused to save, on a form asserting the FC had never answered. Measured
+  // against the May export: 54 of 102 livelihood records (53%) carry a zero in
+  // land or livestock and would have become uneditable. The guard on the way
+  // IN is worth nothing while the way OUT is a falsy check.
+  const set = (elId, val) => { const el = document.getElementById(elId); if(el) el.value = (val === 0 ? 0 : (val || '')); };
   set('f-name', b.name); set('f-phone', b.phone); set('f-village', b.village);
   set('f-taluka', b.taluka || ''); set('f-hhsize', b.hhSize); set('f-land', b.land);
   setDistrictValue(b.district);
@@ -12682,12 +12841,148 @@ function toggleLivOtherChip(el) {
 //
 // Known limit: in Add-Family-Member mode 1.7 is also not required, but there it
 // is pre-filled from the head and locked, so the marker cannot mislead anyone.
+// V17.2: a THIRD state. 2.3 Programme sits below 1.7 / 1.10 / 1.11 in the
+// form, so until it is answered the form does not yet know whether those three
+// are required — and an FC filling top-to-bottom reaches them first. V17.1
+// showed the red * in that not-yet-known state, which is the very demand that
+// makes someone type an invented "1", so removing it later came too late to
+// help. Silence is the honest answer: no *, no "(optional)". Nothing is lost,
+// because the form cannot be saved with no programme selected anyway.
 function _v17SyncRequiredMarks() {
   const ov = document.getElementById('enroll-overlay');
   if (!ov) return;
   const livOn = !!document.querySelector('#prog-chips .ichip[data-prog="Livelihood"].on');
   const advOn = !!document.querySelector('#prog-chips .ichip[data-prog="Advocacy"].on');
-  ov.classList.toggle('adv-only', advOn && !livOn);
+  ov.classList.toggle('adv-only',   advOn && !livOn);
+  ov.classList.toggle('prog-unset', !advOn && !livOn);
+  _v173SyncLivNote();
+}
+
+// ── V17.3: the five livelihood baseline fields ───────────────────────────
+//
+// ⛔ 0 IS A REAL ANSWER. A landless household holds 0 acres; a household with
+// no animals owns 0 livestock. Both are extremely common here. So the test is
+// "did the FC leave it EMPTY", never "is the value falsy" — `if (!land)` would
+// make every landless farmer impossible to enrol, which is the worst bug this
+// change could ship. Blank must be distinguishable from zero, which is also
+// why this matters: saveBeneficiary stores `parseFloat(...) || 0`, so a blank
+// land holding has always been recorded as the FACT "0 acres". Requiring the
+// field is what makes that 0 mean something.
+function _v173NumBlank(id) {
+  const el = document.getElementById(id);
+  if (!el) return false;                       // not on the form -> not missing
+  const raw = String(el.value == null ? '' : el.value).trim();
+  if (raw === '') return true;                 // empty is the only "missing"
+  // V17.4: plain decimals only. Number('1e3') is 1000 and passed every guard,
+  // but the storage code uses parseInt, which reads '1e3' as 1 — the form would
+  // accept one answer and record a different one.
+  if (!/^-?(\d+\.?\d*|\.\d+)$/.test(raw)) return true;
+  return Number(raw) < 0;                      // negative is not an answer
+}
+
+// V17.4: a field the FC cannot SEE must never be demanded of them.
+// Add-Family-Member hides 1.7 (household size is inherited from the head) and
+// the add-livelihood-to-family flow deliberately leaves it hidden. The note
+// therefore listed "1.7" for ever, naming a question that was not on the
+// screen, and the save error could scroll to and focus an element inside a
+// display:none wrapper — an unsaveable form with no visible cause.
+// offsetParent is null for a hidden ancestor; getClientRects covers the
+// position:fixed case where offsetParent is null but the element is visible.
+function _v174Answerable(id) {
+  const el = document.getElementById(id);
+  if (!el) return false;
+  return !!(el.offsetParent || el.getClientRects().length);
+}
+
+// V17.4b: why a PRESENT value was refused. A box the FC can see something in,
+// refused with "this question needs an answer", is a falsehood — and the only
+// rational response to it is to type something else. Returns undefined for a
+// genuinely empty box, so the caller omits the clause.
+function _v174Junk(id) {
+  const el = document.getElementById(id);
+  const raw = el ? String(el.value == null ? '' : el.value).trim() : '';
+  if (raw === '') return undefined;
+  return Number(raw) < 0 ? 'cannot be a negative number' : 'must be a plain number, e.g. 0 or 2.5';
+}
+
+// ONE list, used by BOTH the note under the chips and the save-time check, so
+// the form can never warn about one set of fields and then refuse for another.
+// opts.skipHhSize is passed by the validator for family-member records, which
+// inherit household size from the head and do not track their own.
+// V17.4: takes NO arguments. It used to accept {skipHhSize}, which the save
+// path passed and the note did not — so the two "shared" the function but not
+// its arguments, and disagreed about 1.7 in exactly the case that mattered.
+// Sharing a function guarantees nothing if the callers can parameterise it
+// differently; visibility decides now, identically for both.
+function _v173LivMissing() {
+  const out = [];
+  // V17.4b: 1.7 goes through the same strict check. It did NOT, and 1.7 is the
+  // field where the mismatch was real: its storage uses parseInt, so typing
+  // 1e3 passed the validator and recorded a household of 1. The form accepted
+  // "1000" and stored "1" — the very defect the changelog claimed to close,
+  // still live one field away. (1.8 stores with parseFloat, where Number and
+  // parseFloat agree, so that one was never the problem.)
+  if (_v174Answerable('f-hhsize')) {
+    const hhRaw = String(document.getElementById('f-hhsize').value || '').trim();
+    const hhv   = parseInt(hhRaw, 10);
+    if (_v173NumBlank('f-hhsize') || !Number.isFinite(hhv) || hhv < 1) {
+      out.push({ n: '1.7', id: 'f-hhsize', en: 'No. of Family Members',
+                 why: hhRaw === '' ? undefined : 'must be a whole number, at least 1' });
+    }
+  }
+  // V17.4b: a value that is PRESENT but not a plain number is refused, and the
+  // FC must be told why. Without this, typing 1e3 into 1.8 refuses the save
+  // saying the question "needs an answer" while the box visibly contains one —
+  // the same falsehood that was fixed for 1.11, reintroduced next door.
+  if (_v174Answerable('f-land')      && _v173NumBlank('f-land'))
+                                    out.push({ n: '1.8',  id: 'f-land',      en: 'Land Holding',
+                                               why: _v174Junk('f-land') });
+  if (_v174Answerable('f-livestock') && _v173NumBlank('f-livestock'))
+                                    out.push({ n: '1.9',  id: 'f-livestock', en: 'No. of Livestock',
+                                               why: _v174Junk('f-livestock') });
+  if (_v174Answerable('sources-chips') && !document.querySelector('#sources-chips .ichip.on'))
+                                    out.push({ n: '1.10', id: 'sources-chips', en: 'Sources of Livelihood' });
+  if (_v174Answerable('f-total')) {
+    const raw = String(document.getElementById('f-total').value || '').trim();
+    const tv  = parseFloat(raw);
+    if (raw === '' || !Number.isFinite(tv)) {
+      out.push({ n: '1.11', id: 'f-total', en: 'Annual Household Income' });
+    } else if (tv <= 0) {
+      // V17.4: 0 is refused here — a zero baseline divides by zero in the
+      // Reports percentage maths — but the box is visibly FILLED, and saying
+      // "still empty" about it is a plain falsehood that leaves the FC one
+      // rational move: invent a number. Say what is actually wrong.
+      out.push({ n: '1.11', id: 'f-total', en: 'Annual Household Income',
+                 why: 'needs a figure above 0' });
+    }
+  }
+  return out;
+}
+
+// Wire the live updates once. Without these the note would only refresh when a
+// programme chip is tapped, so it would sit there naming fields the FC has
+// just filled in — which trains people to ignore it.
+function _v173WireLivNote() {
+  if (_v173WireLivNote._done) return;
+  _v173WireLivNote._done = true;
+  ['f-hhsize', 'f-land', 'f-livestock', 'f-total'].forEach(function (id) {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', _v173SyncLivNote);
+  });
+  const chips = document.getElementById('sources-chips');
+  if (chips) chips.addEventListener('click', function () { setTimeout(_v173SyncLivNote, 0); });
+}
+
+function _v173SyncLivNote() {
+  const note = document.getElementById('liv-req-note');
+  if (!note) return;
+  _v173WireLivNote();
+  const livOn = !!document.querySelector('#prog-chips .ichip[data-prog="Livelihood"].on');
+  const missing = livOn ? _v173LivMissing() : [];
+  if (!missing.length) { note.style.display = 'none'; return; }
+  const list = document.getElementById('liv-req-note-list');
+  if (list) list.textContent = missing.map(function (m) { return m.n; }).join(', ');
+  note.style.display = 'block';
 }
 
 // Programme chip toggles — show/hide the livelihood sub-chips and advocacy note.
@@ -12725,6 +13020,13 @@ function _unlockFamilyMemberLivelihood(chipEl) {
     totalEl.value = head.baseIncome;
     _applyFamilyMemberLockTo(totalEl);
   }
+  // V17.4b: recompute the note LAST, unconditionally — advSyncProgrammeVisibility
+  // ran above while #family-livelihood-fields was still display:none, so nothing
+  // was reported missing and the note hid. The first version of this re-sync was
+  // inside the `if` above, so for a head with NO income on record — the case the
+  // hint below is literally written for — 1.8/1.9/1.10/1.11 appeared blank and
+  // the note never showed at all until the FC happened to type in one of them.
+  try { _v173SyncLivNote(); } catch (_) {}
   let hint = document.getElementById('liv-baseline-hint');
   if (!hint && totalEl && totalEl.parentNode) {
     hint = document.createElement('div');
@@ -13260,9 +13562,40 @@ async function _submitEnrollInner() {
   // stored as baseIncome = 0 in the create branch below (same convention used
   // for family-member records).
   const isAdvocacyOnly = advOn && !livOn;
-  if (!familySkipsLivelihoodFields && !isAdvocacyOnly) {
-    if (!total || isNaN(total)) { showError('Annual Household Income (field 1.11) is required — this is the baseline for impact measurement.', 'f-total'); return; }
+
+  // V17.3: a negative number passed EVERY check here. `!total || isNaN(total)`
+  // is false for -50000, and the only other guards are upper caps (> 50 acres,
+  // > 500 livestock, > 500000 income). The inputs carry min="0" but the Save
+  // button is not inside a <form> and nothing calls reportValidity, so min is
+  // decorative. A stray minus on a phone keypad wrote baseIncome: -50000, and
+  // an endline of 60,000 then reported +110,000 of impact that never happened
+  // — into the aggregate figure the foundation reports on. Checked regardless
+  // of programme, because the advocacy-only path skips the income check
+  // entirely and would still have stored the negative.
+  const _v173Negative = [
+    ['f-total',     'Annual Household Income (field 1.11)'],
+    ['f-land',      'Land Holding (field 1.8)'],
+    ['f-livestock', 'No. of Livestock (field 1.9)'],
+    ['f-hhsize',    'No. of Family Members (field 1.7)']
+  ].find(function (p) {
+    const el = document.getElementById(p[0]);
+    if (!el) return false;
+    const raw = String(el.value == null ? '' : el.value).trim();
+    return raw !== '' && Number(raw) < 0;
+  });
+  if (_v173Negative) {
+    showError(_v173Negative[1] + ' cannot be a negative number. Please check what was typed.', _v173Negative[0]);
+    return;
   }
+  // The 1.11 / 1.7 / 1.10 checks that used to sit here (and the new 1.8 / 1.9
+  // ones) are now collected together after the sources block — see V17.3 below.
+  // They ran BEFORE the "pick a programme" check at the bottom of this
+  // function, so an FC who had not yet chosen a programme was stopped at 1.11
+  // and told it was required. The form showed no asterisk on it at that point
+  // (correctly — it does not know yet), so the FC typed a number to get past
+  // the screen and only then ticked Advocacy. The check skipped, the invented
+  // number stayed in the DOM, and baseIncome: 1 was written. The validator was
+  // manufacturing exactly the data V17.1 existed to prevent.
   const hhSizeVal = isFamilyMemberMode
     ? 1   // family-member records don't track their own household size; stored as 1 to satisfy any downstream code that assumes >0.
     : parseInt(document.getElementById('f-hhsize').value);
@@ -13274,9 +13607,7 @@ async function _submitEnrollInner() {
   // Checked before allowing it: NOTHING divides by hhSize. It is displayed
   // (the profile already renders `p.hhSize || '—'`) and exported to CSV as
   // `b.hhSize||''`. A blank is already a handled value everywhere it is read.
-  if (!isFamilyMemberMode && !isAdvocacyOnly) {
-    if (!hhSizeVal || hhSizeVal < 1) { showError('Please enter a valid Number of Family Members (field 1.7) — must be at least 1.', 'f-hhsize'); return; }
-  }
+  // V17.3: moved into the combined livelihood check below.
 
   // V4.1: Gender required (single-select, Male or Female)
   const genderEl = document.querySelector('#gender-chips .ichip.on');
@@ -13308,8 +13639,42 @@ async function _submitEnrollInner() {
   // The "Other is ticked but empty" check still applies: if the FC did tick
   // something, it must say what.
   if (!familySkipsLivelihoodFields) {
-    if (sourceLabels.length === 0 && !isAdvocacyOnly) { showError('Please tick at least one Current Source of Livelihood (field 1.10).', 'sources-chips'); return; }
     if (sourcesOtherOn && !sourcesOtherText) { showError('"Other" source is ticked — please type the source name in the text box, or untick it.', 'f-sources-other'); return; }
+  }
+
+  // ── V17.3: the five livelihood baseline fields, checked together ─────────
+  //
+  // Gated on livOn, not on !isAdvocacyOnly. Those differ in exactly one state
+  // — no programme picked yet — and that state is what made the old code
+  // demand a baseline income before the FC had said whether this was even a
+  // livelihood enrolment. With livOn the question is asked only once it can
+  // be answered, and a form with no programme selected still cannot be saved:
+  // it falls through to the "please select at least one programme" check.
+  //
+  // 1.8 and 1.9 are new here. A blank land holding was already being written
+  // as `parseFloat('') || 0` — the FACT "0 acres", indistinguishable from a
+  // genuinely landless household. Requiring the field is what makes that 0
+  // mean something.
+  //
+  // One message listing every missing field, not one refusal at a time. The
+  // list comes from _v173LivMissing, the SAME function that fills the note
+  // under the Programme chips, so the form cannot warn about one set of
+  // fields and then refuse to save for a different set.
+  if (livOn) {
+    // No arguments — see _v173LivMissing. The note under the chips calls it the
+    // same way, so the two cannot disagree about which fields are needed.
+    const livMissing = _v173LivMissing();
+    if (livMissing.length) {
+      const names = livMissing.map(function (m) {
+        return m.n + ' ' + m.en + (m.why ? ' (' + m.why + ')' : '');
+      }).join(', ');
+      showError('Livelihood is selected, so these questions need an answer first — ' +
+                names + '. ' +
+                (livMissing.length > 1 ? 'All of them are needed' : 'It is needed') +
+                ' to record this beneficiary\'s starting position.',
+                livMissing[0].id);
+      return;
+    }
   }
   // Replace 'Other' with the typed value in the stored array
   const sources = sourceLabels.filter(s => s !== 'Other').slice();
@@ -13615,8 +13980,12 @@ async function _submitEnrollInner() {
   // Advocacy wasn't checked, since the panel isn't rendered).
   const enrollSchemeRows = advOn ? advEnrollCollectRows() : [];
   if (advOn && enrollSchemeRows.length === 0) {
-    err.textContent = 'Advocacy is selected — please tick at least one scheme below.';
-    err.classList.add('show');
+    // V17.3: was writing straight to the banner without scrolling to it, so an
+    // FC who tapped Save while scrolled down to the scheme panel saw the button
+    // re-enable and nothing else — the exact failure showError was written to
+    // fix. Every other refusal in this function goes through showError; this
+    // one had been missed.
+    showError('Advocacy is selected — please tick at least one scheme below.', 'adv-enroll-scheme-list');
     return;
   }
   // Map UI rows → stored scheme rows. After bug #7 fix, advEnrollCollectRows
@@ -13661,6 +14030,15 @@ async function _submitEnrollInner() {
     const idx = data.findIndex(b => b.id === editingId);
     if (idx >= 0) {
       const before = {...data[idx]};
+      // V17.4: give the record a lifecycle stage if this save puts it on a
+      // livelihood programme and it has none. Promotion by editing was the
+      // only way into the livelihood pipeline that never stamped one.
+      // ⛔ ONLY when the stage is ABSENT. A beneficiary at 'Intervention In
+      // Progress' or 'Completed' who is edited for an unrelated reason — a
+      // corrected phone number — must not be quietly reset to 'Enrolled';
+      // that would erase real fieldwork and is a worse bug than the one being
+      // fixed. Hence `!data[idx].status`, tested against the STORED record.
+      if (livOn && !data[idx].status && !fields.status) fields.status = 'Enrolled';
       data[idx] = { ...data[idx], ...fields };
       // V5.6/V5.7: cascade household-fact changes between a head and every
       // linked family member — see _cascadeFamilySync for the exact rules
@@ -14411,7 +14789,10 @@ function openEndlinePhotoModal(bid) {
     toast('Endline photo not applicable for advocacy-only records.', 'error');
     return;
   }
-  if (!b.status) {
+  // V17.4: was `!b.status`, which refused a livelihood beneficiary whose only
+  // fault was being promoted by an edit rather than created outright — an
+  // unsaveable dead end with no explanation.
+  if (!_v174Stage(b)) {
     toast('Endline photo not applicable for this record.', 'error');
     return;
   }
@@ -15578,7 +15959,7 @@ function _computeNgoStats(partnerName, benefSet, advAll) {
   const livBenefs = benefs.filter(b => (b.interventions || []).some(i => i !== ADV_SENTINEL));
   const livTotal = livBenefs.length;
   const livStage = { 'Enrolled': 0, 'Intervention In Progress': 0, 'Completed': 0 };
-  livBenefs.forEach(b => { if (livStage[b.status] != null) livStage[b.status]++; });
+  livBenefs.forEach(b => { const _s = _v174Stage(b); if (livStage[_s] != null) livStage[_s]++; });
 
   const livCompleted = livBenefs.filter(b => b.status === 'Completed');
   let livTotalIncomeAdded = 0;
@@ -15675,7 +16056,7 @@ function _computeFcStats(fcUserId, fcDisplayName, benefSet, advAll) {
   const livBenefs = benefs.filter(b => (b.interventions || []).some(i => i !== ADV_SENTINEL));
   const livTotal = livBenefs.length;
   const livStage = { 'Enrolled': 0, 'Intervention In Progress': 0, 'Completed': 0 };
-  livBenefs.forEach(b => { if (livStage[b.status] != null) livStage[b.status]++; });
+  livBenefs.forEach(b => { const _s = _v174Stage(b); if (livStage[_s] != null) livStage[_s]++; });
 
   const livCompleted = livBenefs.filter(b => b.status === 'Completed');
   let livTotalIncomeAdded = 0;
@@ -15825,7 +16206,7 @@ function renderNGO() {
   const ADV_SENTINEL = 'Advocacy (Govt. Schemes)';
   const livAll = data.filter(b => (b.interventions || []).some(i => i !== ADV_SENTINEL));
   const livStageAll = { 'Enrolled':0, 'Intervention In Progress':0, 'Completed':0 };
-  livAll.forEach(b => { if (livStageAll[b.status] != null) livStageAll[b.status]++; });
+  livAll.forEach(b => { const _s = _v174Stage(b); if (livStageAll[_s] != null) livStageAll[_s]++; });
   const livCompAll = livAll.filter(b => b.status === 'Completed');
   const portLivTotalAdded = livCompAll.reduce(
     (s, b) => s + ((b.endIncome != null && b.baseIncome != null) ? (b.endIncome - b.baseIncome) : 0), 0);
@@ -16058,7 +16439,7 @@ function getAlerts() {
     // alert badge and showing two entries for the same beneficiary. Now:
     //   60d <= stuck < 180d  → Rule 2 only (amber)
     //          stuck > 180d  → Rule 7 only (red, urgent)
-    if (liv && b.status === 'Enrolled') {
+    if (liv && _v174Stage(b) === 'Enrolled') {
       const d = daysSince(b.enrollDate);
       if (d !== null && d > 60 && d <= 180) {
         alerts.push({type:'amber',msg:`<strong>${_eid} — ${_en}</strong> (${_eng}) — enrolled ${d} days ago but intervention has not started. Field coordinator to follow up.`,id:b.id});
@@ -16069,7 +16450,7 @@ function getAlerts() {
     // Endline should be due by now. Separate from the >180d no-endline rule
     // (rule 5 below) because stage-based tracking is more precise — a person
     // who's still "In Progress" after 9 months is genuinely behind.
-    if (liv && b.status === 'Intervention In Progress') {
+    if (liv && _v174Stage(b) === 'Intervention In Progress') {
       const d = daysSince(b.enrollDate);
       if (d !== null && d > 270) {
         alerts.push({type:'amber',msg:`<strong>${_eid} — ${_en}</strong> (${_eng}) — intervention in progress for ${d} days. Endline likely due — please schedule.`,id:b.id});
@@ -16104,7 +16485,7 @@ function getAlerts() {
     // rules would fire on an 'In Progress' >270-day record, inflating the
     // alert badge and creating noise. Rule 3 handles mid-pipeline stalls;
     // Rule 7 now catches only the "never-started" early stall.
-    if (liv && !b.endIncome && b.enrollDate && b.status === 'Enrolled') {
+    if (liv && !b.endIncome && b.enrollDate && _v174Stage(b) === 'Enrolled') {
       const d = daysSince(b.enrollDate);
       if (d !== null && d > 180) {
         alerts.push({type:'red',msg:`<strong>${_eid} — ${_en}</strong> (${_eng}) — enrolled ${d} days ago, still at baseline stage with no intervention started. Requires urgent field follow-up.`,id:b.id});
@@ -16311,7 +16692,7 @@ function getAvatarInitials(name) {
 }
 
 function getMarkerColor(b) {
-  return STATUS_MAP_COLORS[b.status] || '#888';
+  return STATUS_MAP_COLORS[_v174Stage(b)] || '#888';
 }
 
 // V15: makeSvgMarker was removed here. It built a teardrop DOM pin carrying the
@@ -16345,7 +16726,7 @@ function buildPopup(b) {
       <div class="map-popup-row"><span class="map-popup-label">Village</span><span class="map-popup-val">${escHtml(b.village)}${b.taluka?', '+escHtml(b.taluka):''} ${b.lat?'<span style="color:var(--green);font-size:10px">📍 GPS</span>':''}</span></div>
       <div class="map-popup-row"><span class="map-popup-label">Intervention</span><span class="map-popup-val" style="color:${intervColor}">${escHtml((b.interventions||[]).join(', '))}</span></div>
       <div class="map-popup-row"><span class="map-popup-label">NGO</span><span class="map-popup-val">${escHtml(b.ngo)}</span></div>
-      <div class="map-popup-row"><span class="map-popup-label">Status</span><span class="map-popup-val">${escHtml(stageLabel(b.status))}</span></div>
+      <div class="map-popup-row"><span class="map-popup-label">Status</span><span class="map-popup-val">${escHtml(stageLabel(_v174Stage(b)))}</span></div>
       <div class="map-popup-row"><span class="map-popup-label">Baseline</span><span class="map-popup-val">${fmt(b.baseIncome)}/yr</span></div>
       ${deltaHtml}
       <button class="map-popup-btn" onclick="closeMapPopupOpenDrawer('${escHtml(b.id)}')">View Full Profile</button>
@@ -16930,7 +17311,7 @@ function refreshMapMarkers() {
   // filteredAll() so the map respects the topbar state/NGO/FC filters, same
   // as every other view.
   let list = filteredAll().filter(_v15MatchProgramme);
-  if (mapFilterStatus) list = list.filter(function (b) { return b.status === mapFilterStatus; });
+  if (mapFilterStatus) list = list.filter(function (b) { return _v174Stage(b) === mapFilterStatus; });
   if (mapFilterNgo)    list = list.filter(function (b) { return b.ngo === mapFilterNgo; });
   if (intervF)         list = list.filter(function (b) { return (b.interventions || []).indexOf(intervF) !== -1; });
   // V16.5: "GPS-located only" must mean a fix we are willing to stand behind,
@@ -18541,7 +18922,9 @@ window._checkLegacyStages = function() {
     console.log('IDs:', bad.map(b => b.id));
   }
   console.log('Records with NO status stored:', missing.length,
-              '(these display as "Baseline Completed" — the app treats a blank stage as Enrolled)');
+              '(V17.4: a LIVELIHOOD record with a blank stage now reads as Enrolled everywhere ' +
+               'via _v174Stage — on screen, in the CSV, on the map and in the alerts. ' +
+               'Advocacy-only records legitimately have no stage and are listed here too.)');
   if (missing.length) console.log('IDs:', missing.map(b => b.id));
   return { unrecognised: bad, missing: missing };
 };
@@ -18980,9 +19363,10 @@ function _v401TodayStats() {
     const bts = (typeof b._lastEditedAt === 'number') ? b._lastEditedAt : 0;
     if (bts >= dayStartMs && bts < dayEndMs
         && (b.interventions || []).some(function(i){ return i && i !== ADV_SENTINEL; })) {
-      if (b.status === 'Enrolled') livEnr++;
-      else if (b.status === 'Intervention In Progress') livProg++;
-      else if (b.status === 'Completed') livDone++;
+      const _st = _v174Stage(b);
+      if (_st === 'Enrolled') livEnr++;
+      else if (_st === 'Intervention In Progress') livProg++;
+      else if (_st === 'Completed') livDone++;
     }
   }
   // V403: advocacy counts are UNIQUE PEOPLE, not scheme applications — one
@@ -19445,9 +19829,13 @@ function renderLivelihood(sub) {
   if (sub !== undefined) livSubTab = sub;
   const allB     = getLivelihoodData();
   const total    = allB.length;
-  const enrolled   = allB.filter(b=>b.status==='Enrolled').length;
-  const inprogOnly = allB.filter(b=>b.status==='Intervention In Progress').length;
-  const completed  = allB.filter(b=>b.status==='Completed').length;
+  // V17.4: these three feed the filter CHIPS, and the filter itself now reads
+  // _v174Stage. If the counts kept reading b.status the chip would say 12 and
+  // clicking it would list 15 — a discrepancy with no visible cause. Count and
+  // filter must always be computed the same way.
+  const enrolled   = allB.filter(b=>_v174Stage(b)==='Enrolled').length;
+  const inprogOnly = allB.filter(b=>_v174Stage(b)==='Intervention In Progress').length;
+  const completed  = allB.filter(b=>_v174Stage(b)==='Completed').length;
   const withEnd    = allB.filter(b=>b.endIncome!=null);
   const totalDelta = withEnd.reduce((s,b)=>s+delta(b),0);
 
@@ -19488,7 +19876,7 @@ function _livBenTabFull(allB) {
   const base = livInterv ? allB.filter(b=>(b.interventions||[]).includes(livInterv)) : allB;
   let list = [...base];
   if (livSearch) { const _lq=livSearch.toLowerCase(); list=list.filter(b=>(b.name||'').toLowerCase().includes(_lq)||(b.id||'').toLowerCase().includes(_lq)||(b.village||'').toLowerCase().includes(_lq)); }
-  if (livStage)  list=list.filter(b=>b.status===livStage);
+  if (livStage)  list=list.filter(b=>_v174Stage(b)===livStage);
 
   const chips = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
     <button class="btn btn-sm ${!livInterv?'btn-primary':''}" onclick="livInterv='';livSearch='';livCurrentPage=1;renderLivelihood()">All <span style="font-weight:400;opacity:.7">${allB.length}</span></button>
@@ -25503,7 +25891,9 @@ function exportBeneficiariesCsv() {
       b.ngo||'', b.coord||'', b.createdByName||'',
       b.hhSize||'', b.land||'', livestockOut, sourcesOut,
       (b.interventions||[]).join('; '),
-      b.status ? stageLabel(b.status) : '—',
+      // V17.4: was b.status, so the export disagreed with every on-screen
+      // count. This is the file the foundation reports from.
+      _v174Stage(b) ? stageLabel(_v174Stage(b)) : '—',
       b.enrollDate||'',
       b.baseIncome||'', b.endIncome!=null?b.endIncome:'',
       d, p===''?'':p+'%',
