@@ -1,136 +1,110 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V6.7.2-LIVE
+  KRSF Beneficiary Impact Tracker  -  V17.8-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
   cost every user ~155 KB of gzipped download on every load for text no
   browser reads. The two most recent releases are kept below.
   ============================================================================
-  V17.6-LIVE (2026-08-15 - the app stops parsing 0.95 MB of Excel code it never uses):
+  V17.8-LIVE (2026-08-15 - acting on two independent reviews of V17.7):
     + ONLY index.html CHANGES. sw.js, login-bg.jpg and villages.js are all
       unchanged from V16.9 - do not re-upload them.
 
-    + THE COST. PapaParse, SheetJS and JSZip sat in <head> as three blocking
-      script tags. Together they are 0.95 MB unpacked (343 KB over the wire).
-      Every one of the 559 coordinator phones downloaded them once and then
-      PARSED AND COMPILED all 0.95 MB on every single cold start, before the
-      page was allowed to paint - for an import tool only admins can open.
-      The libraries are served immutable for 355 days, so the repeat-visit
-      saving is 0 bytes; what is saved on every open is the parse and the
-      blocked first paint. Same reasoning, and the same fix, as V14 Leaflet.
+    + NEITHER REVIEW FOUND AN APP BUG. Both traced the live-reference change
+      end to end and found no mutation, no ordering change, no data-loss path,
+      no Firebase change. What they found was that the GUARD-RAILS and the
+      COMMENTS around it overclaimed. That is what this release fixes.
 
-    + THE FIX. _ensureBulkImportLibs() fetches all three on first use. Guarded
-      at all four ways in: downloadImportTemplateXlsx, handleImportFileUpload,
-      downloadEndlineTemplateXlsx, handleEndlineUploadFile. renderAdminImport
-      warms them in the background while the admin reads the screen.
+    + THE COMMENT LIED. The block above _v177AdvRead said advread.js 're-checks
+      the cache is byte-identical after a full render sweep'. It did no such
+      thing - that sweep was a one-off manual act with no artefact. The next
+      person would have trusted a guard that did not exist. The sweep is now
+      COMMITTED as _tests/advsweep.js (needs Chrome + a data export, so it is
+      not in the plain node run) and the comment says exactly what each file
+      does and does not prove.
 
-    + THE RETRY TRAP (the reason this took a second pass). The first cut of
-      this change re-used the failed script tag when retrying. A tag that
-      has already fired `error` NEVER fires load or error again, so the second
-      attempt's promise never settled: the admin tapped Import and nothing at
-      all happened - no error, no message, no spinner ending - until a full
-      page reload. On a rural connection a failed first attempt is the normal
-      case, so this would have been hit routinely. Dead tags are now removed
-      before every retry. _tests/lazyimport.js section 4 was confirmed RED
-      against the first cut before the fix landed.
+    + THE TEST ASSERTED THE HAZARD AS THE REQUIREMENT. advread.js §6 wrote to a
+      record and asserted the cache changed - it passed precisely WHEN mutation
+      corrupted the cache, and would have stayed green if every render path
+      started corrupting records. THIRD TIME this shape of mistake has shipped
+      here. §6 now asserts the opposite: the one advocacy helper that runs
+      outside a browser is handed live records and must leave them untouched.
 
-    + THE PREFETCH TRAP. The background warm-up was wrapped in try/catch. A
-      try/catch cannot see a promise rejection, so an offline admin got an
-      uncaught error every time. Now .catch().
+    + THE MUTATOR LIST WAS WRONG. §5 named saveAdv/saveData/submitEnroll/
+      openEdit/deleteBeneficiary - not one of which reads advocacy records, so
+      not one could ever have carried the hazard. Five checks that asserted
+      nothing, green on the broken build too. Replaced with the seven functions
+      that actually read an advocacy record and then write to it:
+      _saveAdvocacyInner, _advApplyStatus, applyBulkStatusUpdate,
+      _undoBulkStatusForBeneficiary, adminUpdateSchemeBenefits,
+      adminFixLegacySchemeName, migrateAdvSchemeNames.
 
-    + PRECONNECT to fonts.googleapis.com, fonts.gstatic.com and www.gstatic.com
-      - all three are genuinely used at startup. Deliberately NOT cdnjs: after
-      this change nothing is fetched from there at startup, and a preconnect to
-      an unused host is waste.
+    + WARNINGS MOVED TO WHERE PEOPLE LOOK. getAdvocacyBids() reads like a plain
+      accessor but now hands out live references, and _v361AdvAgg.allAdv parks
+      them in a module-level global that outlives the render - the only place a
+      live reference escapes a single render. Both now carry ⛔ banners.
 
-    + NOT TOUCHED, and still the bigger costs: the render-blocking Google Fonts
-      stylesheet, the five Firebase SDK scripts, and loadData() deep-cloning
-      every one of ~127,000 records before the first screen appears.
+    + REAL PRE-EXISTING BUG FIXED. _hydrateAdvCache() never invalidated the
+      V361 aggregation cache, though its sibling _hydrateBenefCache has since
+      V378. Symptom: _advApplyStatus() hydrates then re-renders, and for an
+      admin with a warm agg cache the status pill did not change colour until
+      the next navigation. It also matters more after V17.7, because the agg
+      cache now holds live references that a clear() turns into orphans.
 
-    + Firebase: 0 change. No read, no query, no write path touched.
-    + Tests: 27 files. lazyimport.js is new (38 checks).
+    + DEAD CODE REMOVED. _v177AdvRead's `typeof _loadAdvRaw === 'function'`
+      fallback could never run (hoisted declaration in the same block) - and
+      had it run it would have silently restored 8.2 s of cloning with nothing
+      logged. Gone. _moveFcSrcChanged now uses the same named reader, so there
+      is one spelling instead of three.
 
-  V17.5-LIVE (2026-08-12 - a livelihood activity can be taken back OFF a family member):
+    + Line 4 of this file said V6.7.2-LIVE for eleven releases. advread.js §9
+      now fails if the title, APP_VERSION and this changelog ever disagree.
+
+    + Firebase: 0 change. Data: nothing written, nothing migrated.
+    + Tests: 28 files. advsweep.js is new; advread.js rewritten (was 26 checks,
+      5 of which asserted nothing).
+
+  V17.7-LIVE (2026-08-15 - the admin dashboard stops copying 126,619 records four times):
     + ONLY index.html CHANGES. sw.js, login-bg.jpg and villages.js are all
       unchanged from V16.9 - do not re-upload them.
 
-    + THE DEAD END. A family member (wife, son, father - linked to a head) can
-      be given a livelihood activity with "+ Add Livelihood Intervention". If
-      that was a mis-tap there was NO way to undo it: opening her record with
-      Edit Details routes into the same mode, and un-ticking Livelihood there
-      was refused with "...To edit only her advocacy schemes, use Edit Details
-      instead." The FC was already in Edit Details. The instruction named the
-      screen they were standing on, so it could never be followed.
-      Live data, 11 Aug: 91,340 family members, 8 carrying a livelihood
-      activity, ALL created in the three weeks to 10 Aug - so the rate is
-      rising, not static. Two are plainly wrong: KRSF-GJ-127077 is recorded as
-      the "Wife" of a head with the IDENTICAL name, KRSF-GJ-128826 as the
-      "Father" of a head with the identical name. Each counts toward the
-      livelihood totals with a baseline income of Rs 50k-95k attached.
+    + THE COST, MEASURED. loadAdv() deep-clones EVERY advocacy record on every
+      call. Driving the real renderDashboard() against the real 11 Aug data
+      (126,377 beneficiary + 126,619 advocacy) in a real browser: the dashboard
+      took 9,293 ms, of which 8,283 ms - 88% - was copying, across 4 calls.
+      Everything else (totals, tables, drawing) was ~1,010 ms.
+      AFTER: 1,340 ms. Roughly 7x faster.
 
-    + REMOVAL IS NOW POSSIBLE, and asks first. The confirm says what will
-      happen, is marked destructive (red), and the audit entry now reads
-      "Removed livelihood intervention X" instead of "Edited 3 fields".
-      The stage is cleared so she leaves the pipeline properly. Household
-      facts and baseline income are deliberately NOT written: baseline income
-      is a HOUSEHOLD figure, two-way synced with the head by
-      _cascadeFamilySync, so blanking it here would damage the HEAD's record.
+    + WHO PAYS. Admins and NGO admins only. Since V312 the listener is
+      role-scoped, so a coordinator holds ~160 records, not 126,619 - their
+      copy costs ~0.02 s. I had earlier implied all 559 phones paid this. They
+      do not. Largest NGO admin holds 70,395; system admin holds 252,996.
 
-    + REFUSED WHEN REAL IMPACT EXISTS. If an endline income is recorded the
-      removal is blocked outright rather than confirmed away - that is a
-      measured before-and-after pair, and stranding it would be a worse bug
-      than the one being fixed. endIncome alone was NOT the whole test: when
-      an NGO Partner reverts a Completed record, updateStatus archives the
-      real figures on _revertedEndline and leaves endIncome null, so the first
-      version of this guard passed and the removal made a measured income gain
-      permanently unreachable (the "restore archived endline" button is gated
-      on the record still being livelihood). Now checks _revertedEndline and
-      incomeLog too - the shape _cascadeFamilySync already used.
+    + THE FIX. _v177AdvRead() -> the existing no-clone _loadAdvRaw(). Four
+      callers switched: getAdvocacyBids, renderDashboard's advLatest, getAlerts
+      and _renderDashboardRecentUpdates.
 
-    + ⛔ THE REGRESSION THIS RELEASE ALMOST SHIPPED. Two predicates decide
-      "does she have livelihood" and they DISAGREE. openEdit arms the un-enrol
-      gate with "any intervention that is not advocacy"; the programme CHIP is
-      ticked only for a type in getLivTypes(). They differ for a free-text
-      "Other" value, for a type an admin has removed from config, and - on a
-      cold device - for ANY admin-added type, because getLivTypes() falls back
-      to seven hardcoded defaults until config/livtypes hydrates over the
-      network. In every one of those the form opens with Livelihood UNTICKED,
-      so an ordinary save (correcting a phone digit) computed livOn === false
-      and would have offered to DELETE her intervention - and Cancel discards
-      the edit too, so both answers were wrong. V17.4 REFUSED that save, so
-      this would have turned a hard stop into silent data loss.
-      Fix: _v175LivChipOnAtOpen. The gate now requires the chip to have been
-      ON when the record loaded, so removal can only mean the FC turned it off.
-      Live data says 2 beneficiaries hold free-text interventions today (both
-      non-family), so this was latent rather than live - by luck, not design.
+    + WHY THIS IS SAFE, AND HOW THAT WAS ESTABLISHED. The objects handed back
+      are LIVE references into RecordCache; one write corrupts the cache for
+      every other reader (the V310/V315 failure mode - ~3,500 records of other
+      coordinators re-uploaded on every save). This was not judged safe, it was
+      tested: every advocacy record handed out was wrapped in a write-detector
+      and every screen that can reach one was driven - dashboard, alerts,
+      advocacy, integrated, both coordinator alert paths. ZERO writes recorded.
+      Then the whole 252,996-record store was fingerprinted before and after a
+      full render sweep: BIT-FOR-BIT IDENTICAL.
 
-    + 7 OF THE 8 ARE LIVELIHOOD-ONLY, and the first version of this fix did
-      not work on them. Un-ticking Livelihood on a record with no advocacy tag
-      leaves both programmes off, so "please select at least one programme"
-      fired first and the removal was still impossible. Forcing the FC to tick
-      Advocacy instead would have meant inventing a government-scheme
-      enrolment to undo a mis-tap - the same manufactured data V17.1 and V17.3
-      were about removing. The check now runs above that rule, and the
-      advocacy tag is written explicitly: a family member with no livelihood
-      is advocacy-only by definition, which is how "+ Add Family Member" and
-      the bulk importer both create them.
+    + ⛔ getData() IS DELIBERATELY NOT SWITCHED. It has 59 callers and
+      openEdit() is one of them - it reads a record and then edits it. Pointing
+      getData() at a no-clone reader would recreate the exact corruption the
+      clone exists to prevent. _tests/advread.js §4 fails if anyone tries.
 
-    + Also from the review: openEdit's own predicate gained the "i &&" guard
-      (a stray null beside the advocacy tag read as livelihood there while
-      getLivelihoodData and _v174Stage read the record as advocacy-only);
-      _baselineInheritedFromHeadId is no longer stamped onto a record that has
-      just LEFT livelihood; and the audit note is cleared on every save so a
-      removal cannot mislabel the next unrelated edit.
+    + Firebase: 0 change. This is a client-side read; no query, no listener, no
+      write path touched. Data: nothing written, nothing migrated.
 
-    + _tests/famunenrol.js, 49 checks, 25 confirmed FAILING against V17.4.
-      §7 RUNS the two disagreeing predicates over eight record shapes -
-      including the free-text value and the cold-device case - because 20 of
-      the other checks are regex over source and none of them could have
-      caught the regression above.
-
-    + No Firebase read or write added. No data touched.
+    + Tests: 28 files. advread.js is new (26 checks), confirmed RED on V17.6.
 
 -->
 <html lang="en">
@@ -3838,7 +3812,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V17.6-LIVE';
+const APP_VERSION = 'V17.8-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -5121,6 +5095,15 @@ function _hydrateAdvCache(arr) {
   RecordCache.adv.clear();
   _advLatestRowsCache = null;
   _advLatestRowsCacheLen = -1;
+  // V17.8: mirror _hydrateBenefCache, which has invalidated the V361
+  // aggregation cache since V378. This one never did, so _v361AdvAgg kept
+  // serving rows built from records that had just been cleared out of the
+  // cache. Live symptom: _advApplyStatus() hydrates then re-renders, and for
+  // an admin with a warm agg cache the status pill did not change colour
+  // until the next navigation. Pre-existing, found by review of V17.7.
+  // It also matters more now: V17.7 made _v361AdvAgg.allAdv hold LIVE
+  // references, and after a clear() those pointed at orphaned objects.
+  try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
   for (const r of arr) {
     const k = r && r.__fbk;
     if (k) RecordCache.adv.set(k, r);
@@ -16496,7 +16479,7 @@ function getAlerts() {
   // but empty records, zero-rupee "received" schemes (data quality), and flat
   // endlines (suspiciously equal to baseline).
   const data = getData();
-  const advAll = loadAdv();
+  const advAll = _v177AdvRead();
   const alerts = [];
   const today = new Date();
 
@@ -17703,6 +17686,40 @@ function loadAdv() {
     out.push(JSON.parse(JSON.stringify(r)));
   }
   return out;
+}
+
+// V17.7: READ-ONLY advocacy reader for render paths.
+//
+// loadAdv() deep-clones every advocacy record on every call. Measured on the
+// 11 Aug live data (126,619 advocacy records), the ADMIN dashboard called it
+// FOUR times per render: ~8.2 s of the ~9.3 s a dashboard render took, on a
+// laptop. On a phone that is four times worse again. Coordinators are not
+// affected — their role-scoped listener gives them ~160 records, not 126,619.
+//
+// HOW THIS WAS ESTABLISHED, precisely — do not overstate it:
+//   ONE-OFF, in a browser against the real 11 Aug data: every advocacy record
+//   handed out was wrapped in a write-detector and every screen that can reach
+//   one was driven; zero writes. The whole 252,996-record store was then
+//   fingerprinted before and after a full render sweep: identical. That sweep
+//   is committed as _tests/advsweep.js so it can be re-run — it needs Chrome
+//   and a data export, so it is NOT part of the plain `node _tests/*.js` run.
+//   ON EVERY RUN: _tests/advread.js checks the source-level blast radius —
+//   which callers may use this reader, and that the seven advocacy MUTATORS
+//   still take copies. It does NOT re-run the render sweep. Do not read it as
+//   proof that the cache is untouched; read advsweep.js for that.
+//
+// ⛔ MUST NOT be used by any caller that MUTATES a record. The objects handed
+// back are LIVE references into RecordCache. Writing to one corrupts the cache
+// for every other reader — that is the V310/V315 failure mode, which once
+// re-uploaded ~3,500 records belonging to other coordinators on every save.
+// getData() is deliberately NOT switched for the same reason: it has 59
+// callers, and openEdit() is one of them.
+// The old `typeof _loadAdvRaw === 'function' ? ... : loadAdv()` guard was
+// dead: _loadAdvRaw is a hoisted function declaration in this same script
+// block, so the fallback could never run — and had it run it would have
+// silently restored 8.2 s of cloning with nothing logged.
+function _v177AdvRead() {
+  return _loadAdvRaw();
 }
 
 // V366: no-clone advocacy reader for the summary writer. Same contract as
@@ -18956,6 +18973,12 @@ function getLivelihoodData() {
   return filteredAll().filter(b => (b.interventions||[]).some(i => i && i !== 'Advocacy (Govt. Schemes)'));
 }
 
+// ⛔ V17.8: RETURNS LIVE REFERENCES into RecordCache.adv (via _v177AdvRead).
+// READ ONLY. Never write to a returned record, or to a nested array inside
+// one (schemeRows). Doing so corrupts the cache for every other reader — the
+// V310/V315 failure mode. If you need to modify advocacy records, use
+// loadAdv(), which still hands out copies. All three current callers
+// (renderDashboard, _v361GetAdvAgg, renderAdvocacy) are read-only.
 function getAdvocacyBids() {
   // V372 [Fix #1] THE 15-MIN BOOT KILLER:
   //   Previously: Array.includes() lookup = O(N²) at 9.3 billion ops for
@@ -18964,7 +18987,7 @@ function getAdvocacyBids() {
   //   ~47,000x speedup. Verified via Chrome Performance profile that
   //   getAdvocacyBids was consuming 141 sec out of 150 sec of recording.
   const filteredSet = new Set(filteredAll().map(b => b.id));
-  return loadAdv().filter(a => filteredSet.has(a.bid));
+  return _v177AdvRead().filter(a => filteredSet.has(a.bid));
 }
 
 // ── Coloured intervention chips ───────────────────────────────────────────
@@ -19595,7 +19618,7 @@ function renderDashboard() {
   // Scheme benefits — only advocacy-driven (benefitRecd='Yes'), for beneficiaries
   // in the current filter. This is the additional impact from KRSF's advocacy
   // work, not baseline government coverage.
-  const advLatest = _advLatestRowsAll(loadAdv());
+  const advLatest = _advLatestRowsAll(_v177AdvRead());
   const schemeBenefits = advLatest
     .filter(r => listIds.has(r.__bid) && r.benefitRecd === 'Yes')
     .reduce((s, r) => s + (r.benefitAmt || 0), 0);
@@ -19717,7 +19740,7 @@ function _renderDashboardRecentUpdates(list) {
   // the advocacy store's bid field is authoritative (dashboard audit: bug B).
   const advBidByAdvId = {};
   try {
-    loadAdv().forEach(rec => { if (rec && rec.id) advBidByAdvId[rec.id] = rec.bid; });
+    _v177AdvRead().forEach(rec => { if (rec && rec.id) advBidByAdvId[rec.id] = rec.bid; });
   } catch(e) {}
 
   // User fullName lookup by userId — so the "By" column shows a human name
@@ -20127,6 +20150,10 @@ function _v361GetAdvAgg() {
       totalAmt += (Number(r.benefitAmt) || 0);
     }
   }
+  // ⛔ V17.8: `allAdv` holds LIVE references into RecordCache.adv, and this
+  // object outlives the render — it survives until _v361InvalidateAggCache().
+  // It is the only place a live reference escapes a single render, so it is
+  // where a future mutation would do the most damage. READ ONLY.
   _v361AdvAgg = {
     allAdv, allRows,
     advBids: Array.from(advBidsSet),
@@ -26620,7 +26647,7 @@ function _moveFcSrcChanged() {
   if (!src) { document.getElementById('movefc-body').style.display = 'none'; return; }
   // Read-only pools via the no-clone readers — cheap even at full scale.
   const allB = (typeof _loadDataRaw === 'function') ? _loadDataRaw() : loadData();
-  const allAdv = (typeof _loadAdvRaw === 'function') ? _loadAdvRaw() : loadAdv();
+  const allAdv = _v177AdvRead();   // V17.8: one name for the live-reference reader
   const benefIds = new Set();
   let benefCount = 0;
   allB.forEach(b => { if (b && b.createdBy === srcId) { benefCount++; benefIds.add(b.id); } });
