@@ -8,6 +8,50 @@
   cost every user ~155 KB of gzipped download on every load for text no
   browser reads. The two most recent releases are kept below.
   ============================================================================
+  V17.6-LIVE (2026-08-15 - the app stops parsing 0.95 MB of Excel code it never uses):
+    + ONLY index.html CHANGES. sw.js, login-bg.jpg and villages.js are all
+      unchanged from V16.9 - do not re-upload them.
+
+    + THE COST. PapaParse, SheetJS and JSZip sat in <head> as three blocking
+      script tags. Together they are 0.95 MB unpacked (343 KB over the wire).
+      Every one of the 559 coordinator phones downloaded them once and then
+      PARSED AND COMPILED all 0.95 MB on every single cold start, before the
+      page was allowed to paint - for an import tool only admins can open.
+      The libraries are served immutable for 355 days, so the repeat-visit
+      saving is 0 bytes; what is saved on every open is the parse and the
+      blocked first paint. Same reasoning, and the same fix, as V14 Leaflet.
+
+    + THE FIX. _ensureBulkImportLibs() fetches all three on first use. Guarded
+      at all four ways in: downloadImportTemplateXlsx, handleImportFileUpload,
+      downloadEndlineTemplateXlsx, handleEndlineUploadFile. renderAdminImport
+      warms them in the background while the admin reads the screen.
+
+    + THE RETRY TRAP (the reason this took a second pass). The first cut of
+      this change re-used the failed script tag when retrying. A tag that
+      has already fired `error` NEVER fires load or error again, so the second
+      attempt's promise never settled: the admin tapped Import and nothing at
+      all happened - no error, no message, no spinner ending - until a full
+      page reload. On a rural connection a failed first attempt is the normal
+      case, so this would have been hit routinely. Dead tags are now removed
+      before every retry. _tests/lazyimport.js section 4 was confirmed RED
+      against the first cut before the fix landed.
+
+    + THE PREFETCH TRAP. The background warm-up was wrapped in try/catch. A
+      try/catch cannot see a promise rejection, so an offline admin got an
+      uncaught error every time. Now .catch().
+
+    + PRECONNECT to fonts.googleapis.com, fonts.gstatic.com and www.gstatic.com
+      - all three are genuinely used at startup. Deliberately NOT cdnjs: after
+      this change nothing is fetched from there at startup, and a preconnect to
+      an unused host is waste.
+
+    + NOT TOUCHED, and still the bigger costs: the render-blocking Google Fonts
+      stylesheet, the five Firebase SDK scripts, and loadData() deep-cloning
+      every one of ~127,000 records before the first screen appears.
+
+    + Firebase: 0 change. No read, no query, no write path touched.
+    + Tests: 27 files. lazyimport.js is new (38 checks).
+
   V17.5-LIVE (2026-08-12 - a livelihood activity can be taken back OFF a family member):
     + ONLY index.html CHANGES. sw.js, login-bg.jpg and villages.js are all
       unchanged from V16.9 - do not re-upload them.
@@ -88,136 +132,19 @@
 
     + No Firebase read or write added. No data touched.
 
-  V17.4-LIVE (2026-08-12 - a livelihood record with no stage, and the zero V17.3 threw away):
-    + ONLY index.html CHANGES. sw.js, login-bg.jpg and villages.js are all
-      unchanged from V16.9 - do not re-upload them.
-
-    + THE BLANK LIFECYCLE STAGE. Only the CREATE branch ever stamped one
-      (status: livOn ? 'Enrolled' : null). The edit branch is
-      { ...data[idx], ...fields } and 'fields' has never contained status - the
-      comment above it says "preserve status/dates/endline", which is exactly
-      what it did. So promoting an Advocacy-only beneficiary to Livelihood by
-      EDITING her record left her with no stage at all, and:
-        - the drawer tests 'Enrolled', then 'Intervention In Progress', and
-          otherwise prints "Lifecycle complete" - so the app told the FC she had
-          FINISHED the programme, directly under a "Current stage: -";
-        - the endline photo screen refused her outright;
-        - no stage filter could surface her (b.status === livStage);
-        - the funnel counted her in the livelihood total and in no bucket.
-      Fixed on BOTH sides: the write path now stamps the stage, and _v174Stage
-      reads a blank as 'Enrolled' at the 13 places it mattered, which repairs
-      records already saved that way with no data write and no Firebase cost.
-      ONLY when the stage is absent - a beneficiary at 'Intervention In
-      Progress' or 'Completed' edited for an unrelated reason must never be
-      reset to 'Enrolled'. That guard is the assertion that matters most.
-      Deliberately NOT done inside loadData(), which deep-clones every record
-      on every call: a per-record pass there is paid ~124,000 times per call.
-
-    + THE ZERO V17.3 THREW AWAY - AND IT WOULD HAVE HIT HALF THE LIVELIHOOD
-      RECORDS. V17.3 made 0 a deliberate answer for 1.8 / 1.9 (a landless
-      household holds 0 acres). But openEdit's own setter is
-      `el.value = val || ''`, which turns a stored 0 back into an EMPTY BOX.
-      So a landless household saved correctly under V17.3, and then - opened
-      two weeks later to fix a spelling - was told "1.8, 1.9 still need an
-      answer" and could not be saved at all. Measured against the May export:
-      54 of 102 livelihood records (53%) carry a zero in land or livestock.
-      The guard on the way IN is worth nothing while the way OUT is a falsy
-      check. Found by an independent review, not by me.
-
-    + THE NOTE AND THE VALIDATOR DID DISAGREE, DESPITE "SHARING" A FUNCTION.
-      _v173LivMissing took a {skipHhSize} option that the save path passed and
-      the note did not. In Add-Family-Member mode - where 1.7 is hidden because
-      household size is inherited from the head - the note listed "1.7" for
-      ever, naming a question that was not on the screen, while the save went
-      through. Sharing a function guarantees nothing if the callers can
-      parameterise it differently. It now takes NO arguments: a field the FC
-      cannot SEE is never demanded, decided identically for both. That also
-      closes a latent unsaveable record, where the save error could scroll to
-      and focus a field inside a display:none wrapper.
-
-    + THE NOTE COULD NOT BE CLEARED. Two flows set the income box from script
-      AFTER the note had been computed, and one of them then makes the box
-      readOnly. Setting .value fires no input event, so the note kept naming
-      1.11 beside a visibly filled, locked box that no typing could refresh.
-      Both flows now re-sync.
-
-    + "STILL EMPTY" WAS A FALSEHOOD ABOUT 1.11. Income of exactly 0 is refused
-      on purpose - a zero baseline divides by zero in the Reports percentage
-      maths - but the box is visibly FILLED, and a note calling it empty leaves
-      the FC one rational move: invent a number. The message now says what is
-      actually wrong: "needs a figure above 0".
-
-    + 1e3 WAS ACCEPTED AS AN ANSWER AND STORED AS SOMETHING ELSE. The new
-      guards used Number() while the storage code uses parseInt: Number('1e3')
-      is 1000 and passes every check, parseInt('1e3') is 1. The form accepted
-      one answer and recorded another. Plain decimals only now.
-
-    + THE FILTER CHIP WOULD HAVE LIED. Making the livelihood stage filter count
-      blank-stage records meant the chip said 12 and clicking it listed 15. The
-      counts and the filter are now computed the same way. Caught in review of
-      my own change, before shipping.
-
-    + WHY V17.3 SHIPPED WITH THE ZERO BUG: its 36 tests never executed a single
-      line of the new code. They were regex against the source, and the one
-      described as "the single most important assertion here" checked that
-      `if (!land)` does not appear - which was true, while a different falsy
-      check three thousand lines away undid the whole thing. enrollreq.js is
-      now 64 checks and RUNS the code, including the openEdit round trip that
-      would have caught it. livstatus.js (42, new) lifts _v174Stage out and
-      drives it over twelve records. All confirmed FAILING against V17.3.
-
-    + FOUND BY A SECOND REVIEW, BEFORE THIS SHIPPED - a half-migrated helper is
-      worse than none. _v174Stage was used in the Livelihood tab and the
-      funnels but NOT in seven other places, so the app disagreed with itself:
-        - the drawer's STATUS PILL said "-" while the Update Progress block
-          110 lines below it, in the same drawer, said "Baseline Completed";
-        - the CSV EXPORT wrote "-" while the screen counted the same record as
-          Enrolled. That is the file the foundation reports from;
-        - the 90-day and 180-day FOLLOW-UP ALERTS were silent on precisely
-          these records - and after the write-path fix, the only ones left with
-          a blank stage are the oldest promoted-by-edit backlog, the ones most
-          likely to be genuinely stuck;
-        - the MAP drew them as grey "unknown" pins labelled "Status -" and the
-          stage filter hid them;
-        - the DAILY PULSE counted them in no bucket.
-      All seven now read through the helper. The stage <select> in the table,
-      Reports and the portfolio percentages already agreed and were untouched.
-
-    + 1.7 WAS THE ONE FIELD THE 1e3 GUARD MISSED - and the only one where the
-      mismatch was real. Its storage uses parseInt, so typing 1e3 passed the
-      validator and recorded a household of 1: the form accepted "1000" and
-      stored "1", the exact defect this changelog claimed to have closed, one
-      field away. (1.8 stores via parseFloat, where Number and parseFloat
-      agree, so it never had the problem.) And a value that is PRESENT but
-      unusable now says why for 1.8 / 1.9 as well as 1.11 - refusing a save
-      with "needs an answer" while the box visibly contains one is the same
-      falsehood, reintroduced next door.
-
-    + THE NOTE RE-SYNC WAS INSIDE AN `if`, SO IT MISSED THE CASE IT WAS ADDED
-      FOR. Both family flows reveal the livelihood fields AFTER the note has
-      been computed against a display:none section. The re-sync was nested in
-      the "no baseline income yet" branch, so for a family member who DOES
-      have an income it never fired: the note stayed hidden, the form looked
-      complete, and Save then refused with "1.10 Sources of Livelihood" from a
-      section scrolled far above - precisely the surprise the note exists to
-      prevent. Both now recompute LAST, unconditionally.
-
-    + _v174Stage's livelihood test now matches getLivelihoodData's exactly
-      (`i && i !== ADV_SENTINEL`). Without the truthiness guard a record
-      holding a null entry beside the advocacy tag was advocacy-only to the
-      Livelihood tab and livelihood to the helper.
-
-    + KNOWN, NOT FIXED: a stage change arriving from another device while a
-      confirm modal or photo upload is open can be read as blank and stamped
-      'Enrolled'. The surrounding save already writes a stale whole-array, so
-      the lost update is pre-existing and not introduced here.
-
 -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>KRSF Beneficiary Impact Tracker</title>
+<!-- V17.6: open the connections this page actually uses before it needs them:
+     Google Fonts (DM Sans / DM Mono, linked further down) and Google's host
+     for the Firebase SDK. Deliberately NOT cdnjs — after the change above,
+     nothing is fetched from there at startup. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 <!-- V352: PWA wiring -->
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0B1441">
@@ -231,14 +158,12 @@
      start. Coordinators cannot open the map at all - nav() bounces them
      to beneficiaries - so it was pure load-time cost. It is now fetched
      on first open of the map view; see _v14EnsureLeaflet(). -->
-<!-- V3: Bulk import libraries. PapaParse handles CSV (BOM, delimiters, quoted
-     fields, encodings). SheetJS converts .xlsx → JSON so we can run the same
-     validation pipeline. Both are CDN-loaded — no build step needed. -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<!-- JSZip: needed for post-processing the generated .xlsx to inject data-
-     validation XML (SheetJS community build strips dataValidations on write). -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<!-- V17.6: the bulk import libraries (PapaParse, SheetJS xlsx, JSZip) used to
+     load here as three blocking tags. Together they are 0.95 MB unpacked, and
+     every coordinator phone parsed all of it on every cold start before the
+     page could paint — for a tool only admins can open. They are now fetched
+     on first use; see _ensureBulkImportLibs(). Same reasoning, and the same
+     pattern, as the V14 Leaflet change above. -->
 <!-- V16: Firebase Realtime Database (compat SDK v9 to match other KRSF apps).
      Two scripts only: app + database. We do NOT load firebase-auth here —
      auth still uses localStorage (see V16 changelog). -->
@@ -3913,7 +3838,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V17.5-LIVE';
+const APP_VERSION = 'V17.6-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -32703,6 +32628,65 @@ function _applyFilterLocks(u) {
   }
 }
 
+// ── V17.6: on-demand loader for the bulk import/export libraries ─────────
+// PapaParse + SheetJS + JSZip are 0.95 MB unpacked and are only ever needed by
+// the admin import/export tools. They are no longer in <head>; this fetches
+// them the first time one of those tools is actually used.
+let _bulkImportLibsPromise = null;
+let _bulkImportLibsTags = [];
+
+function _bulkLibsReady() {
+  return typeof XLSX !== 'undefined' && typeof JSZip !== 'undefined' && typeof Papa !== 'undefined';
+}
+
+function _ensureBulkImportLibs() {
+  if (_bulkLibsReady()) return Promise.resolve();
+  if (_bulkImportLibsPromise) return _bulkImportLibsPromise;
+
+  // A <script> that has already failed never fires load or error again, so a
+  // retry MUST start from a fresh tag. Re-using the dead tag is what makes the
+  // second attempt hang forever with no error and no message — on a rural
+  // connection a first-attempt failure is the normal case, not the rare one.
+  _bulkImportLibsTags.forEach(function(tag) {
+    if (tag && tag.parentNode) tag.parentNode.removeChild(tag);
+  });
+  _bulkImportLibsTags = [];
+
+  const _loadScript = function(src) {
+    return new Promise(function(resolve, reject) {
+      const s = document.createElement('script');
+      s.src = src;
+      s.async = true;
+      s.onload = function() { resolve(); };
+      s.onerror = function() { reject(new Error('could not download ' + src.split('/').pop())); };
+      _bulkImportLibsTags.push(s);
+      document.head.appendChild(s);
+    });
+  };
+
+  _bulkImportLibsPromise = Promise.all([
+    _loadScript('https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js'),
+    _loadScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'),
+    _loadScript('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js')
+  ]).then(function() {
+    if (!_bulkLibsReady()) throw new Error('import libraries downloaded but did not start');
+    return true;
+  }).catch(function(err) {
+    // Clear the cached promise so the NEXT attempt retries, instead of
+    // replaying this same failure for the rest of the session.
+    _bulkImportLibsPromise = null;
+    throw err;
+  });
+
+  return _bulkImportLibsPromise;
+}
+
+// Shared failure message for every entry point below.
+function _bulkLibsError(e) {
+  const why = (e && e.message) ? e.message : e;
+  toast('Could not load the Excel tools (' + why + '). Check your internet connection and try again.', 'error');
+}
+
 // ── V3: BULK CSV/XLSX IMPORTER ────────────────────────────────────────────
 // Admin-only. Single-view workflow (download template → upload → preview → confirm).
 // Designed to match the same validation rules as submitEnroll() so imported
@@ -32821,6 +32805,12 @@ function downloadImportTemplateCsv() {
 //   • Instructions sheet (column-by-column guide)
 //   • In-cell dropdowns on 8 fixed-list columns via post-processed OOXML
 async function downloadImportTemplateXlsx() {
+  try {
+    await _ensureBulkImportLibs();
+  } catch (e) {
+    _bulkLibsError(e);
+    return;
+  }
   if (typeof XLSX === 'undefined' || typeof JSZip === 'undefined') {
     toast('XLSX libraries not loaded. Check your internet connection.', 'error');
     return;
@@ -33093,11 +33083,18 @@ function _colLetter(i) {
 }
 
 // ── File upload + parse ──────────────────────────────────────────────────
-function handleImportFileUpload(input) {
+async function handleImportFileUpload(input) {
   const file = input.files[0];
   if (!file) return;
   _importState.fileName = file.name;
   const lower = file.name.toLowerCase();
+  try {
+    await _ensureBulkImportLibs();
+  } catch (e) {
+    _bulkLibsError(e);
+    input.value = '';
+    return;
+  }
   const reader = new FileReader();
   reader.onerror = () => toast('Could not read file. Try again.', 'error');
   if (lower.endsWith('.csv')) {
@@ -34638,6 +34635,11 @@ function _renderPhotoCleanupSection() {
 
 function _setImportTab(t) { _importActiveTab = t; renderAdminImport(); }
 function renderAdminImport() {
+  // V17.6: warm the import libraries while the admin reads this screen.
+  // The .catch() is required, not decoration: this returns a promise, so a
+  // try/catch around it cannot see a network failure and the rejection
+  // would escape as an uncaught error on every offline open.
+  _ensureBulkImportLibs().catch(function() {});
   if (!isAdmin()) {
     document.getElementById('content').innerHTML = '<div class="empty">Admin only.</div>';
     return;
@@ -35069,6 +35071,12 @@ let _endlineImportState = {
 // though only admins reach this UI today (page is admin-only), the scope
 // rule is future-proof for when we open it to NGO users.
 async function downloadEndlineTemplateXlsx() {
+  try {
+    await _ensureBulkImportLibs();
+  } catch (e) {
+    _bulkLibsError(e);
+    return;
+  }
   if (typeof XLSX === 'undefined' || typeof JSZip === 'undefined') {
     toast('XLSX libraries not loaded. Check your internet connection.', 'error');
     return;
@@ -35191,10 +35199,17 @@ async function downloadEndlineTemplateXlsx() {
 }
 
 // ── Upload handler ────────────────────────────────────────────────────────
-function handleEndlineUploadFile(input) {
+async function handleEndlineUploadFile(input) {
   const file = input.files && input.files[0];
   if (!file) return;
   _endlineImportState.fileName = file.name;
+  try {
+    await _ensureBulkImportLibs();
+  } catch (e) {
+    _bulkLibsError(e);
+    input.value = '';
+    return;
+  }
   const reader = new FileReader();
   if (/\.xlsx?$/i.test(file.name)) {
     reader.onload = e => _parseEndlineXlsx(e.target.result);
