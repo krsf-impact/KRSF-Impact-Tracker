@@ -1,13 +1,52 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V17.8-LIVE
+  KRSF Beneficiary Impact Tracker  -  V17.9-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
   cost every user ~155 KB of gzipped download on every load for text no
   browser reads. The two most recent releases are kept below.
   ============================================================================
+  V17.9-LIVE (2026-08-15 - Reports: estimated benefits per scheme, and a total):
+    + ONLY index.html CHANGES. sw.js, login-bg.jpg and villages.js are all
+      unchanged from V16.9 - do not re-upload them.
+
+    + Reports > Advocacy > 'Scheme success rates' gains an 'Est. benefits'
+      column and a Total row across the schemes shown.
+
+    + HOW THE ESTIMATE IS BUILT. Per received entry: the stored benefitAmt if
+      there is one, otherwise the scheme's configured standard value from
+      getSchemeDefaultAmount(). Coordinators never type rupee amounts (that is
+      deliberate policy), so nearly every stored benefitAmt is 0 - the fallback
+      is what makes the column mean anything. NOTHING IS WRITTEN to any record:
+      the estimate is computed at render time, so setting a scheme's value in
+      admin config makes the whole column populate retroactively.
+
+    + A SCHEME WITH NO CONFIGURED VALUE SHOWS A DASH, NOT Rs 0. A zero would
+      read as 'this scheme delivered nothing', which is false - it means nobody
+      has set a value yet. Several of the top schemes are documents (Aadhar,
+      PAN, Birth/Caste/Income Certificate) and may legitimately never have one.
+
+    + ⚠️ AS SHIPPED, 11 OF THE 12 ROWS SHOW A DASH. Only 2 of the 20 schemes in
+      config/schemes_meta carry a defaultAmount today: Vidhva Sahay (15,000) and
+      Vrudhdha Pension Yojana (12,000). Verified against the 11 Aug export: the
+      column totals Rs 36.9 L, all of it Vidhva Sahay. The reference values for
+      ~14 schemes already exist in 'KRSF Advocacy - Conservative Impact Values
+      2026-07-17.xlsx' next to this file; they have simply never been entered.
+
+    + The totals row sums the SCHEMES SHOWN (top 12 with 10+ filed), and says so
+      in the label - it is not a grand total across every scheme, and must not
+      be read as one.
+
+    + PERF. getSchemeDefaultAmount() re-reads config on every call and the
+      aggregation loop runs once per scheme row (50K+), so the lookup is
+      memoised per scheme name. Measured: renderReports 2.4 s on the full
+      126,572-record advocacy set, in line with V17.8.
+
+    + Firebase: 0 change - no read, no query, no write. Data: nothing written.
+    + Tests: 28 files.
+
   V17.8-LIVE (2026-08-15 - acting on two independent reviews of V17.7):
     + ONLY index.html CHANGES. sw.js, login-bg.jpg and villages.js are all
       unchanged from V16.9 - do not re-upload them.
@@ -65,46 +104,6 @@
     + Firebase: 0 change. Data: nothing written, nothing migrated.
     + Tests: 28 files. advsweep.js is new; advread.js rewritten (was 26 checks,
       5 of which asserted nothing).
-
-  V17.7-LIVE (2026-08-15 - the admin dashboard stops copying 126,619 records four times):
-    + ONLY index.html CHANGES. sw.js, login-bg.jpg and villages.js are all
-      unchanged from V16.9 - do not re-upload them.
-
-    + THE COST, MEASURED. loadAdv() deep-clones EVERY advocacy record on every
-      call. Driving the real renderDashboard() against the real 11 Aug data
-      (126,377 beneficiary + 126,619 advocacy) in a real browser: the dashboard
-      took 9,293 ms, of which 8,283 ms - 88% - was copying, across 4 calls.
-      Everything else (totals, tables, drawing) was ~1,010 ms.
-      AFTER: 1,340 ms. Roughly 7x faster.
-
-    + WHO PAYS. Admins and NGO admins only. Since V312 the listener is
-      role-scoped, so a coordinator holds ~160 records, not 126,619 - their
-      copy costs ~0.02 s. I had earlier implied all 559 phones paid this. They
-      do not. Largest NGO admin holds 70,395; system admin holds 252,996.
-
-    + THE FIX. _v177AdvRead() -> the existing no-clone _loadAdvRaw(). Four
-      callers switched: getAdvocacyBids, renderDashboard's advLatest, getAlerts
-      and _renderDashboardRecentUpdates.
-
-    + WHY THIS IS SAFE, AND HOW THAT WAS ESTABLISHED. The objects handed back
-      are LIVE references into RecordCache; one write corrupts the cache for
-      every other reader (the V310/V315 failure mode - ~3,500 records of other
-      coordinators re-uploaded on every save). This was not judged safe, it was
-      tested: every advocacy record handed out was wrapped in a write-detector
-      and every screen that can reach one was driven - dashboard, alerts,
-      advocacy, integrated, both coordinator alert paths. ZERO writes recorded.
-      Then the whole 252,996-record store was fingerprinted before and after a
-      full render sweep: BIT-FOR-BIT IDENTICAL.
-
-    + ⛔ getData() IS DELIBERATELY NOT SWITCHED. It has 59 callers and
-      openEdit() is one of them - it reads a record and then edits it. Pointing
-      getData() at a no-clone reader would recreate the exact corruption the
-      clone exists to prevent. _tests/advread.js §4 fails if anyone tries.
-
-    + Firebase: 0 change. This is a client-side read; no query, no listener, no
-      write path touched. Data: nothing written, nothing migrated.
-
-    + Tests: 28 files. advread.js is new (26 checks), confirmed RED on V17.6.
 
 -->
 <html lang="en">
@@ -3812,7 +3811,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V17.8-LIVE';
+const APP_VERSION = 'V17.9-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -21507,14 +21506,36 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
   // ── single pass: advocacy pipeline (scoped latest rows) ──────────────────
   const statusCount = { 'Need to Apply': 0, 'Applied': 0, 'Benefits Received': 0, 'Rejected': 0 };
   const stuckByScheme = new Map(), schemeStats = new Map();
+  // V17.9: getSchemeDefaultAmount() re-reads the admin config on every call,
+  // and the loop below runs once per scheme row (50K+ of them), so memoise
+  // the lookup per scheme name.
+  const _v179AmtMemo = new Map();
+  const _v179SchemeAmt = (sch) => {
+    if (_v179AmtMemo.has(sch)) return _v179AmtMemo.get(sch);
+    let v = 0;
+    try { v = (typeof getSchemeDefaultAmount === 'function') ? (getSchemeDefaultAmount(sch) || 0) : 0; } catch (_) { v = 0; }
+    _v179AmtMemo.set(sch, v);
+    return v;
+  };
   latestRows.forEach(r => {
     const s = _advNormStatus(r);
     statusCount[s]++;
     const sch = r.scheme || '—';
-    const st = schemeStats.get(sch) || { filed: 0, recd: 0, rej: 0 };
+    const st = schemeStats.get(sch) || { filed: 0, recd: 0, rej: 0, amt: 0, valued: 0 };
     if (s !== 'Need to Apply') {
       st.filed++;
-      if (s === 'Benefits Received') st.recd++;
+      if (s === 'Benefits Received') {
+        st.recd++;
+        // V17.9: estimated benefit for this entry. Coordinators never type
+        // rupee amounts (deliberate policy), so nearly every stored
+        // benefitAmt is 0. Fall back to the scheme's configured standard
+        // value, so the column fills in the moment an admin sets one WITHOUT
+        // rewriting a single stored record. `valued` counts entries that
+        // actually carry a value, so a scheme with no configured amount can
+        // show a dash rather than a misleading zero.
+        const per = (Number(r.benefitAmt) || 0) || _v179SchemeAmt(sch);
+        if (per > 0) { st.amt += per; st.valued++; }
+      }
       if (s === 'Rejected') st.rej++;
     }
     schemeStats.set(sch, st);
@@ -22285,13 +22306,21 @@ function renderReports() {
           <td style="${TD}">${esc(topNgo)}</td>
         </tr>`;
       }).join('');
-    const succRows = Array.from(schemeStats.entries()).filter(([, s]) => s.filed >= 10)
-      .sort((a, b) => b[1].filed - a[1].filed).slice(0, 12)
+    // V17.9: the same 12 rows are needed twice - once for the body, once for
+    // the totals row - so materialise the list instead of rebuilding it.
+    const succList = Array.from(schemeStats.entries()).filter(([, s]) => s.filed >= 10)
+      .sort((a, b) => b[1].filed - a[1].filed).slice(0, 12);
+    const succTot = succList.reduce((a, [, s]) => ({
+      filed: a.filed + s.filed, recd: a.recd + s.recd,
+      rej: a.rej + s.rej, amt: a.amt + (s.amt || 0),
+    }), { filed: 0, recd: 0, rej: 0, amt: 0 });
+    const succRows = succList
       .map(([sch, s]) => `<tr style="cursor:pointer" onclick="advStageF='';advSchemeFilter='${sch.replace(/'/g, "\\'")}';advBCurrentPage=1;currentView='advocacy';nav('advocacy')" title="Click to see all ${esc(sch)} applications">
         <td style="${TD}">${esc(sch)}</td>
         <td style="${TDR}">${s.filed.toLocaleString('en-IN')}</td>
         <td style="${TDR}">${s.recd.toLocaleString('en-IN')}</td>
         <td style="${TDR}">${s.rej.toLocaleString('en-IN')}</td>
+        <td style="${TDR}"${s.amt ? ` title="₹${Math.round(s.amt).toLocaleString('en-IN')} — ${s.valued.toLocaleString('en-IN')} of ${s.recd.toLocaleString('en-IN')} received entries carry a value"` : ' title="No standard benefit value is configured for this scheme"'}>${s.amt ? _rptMoney(s.amt) : '<span style="color:var(--gray2)">—</span>'}</td>
         <td style="${TDR}">${pctPill(s.filed ? s.recd / s.filed * 100 : null)}</td>
       </tr>`).join('');
     body =
@@ -22312,10 +22341,18 @@ function renderReports() {
           <tr><th style="${TH}">Scheme</th><th style="${THR}">Stuck</th><th style="${THR}">Avg days since logged</th><th style="${TH}">Most affected NGO</th></tr>
           ${stuckRows || `<tr><td colspan="4" style="${TD};text-align:center;color:var(--green)">Nothing stuck 60+ days.</td></tr>`}
         </table>`)) +
-      card('Scheme success rates', 'Of entries filed (applied / received / rejected), how many reached benefits. Schemes with fewer than 10 filed entries are hidden.',
+      card('Scheme success rates', 'Of entries filed (applied / received / rejected), how many reached benefits. Schemes with fewer than 10 filed entries are hidden. Estimated benefits use each scheme\'s standard value from the admin scheme settings; a dash means no value is set yet.',
         tblWrap(`<table style="width:100%;border-collapse:collapse">
-          <tr><th style="${TH}">Scheme</th><th style="${THR}">Filed</th><th style="${THR}">Received</th><th style="${THR}">Rejected</th><th style="${THR}">Success${_rptTip('Of entries filed for this scheme (Applied + Received + Rejected), the % that reached Benefits Received.')}</th></tr>
-          ${succRows || `<tr><td colspan="5" style="${TD};text-align:center;color:var(--gray2)">Not enough data yet.</td></tr>`}
+          <tr><th style="${TH}">Scheme</th><th style="${THR}">Filed</th><th style="${THR}">Received</th><th style="${THR}">Rejected</th><th style="${THR}">Est. benefits${_rptTip('Entries that reached Benefits Received, multiplied by the scheme\'s standard benefit value. It is an ESTIMATE — coordinators never enter rupee amounts. A dash means no standard value has been set for that scheme yet.')}</th><th style="${THR}">Success${_rptTip('Of entries filed for this scheme (Applied + Received + Rejected), the % that reached Benefits Received.')}</th></tr>
+          ${succRows || `<tr><td colspan="6" style="${TD};text-align:center;color:var(--gray2)">Not enough data yet.</td></tr>`}
+          ${succRows ? `<tr style="background:var(--gray4)">
+            <td style="${TD};font-weight:700;border-top:2px solid var(--gray3)">Total <span style="font-weight:400;color:var(--gray2);font-size:11px">(${succList.length} scheme${succList.length === 1 ? '' : 's'} shown)</span></td>
+            <td style="${TDR};font-weight:700;border-top:2px solid var(--gray3)">${succTot.filed.toLocaleString('en-IN')}</td>
+            <td style="${TDR};font-weight:700;border-top:2px solid var(--gray3)">${succTot.recd.toLocaleString('en-IN')}</td>
+            <td style="${TDR};font-weight:700;border-top:2px solid var(--gray3)">${succTot.rej.toLocaleString('en-IN')}</td>
+            <td style="${TDR};font-weight:700;border-top:2px solid var(--gray3)" title="₹${Math.round(succTot.amt).toLocaleString('en-IN')} across the schemes shown">${succTot.amt ? _rptMoney(succTot.amt) : '<span style="color:var(--gray2)">—</span>'}</td>
+            <td style="${TDR};font-weight:700;border-top:2px solid var(--gray3)">${pctPill(succTot.filed ? succTot.recd / succTot.filed * 100 : null)}</td>
+          </tr>` : ''}
         </table>`));
   }
 
