@@ -1,13 +1,117 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V17.9-LIVE
+  KRSF Beneficiary Impact Tracker  -  V18.0-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
   cost every user ~155 KB of gzipped download on every load for text no
   browser reads. The two most recent releases are kept below.
   ============================================================================
+  V18.0-LIVE (2026-08-22 - ONE benefit figure everywhere, Reports ranked by money):
+    + ONLY index.html CHANGES. sw.js, login-bg.jpg and villages.js are all
+      unchanged from V16.9 - do not re-upload them.
+
+    + THE BUG GURU FOUND. Advocacy showed Rs 48,67,78,500; Reports showed
+      Rs 49.7 Cr for the SAME data on FEWER records. Two screens, two different
+      definitions of what a received entry is worth: Advocacy summed the stored
+      benefitAmt only; Reports (V17.9) fell back to the scheme's configured
+      standard value when the box was empty. 362 Ayushman Bharat rows predate
+      the auto-fill and carry no amount - at Rs 50,000 that is the Rs 1.81 Cr.
+
+    + FIX: ONE shared _v18RowBenefit(), used by all SIXTEEN monetary totals in
+      the app. The advocacy figure goes Rs 48.68 Cr -> Rs 50.49 Cr, and every
+      other screen moves with it.
+
+    + THE FIRST DRAFT OF THIS RELEASE CHANGED ONLY THREE OF THEM and would have
+      shipped a screen that disagreed with ITSELF: the Advocacy card said
+      Rs 50.49 Cr while the "Total Benefits" column forty pixels below it still
+      showed a dash for the very rows the extra Rs 1.81 Cr came from. It would
+      also have put the Dashboard landing tiles Rs 1.81 Cr below the Advocacy
+      tab. Trading one contradiction for a dozen worse ones is not a fix. The
+      full list now on the shared rule: the advocacy card (cached AND uncached
+      paths), the advocacy per-person column, Reports 'Est. benefits', the
+      dashboard Scheme Benefits / Total Impact tiles, the month-on-month impact
+      chart, the dashboard NGO ranking, _computeNgoStats, _computeFcStats, the
+      NGO portfolio totals, Integrated view, All Beneficiaries, the beneficiary
+      CSV export, the three summary writers donors and Team Leaders read, and
+      the FC phone app's own impact headline.
+
+    + THE FC PHONE APP CHANGES TOO, DELIBERATELY. V8 removed the scheme-default
+      fallback from _coordComputeReportsData precisely BECAUSE the admin screens
+      did not have it, and said so: "a number that only one screen believes is
+      worse than a smaller one". That rule is still right - V18 only changed
+      which side of it is correct. Leaving the FC on the old expression would
+      have recreated the exact disagreement V8 removed, with the FC on the low
+      side, and the Gujarati WhatsApp share text publishing the low figure.
+
+    + NOTHING IS WRITTEN, AND NOTHING IS INVENTED. The fallback is applied at
+      render time - no record touched, no migration, no Firebase write, byte
+      count unchanged. A scheme with no configured value still contributes 0,
+      so the ~3,200 received rows under i Khedut, Suraksha/Jivan Vima Yojana,
+      MANREGA and the Gujarati-spelt duplicates stay at zero until an admin sets
+      a value. COUNTS NEVER MOVE - only rupees. Verified on the 21 Aug export:
+      19,858 received of 2,21,060 rows, identical on both builds.
+
+    + A NEGATIVE STORED AMOUNT IS PASSED THROUGH, NOT FLIPPED. Written the
+      obvious way (`stored > 0 ? stored : fallback`) a fat-fingered -50000 on an
+      Ayushman row would have become +50,000 - a Rs 1,00,000 swing that also
+      hides the bad row from anyone looking for negatives. Nothing validates
+      benefitAmt on submit. The test is `!== 0`.
+
+    + THE INVALIDATION HAD TO GO ONE LAYER HIGHER THAN IT FIRST DID. The
+      advocacy total now depends on config/schemes_meta. Clearing _v361AdvAgg is
+      NOT enough: _v357 caches the rendered innerHTML per view and replays it
+      whenever _v357ComputeSig() matches, so the renderer never runs. The
+      signature is built from _v357DataVersion, which moves only in
+      _v357InvalidateTabCache(). Symptom of getting this wrong: an admin sets
+      Ayushman Bharat to 50,000, returns to Advocacy, and sees the OLD total for
+      the rest of the session - and the tab cache is ADMIN-ONLY, so it would
+      have failed for exactly the person this release exists for. Now invalidated
+      from saveSchemesMeta (covering all six admin callers) and from BOTH
+      branches of the boot fetch; the cloud-wipe branch also re-renders, which
+      it never did.
+
+    + REPORTS 'Scheme success rates' NOW RANKS BY MONEY, 15 rows not 12.
+      Ranking by filed count put Vrudhdha Pension Yojana 14th and the top-12 cut
+      hid it - 172 received worth Rs 61.9 L at its configured Rs 36,000, the
+      second-largest verified sum in the programme. Schemes with no value fall
+      to the bottom ordered by volume, so i Khedut, Suraksha and MANREGA stay
+      visible rather than dropping off the table.
+
+    + THE MEMO IS LOAD-BEARING. getSchemesMeta() does a localStorage read plus a
+      JSON.parse per call and the aggregation runs once per received row (~20K).
+      Unmemoised this would have added 20K parses to the login path. MEASURED
+      IN ONE TAB on the real export, both expressions over the same 19,858
+      received rows: the shared helper costs 1 ms more. Do NOT trust the
+      cross-build timing v18sweep also prints - both builds run in the same
+      Chrome one after the other, and whichever goes SECOND inherits the
+      other's heap and looks ~15%% slower. Swapping the argument order flips
+      which one loses. That confound sent this release chasing a phantom
+      regression twice.
+
+    + KNOWN AND LEFT ALONE, ON PURPOSE. (1) The advocacy CSV's per-row "Benefit
+      Amount (Rs)" column still prints the STORED value - it is a record-level
+      field dump, and substituting an estimate would look like an FC had typed
+      it. (2) Several older surfaces filter on `benefitRecd === 'Yes'` rather
+      than _advNormStatus(), which is a strictly wider set. That is a separate
+      pre-existing defect; fixing it would move COUNTS, so it is not in this
+      release. (3) Any edit on the admin Schemes screen - including type or
+      state tags, which cannot affect a rupee total - now invalidates the
+      aggregation. One admin click, ~225K rows re-aggregated on the next render.
+
+    + Firebase: 0 change. Data: nothing written, nothing migrated.
+    + Tests: 30 files. TWO are new. v18amt.js - 75 checks, seen RED on V17.9
+      first (43 of 75 failed) before any of this was written. v18sweep.js - the Chrome/CDP runtime
+      proof on the real export: it renders both builds side by side, requires
+      the new total to be HIGHER, requires every count to be IDENTICAL, requires
+      Advocacy and Reports to agree exactly, fingerprints all 1,29,012 advocacy
+      and 1,28,870 beneficiary records before and after driving every screen and
+      requires them byte-identical, and carries a negative control (wipe the
+      scheme values and V18 must return V17.9's exact figure). rptverify.js
+      gains section 29, which exercises the fallback inside the REAL Reports
+      aggregator with its own negative control.
+
   V17.9-LIVE (2026-08-15 - Reports: estimated benefits per scheme, and a total):
     + ONLY index.html CHANGES. sw.js, login-bg.jpg and villages.js are all
       unchanged from V16.9 - do not re-upload them.
@@ -3811,7 +3915,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V17.9-LIVE';
+const APP_VERSION = 'V18.0-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -6013,9 +6117,24 @@ function _attachNonBenefListeners() {
     const v = snap.val();
     if (v && typeof v === 'object' && !Array.isArray(v)) {
       localStorage.setItem('krsf_schemes_meta_v1', JSON.stringify(v));
+      // V18: the advocacy "Benefit Amount" card is computed FROM this node, and
+      // both the aggregation AND the rendered HTML are cached above it. On a
+      // cold boot those can be built before this fetch lands, so without the
+      // invalidate the card would serve the pre-config total for the rest of
+      // the session - and the re-render on the next line would faithfully
+      // repaint the stale number. Same layer rule as saveSchemesMeta above.
+      try { if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache();
+            else if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
       try { renderCurrentView(); } catch(_){}
     } else if (v === null) {
       localStorage.removeItem('krsf_schemes_meta_v1');
+      // Same reason on the removal branch: every scheme value just went away,
+      // so the cached total is wrong by the whole fallback. Re-render too - the
+      // value branch does it and this one never did, so a cloud-side wipe used
+      // to leave the old figure on screen.
+      try { if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache();
+            else if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
+      try { renderCurrentView(); } catch(_){}
     }
   });
   // V336 (2026-05-26): audit listener removed. Audit log is no longer
@@ -8672,6 +8791,22 @@ async function saveSchemesMeta(obj) {
     if (Object.keys(entry).length > 0) clean[k] = entry;
   });
   localStorage.setItem(SCHEMES_META_KEY, JSON.stringify(clean));
+  // V18: every admin edit to a scheme's default amount moves the advocacy
+  // "Benefit Amount" total. Invalidating HERE covers all six callers at once
+  // instead of each of them having to remember.
+  //
+  // ⛔ IT MUST BE THE TAB CACHE, NOT THE AGGREGATION CACHE. _v357 caches the
+  // rendered innerHTML per view and replays it whenever _v357ComputeSig()
+  // matches - the renderer never runs, so clearing the aggregation below it
+  // achieves nothing. The signature is built from _v357DataVersion, which only
+  // moves in _v357InvalidateTabCache(). Symptom without this: an admin sets
+  // Ayushman Bharat to 50,000, navigates back to Advocacy, and the card still
+  // shows the OLD total for the rest of the session - and the one user who can
+  // edit scheme values is the only user the tab cache is enabled for, so it
+  // would have failed for exactly the person this release was built for.
+  // _v357InvalidateTabCache() calls _v361InvalidateAggCache() itself.
+  try { if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache();
+        else if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
   // V390 [6.3]: return cloud-sync boolean for awaiting callers.
   return await fbSyncWholeObject('config/schemes_meta', clean);
 }
@@ -8698,6 +8833,61 @@ function hasSchemeDefault(schemeName) {
   const meta = getSchemesMeta()[schemeName];
   return !!(meta && Number.isFinite(Number(meta.defaultAmount)) && Number(meta.defaultAmount) > 0);
 }
+
+// -- V18: ONE definition of "what is this received entry worth" -------------
+// Before V18 there were two, and they disagreed. renderAdvocacy's "Benefit
+// Amount" card summed the STORED benefitAmt only; the Reports 'Est. benefits'
+// column (V17.9) fell back to the scheme's configured standard value when the
+// coordinator left the box empty. On the 21 Aug export that is Rs 48.68 Cr on
+// one screen and Rs 50.49 Cr on the other, from the same records - a Rs 1.81 Cr
+// gap, almost all of it 362 Ayushman Bharat rows that predate the auto-fill and
+// carry no amount. Both screens now call _v18RowBenefit, so they cannot drift.
+//
+// NOTHING IS WRITTEN. The fallback is applied at render time, so setting a
+// scheme's value in admin config makes every historic row follow immediately,
+// with no migration, no record touched and no Firebase write. It also means the
+// figure follows the config: change the standard and the total changes with it,
+// which is the behaviour that was asked for.
+//
+// A SCHEME WITH NO CONFIGURED VALUE STAYS 0. Nothing is invented. ~3,200
+// received rows sit under schemes that have never been given a value (i Khedut,
+// Suraksha/Jivan Vima Yojana, MANREGA and the Gujarati-spelt duplicates) and
+// they still contribute nothing until an admin sets one.
+//
+// WHY THE MEMO IS NOT OPTIONAL: getSchemesMeta() does a localStorage.getItem
+// plus a JSON.parse on EVERY call, and the advocacy aggregation runs this once
+// per received row (~20K today). Unmemoised that is 20K parses of the same
+// string on the path to the first screen an admin sees. _v18ResetAmtMemo() is
+// called from _v361InvalidateAggCache and from every site that writes
+// krsf_schemes_meta_v1, so a changed value is never served stale.
+let _v18AmtMemo = null;
+function _v18SchemeAmt(schemeName) {
+  if (!schemeName) return 0;
+  if (!_v18AmtMemo) _v18AmtMemo = new Map();
+  let v = _v18AmtMemo.get(schemeName);
+  if (v === undefined) {
+    try { v = getSchemeDefaultAmount(schemeName) || 0; } catch(_) { v = 0; }
+    // Memoise the 0 too - a scheme with no value is the COMMON case, and
+    // re-looking it up per row is exactly the cost this exists to avoid.
+    _v18AmtMemo.set(schemeName, v);
+  }
+  return v;
+}
+function _v18ResetAmtMemo() { _v18AmtMemo = null; }
+// Worth of ONE row already known to be Benefits Received. Callers do that
+// status check themselves; this deliberately does not repeat it, so a Rs 0
+// row is still a Received row and the COUNTS never move.
+function _v18RowBenefit(r) {
+  if (!r) return 0;
+  const stored = Number(r.benefitAmt) || 0;
+  // `!== 0`, NOT `> 0`. Nothing validates benefitAmt on submit, and a
+  // fat-fingered -50000 on an Ayushman row would turn into +50,000 under
+  // `> 0` - a Rs 1,00,000 swing that also makes the bad row INVISIBLE to
+  // anyone hunting for negatives. V17.9 passed the negative straight through;
+  // so does this. A wrong number that stays wrong is findable.
+  return stored !== 0 ? stored : _v18SchemeAmt(r.scheme);
+}
+try { window._v18RowBenefit = _v18RowBenefit; window._v18ResetAmtMemo = _v18ResetAmtMemo; } catch(_){}
 // =============================================================================
 // V412: PER-STATE SCHEME FILTERING
 // =============================================================================
@@ -16082,7 +16272,7 @@ function _computeNgoStats(partnerName, benefSet, advAll) {
   const advReceivedPct = totalRows > 0 ? Math.round(receivedRows.length / totalRows * 100) : null;
   const advRejectedPct = totalRows > 0 ? Math.round(rejectedRows.length / totalRows * 100) : null;
 
-  const totalBenefits = receivedRows.reduce((sum, r) => sum + (Number(r.benefitAmt) || 0), 0);
+  const totalBenefits = receivedRows.reduce((sum, r) => sum + _v18RowBenefit(r), 0);
   const advAvgBenefit = receivedRows.length > 0
     ? Math.round(totalBenefits / receivedRows.length)
     : null;
@@ -16170,7 +16360,7 @@ function _computeFcStats(fcUserId, fcDisplayName, benefSet, advAll) {
   const advReceivedPct = totalRows > 0 ? Math.round(receivedRows.length / totalRows * 100) : null;
   const advRejectedPct = totalRows > 0 ? Math.round(rejectedRows.length / totalRows * 100) : null;
 
-  const totalBenefits = receivedRows.reduce((sum, r) => sum + (Number(r.benefitAmt) || 0), 0);
+  const totalBenefits = receivedRows.reduce((sum, r) => sum + _v18RowBenefit(r), 0);
   const advAvgBenefit = receivedRows.length > 0
     ? Math.round(totalBenefits / receivedRows.length)
     : null;
@@ -16316,7 +16506,7 @@ function renderNGO() {
   const portAdvAppliedPct  = portAdvTotalRows > 0 ? Math.round(portApplied  / portAdvTotalRows * 100) : null;
   const portAdvReceivedPct = portAdvTotalRows > 0 ? Math.round(portReceived.length / portAdvTotalRows * 100) : null;
   const portAdvRejectedPct = portAdvTotalRows > 0 ? Math.round(portRejected / portAdvTotalRows * 100) : null;
-  const portAdvTotalBenefits = portReceived.reduce((s, r) => s + (Number(r.benefitAmt) || 0), 0);
+  const portAdvTotalBenefits = portReceived.reduce((s, r) => s + _v18RowBenefit(r), 0);
   const portAdvAvgBenefit = portReceived.length > 0 ? Math.round(portAdvTotalBenefits / portReceived.length) : null;
 
   // Sort rows per current sort key. 'name' is alpha; everything else numeric.
@@ -16638,7 +16828,13 @@ function getAlerts() {
     (rec.schemeRows || []).forEach(r => {
       if (r._deleted) return;  // tombstone — skip
       const isReceived = (r.status === 'Approved' && r.benefitRecd === 'Yes') || r.status === 'Benefits Received';
-      if (isReceived && (!r.benefitAmt || r.benefitAmt === 0)) {
+      // V18: a row whose scheme carries a standard value is no longer missing
+      // anything - every total in the app now values it via _v18RowBenefit.
+      // Flagging it would tell the coordinator to type an amount that would
+      // OVERRIDE the standard, and KRSF policy is that coordinators do not
+      // enter amounts at all. Only rows the app genuinely cannot value are
+      // worth an alert now.
+      if (isReceived && (!r.benefitAmt || r.benefitAmt === 0) && !_v18SchemeAmt(r.scheme)) {
         (zeroBenefitByBid[rec.bid] = zeroBenefitByBid[rec.bid] || []).push(r.scheme);
       }
     });
@@ -19315,7 +19511,7 @@ function _renderDashboardTrendBands(list, advLatest) {
     // double underscore — it's the aggregator's field, distinct from the
     // raw scheme row which has no timestamp of its own).
     const k = _monthKey(r.__createdAt);
-    if (k && impactByMonth[k] != null) impactByMonth[k] += (r.benefitAmt || 0);
+    if (k && impactByMonth[k] != null) impactByMonth[k] += _v18RowBenefit(r);
   });
   // impactNewPerMonth is computed independently per-month (like newPerMonth
   // above), THEN accumulated — not derived by differencing the cumulative
@@ -19620,7 +19816,7 @@ function renderDashboard() {
   const advLatest = _advLatestRowsAll(_v177AdvRead());
   const schemeBenefits = advLatest
     .filter(r => listIds.has(r.__bid) && r.benefitRecd === 'Yes')
-    .reduce((s, r) => s + (r.benefitAmt || 0), 0);
+    .reduce((s, r) => s + _v18RowBenefit(r), 0);
   const totalImpact = totalAdded + schemeBenefits;
 
   updateAlertBadge();
@@ -20121,6 +20317,11 @@ function _v361InvalidateAggCache() {
   // changelog entry and _invalidateAdvCache's own (previously unused)
   // definition for the full history.
   try { if (typeof _invalidateAdvCache === 'function') _invalidateAdvCache(); } catch(_) {}
+  // V18: the advocacy "Benefit Amount" card is now computed from
+  // config/schemes_meta as well as from the records, so the amount memo has to
+  // die with the aggregation it feeds. Guarded because this invalidator runs
+  // from boot paths that may execute before the helper is reached.
+  try { if (typeof _v18ResetAmtMemo === 'function') _v18ResetAmtMemo(); } catch(_) {}
 }
 window._v361InvalidateAggCache = _v361InvalidateAggCache;
 
@@ -20146,7 +20347,9 @@ function _v361GetAdvAgg() {
     else if (s === 'Rejected')      rejectedCnt++;
     else if (s === 'Benefits Received') {
       benefitCnt++;
-      totalAmt += (Number(r.benefitAmt) || 0);
+      // V18: what the coordinator recorded, or the scheme's standard value
+      // when the box was left empty. Identical rule to the Reports column.
+      totalAmt += _v18RowBenefit(r);
     }
   }
   // ⛔ V17.8: `allAdv` holds LIVE references into RecordCache.adv, and this
@@ -20180,7 +20383,7 @@ function renderAdvocacy(sub) {
   const appliedCnt    = _agg ? _agg.appliedCnt    : allRows.filter(r=>_advNormStatus(r)==='Applied').length;
   const rejectedCnt   = _agg ? _agg.rejectedCnt   : allRows.filter(r=>_advNormStatus(r)==='Rejected').length;
   const benefitCnt    = _agg ? _agg.benefitCnt    : allRows.filter(r=>_advNormStatus(r)==='Benefits Received').length;
-  const totalAmt      = _agg ? _agg.totalAmt      : allRows.filter(r=>_advNormStatus(r)==='Benefits Received').reduce((s,r)=>s+(r.benefitAmt||0),0);
+  const totalAmt      = _agg ? _agg.totalAmt      : allRows.filter(r=>_advNormStatus(r)==='Benefits Received').reduce((s,r)=>s+_v18RowBenefit(r),0);
   // Denominator for the middle filter percentages — applications that have
   // actually been filed (excludes Need to Apply).
   const filedTotal = appliedCnt + rejectedCnt + benefitCnt;
@@ -20369,10 +20572,14 @@ function _advBenTab2(allAdv, allB) {
         + ' onmouseout="this.style.opacity=\'1\'"'
         + '>' + escHtml(sr.scheme) + labelExtra + '</span>';
     }).join('');
-    // Total benefit amount: sum across schemes with Benefits Received
+    // Total benefit amount: sum across schemes with Benefits Received.
+    // V18: same rule as the "Benefit Amount" card at the top of this very
+    // screen. It used to be stored-only while the card was not, so a person
+    // whose Ayushman row has an empty amount box showed a dash here while
+    // being counted at Rs 50,000 six inches higher up the page.
     const totalBen = schemeRows
       .filter(sr => _advNormStatus(sr) === 'Benefits Received')
-      .reduce((s, sr) => s + (Number(sr.benefitAmt) || 0), 0);
+      .reduce((s, sr) => s + _v18RowBenefit(sr), 0);
     const benefitCell = totalBen > 0
       ? `<span style="font-weight:600;color:var(--green)">₹${totalBen.toLocaleString('en-IN')}</span>`
       : `<span style="color:var(--gray2);font-size:12px">—</span>`;
@@ -20436,7 +20643,7 @@ function renderIntegrated(sub) {
     const hasLiv = (b.interventions||[]).some(i => i !== 'Advocacy (Govt. Schemes)');
     const hasAdv = schemeRows.length > 0 || (b.interventions||[]).includes('Advocacy (Govt. Schemes)');
     const incDelta   = b.endIncome != null ? delta(b) : 0;
-    const benefitAmt = schemeRows.filter(r => r.benefitRecd === 'Yes').reduce((s, r) => s + (r.benefitAmt || 0), 0);
+    const benefitAmt = schemeRows.filter(r => r.benefitRecd === 'Yes').reduce((s, r) => s + _v18RowBenefit(r), 0);
     return { ...b, schemeRows, hasLiv, hasAdv, incDelta, benefitAmt };
   });
 
@@ -20784,7 +20991,7 @@ function renderAllBeneficiaries() {
       const hasAdv = advBidSet.has(b.id) || (b.interventions||[]).includes('Advocacy (Govt. Schemes)');
       const schemeRows = latestByBid[b.id] || [];
       const incDelta   = b.endIncome != null ? (b.endIncome - b.baseIncome) : 0;
-      const benefitAmt = schemeRows.filter(r => r.benefitRecd === 'Yes').reduce((s, r) => s + (r.benefitAmt || 0), 0);
+      const benefitAmt = schemeRows.filter(r => r.benefitRecd === 'Yes').reduce((s, r) => s + _v18RowBenefit(r), 0);
       return { ...b, hasLiv, hasAdv, incDelta, benefitAmt };
     });
     _allBEnrichedCache    = enriched;
@@ -21506,17 +21713,10 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
   // ── single pass: advocacy pipeline (scoped latest rows) ──────────────────
   const statusCount = { 'Need to Apply': 0, 'Applied': 0, 'Benefits Received': 0, 'Rejected': 0 };
   const stuckByScheme = new Map(), schemeStats = new Map();
-  // V17.9: getSchemeDefaultAmount() re-reads the admin config on every call,
-  // and the loop below runs once per scheme row (50K+ of them), so memoise
-  // the lookup per scheme name.
-  const _v179AmtMemo = new Map();
-  const _v179SchemeAmt = (sch) => {
-    if (_v179AmtMemo.has(sch)) return _v179AmtMemo.get(sch);
-    let v = 0;
-    try { v = (typeof getSchemeDefaultAmount === 'function') ? (getSchemeDefaultAmount(sch) || 0) : 0; } catch (_) { v = 0; }
-    _v179AmtMemo.set(sch, v);
-    return v;
-  };
+  // V18: this screen's private amount memo moved next to
+  // getSchemeDefaultAmount, so Reports and the Advocacy card now share ONE
+  // definition (_v18RowBenefit). They used to have two and disagreed by
+  // Rs 1.81 Cr on the same data.
   latestRows.forEach(r => {
     const s = _advNormStatus(r);
     statusCount[s]++;
@@ -21533,7 +21733,7 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
         // rewriting a single stored record. `valued` counts entries that
         // actually carry a value, so a scheme with no configured amount can
         // show a dash rather than a misleading zero.
-        const per = (Number(r.benefitAmt) || 0) || _v179SchemeAmt(sch);
+        const per = _v18RowBenefit(r);
         if (per > 0) { st.amt += per; st.valued++; }
       }
       if (s === 'Rejected') st.rej++;
@@ -22306,10 +22506,18 @@ function renderReports() {
           <td style="${TD}">${esc(topNgo)}</td>
         </tr>`;
       }).join('');
-    // V17.9: the same 12 rows are needed twice - once for the body, once for
-    // the totals row - so materialise the list instead of rebuilding it.
+    // V17.9: the same rows are needed twice - once for the body, once for the
+    // totals row - so materialise the list instead of rebuilding it.
+    // V18: ORDERED BY MONEY, not by volume. Ranking on filed count put
+    // Vrudhdha Pension Yojana 14th on 382 filed and the top-12 cut then hid it
+    // - along with Rs 61.9 L, the second-largest verified sum in the whole
+    // programme. Schemes carrying no value fall to the bottom and order by
+    // volume among themselves, so the high-traffic document schemes (i Khedut,
+    // Suraksha, MANREGA) are still visible rather than dropped. 15 rows, not
+    // 12, so every scheme that currently carries money fits above the fold.
     const succList = Array.from(schemeStats.entries()).filter(([, s]) => s.filed >= 10)
-      .sort((a, b) => b[1].filed - a[1].filed).slice(0, 12);
+      .sort((a, b) => ((b[1].amt || 0) - (a[1].amt || 0)) || (b[1].filed - a[1].filed))
+      .slice(0, 15);
     const succTot = succList.reduce((a, [, s]) => ({
       filed: a.filed + s.filed, recd: a.recd + s.recd,
       rej: a.rej + s.rej, amt: a.amt + (s.amt || 0),
@@ -22341,7 +22549,7 @@ function renderReports() {
           <tr><th style="${TH}">Scheme</th><th style="${THR}">Stuck</th><th style="${THR}">Avg days since logged</th><th style="${TH}">Most affected NGO</th></tr>
           ${stuckRows || `<tr><td colspan="4" style="${TD};text-align:center;color:var(--green)">Nothing stuck 60+ days.</td></tr>`}
         </table>`)) +
-      card('Scheme success rates', 'Of entries filed (applied / received / rejected), how many reached benefits. Schemes with fewer than 10 filed entries are hidden. Estimated benefits use each scheme\'s standard value from the admin scheme settings; a dash means no value is set yet.',
+      card('Scheme success rates', 'Ordered by estimated benefits, largest first; schemes with no value set follow, ordered by how many were filed. Top 15 schemes; those with fewer than 10 filed entries are hidden. Of entries filed (applied / received / rejected), how many reached benefits. Estimated benefits use each scheme\'s standard value from the admin scheme settings; a dash means no value is set yet.',
         tblWrap(`<table style="width:100%;border-collapse:collapse">
           <tr><th style="${TH}">Scheme</th><th style="${THR}">Filed</th><th style="${THR}">Received</th><th style="${THR}">Rejected</th><th style="${THR}">Est. benefits${_rptTip('Entries that reached Benefits Received, multiplied by the scheme\'s standard benefit value. It is an ESTIMATE — coordinators never enter rupee amounts. A dash means no standard value has been set for that scheme yet.')}</th><th style="${THR}">Success${_rptTip('Of entries filed for this scheme (Applied + Received + Rejected), the % that reached Benefits Received.')}</th></tr>
           ${succRows || `<tr><td colspan="6" style="${TD};text-align:center;color:var(--gray2)">Not enough data yet.</td></tr>`}
@@ -26019,7 +26227,7 @@ function exportBeneficiariesCsv() {
   advLatest.forEach(r => {
     if (!schemeSummary[r.__bid]) schemeSummary[r.__bid] = { names: [], received: 0 };
     schemeSummary[r.__bid].names.push(r.scheme);
-    if (r.benefitRecd === 'Yes') schemeSummary[r.__bid].received += (r.benefitAmt || 0);
+    if (r.benefitRecd === 'Yes') schemeSummary[r.__bid].received += _v18RowBenefit(r);
   });
 
   // V4.1: Updated columns — added Gender, Livestock; renamed "Livelihood"
@@ -29456,7 +29664,7 @@ function _v362ComputeOneSummary(records, advRecords, ngoScope, prefiltered) {
     if (s === 'Need to Apply') needApply++;
     else if (s === 'Applied') applied++;
     else if (s === 'Rejected') rejected++;
-    else if (s === 'Benefits Received') { received++; totalAmt += (Number(r.benefitAmt)||0); }
+    else if (s === 'Benefits Received') { received++; totalAmt += (typeof _v18RowBenefit === 'function') ? _v18RowBenefit(r) : (Number(r.benefitAmt)||0); }
   }
 
   // ---- Integrated tab ----
@@ -29794,7 +30002,7 @@ async function _v400ComputeAllSummaries(records, advRecords) {
       if (s === 'Need to Apply') out.needApply++;
       else if (s === 'Applied') out.applied++;
       else if (s === 'Rejected') out.rejected++;
-      else if (s === 'Benefits Received') { out.received++; out.totalAmt += (Number(r.benefitAmt) || 0); }
+      else if (s === 'Benefits Received') { out.received++; out.totalAmt += (typeof _v18RowBenefit === 'function') ? _v18RowBenefit(r) : (Number(r.benefitAmt) || 0); }
     }
     return out;
   }
@@ -29883,7 +30091,7 @@ function _v363ComputeFcSlice(records, advAll, user) {
     if (s === 'Need to Apply') needApply++;
     else if (s === 'Applied') applied++;
     else if (s === 'Rejected') rejected++;
-    else if (s === 'Benefits Received') { received++; totalAmt += (Number(r.benefitAmt)||0); }
+    else if (s === 'Benefits Received') { received++; totalAmt += (typeof _v18RowBenefit === 'function') ? _v18RowBenefit(r) : (Number(r.benefitAmt)||0); }
   }
   // Integrated for this FC
   const livOnly = recs.filter(b => (b.interventions||[]).some(i => i && i !== 'Advocacy (Govt. Schemes)') && !advBidSet.has(b.id)).length;
@@ -31529,15 +31737,16 @@ function _coordComputeReportsData(preList, preAdv) {
     else if (st === 'Applied') advApplied++;
     else if (st === 'Benefits Received') {
       advBenefitsReceived++;
-      // V8 BUGFIX: no scheme-default fallback. Every other monetary total in
-      // this app (Team Report, dashboard, _v363ComputeFcSlice, the per-FC
-      // summary) uses `Number(r.benefitAmt) || 0` with no default. Substituting
-      // the configured default here made the FC's own screen disagree with the
-      // admin's: an unlocked scheme left blank stores benefitAmt=0, so the FC
-      // saw the default (e.g. ₹20,000) while the admin's Team Report showed ₹0
-      // for the same row. Matching the rest of the app is what matters; a
-      // number that only one screen believes is worse than a smaller one.
-      benefitValue += (Number(r.benefitAmt) || 0);
+      // V8 BUGFIX, NOW INVERTED BY V18. V8 refused the scheme-default fallback
+      // here because every other monetary total in the app used
+      // `Number(r.benefitAmt) || 0`, so adding it made the FC's screen disagree
+      // with the admin's Team Report. The RULE V8 was protecting - every
+      // monetary total agrees - is still exactly right; V18 just changed which
+      // side of it is correct. Team Report, dashboard, _v363ComputeFcSlice and
+      // the per-FC summary all now use _v18RowBenefit, so keeping the old
+      // expression here would recreate the very disagreement V8 removed, only
+      // with the FC on the low side. Same principle, opposite line of code.
+      benefitValue += _v18RowBenefit(r);
     }
   });
 
