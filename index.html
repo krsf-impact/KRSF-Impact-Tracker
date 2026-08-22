@@ -1,13 +1,93 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V18.0-LIVE
+  KRSF Beneficiary Impact Tracker  -  V18.1-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
   cost every user ~155 KB of gzipped download on every load for text no
   browser reads. The two most recent releases are kept below.
   ============================================================================
+  V18.1-LIVE (2026-08-22 - the FC's list repaints the moment a scheme is logged):
+    + ONLY index.html CHANGES. sw.js, login-bg.jpg and villages.js are all
+      unchanged from V16.9 - do not re-upload them.
+
+    + REPORTED FROM THE FIELD, WITH A SCREEN RECORDING. An FC enrols a
+      livelihood beneficiary. Days later they tap Log and add a scheme. After
+      saving, the card still shows only the LIVELIHOOD pill and the summary
+      still reads "Livelihood Only 1 / Dual (Both) 0". Touch ANY filter and the
+      same record immediately shows LIVELIHOOD + ADVOCACY + the scheme chip and
+      Dual (Both) 1. Nothing was wrong with the data - the auto-tag that adds
+      'Advocacy (Govt. Schemes)' had worked correctly. The screen was simply
+      never repainted after the save.
+
+    + THE CAUSE, and there is only one. _saveAdvocacyInner ended with
+      `if (currentView==='integrated')` and `if (currentView==='advocacy')`.
+      Those two names were written when they were the only two places advocacy
+      appeared. The coordinator shell is neither - and nor is the ADMIN's own
+      "All Beneficiaries" list. An enumeration of view names had silently
+      rotted as shells were added around it.
+
+    + FIX: one call to renderCurrent(). ⛔ NOTE THE NAME - the app has TWO
+      helpers a few letters apart and only one works here:
+        renderCurrentView()  DEBOUNCED 200 ms, then dropped outright by
+                             _isUserMidEdit() if any overlay is open when the
+                             timer fires, with nothing to re-arm it.
+        renderCurrent()      synchronous; dispatches on the SHELL first, so the
+                             FC app gets coordRenderList; and invalidates the
+                             V357 tab cache before running the admin route, so
+                             the next navigation cannot replay stale HTML.
+      An earlier cut of this fix enumerated the views by hand
+      (coord/integrated/advocacy/beneficiaries) - repeating the very mistake
+      being fixed, and missing the tab-cache invalidation too.
+
+    + A SECOND FIX WAS WRITTEN, REVIEWED, AND REMOVED. It added a 'home' branch
+      to _coordRepaintActiveTab. Adversarial review showed it was dead for the
+      reason it was added - the paths that deliver another device's scheme go
+      through _v337AdvOneShotFetch, which never touches that hook - AND that it
+      would have CLOBBERED THE ALERTS SCREEN, because _renderCoordAlerts writes
+      into #coord-list while _coordActiveTab is still 'home'. It also made every
+      FC save do three full list renders instead of one, two of them behind the
+      open modal. The reasoning is kept in the code so nobody re-adds it.
+
+    + SIBLING BUG FOUND AND FIXED IN THE SAME PASS.
+      _undoBulkStatusForBeneficiary called renderCurrentView() and then
+      openDrawer() on the very next line. #drawer is in _isUserMidEdit()'s guard
+      list, so 200 ms later the render was dropped, every single time: the
+      drawer showed the reverted value while the table underneath still showed
+      the post-bulk one. Now renderCurrent(), which completes before the drawer
+      opens. THIS is the case where the debounce-and-drop mechanism is provably
+      what goes wrong; the FC bug above was NOT - openAdvModal() closes the
+      drawer, so nothing was open, and coordinators have no live advocacy
+      listener to fire that repaint in the first place. The first draft of this
+      note claimed otherwise and was wrong.
+
+    + Firebase: 0 change - no read, write, listener or byte added. Data: nothing
+      written, nothing migrated, no record touched.
+    + Speed: one extra render of a list the FC already has in memory, only on
+      the save they just performed. Measured at realistic scale rather than on
+      a one-record fixture: 4-6 ms for the median FC (156 records), 15-20 ms for
+      a heavy one (600). If an admin happens to be standing on the Dashboard
+      when they log a scheme, renderCurrent() re-renders it, which costs a few
+      seconds on the full dataset. Accepted deliberately: it is the same cost
+      _advApplyStatus has always paid, and a correct screen beats a fast wrong
+      one. Payload +2.5 KB gzipped, all of it comments.
+    + Tests: 31 files. v181coord.js is new. It drives the real workflow in
+      headless Chrome - render the FC list, log a scheme through the REAL
+      _saveAdvocacyInner, then read the DOM with NO filter touched - and carries
+      a negative control that fails unless V18.0 reproduces the bug. Seen RED on
+      V18.0 first, matching the recording exactly: [all 1 | livOnly 1 | dual 0]
+      before AND after the save, becoming [all 1 | livOnly 0 | dual 1] only once
+      something forced a repaint.
+    + ⛔ HARNESS SAFETY. v181coord.js and v18sweep.js serve the real build, which
+      boots Firebase against the LIVE database, and two write paths run before
+      any stub can be installed: _fbPushAudit writes an audit row per save, and
+      _v343VersionCheck SELF-PROMOTES /_minVersion for any -LIVE build newer
+      than the stored one - which would force-reload every field phone onto a
+      build that is not uploaded. Rules and App Check rejected both, but that is
+      luck. Both harnesses now rewrite databaseURL and projectId to a dead
+      project before serving, and refuse to run if that rewrite does not match.
+
   V18.0-LIVE (2026-08-22 - ONE benefit figure everywhere, Reports ranked by money):
     + ONLY index.html CHANGES. sw.js, login-bg.jpg and villages.js are all
       unchanged from V16.9 - do not re-upload them.
@@ -3915,7 +3995,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V18.0-LIVE';
+const APP_VERSION = 'V18.1-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -5233,6 +5313,26 @@ function _coordRepaintActiveTab() {
   if (typeof _coordActiveTab === 'undefined') return;
   if (_coordActiveTab === 'reports' && typeof _renderCoordReports === 'function') _renderCoordReports();
   else if (_coordActiveTab === 'badges' && typeof _renderCoordBadges === 'function') _renderCoordBadges();
+  // V18.1 CONSIDERED AND DELIBERATELY REJECTED: adding a 'home' branch here.
+  // It looks like the obvious completion of this hook, and it is wrong twice.
+  //  (1) DEAD for the reason it would be added. The only callers of
+  //      _hydrateAdvCache are _advApplyStatus, saveAdv and _coordEnsureAdvLoaded.
+  //      A scheme logged on ANOTHER device reaches this FC through
+  //      _v337AdvOneShotFetch (login one-shot, pantry replay, and the Refresh
+  //      button), which ends in renderCurrentView() and never touches this
+  //      hook. And _coordEnsureAdvLoaded only runs from the reports/badges
+  //      tabs, where _coordActiveTab is by definition not 'home'. So it would
+  //      only ever fire on the FC's own save - which renderCurrent() in
+  //      _saveAdvocacyInner already covers.
+  //  (2) It CLOBBERS THE ALERTS SCREEN. _renderCoordAlerts writes the alert
+  //      list into #coord-list and #coord-count-bar - the Home panel's own
+  //      containers - while _coordActiveTab stays 'home' (it only ever takes
+  //      home|reports|badges). An FC on Alerts who taps a flag, logs a scheme
+  //      and saves would have had their alert list silently replaced by the
+  //      beneficiary list. It also fires on saveData, so enrolment, endline
+  //      and income logging would have done the same.
+  // Net effect of adding it: three full coordRenderList() calls per save
+  // instead of one, two of them while the modal is still open, for zero gain.
 }
 function _hydrateUsersCache(arr) {
   RecordCache.users.clear();
@@ -18589,8 +18689,46 @@ async function _saveAdvocacyInner() {
     `${isUpdate?'Updated':'Logged'} ${rows.length} scheme row${rows.length===1?'':'s'}: ${schemeSummary}`, null);
   closeAdvModal();
   toast((isUpdate?'Advocacy record updated for ':'Advocacy record saved for ')+rec.bname, 'success');
-  if (currentView==='integrated') renderIntegrated();
-  if (currentView==='advocacy') renderAdvocacy();
+  // ── V18.1: REPAINT WHAT THE USER IS LOOKING AT ───────────────────────────
+  // Reported from the field with a screen recording: an FC logs a scheme
+  // against a livelihood-only beneficiary and the list still shows only the
+  // LIVELIHOOD pill, with "Livelihood Only 1 / Dual (Both) 0". Touch any
+  // filter and the same record instantly shows LIVELIHOOD + ADVOCACY + the
+  // scheme chip and Dual 1. The data was correct the whole time - this
+  // function simply never repainted the screen the user was on.
+  //
+  // THE CAUSE, and it is only one: the two lines this replaces named the
+  // admin's Integrated and Advocacy views and nothing else. The coordinator
+  // shell is neither. Nor is the admin's own "All Beneficiaries" list. An
+  // enumeration of view names written when there were two of them had
+  // silently rotted as shells were added.
+  //
+  // ⛔ USE renderCurrent(), NOT renderCurrentView(). Two helpers, near-identical
+  // names, and only one is correct here:
+  //   renderCurrentView()  DEBOUNCED 200 ms, then dropped entirely by
+  //                        _isUserMidEdit() if any overlay is open when the
+  //                        timer fires - and nothing ever re-arms it. Its own
+  //                        comment reasons "their next submit triggers a full
+  //                        re-render anyway", which is not true of a save that
+  //                        opens something straight afterwards. See
+  //                        _undoBulkStatusForBeneficiary for the case where
+  //                        that is provably what went wrong.
+  //   renderCurrent()      synchronous; dispatches on the SHELL first, so the
+  //                        FC app gets coordRenderList; and invalidates the
+  //                        V357 tab cache before running the admin route, so
+  //                        the next navigation cannot replay stale HTML.
+  //
+  // Do NOT re-enumerate views here. An earlier cut of this very fix listed
+  // coord/integrated/advocacy/beneficiaries by hand - repeating the mistake
+  // being fixed, and missing the tab-cache invalidation as well. renderCurrent()
+  // is the app's existing idiom for "a data change just completed";
+  // _advApplyStatus has called it on this same collection for many releases.
+  // It does re-render the Dashboard if that is where the admin is standing,
+  // which costs a few seconds on the full dataset. That is accepted: it is the
+  // same cost _advApplyStatus already pays, and a correct screen beats a fast
+  // wrong one.
+  try { if (typeof renderCurrent === 'function') renderCurrent(); }
+  catch (e) { console.warn('[V18.1] post-save repaint failed:', e); }
 }
 
 // ── NAV PATCH ──────────────────────────────────────────────────────────────
@@ -25026,7 +25164,14 @@ async function _undoBulkStatusForBeneficiary(bid) {
     `Undo bulk status: batch ${snap.batchId}, scheme ${snap.scheme}, ${snap.toStatus} → ${snap.fromStatus} on ${restored} row${restored===1?'':'s'}.`,
     null);
   toast(`Restored ${restored} row${restored===1?'':'s'} to pre-bulk state.`, 'success');
-  try { renderCurrentView(); } catch(_) {}
+  // V18.1: was renderCurrentView(), which sets a 200 ms timer. openDrawer on
+  // the very next line adds .open to #drawer, and #drawer is in
+  // _isUserMidEdit()'s guard list - so when the timer fired it returned
+  // WITHOUT rendering, and nothing re-armed it. Deterministic, every time:
+  // the drawer showed the reverted value while the table underneath kept the
+  // post-bulk one until the admin navigated away. renderCurrent() is
+  // synchronous, so it completes before the drawer opens.
+  try { renderCurrent(); } catch(_) {}
   try { if (typeof openDrawer === 'function') openDrawer(bid); } catch(_) {}
 }
 
