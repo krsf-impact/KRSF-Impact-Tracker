@@ -1,13 +1,110 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V18.2-LIVE
+  KRSF Beneficiary Impact Tracker  -  V18.3-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
   cost every user ~155 KB of gzipped download on every load for text no
   browser reads. The two most recent releases are kept below.
   ============================================================================
+  V18.3-LIVE (2026-08-22 - the beneficiaries outside Gujarat reach the map):
+    + ⚠ THIS RELEASE SHIPS TWO FILES: index.html AND villages.js. Upload BOTH.
+      sw.js and login-bg.jpg are unchanged. (V16 shipped two files and the
+      runbook got it wrong; do not repeat that.)
+
+    + REPORTED FROM THE FIELD: "there are many photos in Better Life Foundation
+      but I don't see them in the map." The photos were fine - the map was not.
+      _v16VillageCoords() begins with _v165TalukaKey(), and the generated lookup
+      covers 14 GUJARAT districts and nothing else. A Nagaland record produces a
+      taluka key that is not in the table, the function returns null, and the
+      record is never drawn. All 500 of that partner's records also have no
+      lat/lng of their own - they arrived through the importer, which captures
+      no GPS - so nothing placed them at all.
+
+    + MEASURED, BEFORE AND AFTER, on the 21 Aug export: of the 632 records
+      outside Gujarat, V18.2 placed 45. V18.3 places 550, including all 500
+      Better Life Foundation records. No Gujarat record loses its placement
+      (1,26,252 -> 1,26,258).
+
+    + FIX 1: THE APP ALREADY KNEW WHERE THEY WERE. Every photo taken in the app
+      saves the coordinates it was taken at, right beside the image. 109 records
+      carry a real on-site fix inside their own photos that the map had never
+      read - 72 in Nagaland, 36 in Gujarat, 1 in Arunachal. _v183Fix() returns
+      the record's own fix, or a photo's fix when the record has none. The
+      record's own always wins. A dot placed from a photo now SAYS SO in its
+      popup: buildPopup only shows its GPS note when the RECORD carries lat/lng,
+      so such a dot used to look like an enrolment fix while its own popup
+      declined to mention any GPS at all.
+
+    + FIX 2: villages.js gains taluka points for TWO non-Gujarat talukas -
+      Longkhim (Tuensang, Nagaland) and Chowkham (Namsai, Arunachal Pradesh).
+
+    + ⛔ FIX 3, AND WITHOUT IT THE OTHER TWO ARE POINTLESS. The map is created
+      with setView([23.0, 72.4], 7) - Gujarat - and there was no fitBounds
+      anywhere in the file. Longkhim is at 94.7°E, roughly 1,800 km east of the
+      right-hand edge at that zoom, so the partner who reported this would have
+      filtered to their own NGO and STILL seen an empty Gujarat, now with a
+      count line claiming 500 people were drawn. refreshMapMarkers now collects
+      every point it draws and re-frames the view ONLY IF NOT ONE of them is
+      visible. A Gujarat admin's map is therefore unchanged, and the view never
+      jumps while panning around a set already on screen. Verified by driving
+      the real function: filtering to Better Life Foundation re-frames east to
+      94.71°E; filtering to a Gujarat partner does not move at all.
+
+    + ⛔ TWO COORDINATES WERE CUT AFTER REVIEW, AND THIS IS WHY. The first cut
+      also added Namsai and Lekang. Both were derived from the same cluster of
+      field fixes and came out IDENTICAL TO FOUR DECIMAL PLACES - about 11 m -
+      which is not two medians agreeing, it is one cluster of fixes wearing two
+      taluka labels. Measured against the towns they name: Namsai 37.6 km off,
+      Lekang 31.7 km off, and the point sits 4.3 km from Jairampur in a
+      DIFFERENT DISTRICT. Drawing an amber "Namsai taluka centre" there would be
+      the V15 invented-position mistake with a real GPS number in front of it.
+      The two that shipped are 5.2 km (Longkhim) and 0.6 km (Chowkham) from
+      their own towns. Cutting them cost 3 placed records, because most of those
+      beneficiaries have photo GPS and get a precise dot anyway - at the place
+      the photo was actually taken, which is a true statement.
+
+    + ⛔ NOTHING IS GEOCODED. Every point is the MEDIAN OF REAL FIELD GPS taken
+      on site. TALUKA LEVEL ONLY: every fix inside Longkhim sits within 0.5 km
+      of every other one - seven different villages on one point - so a village
+      entry would claim precision the data does not have. The map already draws
+      a taluka pin differently ("taluka centre", amber).
+
+    + STILL NOT ON THE MAP: 82 records. 51 in Rajasthan, 16 in Changlang, the
+      Namsai/Lekang remainder, 2 in Nandurbar. None has usable field GPS in its
+      taluka. One coordinator opening the app in any of those villages fixes it
+      permanently - there is nothing honest to place them from until then.
+
+    + ⛔ AN ARITY TRAP WORTH KNOWING. _v165GpsPlausible is passed BARE to
+      Array.filter() ("GPS-located only"), and filter calls its predicate with
+      (element, INDEX, array). Giving it an optional second parameter to accept
+      a point would have silently fed it the row index. It still takes exactly
+      one argument; _v183PlausibleAt is the separate point-taking version, and
+      v183map.js fails if the arity ever changes. All 13 functions passed bare
+      to filter/map/forEach in this file were checked; none has the same hazard.
+
+    + ADDING REFERENCE DATA SWITCHES ON A CHECK THAT COULD NOT RUN BEFORE.
+      _v183PlausibleAt keeps a fix when there is no taluka point to compare it
+      against. Nagaland had none, so its fixes were unvalidated; adding the
+      taluka point subjects them to the 50 km test. Measured before shipping:
+      100 of the 109 photo fixes are now checkable and NONE is rejected.
+
+    + Firebase: 0 change - no read, write, listener or byte. The photo
+      coordinates are already on the cached record. Data: nothing written,
+      nothing migrated, no record touched.
+    + Speed: one array scan of a record's own photos, only for records with no
+      GPS. Measured over 128,870 records: 1.33 ms -> 1.89 ms for the whole pass,
+      and nothing is allocated for the ~98% with neither GPS nor photos.
+      villages.js grows 42,905 -> 44,573 bytes and is still fetched once,
+      lazily, on first open of the map - never on login.
+    + Tests: 35 files. v183map.js and v183sweep.js are new, both seen RED on
+      V18.2 first. v183map.js asserts DISTANCE FROM THE TOWN each taluka names
+      (15 km limit) - its first version used state-sized boxes through which a
+      point 37.6 km out in the wrong district sailed - and refuses to let any
+      non-Gujarat key go unchecked. v183sweep.js drives the real
+      refreshMapMarkers against a stubbed Leaflet to prove the re-framing fires.
+
   V18.2-LIVE (2026-08-22 - see which beneficiaries have a photo, and filter to them):
     + ONLY index.html CHANGES. sw.js, login-bg.jpg and villages.js are all
       unchanged from V16.9 - do not re-upload them.
@@ -4086,7 +4183,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V18.2-LIVE';
+const APP_VERSION = 'V18.3-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -17609,12 +17706,52 @@ function _v165Km(a, b) {
 // village or taluka placement, which is a weaker claim honestly drawn. And
 // nothing is written back to the record - the data is untouched, only the
 // symbol changes.
-function _v165GpsPlausible(b) {
-  if (!(b.lat && b.lng)) return false;
+// ── V18.3: where IS this beneficiary, really? ─────────────────────────────
+// Reported from the field: "there are many photos in Better Life Foundation
+// but I don't see them in the map." All 500 of that partner's records have no
+// lat/lng of their own - they came in through the importer, which captures no
+// GPS - so nothing could place them.
+//
+// But the app already HAS their location. Every photo taken in the app saves
+// the coordinates it was taken at, right next to the image. 73 records outside
+// Gujarat carry a real, on-site fix inside their own photos that the map had
+// never looked at.
+//
+// Order of authority is unchanged in spirit: the record's own fix wins, and a
+// photo fix is used only when there is none. `b.lat && b.lng` (not != null) is
+// kept deliberately - 0,0 is the Atlantic Ocean, not a location, and it has
+// always been treated as "no fix".
+function _v183Fix(b) {
+  if (!b) return null;
+  if (b.lat && b.lng) return { pt: [b.lat, b.lng], src: 'record' };
+  const ph = b.photos;
+  if (Array.isArray(ph)) {
+    for (let i = 0; i < ph.length; i++) {
+      const p = ph[i];
+      if (p && p.lat && p.lng) return { pt: [p.lat, p.lng], src: 'photo' };
+    }
+  }
+  return null;
+}
+
+// The believability test, taking the point explicitly.
+function _v183PlausibleAt(b, pt) {
+  if (!pt) return false;
   const T = window.KRSF_TALUKAS;
   const tk = _v165TalukaKey(b.taluka, b.district);
   if (!tk || !T || !T[tk]) return true;   // nothing to check it against — keep it
-  return _v165Km([b.lat, b.lng], T[tk]) <= 50;
+  return _v165Km(pt, T[tk]) <= 50;
+}
+
+// ⛔ THIS FUNCTION MUST KEEP EXACTLY ONE PARAMETER. It is handed straight to
+// Array.filter() below (`list.filter(_v165GpsPlausible)`), and filter calls its
+// predicate with (element, INDEX, array). Give it an optional second argument
+// and it silently receives the row index instead - row 0 behaving one way and
+// every other row another. _v183PlausibleAt is the point-taking version.
+// _tests/v183map.js fails if the arity ever changes.
+function _v165GpsPlausible(b) {
+  const f = _v183Fix(b);
+  return !!f && _v183PlausibleAt(b, f.pt);
 }
 
 function _v16VillageCoords(b) {
@@ -17840,19 +17977,36 @@ function refreshMapMarkers() {
   // threw and took the whole map render down with it.
   const villages = Object.create(null);
   let precise = 0, unmapped = 0, gpsRejected = 0;
+  // V18.3: every point actually drawn, so the view can be corrected if the
+  // whole set lands outside it. See the fit step at the end of this function.
+  const _v183Drawn = [];
   list.forEach(function (b) {
     // V16.5: a fix has to be believable before it is drawn as a measurement.
     // One that sits 140 km from the taluka its own record names was not taken
     // at that household, and drawing it as a solid dot claims more certainty
     // than the village bubble next to it. Rejected fixes are not dropped -
     // they fall through to the village or taluka placement below.
-    if (b.lat && b.lng) {
-      if (_v165GpsPlausible(b)) {
+    // V18.3: the record's own fix, or the GPS saved with one of its photos.
+    // Both are real measurements taken on site by a coordinator; a photo fix is
+    // used only when the record itself has none.
+    const _fix = _v183Fix(b);
+    if (_fix) {
+      if (_v183PlausibleAt(b, _fix.pt)) {
         precise++;
-        L.circleMarker([b.lat, b.lng], {
+        _v183Drawn.push(_fix.pt);
+        // V18.3: say where the fix came from. buildPopup only shows its
+        // "GPS" note when the RECORD carries lat/lng, so a dot placed from a
+        // photo used to look like an enrolment fix while its own popup
+        // declined to mention any GPS at all. For the Nagaland set that is
+        // most of the precise dots on the map.
+        const _note = _fix.src === 'photo'
+          ? '<div style="padding:6px 10px;font-size:11px;color:var(--gray2);border-top:1px solid var(--gray3)">'
+            + '\uD83D\uDCCD Located from a photo taken here, not from an enrolment GPS fix.</div>'
+          : '';
+        L.circleMarker(_fix.pt, {
           radius: 5, weight: 1.5, color: '#fff', opacity: 1,
           fillColor: getMarkerColor(b), fillOpacity: 1
-        }).bindPopup(buildPopup(b), { maxWidth: 240, minWidth: 220 }).addTo(_v15Layer);
+        }).bindPopup(buildPopup(b) + _note, { maxWidth: 240, minWidth: 220 }).addTo(_v15Layer);
         return;
       }
       gpsRejected++;
@@ -17882,11 +18036,31 @@ function refreshMapMarkers() {
       if (g.names[n] > best) { best = g.names[n]; name = n; }
     });
     const isTal = g.tier === 'taluka';
+    _v183Drawn.push(g.coords);
     L.marker(g.coords, { icon: isTal ? _v165TalukaIcon(g.members.length) : _v15VillageIcon(g.members.length) })
      .bindPopup(_v15VillagePopup(name, g.members, Object.keys(g.names).length, g.tier),
                 { maxWidth: 240, minWidth: 220 })
      .addTo(_v15Layer);
   });
+
+  // ── V18.3: make sure the view contains what was drawn ────────────────────
+  // The map is created with setView([23.0, 72.4], 7) - Gujarat - because
+  // 125,515 of 126,070 beneficiaries are there. That was fine while Gujarat was
+  // the only place with coordinates. It is not fine now: Longkhim is at 94.7°E,
+  // roughly 1,800 km east of the right-hand edge at that zoom, so a partner
+  // admin in Nagaland would filter to their own NGO and still see an empty
+  // Gujarat - the exact complaint this release exists to answer.
+  //
+  // Deliberately CONSERVATIVE: only re-frame when NOT ONE drawn point is in
+  // view. A Gujarat admin's map therefore behaves exactly as before, and the
+  // view never jumps while they pan around a set they can already see.
+  try {
+    if (mapInstance && _v183Drawn.length) {
+      const _cur = mapInstance.getBounds();
+      const _visible = _v183Drawn.some(function (p) { return _cur.contains(p); });
+      if (!_visible) mapInstance.fitBounds(L.latLngBounds(_v183Drawn).pad(0.25));
+    }
+  } catch (e) { console.warn('[V18.3] could not fit the map to its markers:', e); }
 
   if (cnt) {
     const nv = Object.keys(villages).length;
