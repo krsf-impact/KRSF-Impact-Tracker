@@ -1,13 +1,104 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V18.1-LIVE
+  KRSF Beneficiary Impact Tracker  -  V18.2-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
   cost every user ~155 KB of gzipped download on every load for text no
   browser reads. The two most recent releases are kept below.
   ============================================================================
+  V18.2-LIVE (2026-08-22 - see which beneficiaries have a photo, and filter to them):
+    + ONLY index.html CHANGES. sw.js, login-bg.jpg and villages.js are all
+      unchanged from V16.9 - do not re-upload them.
+
+    + ASKED FOR: "I do not know which beneficiaries have a photo in them."
+      All Beneficiaries now shows a small camera on every row that has one, and
+      a "📷 Has photo" button in the toolbar narrows the list to just those.
+      The button carries the count, so the number is visible without clicking.
+      Open the row as usual to see the photo itself.
+
+    + A FILTER, NOT A COLUMN, AND HERE IS WHY. On the 21 Aug export only 2,407
+      of 128,870 beneficiaries (1.9%) have any photo at all. A column would be
+      empty on 49 rows out of every 50; a filter answers the question in one
+      click. It stacks on the programme cards rather than replacing them, so
+      "Dual and has a photo" is askable - 10 people, verified against the raw
+      export rather than against the app's own answer.
+
+    + FIVE PLACES A PHOTO CAN LIVE, AND ALL FIVE ARE CHECKED. photoUrl (1,985),
+      legacy base64 photo (13), the V405 gallery photos[] (409, checked as a
+      NON-EMPTY array), and endlinePhotoUrl / endlinePhoto. The 21 Aug export
+      has none of the last two - which is exactly why they were worth
+      including: omitting them would have worked perfectly until the first
+      endline photo was captured, then been wrong with no error. The three
+      populated sets are disjoint (1,985 + 13 + 409 = 2,407 exactly), and the
+      export contains no empty strings, no "null" placeholders and no
+      object-shaped photos field.
+
+    + ⛔ THE FIRST CUT MADE THE CAMERA CLICKABLE. IT WAS WRONG AND THE REVIEW
+      CAUGHT IT. The click opened showBeneficiaryPhotos(), which renders
+      exactly two cards - (photoUrl || photo) and (endlinePhotoUrl ||
+      endlinePhoto) - and NEVER reads photos[]. Because the sets are disjoint,
+      all 409 gallery records are gallery-ONLY, so clicking their camera showed
+      "Photo not captured at enrollment". One in six of the very records this
+      feature exists to find, silently, with nothing in the console. That
+      function was also DEAD CODE - zero call sites before V18.2 - superseded
+      by the V405/V408 gallery. The camera is now a plain marker; the row click
+      opens the drawer, whose gallery renders all five sources correctly.
+
+    + ONE DEFINITION, FOR REAL. The review found THREE: this helper, the Field
+      Map's _v16HasPhoto (missing both endline fields), and the CSV "Photo
+      Captured" column (missing the gallery AND both endline fields - so 409
+      records the screen marks with a camera exported as "No"). Both now
+      delegate to _v182HasPhoto. Same screen disagreeing with itself is the
+      exact complaint V18.0 existed to fix.
+
+    + ⛔ KNOWN AND NOT FIXED HERE: "Export to Excel" ignores the filters. It
+      exports the whole role-scoped set, so filtering to 2,407 and exporting
+      still gives 128,870 rows. Pre-existing, and it applies to the search box
+      and the programme cards too - but the Export button now sits beside a
+      filter whose whole purpose is narrowing, so it is more confusing than it
+      was. Changing it would change what every existing export contains, which
+      is a decision to take deliberately rather than smuggle into this release.
+
+    + Firebase: 0 change. Every one of those fields is ALREADY on the cached
+      beneficiary record, so this fetches nothing and adds no read, write,
+      listener or byte. Data: nothing written, nothing migrated, no record
+      touched - this release only reads and displays.
+
+    + Speed: the flag is computed inside the MEMOISED enrichment block, so it
+      costs one boolean per record per rebuild rather than five property reads
+      per visible row on every keystroke. photoCount itself is NOT memoised,
+      deliberately: it is a reduce over the enriched list on every render,
+      measuring ~2 ms on the full 128,870-record admin dataset. For scale, the
+      three programme filters already cost ~9 ms and the search filter ~22 ms
+      on the same pass, so this is roughly a 6% addition to a WARM render (the
+      one that repeats as you type) and a rounding error against the ~2,000 ms
+      cold render. Caching it would mean a second value that must stay in step
+      with the enrichment forever - a bug shape - for that. Measured, not
+      assumed. Coordinators never run any of it: the FC shell uses
+      coordRenderList, not renderAllBeneficiaries.
+
+    + ⛔ TAB-CACHE BUG FIXED IN PASSING. _v357ComputeSig() did not include
+      allBProgFilter, so filtering All Beneficiaries and then navigating away
+      and back replayed the cached PRE-FILTER html while the variable still
+      said "filtered". It never surfaced loudly because the filter controls
+      call renderAllBeneficiaries() directly and bypass the cache. Both filters
+      are in the signature now - in their OWN try/catch, because appending them
+      to the existing filter block meant that if either name were ever
+      unreachable the catch would push 'unavailable' for the WHOLE set and make
+      every filter invisible at once. cachesig.js caught that and now guards it.
+
+    + Tests: 33 files. v182photo.js (static, in the quick suite, 38 checks) and
+      v182sweep.js (Chrome, real export) are new; both were seen RED on V18.1.
+      ⚠ v182photo.js section 1 originally used indexOf, and 'photo' is a
+      substring of 'photoUrl' - so two of its five field checks COULD NOT FAIL.
+      Deleting b.photo and b.endlinePhoto from the helper still printed ALL
+      CLEAR. It uses word-boundary regexes now, and that same mutant fails on
+      exactly those two lines. v182sweep.js no longer re-implements the app's
+      definition to check it; it counts each field separately against the
+      measured export figures.
+
   V18.1-LIVE (2026-08-22 - the FC's list repaints the moment a scheme is logged):
     + ONLY index.html CHANGES. sw.js, login-bg.jpg and villages.js are all
       unchanged from V16.9 - do not re-upload them.
@@ -3995,7 +4086,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V18.1-LIVE';
+const APP_VERSION = 'V18.2-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -17202,11 +17293,42 @@ function _v15SetProgramme(p) {
 // unlike the status-coloured GPS dot - the reader must be able to tell an
 // estimate from a measurement at a glance.
 // A record can carry a photo in three places: the V405 gallery (b.photos[]),
-// and the older baseline b.photoUrl / b.photo pair. All three count, or the
-// filter would hide records that plainly do have a photograph.
+// ── V18.2: does this beneficiary have a photo? ────────────────────────────
+// Asked for directly: "I do not know which beneficiaries have a photo in them."
+// There are FIVE places a photo can live and all five must be checked, or the
+// answer is quietly wrong rather than broken:
+//   photoUrl          Firebase Storage URL - the normal case since the
+//                     migration (1,985 records on the 21 Aug export)
+//   photo             legacy base64 left on records the migration did not
+//                     reach (13 records, ~78 KB each - see the photo-migration
+//                     admin tool)
+//   endlinePhotoUrl   the endline equivalents. ZERO exist today, which is
+//   endlinePhoto      exactly why they are easy to forget: leaving them out
+//                     would work perfectly until the first endline photo is
+//                     captured, and then be wrong with no error.
+//   photos[]          the V405 gallery, up to 8 per beneficiary (409 records).
+//                     Checked as a NON-EMPTY array: an existing but empty []
+//                     is not a photo.
+// Every one of these is already a field on the cached beneficiary record, so
+// this reads nothing, fetches nothing and costs no Firebase. On the 21 Aug
+// export 2,407 of 128,870 records (1.9%) have a photo - which is why V18.2
+// ships a filter rather than a column: a column would be empty on 49 rows out
+// of every 50.
+function _v182HasPhoto(b) {
+  if (!b) return false;
+  if (b.photoUrl || b.photo || b.endlinePhotoUrl || b.endlinePhoto) return true;
+  return Array.isArray(b.photos) && b.photos.length > 0;
+}
+try { window._v182HasPhoto = _v182HasPhoto; } catch(_){}
+
+// V18.2: was its own three-field version, which omitted BOTH endline fields.
+// Today that is invisible - the 21 Aug export has no endline photos at all -
+// but the moment one is captured the Field Map's "has photo" checkbox and All
+// Beneficiaries' "Has photo" button would report different numbers from the
+// same data, silently. That is the V18.0 complaint all over again, so this is
+// now a thin alias and there is genuinely ONE definition.
 function _v16HasPhoto(b) {
-  if (Array.isArray(b.photos) && b.photos.length) return true;
-  return !!(b.photoUrl || b.photo);
+  return _v182HasPhoto(b);
 }
 
 function _v15VillageIcon(n) {
@@ -21089,6 +21211,10 @@ let _allBVisibleIds=[];
 // rerenders within a session.
 let allBProgFilter = '';
 
+// V18.2: "show only the ones with a photo" toggle for All Beneficiaries.
+// Default OFF so the screen is unchanged until it is asked for.
+let allBPhotoFilter = false;
+
 // V323 — Pagination for All Beneficiaries (9000+ records need paging)
 const ALL_B_PAGE_SIZE = 100;
 let allBCurrentPage = 1;
@@ -21130,7 +21256,11 @@ function renderAllBeneficiaries() {
       const schemeRows = latestByBid[b.id] || [];
       const incDelta   = b.endIncome != null ? (b.endIncome - b.baseIncome) : 0;
       const benefitAmt = schemeRows.filter(r => r.benefitRecd === 'Yes').reduce((s, r) => s + _v18RowBenefit(r), 0);
-      return { ...b, hasLiv, hasAdv, incDelta, benefitAmt };
+      // V18.2: computed HERE, inside the memoised block, so it costs one
+      // boolean per record per REBUILD. In the row loop below it would be five
+      // property reads per visible row on every keystroke of the search box.
+      const hasPhoto = _v182HasPhoto(b);
+      return { ...b, hasLiv, hasAdv, incDelta, benefitAmt, hasPhoto };
     });
     _allBEnrichedCache    = enriched;
     _allBEnrichedCacheKey = cacheKey;
@@ -21150,6 +21280,17 @@ function renderAllBeneficiaries() {
   if (allBProgFilter === 'livOnly') list = livOnlyList;
   else if (allBProgFilter === 'dual') list = dualList;
   else if (allBProgFilter === 'advOnly') list = advOnlyList;
+  // V18.2: the photo filter stacks ON TOP of whichever programme card is
+  // active, rather than replacing it - "Dual + has a photo" is a question
+  // worth being able to ask.
+  // photoCount is taken from `enriched`, NOT from `list`, so it does not move
+  // when the programme cards, the search box or this toggle change. It DOES
+  // move with the State / NGO / FC and date filters, because `enriched` comes
+  // from filteredAll(), which applies those first. That is deliberate and it
+  // is also what keeps the count honest: a partner admin is told how many of
+  // THEIR beneficiaries have a photo, never a figure that leaks across NGOs.
+  const photoCount = enriched.reduce((n, b) => n + (b.hasPhoto ? 1 : 0), 0);
+  if (allBPhotoFilter) list = list.filter(b => b.hasPhoto);
 
   if (allBSearch) { const q=allBSearch.toLowerCase(); list=list.filter(b=>(b.name||'').toLowerCase().includes(q)||(b.id||'').toLowerCase().includes(q)||(b.village||'').toLowerCase().includes(q)||(b.ngo||'').toLowerCase().includes(q)); }
 
@@ -21190,9 +21331,13 @@ function renderAllBeneficiaries() {
       ${cardHtml('advOnly', 'Advocacy Only',     advOnlyList.length, '#5B21B6', '#5B21B6')}
     </div>
     <div class="card"><div class="card-head">
-      <div class="card-title">All Beneficiaries${allBProgFilter==='livOnly'?' · Livelihood Only':allBProgFilter==='dual'?' · Dual':allBProgFilter==='advOnly'?' · Advocacy Only':''} <span style="font-size:12px;font-weight:400;color:var(--gray2)">${list.length} records</span></div>
+      <div class="card-title">All Beneficiaries${allBProgFilter==='livOnly'?' · Livelihood Only':allBProgFilter==='dual'?' · Dual':allBProgFilter==='advOnly'?' · Advocacy Only':''}${allBPhotoFilter?' · With a photo':''} <span style="font-size:12px;font-weight:400;color:var(--gray2)">${list.length} records</span></div>
       <div class="filters">
         <input id="allb-search-input" class="fsearch" placeholder="Search name, ID, village, NGO..." value="${escHtml(allBSearch)}" oninput="_searchDebounce('allb', this.value, () => { allBSearch = _searchDebounceVal.allb; allBSelected = new Set(); allBCurrentPage = 1; renderAllBeneficiaries(); })">
+        <button class="btn btn-sm" onclick="allBPhotoFilter=!allBPhotoFilter;allBSelected=new Set();allBCurrentPage=1;renderAllBeneficiaries()"
+          style="${allBPhotoFilter?'background:var(--navy);color:#fff;border-color:var(--navy)':''}"
+          title="${allBPhotoFilter?'Showing only beneficiaries with a photo — click to show all':'Show only beneficiaries who have a photo (baseline, endline or gallery)'}"
+          aria-pressed="${allBPhotoFilter?'true':'false'}">${allBPhotoFilter?'☑':'☐'} 📷 Has photo <span style="font-weight:400;opacity:.75">${photoCount.toLocaleString('en-IN')}</span></button>
         ${allBSelected.size>0?`<button class="btn btn-sm" style="color:var(--red);border-color:var(--red)" data-delete-action onclick="deleteSelectedBeneficiaries()">🗑 Delete ${allBSelected.size} selected</button>`:''}
         ${_canBulkStatusUpdate()?`<button class="btn btn-sm" onclick="openBulkStatusModal()" title="Bulk-flip the status of one scheme across many beneficiaries">⚡ Bulk Update Status</button>`:''}
         ${_canExport()?`<button class="btn btn-sm" onclick="exportBeneficiariesCsv()" title="Download as CSV (opens in Excel)">📥 Export to Excel</button>`:''}
@@ -21226,7 +21371,7 @@ function renderAllBeneficiaries() {
           return `<tr style="background:${isSel?'var(--navy4)':''};cursor:pointer" onclick="openDrawer('${escHtml(b.id)}')">
             <td style="padding:10px 10px" onclick="event.stopPropagation()"><input type="checkbox" ${isSel?'checked':''} onchange="toggleBeneficiary('${escHtml(b.id)}',this.checked)" style="cursor:pointer;width:15px;height:15px"></td>
             <td style="color:var(--gray2);font-size:12px;text-align:center">${srNo}</td>
-            <td><div class="bname">${escHtml(b.name)}</div><div class="bid">${escHtml(b.id)}</div></td>
+            <td><div class="bname">${escHtml(b.name)}${b.hasPhoto?` <span title="Has a photo — open the row to see it" style="font-size:12px" aria-label="has a photo">📷</span>`:''}</div><div class="bid">${escHtml(b.id)}</div></td>
             <td>${escHtml(b.village)}<br><span style="font-size:11px;color:var(--gray2)">${escHtml(b.district)}</span></td>
             <td style="font-size:12px">${escHtml(b.ngo)}</td>
             ${creatorCell(b)}
@@ -22860,6 +23005,25 @@ function _v357ComputeSig(view) {
       baselineFrom, baselineTo, endlineFrom, endlineTo,
       allBCurrentPage, livCurrentPage, advBCurrentPage);
   } catch (_) { parts.push('flt', 'unavailable'); }
+  // ── V18.2: the two All-Beneficiaries filters ─────────────────────────────
+  // They were MISSING from the signature, so navigating away from a filtered
+  // list and back replayed the cached PRE-FILTER html while the variables
+  // still said "filtered" - screen and state disagreed. allBProgFilter has had
+  // that defect since it was added; the new photo toggle would have inherited
+  // it. (It only ever showed on a tab switch, because the filter controls call
+  // renderAllBeneficiaries() directly and bypass the cache.)
+  //
+  // ⛔ SEPARATE try/catch, DELIBERATELY. Appending these two names to the block
+  // above put them in the SAME guard as stateFilter/ngoFilter/fcFilter/dates/
+  // paging - so if either name were ever unreachable (temporal dead zone on an
+  // early call, or a future refactor moving the declaration), the catch would
+  // fire and push 'unavailable' for the WHOLE filter set, silently making
+  // EVERY filter invisible to the cache. That is far worse than the staleness
+  // being fixed. _tests/cachesig.js caught exactly that and is now the guard
+  // against it coming back. Blast radius here is these two names only.
+  try {
+    parts.push('allb', allBProgFilter, allBPhotoFilter);
+  } catch (_) { parts.push('allb', 'unavailable'); }
   // ── V12: the Reports state, read DIRECTLY ─────────────────────────────────
   // rptTab and friends are declared with `let`, and a top-level `let` lives in
   // the global DECLARATIVE environment record — it is never a property of
@@ -26416,7 +26580,10 @@ function exportBeneficiariesCsv() {
       d, p===''?'':p+'%',
       summary.names.join('; '),
       summary.received || '',
-      (b.photoUrl || b.photo) ? 'Yes' : 'No',
+      // V18.2: was (b.photoUrl || b.photo), which ignored the V405 gallery and
+      // both endline fields - so 409 records the screen marks with a camera
+      // exported as "No". Same helper as the list and the map now.
+      _v182HasPhoto(b) ? 'Yes' : 'No',
     ];
   });
 
