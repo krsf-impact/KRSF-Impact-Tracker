@@ -1,13 +1,259 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V18.3-LIVE
+  KRSF Beneficiary Impact Tracker  -  V18.5-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
   cost every user ~155 KB of gzipped download on every load for text no
   browser reads. The two most recent releases are kept below.
   ============================================================================
+  V18.5-LIVE (2026-08-26 - the Today card drops a row that is all zeros):
+    + ONE FILE. index.html only. CONTAINS V18.4, which was never uploaded, so
+      this one release carries both changes. villages.js, sw.js and
+      login-bg.jpg are unchanged since V18.3.
+
+    + REPORTED: "Advocacy - people today" reads 0 and 0 while 4,627 people were
+      enrolled that day. "There should be a break-up of 4627 no?"
+
+    + ⛔ IT IS NOT ZERO BECAUSE NOTHING HAPPENED. IT WAS READING THE WRONG
+      FIELD. The row asked each scheme line "were you created today?" by
+      reading a createdAt date on the LINE. That is never written - the save
+      path stamps createdAt on the advocacy RECORD (rec.createdAt), never on an
+      individual schemeRows entry. Counted on the 21 Aug export: 2,31,342
+      scheme lines, 6,163 deleted, and of the 2,25,179 live ones NOT ONE
+      carries it. Both counters were therefore structurally 0, every day, since
+      the card was added.
+
+    + ⛔ AND THE FIX IS NOT TO HIDE IT. My first reading was that this row could
+      never show a number, and that was WRONG - caught by independent review
+      before it shipped. The date it needs has been written since V12.4 under a
+      different name: _rptStampRowDates stamps _aAt on the day a scheme is
+      FILED and _bAt on the day the benefit ARRIVES, as YYYY-MM-DD IST strings,
+      on BOTH advocacy save paths. Measured on the same export: 1,208 live rows
+      carry _aAt and 504 carry _bAt, on every day from 30 Jul to 21 Aug. Read
+      correctly, this row would have said "Applied 127, Benefits received 112"
+      on 20 Aug, and 83 / 60 on 19 Aug. So the row now reads _aAt and _bAt and
+      WORKS. Rows saved on or before 29 Jul carry neither, which does not
+      matter to a counter that only ever asks about today.
+      ⛔ No status filter is applied. The stamp IS the event - _aAt is only
+      written on a real transition out of "Need to Apply" - so also testing the
+      CURRENT status would drop a scheme filed and rejected on the same day,
+      and that person did apply today.
+      The Reports and Advocacy screens were never affected; neither depended on
+      the missing field.
+
+    + AND THE THREE ROWS WERE NEVER A BREAKDOWN. They count different things
+      over different groups, so they cannot add up to the enrolment figure:
+        - the big number : people whose ENROLMENT DATE is today
+        - Livelihood     : people whose RECORD WAS TOUCHED today, and only
+                           those carrying a livelihood intervention - which is
+                           1,088 people out of 1,28,870, so that row is drawing
+                           from a pool of about a thousand and will always be
+                           small
+        - Advocacy       : people who had a scheme line CREATED today
+      41% of beneficiaries have an enrolment date that differs from the day
+      their record was last touched, so the first two can never agree either.
+
+    + THE CHANGE. A row is dropped when EVERY number in it is zero, leaving the
+      enrolment figure on its own. Chosen over hiding the whole card so the
+      dashboard does not shift about from day to day.
+      ⛔ One zero inside a row does NOT hide the row - "Completed 0" stays
+      visible beside "Enrolled 122". Only an entirely-zero row goes.
+      ⛔ Nothing is deleted and no count changes. If the missing date is ever
+      stamped, the Advocacy row returns on its own with no further work.
+      With the field now read correctly the Advocacy row shows real numbers on
+      any day with scheme activity, and hides itself only on a genuinely quiet
+      one - which is what the hiding rule was for.
+
+    + Spacing: the gap that lived on the first row's margin-bottom moved to the
+      second row's margin-top, so a single surviving row leaves no dangling
+      space; and with no rows at all the enrolment line drops its bottom margin
+      so the card closes up cleanly. Verified at 375px.
+
+    + Scope: this card is admin-only (role !== 'admin' returns '' at the top of
+      _v401TodayStrip). Coordinators, partner admins, donors and team leaders
+      never see it, so nothing changes for 596 of the 597 accounts.
+
+    + Firebase: NOTHING. No query, no listener, no read, no write. The numbers
+      were already being computed from records held in memory; this only
+      decides whether to print them. Data: nothing written or touched.
+    + Speed: two array pushes and a join, on a card that was already being
+      built. Unmeasurable. Over the whole release, index.html grows 611.7 ->
+      623.4 KB gzipped - GitHub Pages bandwidth, not Firebase, fetched once per
+      update and service-worker cached.
+    + ALSO FIXED, found by the independent review and pre-existing: the tab
+      cache's signature (_v357ComputeSig) did not include the IST calendar day,
+      while the TODAY card's own cache keys on the day AS WELL AS the data
+      version. An admin leaving the dashboard open across IST midnight on a
+      quiet night bumped no version, so the cache replayed YESTERDAY's card -
+      stale date label, stale counts, and from this release the wrong rows
+      hidden too. Added in its OWN try/catch, for the reason the V18.2 block
+      beside it spells out: sharing a guard means one unreachable name silently
+      blanks every other filter in it.
+    + Tests: 39 files, plus mutate184.py and mutate185.py, which break one
+      guard at a time and FAIL unless the suite catches every one - 13 and 7
+      mutations, all caught. v185card.js is new and was seen RED on V18.4
+      first; it LIFTS the card out of the build and RUNS it for all four
+      combinations, because a test that only greps for text proves the words
+      are present, not that the card works. Its load-bearing case is that ONE
+      zero inside a row must NOT hide the row.
+
+  V18.4-LIVE (2026-08-25 - the partner sync remembers what it has seen):
+    + ONE FILE. index.html only. villages.js, sw.js and login-bg.jpg are
+      unchanged from V18.3.
+
+    + REPORTED: ~950 MB of Firebase downloads in 24 hours, hourly spikes over
+      130 MB, on a day with 700+ enrolments.
+
+    + WHERE IT WENT. The app has been recording per-user, per-channel byte
+      counts to /bandwidth_audit for 90 days (V349/V355/V356) and nobody had
+      ever read it. 24 Aug:
+          ngo           6 users,  13 sessions   470.7MB   81%
+          coordinator  87 users, 233 sessions    91.2MB   16%   436 enrolments
+          admin         1 user,    4 sessions    16.9MB    3%
+      The 549 field coordinators are NOT the cost - 0.4 MB per session. Six
+      partner logins cost five times what the entire field team cost. The
+      21:00-22:00 spike was three partner logins, at 21:10, 21:19 and 21:37.
+      ⛔ That meter UNDERCOUNTS: its flush is async on beforeunload, which
+      almost never completes, and a session under 5 minutes records nothing.
+      Every figure from it is a floor.
+
+    + ⛔ THE CAUSE IS THE WATERMARK, NOT THE QUERY. _ngoIncrementalSync and
+      _advNgoIncrementalSync start their delta window at the newest
+      _lastEditedAt among the partner's OWN cached records. RTDB allows one
+      ordered child per query, so orderByChild('_lastEditedAt') cannot also
+      filter on `ngo` - the query returns everything the WHOLE FLEET edited
+      since that moment and discards what is not theirs.
+      The waste is not the discarding. It is where the window STARTS. Once a
+      fleet-wide delta has come back, the client has seen every record up to
+      the newest timestamp IN THAT RESPONSE - not merely up to the newest of
+      its own. Anchoring to "when MY data last changed" means a partner whose
+      own records have not moved in a month re-downloads a month of everybody
+      else's edits, EVERY TIME THEY OPEN THE APP.
+      The proof was sitting in the meter: the Kartavya partner pulled 20.1 MB
+      in one session while that partner's ENTIRE dataset is 0.08 MB.
+
+    + THE FIX. Remember the newest _lastEditedAt actually seen, fleet-wide, and
+      start there next time. It is kept in IndexedDB, per user and per
+      collection.
+        - ⛔ IT IS STILL A CLOCK, just somebody else's. _lastEditedAt is
+          stamped by the DEVICE that saved the record, so a fleet-wide maximum
+          converges on the FASTEST clock among ~580 phones. One handset three
+          days fast would push every partner's window three days ahead and hide
+          every correctly-stamped record until real time caught up. The stored
+          value is therefore CLAMPED to five minutes behind the reading
+          device's own clock, which costs about 23 KB a sync and also covers
+          writes that commit out of timestamp order;
+        - it can never move backwards - _v184SetSeen only ever raises it;
+        - a failed query never advances it, and neither does a failed PANTRY
+          WRITE. _idbSet used to swallow its errors, so the 23-byte watermark
+          would land where the multi-MB pantry write had not, and the next boot
+          would hold the OLD records behind the NEW window - skipping them
+          permanently. _idbSet now reports success and the watermark waits for
+          it;
+        - the TOMBSTONE sweep deliberately keeps the OLD window. A tombstone's
+          `ts` is a different device's clock on a different node, so it is not
+          comparable; raising that window could drop a deletion for good and
+          leave a deleted beneficiary in a partner's totals for 30 days.
+          Re-applying a tombstone is idempotent, so the cheap direction is safe;
+        - with nothing stored it falls back to V18.3's behaviour exactly, pays
+          the old price once, and is cheap from then on.
+
+    + MEASURED, all 19 partners, one sync each, on the 21 Aug export:
+          repeat sync 15 min later   439.07MB ->   1.62MB   (-100%)
+          repeat sync 2 hours later  439.90MB ->   2.93MB    (-99%)
+          1 day behind               596.34MB -> 126.33MB    (-79%)
+          7 days behind              914.57MB -> 557.48MB    (-39%)
+          30 days behind            1482.26MB -> 1004.26MB   (-32%)
+      NO partner pays more in any of them. The windows now TELESCOPE: however
+      many times a partner opens the app in a day, together they cover ONE day
+      of fleet edits (~6.65 MB) instead of repeating the whole backlog every
+      session. Against the 470.7 MB the six partners actually spent on 24 Aug,
+      that is about 40 MB.
+
+    + ⛔ TWO EARLIER DESIGNS WERE BUILT, MEASURED AND REJECTED. Both are worth
+      knowing about because both looked finished.
+      1. RE-READ THE PARTNER'S OWN SLICE when it is small. Rejected because
+         for an ACTIVE partner highWater already advances every time their FCs
+         enrol, so V18.3's second sync of the day was nearly free - while a
+         full re-read charges the whole slice every time, up to 128x worse for
+         anyone who reloads or taps Refresh twice. ⛔ That reasoning holds only
+         for active partners; for a DORMANT one V18.3's repeat sync cost the
+         same as the first, which is the case this release actually fixes. I
+         could not see either effect because I only ever measured ONE sync.
+         The 8,000-record threshold was also tuned against a single busy day,
+         so on a quiet day small partners regressed too.
+      2. PROBE THE DELTA with .limitToFirst(own record count) and fall back to
+         the re-read when the cap fills. Better, but it still REPLACES the
+         cache, and replacing a cache is where the danger lives: a re-read in
+         flight when the session changes installs one partner's whole slice
+         into the next user's cache; a swap landing inside a save's network
+         await leaves FB.last* holding keys the cache does not, which fbDiff
+         reads as deletions of live beneficiaries; and the guard that refuses a
+         suspiciously short answer had no way out, so a partner who genuinely
+         lost half their records to a bulk transfer would have been frozen
+         until the 30-day cache expiry. The ceiling was also checked against
+         the CACHE rather than the partner's real slice, so a stale partial
+         cache could trigger an uncapped 40 MB read.
+      This design touches none of that. It changes one number - where the
+      window starts - and leaves every cache, every query and every write
+      exactly as they were.
+
+    + ⛔ WHAT THIS DOES NOT FIX, AND IT IS THE BIGGER HALF. Of the 470.7 MB
+      the six partners spent on 24 Aug, roughly 244 MB is repeated COLD
+      fetches - a partner opening the app and re-downloading their whole slice
+      because the device had no usable local copy. Sanjaybhai spent 16.6 MB on
+      each of four separate logins against a 16.69 MB slice: four cold fetches
+      in one day. That path never calls the incremental sync and this release
+      does not touch it. For the single biggest spender (Rohitbhai, 306 MB over
+      4 sessions, whose bill is dominated by a 37 MB cold fetch) this release
+      removes only single-digit percent. The savings land on the DORMANT
+      partners, which is where the 99% waste was.
+      Why the local copy is lost is unknown. A 37 MB IndexedDB write being
+      rejected on a full phone is the first suspect, and until now that failure
+      was silently swallowed - _idbSet reported nothing. It now returns a
+      result, which is the first step toward finding out.
+
+    + ⛔ KNOWN HOLE, NOT FIXED: the watermark is stored per DEVICE while the
+      record cache is per TAB. Two tabs of the same partner booting seconds
+      apart can leave the second tab holding an older cache behind the first
+      tab's newer watermark, and a save from that tab then persists the older
+      set. The records in between are invisible until the 30-day cache expiry.
+      It needs two tabs open at once and a save in the stale one. Written down
+      rather than half-fixed.
+
+    + ALSO FIXED, a real pre-existing bug found on the way: the Refresh
+      button's boot-in-flight check tested only the ADMIN sync flags, never the
+      NGO ones, so a partner tapping Refresh while their own boot sync was
+      still running was told "Checked - up to date" while it was still running.
+
+    + Firebase: THE ENTIRE CALL SURFACE IS BYTE-IDENTICAL TO V18.3. Same 89
+      fbRef sites, same 58 .once(), same 17 .on(), same 9 .update(). No new
+      query, no new listener, no new node, no new field, nothing migrated, no
+      record touched. The watermark lives in IndexedDB on the device.
+    + Speed: unchanged. Two IndexedDB reads and one write of a single number
+      per sync, off the first-paint path. index.html grows 6.8 KB gzipped
+      (611.7 -> 618.5 KB), which is GitHub Pages bandwidth, not Firebase, and
+      is service-worker cached.
+    + Tests: 38 files plus mutate184.py, which breaks one guard at a time in a
+      copy of the build and FAILS unless the suite catches every one. Thirteen
+      mutations, all caught. It exists because the first two attempts at this
+      release each shipped a suite that passed while a real defect sat in the
+      code, and because two mutations survived a suite that looked thorough: a
+      test case that trips two guards at once tests neither.
+      v184sync.js is new and was seen RED on V18.3 first - it
+      LIFTS the real functions out of the build and RUNS them, because a test
+      that only greps for text proves the words are present, not that the code
+      works. Its load-bearing cases: the watermark must count records belonging
+      to OTHER partners (if it counted only the partner's own, this change
+      would do nothing at all), it must never move backwards, and a thrown
+      query must never advance it - a watermark that moves forward without the
+      records having been seen would skip them permanently.
+      bwsweep.js boots the REAL build against a fake Firebase backed by the
+      REAL 21 Aug export and counts every query's bytes through the app's OWN
+      meter, so its numbers compare directly with /bandwidth_audit.
+
   V18.3-LIVE (2026-08-22 - the beneficiaries outside Gujarat reach the map):
     + ⚠ THIS RELEASE SHIPS TWO FILES: index.html AND villages.js. Upload BOTH.
       sw.js and login-bg.jpg are unchanged. (V16 shipped two files and the
@@ -4183,7 +4429,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V18.3-LIVE';
+const APP_VERSION = 'V18.5-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -4486,16 +4732,29 @@ async function _idbGet(key) {
     });
   } catch (e) { console.warn('[V347] idbGet failed:', e); return null; }
 }
+// V18.4: returns TRUE only when the write actually landed, FALSE otherwise.
+// It used to swallow the error and return undefined, so a caller could not tell
+// a full disk from a success. Every existing caller ignores the return value and
+// is unaffected; _ngoIncrementalSync now depends on it.
 async function _idbSet(key, value) {
   try {
     const db = await _idbOpen();
     return await new Promise(function(resolve, reject) {
       const tx = db.transaction([_IDB_STORE], 'readwrite');
+      // ⛔ V18.5: settle on the TRANSACTION, not the request. IndexedDB fires
+      // request.onsuccess BEFORE the transaction commits, and a readwrite
+      // transaction can still abort after that - quota is evaluated at commit
+      // time, and the disk can be full or the origin evicted. Resolving on the
+      // request meant a multi-MB pantry write could report success and never
+      // reach disk, which is precisely the failure the V18.4 watermark guard
+      // was written to catch. Reported by review.
+      tx.oncomplete = function() { resolve(true); };
+      tx.onabort    = function() { reject(tx.error || new Error('idb transaction aborted')); };
+      tx.onerror    = function() { reject(tx.error || new Error('idb transaction failed')); };
       const req = tx.objectStore(_IDB_STORE).put(value, key);
-      req.onsuccess = function() { resolve(); };
       req.onerror   = function() { reject(req.error); };
     });
-  } catch (e) { console.warn('[V347] idbSet failed:', e); }
+  } catch (e) { console.warn('[V347] idbSet failed:', e); return false; }
 }
 async function _idbDelete(key) {
   try {
@@ -4511,8 +4770,8 @@ async function _idbDelete(key) {
 
 function _pantryKey(userId) { return 'benef-pantry-' + userId; }
 async function _pantryWrite(userId, records, lastSyncTs) {
-  if (!userId) return;
-  await _idbSet(_pantryKey(userId), {
+  if (!userId) return false;
+  return await _idbSet(_pantryKey(userId), {
     userId: userId, schemaVersion: PANTRY_SCHEMA_VERSION, ts: Date.now(),
     lastSyncTs: (typeof lastSyncTs === 'number') ? lastSyncTs : Date.now(),
     records: Array.isArray(records) ? records : []
@@ -4555,8 +4814,8 @@ async function _pantryClear(userId) {
 
 function _advPantryKey(userId) { return 'adv-pantry-' + userId; }
 async function _advPantryWrite(userId, records, lastSyncTs) {
-  if (!userId) return;
-  await _idbSet(_advPantryKey(userId), {
+  if (!userId) return false;
+  return await _idbSet(_advPantryKey(userId), {
     userId: userId, schemaVersion: PANTRY_SCHEMA_VERSION, ts: Date.now(),
     lastSyncTs: (typeof lastSyncTs === 'number') ? lastSyncTs : Date.now(),
     records: Array.isArray(records) ? records : []
@@ -4639,6 +4898,144 @@ async function _fcShallowCount(userId) {
   return FB.fcCount;
 }
 
+// ── V18.4 (2026-08-25) ─ remember what was actually seen ───────────────────
+//
+// _ngoIncrementalSync / _advNgoIncrementalSync start their delta window at the
+// newest _lastEditedAt among the partner's OWN cached records. RTDB allows one
+// ordered child per query, so orderByChild('_lastEditedAt') cannot also filter
+// on `ngo` - the query returns everything the WHOLE FLEET has edited since that
+// moment, and the loop discards what is not theirs.
+//
+// The waste is not the discarding. It is WHERE THE WINDOW STARTS. Once a
+// fleet-wide delta has come back, the client has seen every record up to the
+// newest timestamp IN THAT RESPONSE - not merely up to the newest of its own.
+// Anchoring the window to "when MY data last changed" means a partner whose own
+// records have not moved for a month re-downloads a month of everybody else's
+// edits, every single time they open the app.
+//
+// MEASURED on the 21 Aug export. The Kartavya partner's own records had not
+// changed in weeks, so one login cost 70.72 MB - while that partner's ENTIRE
+// dataset is 0.08 MB. The app's own meter recorded exactly that shape in
+// production on 24 Aug: 20.1 MB in a single session.
+//
+// So: remember the newest _lastEditedAt actually SEEN, fleet-wide, and start
+// there next time.
+//   • ⛔ IT IS STILL A CLOCK - just somebody else's. _lastEditedAt is the
+//     WRITING DEVICE's Date.now(), so a fleet-wide maximum converges on the
+//     FASTEST clock among ~580 phones. One handset three days fast would push
+//     every partner's window three days into the future and hide every
+//     correctly-stamped record until real time caught up. Under V18.3 that
+//     damage was contained, because the window came from the partner's OWN
+//     records. So the stored value is CLAMPED to a few minutes behind THIS
+//     device's clock: a fast phone elsewhere can no longer poison anybody, and
+//     the margin costs one extra window of fleet edits, about 23 KB.
+//     The same clamp covers writes that commit OUT OF timestamp order. ⛔ NOT
+//     because of the reassign-verify loop - the stamp is taken AFTER that,
+//     immediately before .update(). The real exposure is the SDK's own write
+//     queue: a save that passed the online check and then lost signal is held
+//     locally and committed on reconnect CARRYING ITS ORIGINAL TIMESTAMP. Past
+//     five minutes, on a rural link, that record lands below an already
+//     advanced watermark and is not delivered by a later delta. It is not lost
+//     and it is never deleted - fbDiff only emits a delete for a key present in
+//     the last-map - but it stays invisible to that partner until a cold fetch.
+//     _adminIncrementalSync has had this exact shape since V347 with no
+//     reported loss; V18.4 widens it from 1 account to 20. Known and accepted.
+//   • it can never go backwards - the stored value is only ever raised;
+//   • ⛔ it advances only once the pantry write has LANDED. _idbSet used to
+//     swallow its errors, so the 23-byte watermark would succeed where the
+//     multi-MB pantry write had failed - and the next boot would then hold the
+//     OLD records behind the NEW window, skipping everything in between,
+//     permanently. V18.3 self-healed there because the window was recomputed
+//     from the persisted cache every boot;
+//   • with nothing stored yet it falls back to today's behaviour exactly, pays
+//     the old price once, and is cheap from then on.
+//
+// Effect, all 19 partners, one sync each, against the real export:
+//     repeat sync 15 min later   439.07MB ->   1.62MB
+//     repeat sync 2 hours later  439.90MB ->   2.93MB
+//     1 day behind               596.34MB -> 126.33MB
+//     7 days behind              914.57MB -> 557.48MB
+// and NO partner pays more in any of them. The windows telescope: however many
+// times a partner opens the app in a day, together they now cover ONE day of
+// fleet edits (~6.65 MB) instead of repeating the whole backlog every session.
+//
+// ⛔ Deliberately NOT touching the admin syncs. An admin already holds every
+// record, so their own high-water IS the fleet high-water and there is nothing
+// to gain.
+const _V184_SEEN_PREFIX = 'ngo-seen-';
+// ⛔ How far behind THIS device's clock the watermark is allowed to sit.
+// Covers a fast phone elsewhere in the fleet AND a write that commits out of
+// timestamp order. Costs one extra window of fleet edits per sync (~23 KB).
+const _V184_CLOCK_MARGIN_MS = 5 * 60 * 1000;
+
+// The newest fleet timestamp this device has already been given for `kind`.
+async function _v184GetSeen(kind, userId) {
+  if (!userId) return 0;
+  try {
+    const v = await _idbGet(_V184_SEEN_PREFIX + kind + '-' + userId);
+    return (typeof v === 'number' && isFinite(v) && v > 0) ? v : 0;
+  } catch (_) { return 0; }
+}
+
+// ⛔ Only ever raise it. A watermark that moves backwards is harmless (it just
+// re-fetches), but one that moves FORWARD without the records having been seen
+// would skip them permanently, so this is the only writer and it is monotonic.
+async function _v184SetSeen(kind, userId, ts) {
+  if (!userId || typeof ts !== 'number' || !isFinite(ts) || ts <= 0) return;
+  try {
+    const prev = await _v184GetSeen(kind, userId);
+    if (ts > prev) await _idbSet(_V184_SEEN_PREFIX + kind + '-' + userId, ts);
+  } catch (_) {}
+}
+
+// The newest _lastEditedAt in a delta response. This is what the client has
+// provably seen, because the query was startAt(highWater + 1) with no limit.
+function _v184MaxSeen(val, floor) {
+  let m = floor || 0;
+  for (const k in val) {
+    const r = val[k];
+    const t = r && r._lastEditedAt;
+    if (typeof t === 'number' && t > m) m = t;
+  }
+  return m;
+}
+
+// ⛔ V18.5: after a save, make FB.last* match the cache EXACTLY.
+//
+// fbSyncCollection publishes FB[lastMapRef] = diff.newMap BEFORE it awaits the
+// network write, and _hydrate*Cache rebuilds only RecordCache afterwards. A
+// partner sync that lands inside that await writes its records into BOTH (the
+// last-map it mutates IS diff.newMap), and the hydrate then drops them from the
+// cache alone. What is left is keys in FB.last* with no matching cache entry -
+// and fbDiff reads exactly that as a DELETION, so the next save issues REAL
+// deletes of live beneficiaries, plus tombstones that propagate the loss to
+// every other device. Five or fewer and they go through silently; more than
+// five and the V371 cap blocks every save until reload.
+//
+// Reseating here is the narrowest place that is always correct: the write has
+// already succeeded, so the cache is what the server holds for this scope.
+// Worst case a record the sync had fetched is dropped from both maps, which
+// costs one re-fetch and never a delete.
+//
+// ⛔ DELIBERATELY NOT INSIDE _hydrate*Cache. The bulk-import path calls that
+// BEFORE any Firebase write, so pre-seeding FB.last* there would make the final
+// batched save diff to nothing and import ZERO records.
+function _v185ReseatLastMap(which) {
+  try {
+    const m = Object.create(null);
+    if (which === 'benef') {
+      for (const r of RecordCache.benef.values()) if (r && r.id) m[r.id] = fbHash(r);
+      FB.lastBenef = m;
+    } else {
+      for (const [k, r] of RecordCache.adv.entries()) {
+        if (!r) continue;
+        m[(r && r.__fbk) || k] = fbHash(r);
+      }
+      FB.lastAdv = m;
+    }
+  } catch (e) { console.warn('[V18.5] could not reseat the ' + which + ' last-map:', e); }
+}
+
 // V347: query tombstones for a collection since the high water timestamp.
 // Returns an array of ids that were tombstoned. Caller removes from cache.
 async function _v347FetchTombstones(coll, sinceTs) {
@@ -4664,6 +5061,12 @@ async function _ngoIncrementalSync() {
   const u = (typeof currentUser === 'function') ? currentUser() : null;
   if (!u || u.role !== 'ngo' || !u.ngo) return { ok: false, reason: 'not-ngo' };
   if (!FB.db || RecordCache.benef.size === 0) return { ok: false, reason: 'empty-cache' };
+  // ⛔ V18.5: never fold a delta into the cache while a save is mid-flight.
+  // The save rebuilds RecordCache from its own array when it returns, which
+  // would drop whatever this sync had just added while leaving it in
+  // FB.lastBenef - the skew fbDiff turns into a real delete. Skipping costs one
+  // sync; the next one picks everything up because the watermark is untouched.
+  if (FB.pendingWrites > 0) return { ok: false, reason: 'save-in-flight' };
   _ngoIncrementalSync_inFlight = true;
   try {
     let highWater = 0;
@@ -4671,9 +5074,27 @@ async function _ngoIncrementalSync() {
       const t = (r && typeof r._lastEditedAt === 'number') ? r._lastEditedAt : 0;
       if (t > highWater) highWater = t;
     }
+    // V18.4: start from what this device has actually SEEN fleet-wide, not from
+    // when this partner's own data last changed. See _v184GetSeen.
+    // ⛔ Keep the pre-V18.4 value for the TOMBSTONE sweep below. A tombstone's
+    // `ts` is a different device's clock written to a different node, so it is
+    // not comparable with _lastEditedAt - raising that window can skip a delete
+    // permanently, and the partner would keep a deleted beneficiary in their
+    // list and in every total for up to 30 days. Re-applying a tombstone is
+    // idempotent and the node is tiny, so the cheap direction is the safe one.
+    const _ownHwB = highWater;
+    const _seenB = await _v184GetSeen('benef', u.userId);
+    if (_seenB > highWater) highWater = _seenB;
     if (highWater === 0) return { ok: false, reason: 'no-watermark' };
     const snap = await fbRef('beneficiaries').orderByChild('_lastEditedAt').startAt(highWater + 1).once('value');
     const val = snap.val() || {};
+    // V18.4: record it BEFORE the loop below starts discarding other partners'
+    // records - they were paid for and they are what makes the watermark
+    // fleet-wide. Written after the loop so a throw cannot advance it.
+    // ⛔ Clamped - see _V184_CLOCK_MARGIN_MS. Floored at `highWater`, so the
+    // window can still only ever move forward.
+    const _newSeenB = Math.max(highWater,
+      Math.min(_v184MaxSeen(val, highWater), Date.now() - _V184_CLOCK_MARGIN_MS));
     let added = 0;
     let reassignedOut = 0;
     for (const id in val) {
@@ -4698,8 +5119,9 @@ async function _ngoIncrementalSync() {
       FB.lastBenef[r.id] = fbHash(r);
       added++;
     }
-    // V347: remove tombstoned records
-    const tombs = await _v347FetchTombstones('beneficiaries', highWater);
+    // V347: remove tombstoned records. V18.4: on the OWN high-water, not the
+    // fleet watermark - see _ownHwB above.
+    const tombs = await _v347FetchTombstones('beneficiaries', _ownHwB);
     let removed = 0;
     for (const id of tombs) {
       if (RecordCache.benef.has(id)) {
@@ -4708,13 +5130,24 @@ async function _ngoIncrementalSync() {
         removed++;
       }
     }
+    let _pantryOkB = true;
     if (added > 0 || removed > 0 || reassignedOut > 0) {
-      try { await _pantryWrite(u.userId, Array.from(RecordCache.benef.values())); } catch(_){}
+      try { _pantryOkB = (await _pantryWrite(u.userId, Array.from(RecordCache.benef.values()))) !== false; }
+      catch(_) { _pantryOkB = false; }
       FB.fcCount = RecordCache.benef.size;
       try { renderCurrentView(); } catch(_){}
     }
+    // V18.4: only now - response fully processed, nothing thrown, and the local
+    // copy actually on disk. Advancing past records that did not persist would
+    // hide them from every future window.
+    if (_pantryOkB) {
+      await _v184SetSeen('benef', u.userId, _newSeenB);
+    } else {
+      console.warn('[V18.4] pantry write failed — not advancing the watermark');
+    }
     console.log('[V347] NGO benef sync: +' + added + ' / -' + removed +
-                (reassignedOut ? ' / reassigned-out ' + reassignedOut : ''));
+                (reassignedOut ? ' / reassigned-out ' + reassignedOut : '') +
+                (_pantryOkB ? ' [V18.4 seen ' + _newSeenB + ']' : ' [V18.4 watermark held back]'));
     return { ok: true, added: added, removed: removed + reassignedOut };
   } catch (e) { console.warn('[V347] NGO benef sync failed:', e);
     return { ok: false, reason: 'error', error: (e && e.message) || String(e) };
@@ -4793,6 +5226,7 @@ async function _advNgoIncrementalSync() {
   const u = (typeof currentUser === 'function') ? currentUser() : null;
   if (!u || u.role !== 'ngo' || !u.ngo) return { ok: false, reason: 'not-ngo' };
   if (!FB.db || RecordCache.adv.size === 0) return { ok: false, reason: 'empty-cache' };
+  if (FB.pendingWrites > 0) return { ok: false, reason: 'save-in-flight' };   // see the benef sync
   _advNgoIncrementalSync_inFlight = true;
   try {
     let highWater = 0;
@@ -4800,9 +5234,16 @@ async function _advNgoIncrementalSync() {
       const t = (r && typeof r._lastEditedAt === 'number') ? r._lastEditedAt : 0;
       if (t > highWater) highWater = t;
     }
+    // V18.4: same watermark rule as the beneficiary sync, stored separately
+    // because the two collections advance independently.
+    const _ownHwA = highWater;   // tombstone window - see the beneficiary sync
+    const _seenA = await _v184GetSeen('adv', u.userId);
+    if (_seenA > highWater) highWater = _seenA;
     if (highWater === 0) return { ok: false, reason: 'no-watermark' };
     const snap = await fbRef('advocacy').orderByChild('_lastEditedAt').startAt(highWater + 1).once('value');
     const val = snap.val() || {};
+    const _newSeenA = Math.max(highWater,
+      Math.min(_v184MaxSeen(val, highWater), Date.now() - _V184_CLOCK_MARGIN_MS));
     let added = 0;
     let reassignedOut = 0;
     for (const fbKey in val) {
@@ -4827,7 +5268,8 @@ async function _advNgoIncrementalSync() {
       FB.lastAdv[key] = fbHash(record);
       added++;
     }
-    const tombs = await _v347FetchTombstones('advocacy', highWater);
+    // V18.4: on the OWN high-water - see _ownHwA above.
+    const tombs = await _v347FetchTombstones('advocacy', _ownHwA);
     let removed = 0;
     for (const fbKey of tombs) {
       if (RecordCache.adv.has(fbKey)) {
@@ -4836,8 +5278,10 @@ async function _advNgoIncrementalSync() {
         removed++;
       }
     }
+    let _pantryOkA = true;
     if (added > 0 || removed > 0 || reassignedOut > 0) {
-      try { await _advPantryWrite(u.userId, Array.from(RecordCache.adv.values())); } catch(_){}
+      try { _pantryOkA = (await _advPantryWrite(u.userId, Array.from(RecordCache.adv.values()))) !== false; }
+      catch(_) { _pantryOkA = false; }
       // V4.11: `added` also counts in-place edits to records already in the
       // cache (this query is by _lastEditedAt, not just new keys) — without
       // this, RecordCache.adv is correctly updated but _advLatestRowsCache's
@@ -4845,8 +5289,14 @@ async function _advNgoIncrementalSync() {
       try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
       try { renderCurrentView(); } catch(_){}
     }
+    if (_pantryOkA) {
+      await _v184SetSeen('adv', u.userId, _newSeenA);
+    } else {
+      console.warn('[V18.4] advocacy pantry write failed — not advancing the watermark');
+    }
     console.log('[V347] NGO adv sync: +' + added + ' / -' + removed +
-                (reassignedOut ? ' / reassigned-out ' + reassignedOut : ''));
+                (reassignedOut ? ' / reassigned-out ' + reassignedOut : '') +
+                (_pantryOkA ? ' [V18.4 seen ' + _newSeenA + ']' : ' [V18.4 watermark held back]'));
     return { ok: true, added: added, removed: removed + reassignedOut };
   } catch (e) { console.warn('[V347] NGO adv sync failed:', e);
     return { ok: false, reason: 'error', error: (e && e.message) || String(e) };
@@ -8301,6 +8751,7 @@ async function saveData(arr) {
   } catch (_) {}
   await fbSyncCollection('beneficiaries', arr || [], 'id', 'lastBenef');
   _hydrateBenefCache(Array.isArray(arr) ? arr : []);
+  _v185ReseatLastMap('benef');   // ⛔ see the note on _v185ReseatLastMap
   // V362: queue a summary write (debounced 2 sec) so viewer's numbers stay
   // current within seconds of any save. Admin role only — others can't
   // compute global+per-NGO summaries without full data access.
@@ -18357,6 +18808,7 @@ async function saveAdv(arr) {
   }
   await fbSyncCollection('advocacy', stamped, '__fbk', 'lastAdv');
   _hydrateAdvCache(stamped);
+  _v185ReseatLastMap('adv');   // ⛔ see the note on _v185ReseatLastMap
   // V362: queue a summary write (debounced) so viewer reflects new advocacy
   // amounts within seconds.
   try { if (typeof _v362QueueSummaryWrite === 'function') _v362QueueSummaryWrite(); } catch(_) {}
@@ -20134,10 +20586,33 @@ function _v401TodayStats() {
     const _pid = a.bid || a.__fbk;
     for (const r of (a.schemeRows || [])) {
       if (!r || r._deleted) continue;
-      const s = _advNormStatus(r);
-      if (s !== 'Benefits Received' && s !== 'Applied') continue;
-      if (_v400IstDayMemo(r.createdAt) !== todayIst) continue;
-      if (s === 'Benefits Received') _brBids.add(_pid); else _apBids.add(_pid);
+      // ⛔ V18.5: read _aAt / _bAt, NOT createdAt.
+      //
+      // This row read 0 and 0 every single day and always had. It asked each
+      // scheme line for a createdAt date, and the save path has never written
+      // one onto a LINE - rec.createdAt is stamped on the advocacy RECORD.
+      // Counted on the 21 Aug export: 0 of 2,25,179 live scheme lines carry it.
+      //
+      // The date it wanted was there all along under another name.
+      // _rptStampRowDates (V12.4) writes _aAt on the day a scheme is FILED and
+      // _bAt on the day the benefit ARRIVES, as YYYY-MM-DD IST strings - the
+      // same format todayIst is in - on BOTH advocacy save paths. Measured on
+      // the same export: 1,208 rows carry _aAt and 504 carry _bAt, every day
+      // from 30 Jul to 21 Aug. On 20 Aug this row would have said
+      // "Applied 127, Benefits received 112".
+      //
+      // ⛔ NO STATUS FILTER. The stamp IS the event: _aAt is only written on a
+      // real transition out of "Need to Apply". Filtering on the CURRENT status
+      // as well would drop a scheme filed today and rejected the same day, and
+      // that person did apply today. A row can carry both dates as today and
+      // count in both chips, which is correct - they applied and received on
+      // the same day.
+      //
+      // Rows saved before 30 Jul 2026 carry neither, because _rptStampOk
+      // refuses to stamp on or before the poisoned day. That is not a problem
+      // for a counter that only ever asks about today.
+      if (r._aAt === todayIst) _apBids.add(_pid);
+      if (r._bAt === todayIst) _brBids.add(_pid);
     }
   }
   _v401TodayCache = { ver: ver, day: todayIst, enrolledToday: enrolledToday,
@@ -20159,32 +20634,61 @@ function _v401TodayStrip() {
   const chip = (label, val, bg, fg) => `<span style="background:${bg};color:${fg};font-size:11px;padding:4px 9px;border-radius:8px;white-space:nowrap">${label} <b style="font-weight:700">${val}</b></span>`;
   const CHIPS = 'display:flex;gap:6px;flex-wrap:wrap';
   const SECT = 'display:flex;align-items:center;gap:6px;margin-bottom:6px;font-size:12px;color:var(--gray1)';
+
+  // V18.5: a row whose numbers are ALL zero is dropped, leaving the enrolment
+  // figure on its own. Asked for after the Advocacy row was found to read 0 and
+  // 0 permanently: each scheme line is checked for a createdAt date that the
+  // save path has never written, so 2,25,179 of 2,25,179 live scheme lines fail
+  // the test and the row can only ever say zero. A row that cannot say anything
+  // is worse than no row.
+  //
+  // ⛔ ONE zero inside a row does NOT hide the row - only a row where EVERY
+  // number is zero. "Completed 0" stays visible next to "Enrolled 122".
+  //
+  // ⛔ Nothing is deleted and no count changes. The moment a row has a real
+  // number again - including the Advocacy row, if the missing date is ever
+  // stamped - it reappears on its own with no further work.
+  const _v185Live = (...vals) => vals.some(v => Number(v) > 0);
+  const _v185Sect = (emoji, title, chips) =>
+    `<div style="border-top:1px solid var(--gray3);padding-top:9px">
+      <div style="${SECT}"><span style="font-size:14px" aria-hidden="true">${emoji}</span>${title}</div>
+      <div style="${CHIPS}">${chips}</div>
+    </div>`;
+
+  const sections = [];
+  if (_v185Live(s.livEnr, s.livProg, s.livDone)) {
+    sections.push(_v185Sect('\u{1F331}', 'Livelihood \u2014 status updates today',
+      chip('Enrolled', s.livEnr, '#E6F1FB', '#0C447C') +
+      chip('In progress', s.livProg, '#FAEEDA', '#633806') +
+      chip('Completed', s.livDone, '#E1F5EE', '#085041')));
+  }
+  if (_v185Live(s.appliedToday, s.benefitsToday)) {
+    sections.push(_v185Sect('\u{1F4CB}', 'Advocacy \u2014 people today',
+      chip('Applied', s.appliedToday, '#E6F1FB', '#0C447C') +
+      chip('Benefits received', s.benefitsToday, '#E1F5EE', '#085041')));
+  }
+  // The gap that used to live on the first row's margin-bottom now sits on the
+  // second row's margin-top, so one row alone leaves no dangling space.
+  const sectHtml = sections
+    .map((h, i) => (i === 0 ? h : h.replace('<div style="border-top',
+                                            '<div style="margin-top:9px;border-top')))
+    .join('');
+  // With no rows at all the enrolment line is the last thing in the card, so it
+  // must not carry a bottom margin.
+  const bigMb = sections.length ? '10px' : '0';
+
   return `<div style="background:#fff;border:1px solid #BFDBFE;border-radius:12px;padding:12px 14px;margin:-6px 0 16px">
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
       <span style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--navy2)">TODAY · ${dateLbl}</span>
       <span style="font-size:10px;color:var(--gray2)">all NGOs</span>
     </div>
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:${bigMb};flex-wrap:wrap">
       <span style="font-size:14px" aria-hidden="true">🧑‍🌾</span>
       <span style="font-size:12px;color:var(--gray1)">Enrolled</span>
       <span style="font-size:17px;font-weight:700;color:var(--navy)">${s.enrolledToday}</span>
       <span style="font-size:11px;color:var(--gray2);margin-left:auto">yesterday ${s.enrolledYest}</span>
     </div>
-    <div style="border-top:1px solid var(--gray3);padding-top:9px;margin-bottom:9px">
-      <div style="${SECT}"><span style="font-size:14px" aria-hidden="true">🌱</span>Livelihood — status updates today</div>
-      <div style="${CHIPS}">
-        ${chip('Enrolled', s.livEnr, '#E6F1FB', '#0C447C')}
-        ${chip('In progress', s.livProg, '#FAEEDA', '#633806')}
-        ${chip('Completed', s.livDone, '#E1F5EE', '#085041')}
-      </div>
-    </div>
-    <div style="border-top:1px solid var(--gray3);padding-top:9px">
-      <div style="${SECT}"><span style="font-size:14px" aria-hidden="true">📋</span>Advocacy — people today</div>
-      <div style="${CHIPS}">
-        ${chip('Applied', s.appliedToday, '#E6F1FB', '#0C447C')}
-        ${chip('Benefits received', s.benefitsToday, '#E1F5EE', '#085041')}
-      </div>
-    </div>
+    ${sectHtml}
   </div>`;
 }
 
@@ -21220,8 +21724,16 @@ async function _v373AdminRefresh() {
   // this, the existing sync's in-flight guard would cause our call to return
   // instantly with 0 deltas, and we'd misleadingly show "Up to date" while
   // the actual boot sync is still loading data in the background.
+  // V18.4: the NGO flags were missing here. A partner admin tapping Refresh
+  // while their own boot sync was still running fell through to the inner
+  // guard, got {ok:false, reason:'in-flight'}, and the button read that as zero
+  // deltas and painted GREEN "Checked - up to date" while the sync was still
+  // running. Pre-existing since V9.1, fixed here because this release makes
+  // that boot sync matter.
   const boot_in_flight = (typeof _adminIncrementalSync_inFlight !== 'undefined' && _adminIncrementalSync_inFlight)
-                      || (typeof _advAdminIncrementalSync_inFlight !== 'undefined' && _advAdminIncrementalSync_inFlight);
+                      || (typeof _advAdminIncrementalSync_inFlight !== 'undefined' && _advAdminIncrementalSync_inFlight)
+                      || (typeof _ngoIncrementalSync_inFlight !== 'undefined' && _ngoIncrementalSync_inFlight)
+                      || (typeof _advNgoIncrementalSync_inFlight !== 'undefined' && _advNgoIncrementalSync_inFlight);
   if (boot_in_flight) {
     if (label) label.textContent = 'Sync in progress…';
     if (btn) { btn.style.background = '#FEF3C7'; btn.style.color = '#92400E'; btn.style.borderColor = '#FDE68A'; }
@@ -21287,7 +21799,11 @@ async function _v373AdminRefresh() {
     const benefAdded = (benefResult && benefResult.ok) ? (benefResult.added + benefResult.removed) : 0;
     const advAdded    = (advResult   && advResult.ok)   ? (advResult.added   + advResult.removed)   : 0;
     const total = benefAdded + advAdded;
-    const eitherErrored = [benefResult, advResult].some(r => r && !r.ok && (r.reason === 'error' || r.reason === 'no-watermark'));
+    // V18.5: 'save-in-flight' joins the list. Left out, a refused sync scored
+    // zero deltas and painted the button GREEN with "Checked - up to date"
+    // while nothing had been checked at all.
+    const eitherErrored = [benefResult, advResult].some(r => r && !r.ok &&
+      (r.reason === 'error' || r.reason === 'no-watermark' || r.reason === 'save-in-flight'));
     // V5.9: small on-hover diagnostic — record counts + when this actually
     // last succeeded, so a stale device is visible at a glance instead of
     // requiring a console check to explain. V6 fix: only claim "Last synced"
@@ -23211,6 +23727,27 @@ function _v357ComputeSig(view) {
     parts.push('rpt', rptTab, rptRange,
                rptFcSort, rptFcDir, rptNgoSort, rptNgoDir, rptNgoMode);
   } catch (_) { parts.push('rpt', 'unavailable'); }
+  // ── V18.5: the IST calendar day ────────────────────────────────────
+  // The dashboard's TODAY card keys its own cache on _v357DataVersion AND the
+  // IST day, but this signature only carried the version. An admin who leaves
+  // the dashboard open across IST midnight on a quiet night bumps no version,
+  // so the tab cache replayed YESTERDAY's card: stale date label, stale counts,
+  // and from V18.5 the wrong rows hidden or shown as well. Pre-existing since
+  // the card was added; the row-hiding made it worth fixing.
+  //
+  // ⛔ SEPARATE try/catch, for the reason spelled out in the V18.2 block above:
+  // sharing a guard means one unreachable name silently blanks everything else
+  // in it. Blast radius here is this one value.
+  //
+  // Computed inline rather than through _v400IstDayMemo, which memoises on the
+  // string it is given - feeding it a fresh timestamp on every tab switch would
+  // add an entry each time to a map meant for record dates.
+  try {
+    const _d = new Date(Date.now() + ((5 * 60 + 30) * 60 * 1000));
+    parts.push('ist', _d.getUTCFullYear() + '-' +
+      String(_d.getUTCMonth() + 1).padStart(2, '0') + '-' +
+      String(_d.getUTCDate()).padStart(2, '0'));
+  } catch (_) { parts.push('ist', 'unavailable'); }
   return parts.join('|');
 }
 
