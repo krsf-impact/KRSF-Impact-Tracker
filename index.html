@@ -1,13 +1,184 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V18.5-LIVE
+  KRSF Beneficiary Impact Tracker  -  V18.7-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
   cost every user ~155 KB of gzipped download on every load for text no
   browser reads. The two most recent releases are kept below.
   ============================================================================
+  V18.7-LIVE (2026-08-28 - every screen counts a benefit the same way):
+    + ONE FILE. index.html only. villages.js, sw.js and login-bg.jpg are
+      unchanged since V18.3 - do not re-upload them.
+
+    + REPORTED: "The benefits received in dashboard is 24824. But in reports it
+      is 24840. I want all the numbers in dashboard, livelihood, advocacy etc.
+      absolutely identical in charts as well as reports."
+
+    + THE DASHBOARD WAS RIGHT. Within one person's advocacy record, the same
+      (scheme, remarks) pair can appear more than once - the later entry
+      superseding the earlier - and an entry that is deleted stays behind marked
+      _deleted. _advLatestRowsAll keeps the LAST entry per key and drops
+      tombstones, which is what the dashboard, the Advocacy tab and the Reports
+      headline already did. Measured on the 21 Aug export: 311 duplicate keys
+      across 240 records; 25 of the resulting rows are benefits that no longer
+      exist - 14 later deleted, 11 later changed back to "Need to Apply".
+
+    + SEVEN PLACES COUNTED THE OTHER WAY - every entry in the array, including
+      superseded and deleted ones: _computeNgoStats, _computeFcStats,
+      renderNGO's portfolio block, _rptAggregate's per-coordinator pass, and the
+      weekly bars in _v362ComputeOneSummary, _v363ComputeFcSlice and
+      _v400ComputeAllSummaries. That last one is the ADMIN path that writes
+      /_summary/global and every per-partner summary the donor and Team Leader
+      dashboards read, so the same partner's chart differed depending on who
+      saved last. All seven now use the one shared row set. Every surface
+      returns 19,858 on the 21 Aug export, against 19,883 the old way.
+
+    + RECORDED BY OFFICE STAFF. 14 benefits were saved under an admin or partner
+      login, for people whose coordinator name matches nobody in the coordinator
+      list. They counted in the totals but belonged to no row, so the
+      coordinator table was 14 short of the figure printed above it with nothing
+      on screen to say why. They now appear as their own labelled row, keyed by
+      partner so the partner table adds up too. ⛔ Deliberately NOT in fcAgg:
+      they are not people and must never enter the leaderboard, the active /
+      inactive split or the conversion rate.
+
+    + ⛔ MY FIRST EXPLANATION WAS WRONG. I wrote that advocacy history piles up
+      across records. It does not - Firebase holds exactly ONE advocacy record
+      per person (__fbk is `${bid}__unknown`) and both save paths upsert into
+      it. 129,011 distinct people, 129,012 records, maximum one each. The
+      duplication is inside a single record's list. Caught by independent
+      review, after the same class of mistake in V18.5.
+
+    + ⛔ AND MY TEST COULD NOT TELL A CORRECT BUILD FROM A WRONG ONE. A review
+      changed one line so the de-duplication key ignored `remarks` - silently
+      losing 96 real benefits - and every check still passed, because all six
+      screens moved together and every assertion compared the app against
+      itself. v187onerule.js now carries an ORACLE computed in Node straight
+      from adv.json using no app code, and asserts the app matches it. It found
+      a real discrepancy within minutes: the harness had been serving advocacy
+      as a LIST where Firebase stores it as a keyed set, so the app was seeing
+      129,047 records where the file holds 129,012.
+
+    + ⛔ AND THE FIRST FIX WAS SLOWER. Counting per partner and per coordinator
+      each ran a filter over all ~225,000 rows - 19x and 549x the whole set -
+      and sorting a column re-runs it, so every tap paid. Review measured the
+      Partners tab 2.4x-3.4x slower. Now indexed by beneficiary
+      (_v187RowsByBid), and _rptAggregate no longer wraps each row in a
+      throwaway object (224,915 of them, ~40 MB, on every render).
+
+    + WHAT MOVES IN THE FIELD: 29 of 549 coordinators see their Reports numbers
+      change, and 183 see their own weekly chart shrink. Nothing is lost - those
+      figures were counting rows that no longer exist, and the charts were also
+      including other coordinators' rows.
+
+    + FIREBASE IS UNCHANGED. Every call pattern is identical to V18.6 - fbRef(
+      90, .once('value') 52, .on( 19, .orderByChild( 21, .equalTo( 26,
+      .startAt( 7, .update( 12, .set( 101, .remove( 114, .push( 222,
+      .transaction( 6. No new call, no new listener, no change to any payload.
+
+    + Tests: 41 files, plus mutate184.py, mutate185.py, mutate186.py and
+      mutate187.py, which break one guard at a time and FAIL unless the suite
+      catches every one. v187onerule.js is new and was seen RED on V18.6 first.
+      It is a RUNTIME test: it boots the real build in headless Chrome against a
+      fake Firebase and calls the REAL aggregation functions on the REAL export,
+      including the four the first version never called at all.
+
+  V18.6-LIVE (2026-08-27 - the form recognises an activity it did not name):
+    + ONE FILE. index.html only. villages.js, sw.js and login-bg.jpg are
+      unchanged since V18.3 - do not re-upload them.
+
+    + REPORTED: "There are some beneficiaries assigned in livelihood. But in
+      the livelihood we have added custom intervention - like agri or cooking.
+      Now when I click on the beneficiary it shows two intervention but none is
+      selected - livelihood and advocacy."
+
+    + THE CAUSE. openEdit decided "is this person in Livelihood?" by looking the
+      stored activity name up in getLivTypes(), which is only ever the admin's
+      Livelihood Types list. Nothing adds a free-typed "Other" value to that
+      list, so the form stopped recognising its own data the moment an FC used
+      the box: the chip stayed blank, advSyncProgrammeVisibility() then hid the
+      whole livelihood section and BLANKED #liv-other-text - wiping the value
+      openEdit had set twenty lines earlier - and the record read as belonging
+      to no programme at all.
+
+    + ⛔ AND IT DELETED DATA. With no advocacy the save was refused ("select at
+      least one programme"), so the record was merely uneditable and nothing was
+      lost. WITH advocacy the save was ACCEPTED, and the normal-beneficiary
+      branch wrote `fields.interventions = interventions` - advocacy alone.
+      Proved by running the LIVE V18.5 build against the 21 Aug export:
+      KRSF-GJ-124614 went in carrying ["Dainik majuri che.", advocacy] and came
+      out carrying advocacy only. Nothing typed, nothing unticked, no warning.
+
+    + THE LIVE DATA, 21 Aug. 1,088 people carry a livelihood activity. 17 hold a
+      name absent from config/livtypes - Spice mill x11 (Kartavya), Agriculture
+      x3 and Agri- based x1 (Bethel), and two full sentences typed at Poshina.
+      16 could not be saved at all; 1 lost its activity on any save. A further
+      113 (Weaving x72, Bee-keeping x40) behaved identically on any device that
+      had not yet fetched config/livtypes, because getLivTypes() falls back to
+      seven hardcoded defaults until it lands.
+
+    + THE FIX. One predicate: has this person got an activity, rather than is
+      its name one we recognise. Everything downstream already worked once the
+      chip was ticked - the section appears, the typed name shows in the Other
+      box, and the save writes it back. The save logic itself is untouched.
+
+    + AN UNRECOGNISED NAME IS NOW A REAL CHIP, ticked, beside the configured
+      ones. It is visible, it can be unticked to remove it, and the save reads
+      it back by label like any other chip. The "Other" box goes back to being
+      what its name says - a place to type a NEW activity - and opens empty on
+      every record.
+
+    + ⛔ THE FIRST VERSION OF THIS FIX WAS WRONG AND TWO INDEPENDENT REVIEWS
+      FOUND THE SAME DEFECT. It put the first unrecognised name in the single
+      "Other" box and parked any others in a module variable the save
+      re-appended. Those parked names were on no control anywhere: untick Other
+      and the form showed NOTHING selected while the save still wrote an
+      activity back, and that invisible value satisfied the "pick at least one
+      intervention type" guard. Chips have none of those problems and leave no
+      hidden state to leak between records. No live record carries two
+      unrecognised names today, warm or cold - but adminDeleteLivType keeps the
+      tag on existing records by design, so "zero today" was never a reason.
+
+    + THE THREE RISKS, EACH TESTED. (1) Ticking Livelihood makes the form demand
+      five answers - household size, land, livestock, sources, income. All 17
+      affected records have every one filled, checked against the export; a
+      record with gaps is now refused BY THOSE QUESTIONS rather than by "select
+      at least one programme", which an FC can act on. (2) Ordinary Livelihood,
+      Advocacy, recognised-name and family-member records must be untouched -
+      six control cases, all unchanged. (3) The two-unrecognised-names case
+      above.
+
+    + FIREBASE IS UNCHANGED. Every call pattern is identical to V18.5 -
+      fbRef( 89, .once('value') 51, .on( 18, .orderByChild( 20, .equalTo( 25,
+      .startAt( 6, .update( 11, .transaction( 5. The single .push( difference is
+      a plain JavaScript array push into livChips. No new call at startup.
+
+    + ⛔ AND THE TEST WAS READING THE WRONG THING. A third review deleted
+      `interventions` from the Firebase write payload - a build that shows
+      "saved" and loses every activity list in the database - and the suite
+      stayed fully green. Every read-back went through loadData(), which is the
+      app's OWN cache, and _hydrateBenefCache repopulates that after every save
+      regardless of what was actually sent. The suite now reads the fake
+      Firebase tree and asserts the database and the screen agree, and one case
+      deliberately CHANGES a record, because a round-trip check is satisfied by
+      a save that does nothing at all.
+
+    + Tests: 40 files, plus mutate184.py, mutate185.py and mutate186.py, which
+      break one guard at a time and FAIL unless the suite catches every one -
+      13, 12 and 22 mutations, all caught. v186livchip.js is new and was seen
+      RED on V18.5 first. It is a RUNTIME test: it boots the real build in
+      headless Chrome against a fake Firebase and drives the real Edit form on
+      real records. A text-pattern test could not have caught the deletion,
+      because the line that deletes is correct. It runs twice - once with
+      config/livtypes present and once without - in two separate browser
+      profiles, because clearing localStorage on a warm profile left the second
+      phase still knowing Weaving and proving nothing. mutate186.py also no
+      longer scores a non-zero exit as a catch: a port clash or a dead browser
+      exits non-zero with no failed assertion, and every one of those was being
+      counted as a success.
+
   V18.5-LIVE (2026-08-26 - the Today card drops a row that is all zeros):
     + ONE FILE. index.html only. CONTAINS V18.4, which was never uploaded, so
       this one release carries both changes. villages.js, sw.js and
@@ -4429,7 +4600,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V18.5-LIVE';
+const APP_VERSION = 'V18.7-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -13468,7 +13639,38 @@ function openEdit(id) {
   if (srcOtherInp)  srcOtherInp.value = customSource;
   // Restore programme chips + livelihood sub-chips from stored interventions.
   const LIV_TYPES_ENR = getLivTypes();
-  const hasLivInt = (b.interventions||[]).some(i => LIV_TYPES_ENR.includes(i));
+  // ⛔ V18.6: ask whether this person HAS an activity, not whether its name is
+  // one the app happens to recognise. The old test was
+  //     (b.interventions||[]).some(i => LIV_TYPES_ENR.includes(i))
+  // and getLivTypes() is only ever the admin's Livelihood Types list. Nothing
+  // adds a free-typed "Other" value to that list, so the form stopped
+  // recognising its own data the moment an FC used the box: the chip stayed
+  // blank, advSyncProgrammeVisibility() below then hid the whole livelihood
+  // section and BLANKED #liv-other-text — wiping the value set twenty lines
+  // down — and the record read as belonging to no programme at all.
+  //
+  // With no advocacy the save was refused ("select at least one programme") so
+  // the record became uneditable. WITH advocacy the save was ACCEPTED and the
+  // normal-beneficiary branch wrote `interventions` as advocacy alone, silently
+  // deleting the activity. Measured on the 21 Aug export against live V18.5:
+  // KRSF-GJ-124614 went in with ["Dainik majuri che.", advocacy] and came out
+  // with advocacy only. 17 live records held an unrecognised name; a further
+  // 113 (Weaving, Bee-keeping) behaved identically on any device that had not
+  // yet fetched config/livtypes, because getLivTypes() falls back to seven
+  // hardcoded defaults until it lands.
+  //
+  // This also collapses the disagreement the V17.5 note below describes: the
+  // chip predicate and editingFamilyMemberHasLivelihood now ask the same
+  // question, which is what they always meant to ask.
+  //
+  // ⛔ `String(i).trim()`, not just `i`. A whitespace-only entry is truthy, so
+  // it would tick the chip and put an invisible label on screen, and the save
+  // reads chip labels back trimmed — turning "   " into "". Nothing in the live
+  // data has one (checked: 0 of 128,870), and treating it as "no activity" is
+  // what every other reader already does.
+  const _v186LivVals = (b.interventions || [])
+    .filter(i => i && String(i).trim() && i !== 'Advocacy (Govt. Schemes)');
+  const hasLivInt = _v186LivVals.length > 0;
   // V17.5: remember whether the Livelihood PROGRAMME chip actually ended up
   // ticked when this record was loaded. The un-enrol path must mean "the FC
   // turned this off", and only this tells us it was ever on.
@@ -13493,6 +13695,46 @@ function openEdit(id) {
   });
   // Livelihood sub-chips
   const LIV_DEFAULT_CHIPS = LIV_TYPES_ENR;
+  // ⛔ V18.6: give every unrecognised activity a REAL CHIP before the loop
+  // below ticks them. _refreshLivelihoodChips() already rebuilt this row from
+  // getLivTypes() earlier in openEdit, so nothing survives from the last record.
+  //
+  // The first version of this fix put the first unrecognised name into the
+  // single "Other" box and parked the rest in a module variable that the save
+  // re-appended. Two independent reviews found the same defect: the parked
+  // names were on no control anywhere, so unticking Other left the form showing
+  // NOTHING selected while the save still wrote an activity back — and it
+  // satisfied the "pick at least one intervention type" guard with a value the
+  // FC could not see or remove. A chip has none of those problems: it is
+  // visible, it is untickable, and `livChipsRaw` reads it back by label like
+  // any other. There is no hidden state left to leak between records.
+  //
+  // No live record carries two unrecognised names today, on a warm device or a
+  // cold one. It is one admin action away though — adminDeleteLivType keeps the
+  // tag on existing records by design — so "zero today" is not a reason.
+  const _ichipRow = document.getElementById('ichips');
+  const _otherChipEl = document.getElementById('liv-other-chip');
+  if (_ichipRow) {
+    // new Set: nothing de-duplicates interventions[] on the way in, and the
+    // same name stored twice would otherwise draw two identical chips — untick
+    // one and the other silently keeps the activity alive. The duplicate entry
+    // is not information, so one chip and one stored value is the right answer.
+    for (const _c of [...new Set(_v186LivVals.filter(i => !LIV_DEFAULT_CHIPS.includes(i)))]) {
+      const _el = document.createElement('div');
+      _el.className = 'ichip';
+      _el.setAttribute('data-v186-unlisted', '1');
+      _el.setAttribute('onclick', 'toggleChip(this)');
+      _el.setAttribute('title', 'Recorded for this person but not in the Livelihood Types list');
+      const _box = document.createElement('div');
+      _box.className = 'ichip-box';
+      _el.appendChild(_box);
+      // a text node, not innerHTML — the name is stored data and may contain
+      // anything a coordinator typed
+      _el.appendChild(document.createTextNode(_c));
+      if (_otherChipEl) _ichipRow.insertBefore(_el, _otherChipEl);
+      else _ichipRow.appendChild(_el);
+    }
+  }
   document.querySelectorAll('#ichips .ichip').forEach(c => {
     const label = c.textContent.trim().replace('✓','').trim();
     if (label === 'Other') { c.classList.remove('on'); c.querySelector('.ichip-box').textContent=''; return; }
@@ -13500,22 +13742,15 @@ function openEdit(id) {
     c.classList.toggle('on', on);
     c.querySelector('.ichip-box').textContent = on ? '✓' : '';
   });
-  // Detect a custom (non-default, non-advocacy) intervention → populate Other.
-  const customInt = (b.interventions||[]).find(i =>
-    i !== 'Advocacy (Govt. Schemes)' && !LIV_DEFAULT_CHIPS.includes(i));
+  // V18.6: the "Other" box is now only for typing a NEW activity name. Every
+  // one this record already carries is a ticked chip above, so the box opens
+  // empty and unticked on every record.
   const otherChip = document.getElementById('liv-other-chip');
   const otherWrap = document.getElementById('liv-other-wrap');
   const otherInput = document.getElementById('liv-other-text');
-  if (customInt && otherChip && otherWrap && otherInput) {
-    otherChip.classList.add('on');
-    otherChip.querySelector('.ichip-box').textContent = '✓';
-    otherWrap.style.display = 'block';
-    otherInput.value = customInt;
-  } else {
-    if (otherChip) { otherChip.classList.remove('on'); otherChip.querySelector('.ichip-box').textContent=''; }
-    if (otherWrap) otherWrap.style.display = 'none';
-    if (otherInput) otherInput.value = '';
-  }
+  if (otherChip) { otherChip.classList.remove('on'); otherChip.querySelector('.ichip-box').textContent=''; }
+  if (otherWrap) otherWrap.style.display = 'none';
+  if (otherInput) otherInput.value = '';
   advSyncProgrammeVisibility();
   // Rebuild scheme panel from the beneficiary's latest advocacy state
   if (hasAdvInt) {
@@ -14607,6 +14842,15 @@ async function _submitEnrollInner() {
   // un-editable, with a message saying "nothing is selected" while her activity
   // was visible on screen in the Other box. Let the save through as an ordinary
   // edit and leave `interventions` untouched, so her phone number can be fixed.
+  // ⛔ V18.6: THIS IS NOW ALWAYS FALSE. DO NOT READ IT AS LIVE PROTECTION.
+  // _editingExistingFamilyLivelihood is set from editingFamilyMemberHasLivelihood
+  // ("any entry that is not advocacy") and _v175LivChipOnAtOpen is now set from
+  // hasLivInt, which asks the same question — so the two operands below can
+  // never both hold. It is kept, rather than deleted, because removing it means
+  // editing three save branches to no behavioural effect, and this release is
+  // deliberately not touching the save logic. It exists to be searched for by
+  // whoever next wonders why the V17.5 escape hatch never fires: the form can
+  // now represent every activity, so there is nothing left to preserve unseen.
   const isPreservingHiddenLivelihood =
     isAddingLivelihoodToFamily && !livOn &&
     _editingExistingFamilyLivelihood && !_v175LivChipOnAtOpen;
@@ -16996,7 +17240,13 @@ function _computeNgoStats(partnerName, benefSet, advAll) {
   const advTaggedIds = new Set(advTagged.map(b => b.id));
   const advRecords = advAll.filter(a => advTaggedIds.has(a.bid));
   const advBenefs = advTagged;
-  const allRows = advRecords.flatMap(a => (a.schemeRows || []).filter(r => !r._deleted));
+  // V18.7: ONE row set. This walked the raw records, so a scheme row that
+  // appears twice in the same person's list — the later entry superseding the
+  // earlier — was counted twice here, while the dashboard and the Advocacy tab
+  // counted it once. Measured on the 21 Aug export: 19,883 rows this way
+  // against 19,858 the other. Indexed by beneficiary rather than filtered, or
+  // this scans every row once per partner and once per coordinator.
+  const allRows = _v187RowsForBids(advAll, new Set(advRecords.map(a => a.bid)));
   // V371: use _advNormStatus(r) instead of raw r.status so the Team Report's
   // status buckets match the Advocacy KPI page exactly. The normaliser treats
   // benefitRecd='Yes' as "Benefits Received" regardless of the raw status
@@ -17087,7 +17337,13 @@ function _computeFcStats(fcUserId, fcDisplayName, benefSet, advAll) {
   const advTaggedIds = new Set(advTagged.map(b => b.id));
   const advRecords = advAll.filter(a => advTaggedIds.has(a.bid));
   const advBenefs = advTagged;
-  const allRows = advRecords.flatMap(a => (a.schemeRows || []).filter(r => !r._deleted));
+  // V18.7: ONE row set. This walked the raw records, so a scheme row that
+  // appears twice in the same person's list — the later entry superseding the
+  // earlier — was counted twice here, while the dashboard and the Advocacy tab
+  // counted it once. Measured on the 21 Aug export: 19,883 rows this way
+  // against 19,858 the other. Indexed by beneficiary rather than filtered, or
+  // this scans every row once per partner and once per coordinator.
+  const allRows = _v187RowsForBids(advAll, new Set(advRecords.map(a => a.bid)));
   // V371: use _advNormStatus(r) — same fix as _computeNgoStats above.
   const needRows     = allRows.filter(r => _advNormStatus(r) === 'Need to Apply');
   const appliedRows  = allRows.filter(r => _advNormStatus(r) === 'Applied');
@@ -17234,7 +17490,8 @@ function renderNGO() {
   const advTaggedAllIds = new Set(advTaggedAll.map(b => b.id));
   const advAllBenefs = advTaggedAll;
   const portAdvBids = advTaggedAllIds;
-  const portAdvRows = advAll.filter(a => portAdvBids.has(a.bid)).flatMap(a => (a.schemeRows || []).filter(r => !r._deleted));
+  // V18.7: see the note in _computeNgoStats — same rule, same reason.
+  const portAdvRows = _v187RowsForBids(advAll, portAdvBids);
   // V371: portfolio total — same _advNormStatus(r) fix.
   const portNeed     = portAdvRows.filter(r => _advNormStatus(r) === 'Need to Apply').length;
   const portApplied  = portAdvRows.filter(r => _advNormStatus(r) === 'Applied').length;
@@ -19126,8 +19383,32 @@ function _advLatestRowsAll(allAdv) {
     // application doesn't accumulate duplicates). Blank remarks behave like
     // legacy: one entry per scheme.
     const key = a.bid + '::' + r.scheme + '::' + (r.remarks || '');
-    // Attach bid/createdAt so consumers can reference them
-    byKey[key] = Object.assign({}, r, { __bid: a.bid, __createdAt: a.createdAt });
+    // Attach bid/createdAt so consumers can reference them.
+    // V18.7: also carry who owns the winning version and when it landed, so the
+    // per-FC, per-partner and weekly-chart counts can be built from THIS row
+    // set instead of walking the raw records.
+    //
+    // WHY THOSE COUNTS WERE WRONG. Firebase holds exactly ONE advocacy record
+    // per beneficiary (__fbk is `${bid}__unknown`, and both save paths upsert
+    // into it) - so this is NOT about old records being superseded by new ones.
+    // The duplication sits INSIDE a single record's schemeRows array: the same
+    // (scheme, remarks) can appear more than once, the later entry superseding
+    // the earlier. Measured on the 21 Aug export: 311 duplicate keys across 240
+    // records, 35 of them a live row that a later entry tombstones. The loop
+    // below keeps the LAST entry for each key, which is what every headline
+    // already counted; the raw walkers counted every entry in the array.
+    //
+    // ⛔ An earlier version of this comment, and of the changelog, said
+    // advocacy history was append-only across records. It is not. The fix was
+    // right and the reason was wrong - caught by independent review.
+    // These are derived fields on a COPY; nothing here is ever stored.
+    byKey[key] = Object.assign({}, r, {
+      __bid: a.bid,
+      __createdAt: a.createdAt,
+      __createdBy: a.createdBy,
+      __ngo: a.ngo,
+      __ts: a.updatedAt || a.createdAt,
+    });
   }));
   // Filter out tombstoned rows. Storage keeps them (audit history); views
   // hide them. Deletion bug fix: when the latest write for a (bid, scheme,
@@ -19136,6 +19417,36 @@ function _advLatestRowsAll(allAdv) {
   // Store in cache
   if (allAdv) { _advLatestRowsCache = result; _advLatestRowsCacheLen = src.length; }
   return result;
+}
+
+// ⛔ V18.7: rows grouped by beneficiary, memoised against the same array
+// identity the row cache uses. Without this, _computeNgoStats and
+// _computeFcStats each ran a .filter() over all ~225,000 rows - once per
+// partner (19) and once per coordinator (549). Review measured the Partners
+// tab at 2.4x-3.4x slower, and ngoSortBy() calls renderNGO() directly, so
+// every column-sort tap paid it. A Map lookup per beneficiary instead.
+let _v187RowsByBidCache = null, _v187RowsByBidSrc = null;
+function _v187RowsByBid(allAdv) {
+  const rows = _advLatestRowsAll(allAdv);
+  if (_v187RowsByBidCache && _v187RowsByBidSrc === rows) return _v187RowsByBidCache;
+  const m = new Map();
+  for (const r of rows) {
+    let a = m.get(r.__bid);
+    if (!a) { a = []; m.set(r.__bid, a); }
+    a.push(r);
+  }
+  _v187RowsByBidCache = m;
+  _v187RowsByBidSrc = rows;   // identity, not length - the row cache owns that
+  return m;
+}
+function _v187RowsForBids(allAdv, bidSet) {
+  const byBid = _v187RowsByBid(allAdv);
+  const out = [];
+  for (const bid of bidSet) {
+    const a = byBid.get(bid);
+    if (a) for (const r of a) out.push(r);
+  }
+  return out;
 }
 
 // Latest row per scheme for one beneficiary — used to pre-fill the modal.
@@ -22479,6 +22790,32 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
     fcAgg.set(f.id, a);
     if (f.fullName) fcByName.set(f.fullName, a);
   });
+  // V18.7: advocacy saved under an admin or partner login, for somebody whose
+  // coordinator name matches nobody in the list above, belonged to no row at
+  // all — so this table was 14 benefits short of the figure printed over it,
+  // with nothing on screen to say why. It gets its own labelled row now.
+  // ⛔ Deliberately NOT in fcAgg: that Map is keyed by user id and is read
+  // as "the coordinators" by the active / inactive splits, the leaderboard and
+  // the conversion rate. This bucket is not a person and must not appear in
+  // any of them. It is attached to the result separately and rendered last.
+  // ⛔ Keyed by PARTNER, not one bucket for everybody. The partner table
+  // below is aggregated from the coordinator list, so a single partner-less
+  // bucket would have left that table short by the same 14 instead of this one.
+  const _v187OfficeByNgo = new Map();
+  const _v187OfficeFor = ngo => {
+    const k = ngo || '\u2014';
+    let a = _v187OfficeByNgo.get(k);
+    if (!a) {
+      a = { u: { id: '__office__' + k, fullName: 'Recorded by office staff',
+                 ngo: k, role: 'office' },
+        tot: 0, enrolledWin: 0, advWin: 0, filed: 0, recd: 0,
+        applied: 0, benefits: 0, livelihood: 0,
+        appliedWin: 0, benefitsWin: 0, livelihoodWin: 0,
+        phone: 0, gps: 0, photo: 0, last: 0, _isOffice: true };
+      _v187OfficeByNgo.set(k, a);
+    }
+    return a;
+  };
   allB.forEach(b => {
     const a = fcAgg.get(b.createdBy) || fcByName.get(b.coord);
     if (!a) return;
@@ -22502,8 +22839,39 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
     if (t1 > a.last) a.last = t1;
     if (t2 > a.last) a.last = t2;
   });
-  advParents.forEach(p => {
-    const a = fcAgg.get(p.createdBy);
+  // ⛔ V18.7: this walked advParents and counted EVERY scheme row on EVERY
+  // record. Advocacy history is append-only — each save writes a new record —
+  // so a benefit later corrected to "Need to Apply", or a row deleted
+  // afterwards, kept being counted here. That is exactly why this screen read
+  // 24,840 benefits received while the dashboard read 24,824.
+  //
+  // It now walks the SAME de-duplicated row set every other total uses,
+  // attributed to whoever saved the winning version, so the per-FC columns
+  // still add up to the headline. Each surviving row is handed to the loop as
+  // a one-row record carrying that version's own bid and date, so the body
+  // underneath is untouched.
+  _advLatestRowsAll(advParents).forEach(_r => {
+    // V18.7: the same fallback the beneficiary pass above already uses —
+    // `fcAgg.get(createdBy) || fcByName.get(coord)`. Keyed on the author ALONE,
+    // a row saved by an admin login or by a coordinator who has since left
+    // belongs to nobody at all.
+    //
+    // ⛔ THIS DOES NOT MAKE THE TABLE ADD UP, and an earlier version of this
+    // comment claimed it did. `fcByName` is an exact-string Map, so it misses on
+    // free-text drift in b.coord — "SANJAYABHAI VALVI" against "SANJAYBHAI
+    // VALVI", "Shailendra Vasava" against "Shailendra vasava". Review measured
+    // 99 rows still falling to no coordinator. The leaderboard is a list of
+    // COORDINATORS; a benefit saved under an NGO login for somebody whose
+    // coordinator name matches nobody has no row to sit in. That is a property
+    // of the data, not an arithmetic error, and _tests/v187onerule.js asserts
+    // the reconciliation (in the table + unattributed = headline) rather than a
+    // straight equality that would be false.
+    const _pb = bById.get(_r.__bid);
+    // V18.7: falls through to the office bucket rather than vanishing. The
+    // beneficiary must still be in scope — that check is a few lines down and
+    // applies to this bucket exactly as it does to a coordinator's.
+    const a = fcAgg.get(_r.__createdBy) || (_pb ? fcByName.get(_pb.coord) : null)
+              || (_pb ? _v187OfficeFor(_pb.ngo) : null);
     if (!a) return;
     // V12.7: the advocacy record must belong to a beneficiary that is IN SCOPE.
     // Without this the pass keyed only on who CREATED the record, so an
@@ -22514,9 +22882,16 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
     // moved between partners could carry another partner's advocacy into this
     // one. latestRows already applied this rule; the per-FC pass did not, so
     // the two disagreed.
-    if (!bById.has(p.bid)) return;
-    const rows = (p.schemeRows || []).filter(r => r && !r._deleted);
-    if (inWin(p.createdAt)) a.advWin += rows.length;
+    if (!_pb) return;
+    // ⛔ V18.7: walk the de-duplicated rows DIRECTLY. The first version of
+    // this wrapped each row in a throwaway { createdBy, bid, createdAt,
+    // schemeRows: [row] } object so the body below could stay untouched -
+    // 224,915 objects and as many single-element arrays on every Reports
+    // render, which review measured at 134 ms and ~40 MB of garbage against
+    // 33 ms and no allocation before. Sorting the table re-renders.
+    if (_r._deleted) return;
+    const rows = [_r];
+    if (inWin(_r.__createdAt)) a.advWin += 1;
     // V12.3: the two windowed counts below rest on DIFFERENT dates, and the
     // difference matters when reading them.
     //   APPLIED  -> the row's own _aAt stamp when it has one (V12.4 onward,
@@ -22530,7 +22905,7 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
     //               from V12 (29 Jul 2026). Historical benefits have no date
     //               and are therefore absent from the windowed count while
     //               still counting in full in the all-time one.
-    const parentInWin = inWin(p.createdAt);
+    const parentInWin = inWin(_r.__createdAt);
     rows.forEach(r => {
       const s = _advNormStatus(r);
       if (s !== 'Need to Apply') {
@@ -22558,7 +22933,7 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
         }
       }
     });
-    const t = p.createdAt ? new Date(p.createdAt).getTime() : 0;
+    const t = _r.__createdAt ? new Date(_r.__createdAt).getTime() : 0;
     if (t > a.last) a.last = t;
   });
   const fcList = Array.from(fcAgg.values());
@@ -22585,7 +22960,9 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
   // never mask a genuine zero later. "No stamps at all" is a statement about
   // the app's history; "zero this week" is a statement about the work.
   const benefitsFellBack = !ALL_TIME && benefitDayCounts.size === 0;
-  if (benefitsFellBack) fcList.forEach(a => { a.benefitsWin = a.benefits; });
+  const officeRows = Array.from(_v187OfficeByNgo.values()).filter(a => a.filed > 0);
+  if (benefitsFellBack) fcList.concat(officeRows)
+    .forEach(a => { a.benefitsWin = a.benefits; });
 
   // ── V12: per-NGO rollup ──────────────────────────────────────────────────
   // activeFcs is the divisor for the table's "per-FC average" mode. It counts
@@ -22593,7 +22970,10 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
   // 2026-07-29) so an NGO is not penalised for staff on leave or a vacant post.
   // It can legitimately be 0 — the renderer must show a dash, never divide.
   const ngoMap = new Map();
-  fcList.forEach(a => {
+  // ⛔ officeRows are included HERE (so each partner's totals are complete)
+  // but NOT in fcList (so they never appear in the active/inactive split, the
+  // leaderboard, or the conversion rate — they are not people).
+  fcList.concat(officeRows).forEach(a => {
     const n = a.u.ngo || '—';
     const g = ngoMap.get(n) ||
       { ngo: n, activeFcs: 0, enrolled: 0,
@@ -22726,7 +23106,7 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
   });
   const stuckTotal = Array.from(stuckByScheme.values()).reduce((s, g) => s + g.n, 0);
   const advTotal = latestRows.length;
-  return { fcAgg, fcByName, fcList, ngoRows, benefitDayCounts, totalEverEnrolled, benefitFirstStamp, activeFcs, inactiveFcs, convDen, convNum, ADVI, dayCounts, ngoWin, villageFirst, enrolledWinTotal, livN, endN, sumBase, sumEnd, overdue, stage, byInt, byNgoLiv, overdueNgo, suspects, uName, newVillages, statusCount, stuckByScheme, schemeStats, stuckTotal, advTotal, latestRows, bById, inWin, fcs, allTime: ALL_TIME, benefitsFellBack };
+  return { fcAgg, fcByName, fcList, officeRows, ngoRows, benefitDayCounts, totalEverEnrolled, benefitFirstStamp, activeFcs, inactiveFcs, convDen, convNum, ADVI, dayCounts, ngoWin, villageFirst, enrolledWinTotal, livN, endN, sumBase, sumEnd, overdue, stage, byInt, byNgoLiv, overdueNgo, suspects, uName, newVillages, statusCount, stuckByScheme, schemeStats, stuckTotal, advTotal, latestRows, bById, inWin, fcs, allTime: ALL_TIME, benefitsFellBack };
 }
 
 // ── V12: FC Performance tab ─────────────────────────────────────────────────
@@ -22805,6 +23185,22 @@ function _rptRenderFc(A, nowMs) {
     </tr>`;
   }).join('');
 
+  // V18.7: advocacy saved under an admin or partner login, for somebody whose
+  // coordinator name matches nobody in the list. It counts in every total on
+  // this page; before this it sat in no row at all, so the column was short of
+  // the figure above it with nothing on screen to explain the difference.
+  // Guru asked for it by name: "Recorded by office staff".
+  const officeTr = (A.officeRows || []).filter(a => a.filed > 0).map(a => `<tr
+      style="background:var(--gray4)" title="Scheme work saved by an admin or partner login rather than by a field coordinator. It counts in the totals above; it simply belongs to no one coordinator.">
+      <td><div class="rpt-person"><span class="rpt-av" style="background:var(--gray2)">\u2699</span><span><span class="rpt-pname" style="font-style:italic">Recorded by office staff</span><span class="rpt-psub">${esc(a.u.ngo || '\u2014')}</span></span></div></td>
+      <td class="rpt-strong">\u2014</td>
+      <td>${a.appliedWin.toLocaleString('en-IN')}</td>
+      <td>${a.benefitsWin.toLocaleString('en-IN')}</td>
+      <td>\u2014</td>
+      <td><span class="rpt-mini">\u2014</span></td>
+      <td><span class="rpt-mini">\u2014</span></td>
+    </tr>`).join('');
+
   const inactiveRows = inactiveFcs.slice(0, 10).map(a => `<tr>
       <td><div class="rpt-person"><span class="rpt-av" style="background:${_rptNgoColor(a.u.ngo)}">${esc((a.u.fullName || a.u.username || '\u2014').split(/\s+/).map(w => w[0] || '').join('').slice(0, 2).toUpperCase())}</span><span><span class="rpt-pname">${esc(a.u.fullName || a.u.username)}</span><span class="rpt-psub">${esc(a.u.ngo || '\u2014')}</span></span></div></td>
       <td><span class="rpt-warn">${_rptAgoLabelPlain(a.last)}</span></td>
@@ -22852,7 +23248,7 @@ function _rptRenderFc(A, nowMs) {
       <div class="rpt-tblwrap">
         <table class="rpt-tbl">
           <thead><tr>${_rptTh(RPT_FC_COLS, rptFcSort, rptFcDir, 'rptSortFc', RPT_FC_TIPS)}</tr></thead>
-          <tbody>${rows || `<tr><td colspan="${RPT_FC_COLS.length}" class="rpt-empty">No FC activity found for the current filters.</td></tr>`}</tbody>
+          <tbody>${(rows + officeTr) || `<tr><td colspan="${RPT_FC_COLS.length}" class="rpt-empty">No FC activity found for the current filters.</td></tr>`}</tbody>
         </table>
       </div>
       ${withRecords.length > RPT_FC_CAP ? `<div class="rpt-note" style="padding:0 18px 14px">Showing the top ${RPT_FC_CAP} of ${withRecords.length} coordinators with records, for the column you sorted by.</div>` : ''}
@@ -25161,6 +25557,15 @@ function adminAddLivType() {
   if (!name) return toast('Enter a type name first', 'error');
   const types = getLivTypes();
   if (types.some(t => t.toLowerCase() === name.toLowerCase())) { return toast('That type already exists', 'error'); }
+  // ⛔ V18.6: "Other" is the label of the free-text chip, and the enrolment form
+  // identifies that chip BY ITS LABEL. A configured type with the same name
+  // draws a second chip the restore loop skips along with the real one, so the
+  // record opens with Livelihood ticked and nothing selected under it and can
+  // never be saved — the exact state this release exists to remove, one admin
+  // action away. Found by review, not by anyone using it: no live list has it.
+  if (name.toLowerCase() === 'other') {
+    return toast('"Other" is already the name of the free-text option on the enrolment form — please use a different name.', 'error', 5000);
+  }
   types.push(name);
   saveLivTypes(types);
   inp.value = '';
@@ -30724,18 +31129,19 @@ function _v362ComputeOneSummary(records, advRecords, ngoScope, prefiltered) {
     weekBuckets[wk].enrolled++;
   }
   // Advocacy events by week (use the advocacy record's updatedAt OR createdAt)
-  for (const a of adv) {
-    const ts = a.updatedAt || a.createdAt;
-    const wk = _weekKey(ts);
+  // ⛔ V18.7: the bars used to be built from the RAW records, so they counted
+  // every historical version of a scheme row while the totals printed above
+  // them counted only the newest. Same rows as `allRows` now, bucketed by the
+  // date of the version that survived.
+  for (const r of allRows) {
+    if (r._deleted) continue;
+    const wk = _weekKey(r.__ts);
     if (!wk) continue;
     if (!weekBuckets[wk]) weekBuckets[wk] = { week:wk, enrolled:0, applied:0, received:0, rejected:0 };
-    for (const r of (a.schemeRows||[])) {
-      if (r._deleted) continue;
-      const s = (typeof _advNormStatus === 'function') ? _advNormStatus(r) : (r.status || '');
-      if (s === 'Applied') weekBuckets[wk].applied++;
-      else if (s === 'Benefits Received') weekBuckets[wk].received++;
-      else if (s === 'Rejected') weekBuckets[wk].rejected++;
-    }
+    const s = (typeof _advNormStatus === 'function') ? _advNormStatus(r) : (r.status || '');
+    if (s === 'Applied') weekBuckets[wk].applied++;
+    else if (s === 'Benefits Received') weekBuckets[wk].received++;
+    else if (s === 'Rejected') weekBuckets[wk].rejected++;
   }
   // Keep last 12 weeks, sorted ascending
   const allWeeks = Object.values(weekBuckets).sort((a,b) => a.week < b.week ? -1 : 1);
@@ -30967,7 +31373,14 @@ async function _v400ComputeAllSummaries(records, advRecords) {
       if (a.bid) c.advBid.add(a.bid);
       if (wk) {
         if (!c.weeks[wk]) c.weeks[wk] = { week: wk, enrolled: 0, applied: 0, received: 0, rejected: 0 };
-        for (const r of (a.schemeRows || [])) {
+        // ⛔ V18.7: the seventh counting site, and the one most people see.
+        // This is the ADMIN path that writes /_summary/global and every
+        // per-NGO summary the donor and viewer dashboards read. It still built
+        // its bars from the raw list while _v362ComputeOneSummary (NGO-admin
+        // save) and _v363ComputeFcSlice (FC save) had been switched to the
+        // de-duplicated rows — so the same partner's chart differed depending
+        // on who happened to save last.
+        for (const r of (_v187RowsByBid(advRecords).get(a.bid) || [])) {
           if (!r || r._deleted) continue;
           const s = _advNormStatus(r);
           if (s === 'Applied') c.weeks[wk].applied++;
@@ -30996,22 +31409,26 @@ async function _v400ComputeAllSummaries(records, advRecords) {
   // One stable sort by createdAt (same comparator as _advLatestRowsAll); a
   // stable-sorted whole restricted to a bucket ≡ the bucket sorted alone, so
   // per-scope dedup over this order matches _advLatestRowsAll(slice) exactly.
-  const sorted = advRecords.slice();
-  sorted.sort(function(a, b){ return (a.createdAt||'') < (b.createdAt||'') ? -1 : (a.createdAt||'') > (b.createdAt||'') ? 1 : 0; });
+  // ⛔ V18.7: ONE de-duplication rule. This block used to re-implement it -
+  // the same key string, the same sort, written out a second time - and two
+  // copies of a rule drift. A rule drifting between screens is the whole
+  // complaint this release answers. It surfaced while writing the sabotage
+  // tests: the mutation on the key could not be applied, because the pattern
+  // matched in two places.
+  const _v187Shared = _advLatestRowsAll(advRecords);
   const gRows = {};                    // global byKey
   const nRows = {};                    // ngoName -> byKey
-  for (let i = 0; i < sorted.length; i++) {
+  for (let i = 0; i < _v187Shared.length; i++) {
     if (i > 0 && i % CHUNK === 0) await _v400Yield();
-    const a = sorted[i];
-    if (!a) continue;
-    const bucket = (a.ngo && byNgo[a.ngo]) ? (nRows[a.ngo] = nRows[a.ngo] || {}) : null;
-    for (const r of (a.schemeRows || [])) {
-      if (!r || !r.scheme) continue;
-      const key = a.bid + '::' + r.scheme + '::' + (r.remarks || '');
-      const row = { status: r.status, benefitRecd: r.benefitRecd, benefitAmt: r.benefitAmt, _deleted: r._deleted, __bid: a.bid };
-      gRows[key] = row;
-      if (bucket) bucket[key] = row;
-    }
+    const r = _v187Shared[i];
+    if (!r || !r.scheme) continue;
+    const key = r.__bid + '::' + r.scheme + '::' + (r.remarks || '');
+    const row = { status: r.status, benefitRecd: r.benefitRecd, benefitAmt: r.benefitAmt,
+                  _deleted: r._deleted, __bid: r.__bid };
+    gRows[key] = row;
+    // the partner bucket follows the RECORD's partner, exactly as before
+    const bucket = (r.__ngo && byNgo[r.__ngo]) ? (nRows[r.__ngo] = nRows[r.__ngo] || {}) : null;
+    if (bucket) bucket[key] = row;
   }
   async function countRows(byKey, bidFilter) {
     const out = { needApply: 0, applied: 0, rejected: 0, received: 0, totalAmt: 0 };
@@ -31142,17 +31559,17 @@ function _v363ComputeFcSlice(records, advAll, user) {
     if (!wk[w]) wk[w] = { week:w, enrolled:0, applied:0, received:0, rejected:0 };
     wk[w].enrolled++;
   }
-  for (const a of adv) {
-    const ts = a.updatedAt || a.createdAt;
-    const w = _wk(ts); if (!w) continue;
+  // ⛔ V18.7: see the note in _v362ComputeOneSummary. `allRows` is already
+  // de-duplicated AND filtered to this FC's beneficiaries, which the raw walk
+  // below it never was — so the bars also used to include other FCs' rows.
+  for (const r of allRows) {
+    if (r._deleted) continue;
+    const w = _wk(r.__ts); if (!w) continue;
     if (!wk[w]) wk[w] = { week:w, enrolled:0, applied:0, received:0, rejected:0 };
-    for (const r of (a.schemeRows||[])) {
-      if (r._deleted) continue;
-      const s = (typeof _advNormStatus === 'function') ? _advNormStatus(r) : (r.status || '');
-      if (s === 'Applied') wk[w].applied++;
-      else if (s === 'Benefits Received') wk[w].received++;
-      else if (s === 'Rejected') wk[w].rejected++;
-    }
+    const s = (typeof _advNormStatus === 'function') ? _advNormStatus(r) : (r.status || '');
+    if (s === 'Applied') wk[w].applied++;
+    else if (s === 'Benefits Received') wk[w].received++;
+    else if (s === 'Rejected') wk[w].rejected++;
   }
   const progress = Object.values(wk).sort((a,b) => a.week<b.week?-1:1).slice(-12);
 
