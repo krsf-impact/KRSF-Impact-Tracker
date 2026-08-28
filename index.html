@@ -1,12 +1,94 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V18.7-LIVE
+  KRSF Beneficiary Impact Tracker  -  V18.8-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
   cost every user ~155 KB of gzipped download on every load for text no
   browser reads. The two most recent releases are kept below.
+  ============================================================================
+  V18.8-LIVE (2026-08-28 - bulk import stops demanding a baseline it cannot have):
+    + ONE FILE. index.html only. villages.js, sw.js and login-bg.jpg are
+      unchanged since V18.3 - do not re-upload them.
+
+    + REPORTED, while rehearsing a bulk import of new livelihood beneficiaries:
+      "Annual household income must be a positive number / Number of family
+      members must be at least 1 - why?", then "I will not have baseline income
+      for all the livelihood beneficiaries when I bulk import."
+
+    + WHAT THIS IS, STATED ACCURATELY. An earlier draft of this entry said the
+      form had already stopped requiring these and that import had merely never
+      caught up. THAT WAS WRONG, and an independent review caught it: V319 and
+      V17.1 made them optional for ADVOCACY-ONLY records, and V17.3 then went
+      the other way and made all five livelihood fields mandatory, because
+      livelihood enrolments were reaching the field with them blank. So this is
+      not import catching up - it is a DELIBERATE, NARROWER exception for bulk
+      import only, made at the owner's explicit request ("Only for the bulk
+      import?"). The form is unchanged.
+
+    + THE PRICE, NOT HIDDEN. Because the form still refuses a livelihood record
+      with no income, an imported row CANNOT BE SAVED FROM THE FORM until
+      someone types one in - including by an admin who only opened it to fix a
+      village spelling. The import preview now says so on every affected row,
+      and a new amber alert (Rule 9) lists every livelihood record with no
+      baseline, so they can be found again after the preview is closed.
+
+    + THE DEBT COULD HAVE BEEN BOOKED IN THE SAME UPLOAD. The argument for
+      allowing a blank baseline was that the distortion only arrives when an
+      endline is recorded - but this same importer accepts the endline columns,
+      and the write is `incomeLog[0] = endIncome - baseIncome`. One spreadsheet
+      carrying both would have counted a household's ENTIRE income as income
+      the programme created, into the dashboard, Reports, the partner tables
+      and /_summary/global - and every detector that would catch it is switched
+      off by its own falsy guard on baseIncome (Rule 6 tests `pct(b) > 100`;
+      pct returns null with no baseline and `null > 100` is false). That pair
+      is now a hard error, and Endline Bulk Update refuses a zero-baseline
+      record for the same reason.
+
+    + A COMMA SILENTLY DESTROYED THE FIGURE, IN SIX COLUMNS NOT TWO.
+      parseFloat('30,000') is 30, so the old check passed it - a household on
+      Rs 30,000 imported as Rs 30 with no error and no warning - while refusing
+      'Rs 30000' (NaN), so the harmless case was blocked and the dangerous one
+      was not. A first pass fixed only baseIncome and hhSize; review found the
+      same bare parseFloat in endIncome, land, livestock and the scheme benefit
+      amount. The last of those feeds benefitAmt, the single benefit figure
+      V18.7 spent a release unifying across 16 totals. All six now refuse a
+      cell they cannot read cleanly, naming the value.
+
+    + VALIDATION AND STORAGE READ THE SAME CELL NOW. The old pair was
+      `getNum('x*') || getNum('x')`, and `||` treats BOTH 0 and NaN as falsy, so
+      a sheet carrying a legacy second column could be judged on one and stored
+      from the other - a review demonstrated a row accepted on "0" storing NaN.
+      One picker feeds both, and an unreadable cell becomes NaN rather than a
+      half-read number, so it can never reach storage.
+
+    + SMALLER THINGS FROM THE SAME REVIEW: a blank family size now warns too
+      (it causes the identical lockout); a blank family size stores '' as the
+      form does, rather than 0, which was rendering "Family Members: 0" on the
+      profile - an absence stated as a fact; the three places that printed
+      "(+null%)" for a record with no baseline now say "no baseline", one of
+      them on the coordinator's own phone; a zero-width space pasted from a web
+      table no longer produces an error naming an apparently valid number; the
+      cell value is escaped before it reaches the message; and the template
+      instructions and the import screen no longer teach the rule that was just
+      removed.
+
+    + TEST: _tests/v188import.js is new. It boots this build in headless Chrome
+      against real records and calls the REAL _validateImportRows and
+      _validateEndlineRows on fifteen crafted rows. Seen RED on V18.7 first -
+      16 of its 32 checks failed there, including "a comma in the income must
+      be an error, got ok". ⛔ Its first draft failed on EVERY row against
+      both builds, because the _tests copy of fakefb.js leaves `partners`
+      empty and the importer checks every ngo cell against it - a red that
+      had nothing to do with the change. It now serves the _sandbox copy.
+
+    + IMPORT PRACTICE COPY, new. _sandbox/ runs this build on 127.0.0.1 against
+      a copy of a production export with the Firebase endpoints stripped and the
+      SDK replaced by an in-memory fake, so an import can be rehearsed in full -
+      including the duplicate check against all 137,298 records - with no way to
+      reach any Firebase project. See _sandbox/README.md.
+
   ============================================================================
   V18.7-LIVE (2026-08-28 - every screen counts a benefit the same way):
     + ONE FILE. index.html only. villages.js, sw.js and login-bg.jpg are
@@ -78,7 +160,7 @@
       .startAt( 7, .update( 12, .set( 101, .remove( 114, .push( 222,
       .transaction( 6. No new call, no new listener, no change to any payload.
 
-    + Tests: 41 files, plus mutate184.py, mutate185.py, mutate186.py and
+    + Tests: 42 files, plus mutate184.py, mutate185.py, mutate186.py and
       mutate187.py, which break one guard at a time and FAIL unless the suite
       catches every one. v187onerule.js is new and was seen RED on V18.6 first.
       It is a RUNTIME test: it boots the real build in headless Chrome against a
@@ -4600,7 +4682,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V18.7-LIVE';
+const APP_VERSION = 'V18.8-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -17747,6 +17829,17 @@ function getAlerts() {
       alerts.push({type:'amber',msg:`<strong>${_eid} — ${_en}</strong> (${_eng}) — income <strong>more than doubled (+${p}%)</strong>. ₹${b.baseIncome.toLocaleString('en-IN')} → ₹${b.endIncome.toLocaleString('en-IN')}. Please verify data accuracy before reporting.`,id:b.id});
     }
 
+    // ── Rule 9 (V18.8): livelihood record with no baseline income ────────
+    // Since V18.8 a bulk import may create these deliberately, when the
+    // household survey has not been done yet. The import preview warns, but a
+    // preview is gone the moment it is closed - nothing was stamped on the
+    // record, so there was no way to find them again. Without this the whole
+    // safety argument ("fill them in before any endline") had no mechanism
+    // behind it. Amber, not red: it is a known gap, not an error.
+    if (liv && !(Number(b.baseIncome) > 0)) {
+      alerts.push({type:'amber',msg:`<strong>${_eid} — ${_en}</strong> (${_eng}) — <strong>no baseline income recorded</strong>. Impact cannot be measured for this person, and no endline income should be entered until the baseline is filled in.`,id:b.id});
+    }
+
     // ── Rule 7: endline overdue (ENROLLED stage >180 days, no endline) ──
     // V2 #9: Now only fires when status='Enrolled' to avoid double-firing with
     // Rule 3 (which handles the 'In Progress >270d' case). Previously both
@@ -17984,7 +18077,7 @@ function buildPopup(b) {
   let deltaHtml = '';
   if (b.endIncome != null) {
     const pos = d >= 0;
-    deltaHtml = `<div class="map-popup-delta ${pos?'pos':'neg'}">${pos?'▲':'▌'} Income ${pos?'grew':'dropped'} by ₹${Math.abs(d).toLocaleString('en-IN')} (${pos?'+':''}${p}%)</div>`;
+    deltaHtml = `<div class="map-popup-delta ${pos?'pos':'neg'}">${pos?'▲':'▌'} Income ${pos?'grew':'dropped'} by ₹${Math.abs(d).toLocaleString('en-IN')} (${pos?'+':''}${p == null ? 'no baseline' : (p + '%')})</div>`;
   } else {
     deltaHtml = `<div class="map-popup-delta pend">⏳ Endline pending</div>`;
   }
@@ -21467,7 +21560,7 @@ function _livBenTabFull(allB) {
     <td>${(b.interventions||[]).filter(i=>i!=='Advocacy (Govt. Schemes)').map(i=>intervChip(i)).join('')}</td>
     <td style="font-weight:500">${fmt(b.baseIncome)}</td>
     <td onclick="event.stopPropagation()" style="white-space:nowrap"><select data-bid="${escHtml(b.id)}" data-prev="${escHtml(b.status||'Enrolled')}" onchange="_inlineSetStage(this)" style="padding:4px 7px;border-radius:6px;font-size:12px;border:1px solid var(--gray3);font-family:var(--font);background:${STAGE_BG[b.status||'Enrolled']||'#F3F4F6'};color:${STAGE_TEXT[b.status||'Enrolled']||'#6B7280'};font-weight:600;cursor:pointer;transition:opacity .2s">${_livStageOpts(b.status||'Enrolled')}</select></td>
-    <td>${b.endIncome!=null?`<span style="font-weight:600;color:${delta(b)>=0?'var(--green)':'var(--red)'}">₹${Math.abs(delta(b)).toLocaleString('en-IN')} (${delta(b)>=0?'+':''}${pct(b)}%)</span>`:'<span style="color:var(--gray2);font-size:12px">Pending</span>'}</td>
+    <td>${b.endIncome!=null?`<span style="font-weight:600;color:${delta(b)>=0?'var(--green)':'var(--red)'}">₹${Math.abs(delta(b)).toLocaleString('en-IN')} (${delta(b)>=0?'+':''}${pct(b) == null ? 'no baseline' : (pct(b) + '%')})</span>`:'<span style="color:var(--gray2);font-size:12px">Pending</span>'}</td>
   </tr>`).join('');
 
   const _livPaginator = _livPages < 2 ? '' :
@@ -34125,7 +34218,7 @@ function coordCardHtml(b, advByBid) {
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
           Baseline: ${fmt(b.baseIncome)}
           ${b.endIncome != null
-            ? ` → Endline ${fmt(b.endIncome)} <span style="color:${(b.endIncome - b.baseIncome)>=0?'var(--green)':'var(--red)'};font-weight:600">(${(b.endIncome - b.baseIncome)>=0?'+':''}${pct(b)}%)</span>`
+            ? ` → Endline ${fmt(b.endIncome)} <span style="color:${(b.endIncome - b.baseIncome)>=0?'var(--green)':'var(--red)'};font-weight:600">(${(b.endIncome - b.baseIncome)>=0?'+':''}${pct(b) == null ? 'no baseline' : (pct(b) + '%')})</span>`
             : ''}
         </div>` : ''}
       </div>
@@ -34630,7 +34723,13 @@ async function downloadImportTemplateXlsx() {
     const instructions = [
       ['KRSF Beneficiary Import Template — Instructions (V5)'],
       [''],
-      ['Fill in the "Beneficiaries" sheet. Columns marked with * are required.'],
+      ['Fill in the "Beneficiaries" sheet. Columns marked with * are required, EXCEPT'],
+      ['baseIncome* and hhSize*, which may be left empty if the household survey'],
+      ['has not been done yet. Leaving them empty is better than guessing a figure.'],
+      [''],
+      ['Numbers must be plain: no rupee sign, no comma, no spaces. Write 30000,'],
+      ['not 30,000 and not Rs 30000. A comma used to be accepted and silently'],
+      ['turned 30,000 into 30 — it is now refused so that cannot happen.'],
       ['You can delete the two example rows before adding your own data.'],
       [''],
       ['COLUMN GUIDE'],
@@ -34642,14 +34741,14 @@ async function downloadImportTemplateXlsx() {
       ['taluka',         'Free text. Optional.'],
       ['village*',       'Free text.'],
       ['category',       'Dropdown — social category (ST / SC / OBC / General / Other).'],
-      ['hhSize*',        'Number of family members. Must be at least 1.'],
+      ['hhSize*',        'Number of family members. May be left empty if not known. Plain number only.'],
       ['land',           'Land holding in acres. Decimals OK. Capped at 50.'],
       ['livestock',      'Total count across all livestock types (cow + buffalo + goat). Capped at 500.'],
       ['sources*',       'Pipe-separated list of CURRENT sources of livelihood.'],
       ['',               'Copy exact labels from Reference Lists → Sources of Livelihood.'],
       ['',               'Example: Farming|Animal Husbandry'],
       ['',               'Custom sources (not in the list) are accepted as typed.'],
-      ['baseIncome*',    'Single annual household income figure in rupees. Sum of all sources.'],
+      ['baseIncome*',    'Annual household income in rupees, all sources. May be left empty if the survey is not done. Plain number only — no comma, no rupee sign.'],
       ['ngo*',           'Dropdown — NGO partner. Must already exist in Admin Panel.'],
       ['coord*',         'Field coordinator name. Free text. Required.'],
       ['interventions*', 'Pipe-separated list of livelihood interventions.'],
@@ -34863,6 +34962,34 @@ function _parseImportXlsx(buffer) {
 // ── Validation pipeline ──────────────────────────────────────────────────
 // Runs every parsed row through the same rules submitEnroll uses, plus a few
 // importer-specific checks. Returns a verdict per row without mutating.
+// V18.8: the strict number readers, at module scope because BOTH import
+// validators need them. They were local to _validateImportRows at first, and
+// the Endline Bulk Update - which REPLACES an existing income rather than
+// setting a new one - was still on bare parseFloat, so '1,20,000' passed as
+// Rs 1. Found by re-testing after the review, not by the review.
+//
+// ⛔ trim() does NOT strip U+200B. Pasting a figure out of a web table
+// leaves one behind, and the admin then reads an error naming a number that
+// looks perfectly valid, advising them to remove a comma that is not there.
+const _v188Clean = raw => String(raw == null ? '' : raw)
+  .replace(new RegExp('[\u200B-\u200D\u2060\uFEFF\u00A0]', 'g'), '').trim();
+const _v188Plain = /^-?\d+(\.\d+)?$/;
+// A cell we cannot read becomes NaN, never a half-read number. parseFloat is
+// the trap: parseFloat('30,000') is 30, so a household on 30,000 rupees was
+// imported as 30 with no error and no warning, while the harmless 'Rs 30000'
+// was refused because that reads as nothing at all.
+const _v188NumOf = text => text === '' ? 0
+  : (_v188Plain.test(text) ? parseFloat(text) : NaN);
+const _v188NumErr = (text, label) => {
+  if (text === '') return null;
+  if (!_v188Plain.test(text)) {
+    return label + ' "' + escHtml(text) + '" could not be read as a number - ' +
+           'remove any rupee sign, comma or space, and leave the cell empty if ' +
+           'the figure is not known';
+  }
+  return parseFloat(text) < 0 ? label + ' cannot be negative' : null;
+};
+
 function _validateImportRows() {
   if (!_importState.rawRows) return;
   const partners = loadPartners().map(p => p.name);
@@ -34990,8 +35117,25 @@ function _validateImportRows() {
     const coord = get('coord*') || get('coord');
     const interventionsRaw = get('interventions*') || get('interventions');
     const sourcesRaw = get('sources*') || get('sources');
-    const baseIncome = getNum('baseIncome*') || getNum('baseIncome');
-    const hhSize = getNum('hhSize*') || getNum('hhSize');
+    // V18.8: ⛔ THE VALIDATOR AND THE STORAGE MUST READ THE SAME CELL. The old
+    // pair was `getNum('x*') || getNum('x')`, and `||` treats BOTH 0 and NaN as
+    // falsy — so a sheet carrying `baseIncome*` alongside a legacy `baseIncome`
+    // column could be judged on one and stored from the other. An independent
+    // review demonstrated a row accepted on "0" that stored NaN from the second
+    // column, which the pre-V18.8 check could not do because it read the very
+    // variable that got stored. One picker now feeds both.
+    //
+    // ⛔ `trim()` does NOT strip U+200B. Pasting a figure out of a web table
+    // leaves one behind, and the admin then reads an error naming a number that
+    // looks perfectly valid, advising them to remove a comma that is not there.
+    const _v188Pick = col => {
+      const s = _v188Clean(row[col + '*']);
+      return s !== '' ? s : _v188Clean(row[col]);
+    };
+    const baseIncomeText = _v188Pick('baseIncome');
+    const hhSizeText = _v188Pick('hhSize');
+    const baseIncome = _v188NumOf(baseIncomeText);
+    const hhSize = _v188NumOf(hhSizeText);
 
     // Family-member tag from the pre-pass: did consecutive same-phone rows
     // identify this row as a wife / daughter / etc of an earlier row in the
@@ -35021,8 +35165,53 @@ function _validateImportRows() {
     if (!isFamilyMember) {
       if (!interventionsRaw) errors.push('Missing interventions');
       if (!sourcesRaw) errors.push('Missing current sources of livelihood');
-      if (isNaN(baseIncome) || baseIncome <= 0) errors.push('Annual household income must be a positive number');
-      if (isNaN(hhSize) || hhSize < 1) errors.push('Number of family members must be at least 1');
+      // V18.8: a blank or zero baseline no longer blocks a bulk import row.
+      // Guru is importing livelihood beneficiaries whose household survey has
+      // not been done yet, and the old rule left exactly one way through -
+      // invent a figure. An invented baseline is the worst of the three
+      // outcomes, because it is indistinguishable from a measured one and it
+      // distorts the impact figure for good.
+      //
+      // ⛔ BE ACCURATE ABOUT WHAT THIS IS. An earlier draft of this comment
+      // claimed the enrolment form had already stopped requiring these and that
+      // import had simply never been brought in line. That is WRONG and a
+      // review caught it: V319 and V17.1 made them optional for ADVOCACY-ONLY
+      // records, and V17.3 then went the other way and made all five livelihood
+      // fields mandatory, because livelihood enrolments were reaching the field
+      // with them blank. So this is not import catching up with the form - it
+      // is a DELIBERATE, NARROWER exception for bulk import only, made at the
+      // owner's explicit request ("Only for the bulk import?"). The form is
+      // unchanged and still refuses a livelihood record with no income, which
+      // means an imported row cannot be saved from the form until someone fills
+      // it in. That is the price, and it is documented rather than hidden.
+      //
+      // Blank stores as 0 for the income, matching what the form's own
+      // advocacy-only path stores, and as '' for the family size, matching what
+      // the form stores there - the two conventions genuinely differ, and a
+      // profile card reading "Family Members: 0" would be a stated falsehood.
+      const _incErr = _v188NumErr(baseIncomeText, 'Annual household income');
+      const _hhErr = _v188NumErr(hhSizeText, 'Number of family members');
+      if (_incErr) errors.push(_incErr);
+      if (_hhErr) errors.push(_hhErr);
+      // Neither absence is an error, but neither may be invisible either -
+      // these are the fields somebody has to come back and complete. Warn on
+      // BOTH: a blank family size causes the same edit lockout as a blank
+      // income, and warning about only one of them taught the wrong lesson.
+      if (!_incErr && !(baseIncome > 0)) {
+        warnings.push(baseIncomeText === ''
+          ? 'No baseline income recorded. Fill it in before any endline income is ' +
+            'entered for this person, or the impact figure will count their whole ' +
+            'endline as income created. Until it is filled in, this record cannot ' +
+            'be saved from the enrolment form.'
+          : 'Baseline income is recorded as 0. If that is a measured answer, leave ' +
+            'it; if the figure is simply not known yet, clear the cell instead. ' +
+            'Either way this record cannot be saved from the enrolment form until ' +
+            'a figure above 0 is entered.');
+      }
+      if (!_hhErr && hhSizeText === '') {
+        warnings.push('No family size recorded. This record cannot be saved from ' +
+                      'the enrolment form until one is entered.');
+      }
     }
 
     // Partner must exist — no on-the-fly creation per spec decision
@@ -35082,6 +35271,12 @@ function _validateImportRows() {
         // Parse amount if present. Empty / missing = 0. Non-numeric = error.
         let amount = 0;
         if (amountRaw !== undefined && amountRaw !== '') {
+          // V18.8: strict read. This feeds benefitAmt - the one benefit figure
+          // V18.7 spent a whole release making identical across 16 totals - so
+          // '6,000' arriving as Rs 6 would quietly reopen exactly that wound.
+          const _amtErr = _v188NumErr(_v188Clean(amountRaw),
+            'Scheme "' + escHtml(schemeName) + '" benefit amount');
+          if (_amtErr) { errors.push(_amtErr); return; }
           const n = parseFloat(amountRaw);
           if (isNaN(n) || n < 0) {
             errors.push(`Scheme "${schemeName}" has invalid benefit amount "${amountRaw}" (must be a non-negative number)`);
@@ -35186,12 +35381,36 @@ function _validateImportRows() {
     // endIncome: blank or a non-negative number
     let endIncome = null;
     if (endIncomeRaw !== undefined && endIncomeRaw !== '') {
-      const n = parseFloat(endIncomeRaw);
+      // V18.8: same strict read as the baseline. This column is the more
+      // damaging of the two - it feeds the income-created total directly, so
+      // '50,000' silently booking Rs 50 would understate a real lift AND leave
+      // a figure nobody can explain.
+      const _eErr = _v188NumErr(_v188Clean(endIncomeRaw), 'Endline income');
+      if (_eErr) errors.push(_eErr);
+      const n = _v188NumOf(_v188Clean(endIncomeRaw));
       if (isNaN(n) || n < 0) {
         errors.push(`Invalid endIncome "${endIncomeRaw}" (must be a non-negative number)`);
       } else {
         endIncome = n;
       }
+    }
+
+    // V18.8: ⛔ THE DEBT CAN BE BOOKED IN THE SAME UPLOAD. Allowing a blank
+    // baseline was argued for on the grounds that the distortion "comes due
+    // only when endlines are entered" - but this same importer accepts the
+    // endline columns, and confirmBulkImport writes
+    // `incomeLog[0].amount = endIncome - baseIncome`. So one spreadsheet with
+    // both an endline and a blank baseline would book the household's ENTIRE
+    // income as income the programme created, straight into the dashboard
+    // tile, Reports, the partner tables and /_summary/global. Worse, every
+    // detector that would have caught it is switched off by its own falsy
+    // guard on baseIncome: Rule 6 tests `pct(b) > 100`, pct returns null when
+    // there is no baseline, and `null > 100` is false. Refuse the pair.
+    if (!isFamilyMember && endIncome !== null && !(baseIncome > 0)) {
+      errors.push('This row has an endline income but no baseline income. The ' +
+        'impact figure would count the whole endline as income created. Either ' +
+        'fill in baseIncome, or clear the endline columns and add them later ' +
+        'once the baseline is known.');
     }
 
     // Stage-consistency rules (only check if no date-parse errors above):
@@ -35230,6 +35449,12 @@ function _validateImportRows() {
     }
 
     // V4.2: Land cap (kept) + single-field livestock cap (replaces 3 fields)
+    // V18.8: strict read here too. getNum uses parseFloat, so '1,5' quietly
+    // became 1 acre. Same class of silent truncation as the income columns.
+    const _landErr = _v188NumErr(_v188Pick('land'), 'Land holding');
+    if (_landErr) errors.push(_landErr);
+    const _stockErr = _v188NumErr(_v188Pick('livestock'), 'Number of livestock');
+    if (_stockErr) errors.push(_stockErr);
     const land = getNum('land');
     if (land > 50) warnings.push(`Land holding ${land} acres is unusually high`);
     const livestock = getNum('livestock');
@@ -35489,7 +35714,10 @@ async function confirmBulkImport() {
       // what the user typed in the spreadsheet (the validator emitted a
       // warning if they were filled). Storing zeros keeps the record shape
       // consistent with what the form-based "Add Family Member" flow saves.
-      hhSize: v.isFamilyMember ? 1 : p.hhSize,
+      // V18.8: the form stores '' for an unknown family size; storing 0 here
+      // made the profile card read "Family Members: 0", which is a stated
+      // falsehood rather than an absence. Match the form.
+      hhSize: v.isFamilyMember ? 1 : (p.hhSize === 0 || p.hhSize === '' || p.hhSize == null ? '' : p.hhSize),
       land: v.isFamilyMember ? 0 : p.land,
       livestock: v.isFamilyMember ? 0 : p.livestock,
       sources: v.isFamilyMember ? [] : p.sources,
@@ -36469,7 +36697,8 @@ function renderAdminImport() {
           <strong style="color:var(--gray1)">Rules the importer enforces:</strong><br>
           • <strong>NGO partners and coordinators must already exist</strong> in Admin Panel before import. Add missing ones first.<br>
           • <strong>Livelihood types and schemes</strong> must match the lists in Admin → Livelihood Management / Advocacy Management.<br>
-          • <strong>Columns with *</strong> are required. Missing a required value blocks that row.<br>
+          • <strong>Columns with *</strong> are required — except <strong>baseIncome*</strong> and <strong>hhSize*</strong>, which may be left empty when the household survey has not been done. Missing any other required value blocks that row.<br>
+          • <strong>Numbers must be plain.</strong> No rupee sign, no comma, no spaces — write 30000, not 30,000. A comma is refused rather than silently read as 30.<br>
           • <strong>Duplicate detection</strong> matches on <code>name + village + NGO</code>. You'll choose per batch whether to skip or import duplicates.<br>
           • <strong>No IDs, dates, or endline data</strong> — IDs are auto-generated; records start at Baseline (Enrolled) stage.<br>
           • <strong>No photos or GPS</strong> — those are field-captured via the mobile enrollment flow.<br>
@@ -37006,7 +37235,14 @@ function _validateEndlineRows() {
     if (newEndRaw === '' || newEndRaw == null) {
       return { rowNum: idx + 2, id, parsed: null, status: 'skip', reason: 'newEndIncome blank — row left as-is', beforeIncome: b.endIncome, afterIncome: null };
     }
-    const newEnd = parseFloat(newEndRaw);
+    // V18.8: strict read. This path REPLACES a beneficiary's endline income, so
+    // '1,20,000' arriving as Rs 1 would not merely understate a lift - it would
+    // overwrite a correct figure with a wrong one.
+    const _neErr = _v188NumErr(_v188Clean(newEndRaw), 'newEndIncome');
+    if (_neErr) {
+      return { rowNum: idx + 2, id, parsed: null, status: 'error', reason: _neErr, beforeIncome: b.endIncome, afterIncome: null };
+    }
+    const newEnd = _v188NumOf(_v188Clean(newEndRaw));
     if (isNaN(newEnd) || newEnd < 0) {
       return { rowNum: idx + 2, id, parsed: null, status: 'error', reason: `newEndIncome "${newEndRaw}" is not a valid non-negative number`, beforeIncome: b.endIncome, afterIncome: null };
     }
@@ -37026,6 +37262,19 @@ function _validateEndlineRows() {
     const hasLiv = (b.interventions||[]).some(i => i && i !== 'Advocacy (Govt. Schemes)');
     if (!hasLiv) {
       return { rowNum: idx + 2, id, parsed: null, status: 'error', reason: 'Beneficiary is advocacy-only — endline income does not apply', beforeIncome: null, afterIncome: null };
+    }
+
+    // V18.8: ⛔ NO BASELINE, NO ENDLINE. Since V18.8 a record can exist with
+    // baseIncome 0, and this screen writes `newEndIncome - (baseIncome || 0)`
+    // straight into the income log - so the whole endline would be booked as
+    // income created, into /_summary/global and every partner summary the
+    // donors and Team Leaders read. The template shows a zero baseline as an
+    // EMPTY cell, which reads like a formatting quirk, and the preview never
+    // mentions the baseline at all, so nothing would have told the admin.
+    if (!(Number(b.baseIncome) > 0)) {
+      return { rowNum: idx + 2, id, parsed: null, status: 'error',
+        reason: 'No baseline income on this record — the whole endline would count as income created. Enter the baseline on the beneficiary first.',
+        beforeIncome: b.endIncome, afterIncome: null };
     }
 
     return {
