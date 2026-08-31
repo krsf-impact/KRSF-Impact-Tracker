@@ -1,13 +1,430 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V18.8-LIVE
+  KRSF Beneficiary Impact Tracker  -  V19.5-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
   cost every user ~155 KB of gzipped download on every load for text no
   browser reads. The two most recent releases are kept below.
   ============================================================================
+  V19.5-LIVE (2026-08-31 - what four independent reviews found in V19.4):
+    + ONE FILE. index.html only. villages.js, sw.js and login-bg.jpg are
+      unchanged since V18.3 - do not re-upload them. THIS is the file that
+      goes live; it carries V18.9, V19, V19.1, V19.2, V19.3 and V19.4.
+
+    + ⛔ A REFUSED SESSION COULD STILL SAVE, AND THE SAVE WAS DESTRUCTIVE.
+      V19.2 taught a login with no scope to refuse the whole-database
+      download - and then set the flag that says "the cache is complete".
+      On an empty cache that flag let the next save write a ONE-record copy
+      over that partner's saved slice and publish a one-record summary to
+      the node donors read, with no way back short of the 30-day copy
+      expiry. V18.8 refuses that save; V19.4 did not. The flag now stays
+      false on every refusal, which is the truth about that session, and
+      the save is refused with "Still syncing" exactly as it is today.
+
+    + ⛔ ONE CLOCK-FAST TOMBSTONE PINNED THE WATERMARK FOR EVERY DEVICE.
+      The newest stamp was taken raw and sanity-checked afterwards, so a
+      single delete written by a phone running fast zeroed the whole
+      batch's watermark. It never advanced, and every device re-ran the
+      full sweep on every sync, forever - triggered by the very fault this
+      release exists to defend against. The watermark now advances on the
+      newest SANE stamp.
+
+    + ⛔ A LIVE RECORD WRITTEN BY A CLOCK-FAST PHONE VANISHED FROM EVERY
+      CACHE. Its own stamp sanitised to zero, so it lost the re-creation
+      guard against an old tombstone with the same id - while remaining
+      live in Firebase. A record with an unreadable stamp is now deferred,
+      the same courtesy the tombstone already got.
+
+    + ⛔ A DELETED PERSON CAME BACK, ON THE SERVER, FOR EVERYONE. The two
+      admin syncs lacked the save-in-flight guard both partner syncs have,
+      so sweeping a tombstoned record out of the cache while a save held an
+      older copy made the next comparison re-write that person to Firebase
+      permanently. Guard added. The move-a-coordinator-between-partners
+      tool also read the whole dataset BEFORE its confirmation dialog and
+      saved that stale copy afterwards; it now reads after, as the V18.9
+      tool already did.
+
+    + ⛔ THE SUMMARY AN ADMIN WRITES WAS Rs 5.65 CRORE BELOW THE SAME NODE
+      WRITTEN BY A PARTNER. The scheme name was dropped when the row was
+      rebuilt, and the valuation rule reads it to find the standard amount
+      for a benefit with no typed figure - so all 5,874 blank benefits were
+      worth zero. The donor's phone therefore showed Rs 57.41 crore or
+      Rs 63.06 crore depending on who had saved last.
+
+    + REPORTS STILL COUNTED ENDLINES THE OLD WAY - "across the 2
+      beneficiaries with completed surveys" three lines below its own
+      "Endline Completed 1", and an average over the wrong denominator.
+      All Beneficiaries kept its own income rule after the sweep. Both now
+      use the one rule, which is every surface.
+
+    + The two stored-summary writers disagreed on "pending" by one, so the
+      viewer's card did not add up. The Integrated income column printed a
+      green "Rs 0" for 1,149 of 1,151 people whose endline had simply not
+      been done - it says "-" again. The refusal counter counted four
+      problems per broken sign-in and went silent on the second sign-in of
+      a shared laptop. The partner-move retry declared failure when there
+      was nothing left to move, and put 0 in the audit trail. The audit
+      dropdown offered "Updated" for rows that read "Status Changed".
+      Clicking a partner row left the phone's own filter behind.
+
+    + Proven: 9 suites and 320 checks green on this file, every one of the
+      findings above first seen FAILING on V19.4. Nine deliberate
+      breakages, all nine caught.
+
+  V19.4 (2026-08-31 - the final assembly of tonight's four stages):
+    + ONE FILE. index.html only. villages.js, sw.js and login-bg.jpg are
+      unchanged since V18.3 - do not re-upload them. THIS is the file that
+      goes live; it carries V18.9, V19, V19.1, V19.2 and V19.3 beneath it.
+
+    + THE AUDIT FILTER DROPDOWN told a half-truth: it offered "Stage Changed"
+      and returned rows half of which now correctly read "Status Changed".
+      One stored action covers both kinds of row and a bare dropdown option
+      cannot split them, so it now says "Stage / Status Changed".
+
+    + RECENT UPDATES honoured the partner filter (V19) but ignored the state
+      and coordinator filters beside it. All three now apply, resolved from
+      the record itself; a deleted record's partner falls back to whoever
+      performed the action, and under a state or coordinator filter an
+      unresolvable record is hidden rather than guessed.
+
+    + ⛔ WHAT THE FRESH WHOLE-BUNDLE REVIEW FOUND, fixed before upload:
+      the new state filter on Recent Updates tested a .state field that only
+      8 of 137,298 records have (state lives inside district) - any state
+      filter emptied the card and it claimed "No recent activity", falsely;
+      the ADVOCACY dispatcher still streamed the whole 75 MB node to the same
+      broken sessions the beneficiary refusal had just closed, and the donor
+      'viewer' role paid it on every sign-in (now a quiet no-fetch - it reads
+      stored summaries only); the tombstone watermark advanced on a raw
+      device-clock stamp - one future-clocked delete would have re-frozen
+      deletes fleet-wide, the V19 bug rebuilt one level up (sanitised, and a
+      corrupt tombstone stamp defers rather than being compared); the mobile
+      viewer's stored summary still counted endlines the pre-V19.1 way ('With
+      Endline: 2' against the dashboard's 'From 1 endline', on real data);
+      the partner-move failure message prescribed a remedy that cannot work
+      (a re-run finds nothing to move - it now retries once and, failing
+      that, states the move-back-then-forward repair); the refusal counter
+      triple-counted per boot; and the 24th income surface (the portfolio
+      totals row) joined the one rule.
+
+    + DELIBERATELY LEFT FOR ANOTHER DAY: pruning the audit log (79 MB, the
+      largest node in the database, growing without bound). It touches stored
+      data and does not belong in a bundle - separate decision, separate
+      release, rehearsed in the practice copy first.
+
+  V19.3-LIVE (2026-08-31 - one money rule, and the partner table finally adds up):
+    + ONE FILE. index.html only. villages.js, sw.js and login-bg.jpg are
+      unchanged since V18.3 - do not re-upload them.
+
+    + ⛔ THE PARTNER TABLE SAT Rs 5.65 CRORE BELOW THE TILE ABOVE IT. When a
+      coordinator records a received benefit they usually do not type the
+      amount - 5,874 of 24,879 received benefits have none. The dashboard tile
+      values those at the scheme's standard amount (V18.0's one-rule promise);
+      the NGO Partners table on the SAME SCREEN counted them as zero: 63.06
+      crore against 57.41. The table now uses the same valuation. APPROVED BY
+      THE OWNER: every partner's Scheme Benefits and Total Impact figures
+      rise, and anything previously quoted from the table will not match.
+      i Khedut (1,423 blank benefits) and Suraksha/Jivan Vima Yojana (774)
+      have NO standard value configured and stay at zero until one is set
+      in Advocacy Management.
+
+    + ONE RULE FOR INCOME ADDED, DEFINED ONCE (_v193Delta). Review found 23
+      surfaces on 6 rules. The tile, the Livelihood screen, the Impact chart,
+      the partner table, the Integrated screen, the Team Report and both
+      stored-summary writers now all count: livelihood, lifecycle at Endline
+      Completed, signed delta. All of them agree on today's data, so NO
+      reported figure moves from this part - which is exactly why it shipped
+      now rather than after the next odd record arrives.
+
+    + Deliberately NOT unified: the coordinator badges (their own income-log
+      view), the data-quality alerts (whose whole job is looking at odd
+      records), and the per-row CSV export columns (raw record data, not a
+      total). Each is a different question, not a drifted copy.
+
+  V19.2-LIVE (2026-08-31 - partner logins stop paying 130x what coordinators pay):
+    + ONE FILE. index.html only. villages.js, sw.js and login-bg.jpg are
+      unchanged since V18.3 - do not re-upload them.
+
+    + THE NUMBERS THAT STARTED THIS. On 31 Aug the app moved 847 MB; partner
+      (NGO) logins were 687 MB of it - 81% - at ~26 MB per sign-in against a
+      coordinator's 0.2 MB. Seven accounts, on 2-3 shared laptops each. On 30
+      Aug, when the saved copies happened to survive, partner sessions cost
+      1.9 MB. The machinery was fine; three things kept defeating it.
+
+    + ⛔ THE WHOLE-DATABASE FALL-THROUGH IS CLOSED. A known role arriving at
+      the data fetch without its scope fell back to downloading the ENTIRE
+      beneficiaries node - 74.6 MB - in the name of 'better to over-fetch than
+      break the UI'. One partner session measured 93.4 MB against her 8 MB
+      slice. Only an admin's scope IS everything; anyone else now gets an
+      empty list, a console line, and a counted event instead of 75 MB.
+
+    + THE SAVED-COPY WRITE IS VERIFIED. It was fire-and-forget: close the tab
+      mid-save and that laptop re-downloads its whole slice every session,
+      forever, with nothing anywhere saying so. Now verified, retried once,
+      and counted when it still fails.
+
+    + THE BROWSER IS ASKED TO PROTECT THE COPY. In all these years the app
+      never once asked - so on a shared laptop the copy sat in best-effort
+      storage, first in line for eviction. One standard request per boot;
+      the answer is recorded per machine.
+
+    + THE BANDWIDTH SCREEN NOW ANSWERS THE QUESTION ITSELF. Three new columns
+      per account: Saved copy (used / full download), Problems (save failed +
+      fall-through refused), Machines (how many different browsers this
+      account signs in from - an anonymous per-browser tag, no personal
+      data). The morning after this ships, that screen says whether partner
+      sessions dropped to ~2 MB, with no guessing and no exports.
+
+  V19.1-LIVE (2026-08-31 - what three independent reviews found in V19):
+    + ONE FILE. index.html only. villages.js, sw.js and login-bg.jpg are
+      unchanged since V18.3 - do not re-upload them.
+
+    + ⛔ V19 FIXED THE WRONG AXIS AND I REPORTED IT AS DONE. Guru compared
+      the dashboard's "From 2 endlines" with the Livelihood screen's "Endline
+      Completed 1". V19 excluded advocacy-only people from the dashboard count
+      - and MEASURED ON THE EXPORT, ZERO advocacy-only records carry an endline
+      income, so nothing changed and both numbers stayed on screen. The two
+      screens differ on a different question: one asks whether a person HAS an
+      endline income, the other whether the person is AT the Endline Completed
+      stage. Two records have the income; one is at the stage. Both screens now
+      ask the stage question. The tile reads "From 1 endline" and the money is
+      unchanged at Rs 15,000, because the odd record's delta is zero.
+
+    + ⛔ "RECENT UPDATES IS STUCK" WAS NEVER FIXED, AND I SAID IT WAS. V19
+      claimed the sync change covered it. It could not: this card has no
+      listener and no watermark, it is a plain limitToLast fetch sorted by
+      timestamp. One handset ~45 hours fast wrote 26 audit entries and on the
+      28 Aug export ALL FIFTEEN rows were that phone. A first fix clamped the
+      stamp to now - and a mutant reverting it SURVIVED the suite, because a
+      stamp clamped to now still sorts above every real entry: same pinning.
+      Corrupt stamps are now DEMOTED below sane ones, so real activity holds
+      the top and the bad entries sink to the bottom instead of vanishing.
+
+    + ⛔ AND THE SAME MISTAKE FROM THE OTHER DIRECTION. V19's _v19SaneStamp
+      rejected every stamp above the LOCAL clock. On a device whose clock is
+      BEHIND, that discards the legitimately-newest records, collapses the
+      watermark and re-downloads the whole window on every sync - review
+      measured 6.6 MB per sync at a 72-hour skew against zero before. A
+      tolerance alone cannot fix this - a clock hours slow still collapses -
+      so the app now asks Firebase for the server-clock offset (free, over the
+      already-open socket) and judges every stamp against SERVER time. The
+      local clock plus tolerance remains only as the fallback until the
+      offset arrives.
+
+    + THE TOMBSTONE GUARD READ THE RECORD STAMP RAW, so the future-dated
+      records this work exists to defend against were the ones best protected
+      from deletion - a wrong clock beat its own tombstone and the watermark
+      then moved past it. It goes through the same sanity check now.
+
+    + THE AUDIT LOG COLOUR SPLIT WAS DEAD CODE. V19 added a second parameter to
+      _auditActionColor and did not update its one call site - one line above
+      the call it did update - so the same event was blue on the dashboard and
+      purple on the Audit Log tab.
+
+    + THE SECOND window.ngoFilter, left live after V19 fixed the first and its
+      own comment noted the trap had been walked into again. It was walked into
+      a third time.
+
+    + ⛔ AND THE TEST PROVED A FIX TO A PROBLEM THE DATA DOES NOT HAVE. The
+      fixture planted an advocacy-only endline - which does not exist in
+      production - and compared the tile against a re-statement of the tile's
+      own rule. It now plants the shape that IS there and compares against the
+      number the Livelihood screen actually displays. Seen RED on V19: "the
+      tile reads 'From 2 endlines' while the Livelihood screen counts 1".
+
+    + STILL OPEN, DELIBERATELY NOT FIXED HERE - the NGO Partners table, the
+      Impact chart, the Integrated screen and the stored summaries still count
+      income the old way, and the partner table values scheme benefits with the
+      stored amount rather than the shared rule (a Rs 5.65 crore gap against the
+      tile above it). Every one of them agrees on today's data. Written down
+      rather than half-fixed.
+
+  V19-LIVE (2026-08-31 - five things from a screen recording):
+    + ONE FILE. index.html only. villages.js, sw.js and login-bg.jpg are
+      unchanged since V18.3 - do not re-upload them.
+
+    + [1] TWO SCREENS, TWO DEFINITIONS OF AN ENDLINE. Reported: "It shows Rs
+      15,000 additional income with 2 endlines. But when I go to livelihood and
+      check, it shows only 1 endline." The dashboard counted EVERY record
+      carrying an endIncome - advocacy-only people and family members included,
+      who have no livelihood and never will. The Livelihood screen counts
+      livelihood beneficiaries. Additional income is a livelihood measure, so
+      livelihood is the rule. There is now ONE definition, _v19IsLivelihood,
+      used by getLivelihoodData(), by the dashboard's livB and by the tile, so
+      the two screens cannot drift apart again. Same lesson as V18.7.
+
+    + [2] ⛔ A DELETED RECORD CAME BACK, AND THE CAUSE IS WORSE THAN THE
+      SYMPTOM. Reported: "This is a demo entry, I deleted it 2 days back. But
+      somehow it came back." Every incremental sync asked Firebase for
+      tombstones NEWER THAN THE HIGHEST `_lastEditedAt` it had seen on any
+      cached record. That number is a DEVICE CLOCK - Date.now() on whichever
+      phone last wrote the record - and this system has already been bitten by
+      a wrong one: on 28 August a coordinator's handset wrote records and audit
+      entries stamped roughly 45 hours into the future.
+      One such record anywhere in the cache parks the watermark in the future,
+      and from that moment the device SKIPS EVERY TOMBSTONE - deletes stop
+      arriving and a deleted person sits in the pantry for good, returning on
+      every reload. The same watermark gates the additions query, so that
+      device also stops receiving new and edited records until real time
+      catches up. THAT IS THE "Recent Updates is stuck for 20 minutes" REPORT
+      FROM THE SAME WEEK: one bug, two complaints.
+      Tombstones now keep their own watermark, advanced only by tombstone
+      timestamps actually processed and held per user in localStorage; and the
+      additions watermark is clamped to real time so a wrong clock can no
+      longer freeze a device. The whole tombstone node is ~45 KB, so the
+      one-off first fetch is cheap and every fetch after it returns nothing.
+
+    + [3] THE PARTNER FILTER DID NOTHING TO RECENT UPDATES. Reported: "When I
+      filter it by NGO from the top, under recent updates all the recent
+      updates of all partners is shown." V326 stopped scoping an admin's events
+      by the local cache, for a good reason - a freshly enrolled record reaches
+      the audit log before the listener delivers it and would otherwise vanish
+      from the card. But "not scoped by the cache" was written as "show
+      everything", so the filter at the top of the screen was ignored. The
+      filter is now applied to the event's OWN partner. ⛔ NOT the `ngo` field
+      on the audit entry - that is the partner of the person who DID the
+      action, null for every admin action, which is why deleted rows showed a
+      dash.
+
+    + [4] A SCHEME NAME WHERE A PERSON'S NAME BELONGS. Reported: "Somewhere it
+      shows beneficiary name as Ayushman Card or Aadhar Card." Same root cause
+      as [3], one line above it: the name and partner lookups were built from
+      the FILTERED list while an admin's events are not filtered, so under a
+      partner filter almost every lookup missed. An advocacy status_change
+      stores the SCHEME in recordLabel and the beneficiary id in recordId; when
+      the lookup missed, the code fell back to recordLabel and printed the
+      scheme. The lookups are now built from the whole dataset.
+
+    + [5] "STATUS CHANGED" AND "STAGE CHANGED" ARE DIFFERENT THINGS AND ONE WAS
+      WRONG. Asked: "what is status changed and what is stage changed? What is
+      the difference?" STAGE is where a person is in the livelihood lifecycle -
+      Enrolled, Intervention In Progress, Endline Completed. STATUS is where
+      ONE government scheme has reached for that person - Need to Apply,
+      Applied, Benefits Received, Rejected. A person has one stage; they can
+      have many schemes, each with its own status. Both were written to the
+      audit log under the same action name and the label only read the action,
+      so a scheme reaching "Benefits Received" was announced as STAGE CHANGED.
+      The record type separates them. Different colour and a plain-language
+      tooltip on each.
+
+    + ⛔ WHAT INDEPENDENT REVIEW CHANGED, AND IT WAS A LOT. Two reviewers took
+      the first version of this release apart. None of the following shipped.
+
+      - THE WATERMARK CLAMP WAS BACKWARDS. To stop a wrong device clock
+        freezing a device, the first version clamped the finished watermark to
+        Date.now(). The query is startAt(watermark + 1) on _lastEditedAt, so
+        that asks Firebase for records edited AFTER this instant - excluding
+        every ordinary edit and returning only the future-stamped ones. It also
+        poisoned the persisted V18.4 watermark, which only ever moves up,
+        hiding those records from that device for good. It now skips a future
+        stamp while BUILDING the watermark, keeping the true last-seen point.
+
+      - A FROM-ZERO TOMBSTONE SWEEP WOULD HAVE DELETED 389 LIVE PEOPLE.
+        Tombstones are never pruned and ids ARE reused. Measured on the 28 Aug
+        export: 389 of the 1,161 beneficiary tombstones and 1 of the 44
+        advocacy tombstones share a key with a record that is live right now.
+        A tombstone may now only remove a record that has NOT been written
+        again since the delete.
+
+      - THE TOMBSTONE WATERMARK ADVANCED BEFORE THE PANTRY WRITE, and the two
+        admin syncs discarded that write's result entirely. If it failed, the
+        next cold boot rehydrated the deleted record with the watermark already
+        past its tombstone - the reported bug, permanently. All four now
+        advance only after the write lands, the same discipline the V18.4
+        watermark has always had.
+
+      - THE RECENT UPDATES FIX WALKED ALL 137,298 RECORDS INTO TWO DICTIONARIES
+        on every render - 67 ms and 24 MB of garbage per filtered admin render,
+        and the filter signature includes the partner filter, so every filter
+        change paid it. At most 5,000 events are examined and 15 shown, and
+        RecordCache is already a Map: it now looks up only the ids it needs.
+
+      - UNDER A PARTNER FILTER, EVERY DELETION VANISHED, because a deleted
+        record resolves to no partner. A deletion is the single most important
+        thing an activity card exists to show. It now falls back to the partner
+        of whoever performed the action.
+
+      - CLICKING A PARTNER ROW NEVER FILTERED ANYTHING. _filterByNgoFromRow set
+        window.ngoFilter, but ngoFilter is a top-level `let` and is NOT a
+        property of window, so every reader kept seeing the untouched binding.
+        Pre-existing; fixed here because it is what makes [3] reachable.
+
+      - THE AUDIT LOG TAB STILL SAID STAGE CHANGED. The dashboard was fixed and
+        _auditActionLabel was missed, so the admin tab, its filter dropdown and
+        the CSV export disagreed with the screen above them.
+
+    + TEST: _tests/v19bugs.js, 26 checks, seen RED on V18.9 with ten failures
+      including the report itself - "the tile reads 'From 2 endlines' while the
+      Livelihood screen counts 1". ⛔ Two of its checks first went green on the
+      broken build because they re-implemented the rule instead of reading what
+      the app renders; they now read the tile text and find the row by its
+      summary. A test that restates the code cannot fail with it.
+      _tests/mutate19.py breaks seven guards one at a time - including both
+      bugs review found in this release - and all seven are caught.
+
+  V18.9-LIVE (2026-08-28 - a coordinator's records can follow them to a new partner):
+    + ONE FILE. index.html only. villages.js, sw.js and login-bg.jpg are
+      unchanged since V18.3 - do not re-upload them.
+
+    + REPORTED: "When Hiteshkumar Maganbhai Solanki logs in, he sees 144
+      entries. But through admin dashboard and NGO dashboard, we see only 12."
+
+    + NOTHING WAS WRONG. He was a KRSF.Vijaynagar coordinator until 31 July -
+      the audit log has his account created there on 19 May and 69 sign-ins
+      stamped Vijaynagar - and enrolled 132 people between 3 June and 1 July.
+      His account is now KRSF.Bhiloda, where he enrolled 12 more on 27 August.
+      A record's partner is fixed at enrolment and a coordinator cannot choose
+      it, so his own screen shows all 144 while the partner dashboards split
+      them. Guru then asked for the 132 to follow him.
+
+    + ⛔ NEITHER EXISTING TOOL COULD DO IT, BY DESIGN. Transfer moves records
+      between coordinators and refuses to cross partners ("Transfers must stay
+      within one NGO"). Bulk Assign does set ngo, but lists only records already
+      inside the partner you picked and only that partner's coordinators as the
+      destination, so the two can never meet. That guard is correct - moving
+      work between partners rewrites both partners' history.
+
+    + NEW: Admin - Move Records Between Partners. Pick a coordinator, the
+      partner to move out of, the partner to move into. It shows what will move
+      before anything is written, including how many benefits change hands and
+      an explicit warning that both partners' past figures change.
+
+    + ⛔ THE ADVOCACY RECORD CARRIES ITS OWN COPY OF THE PARTNER - 137,381 of
+      137,382 have one. Move the beneficiary alone and the person lands in the
+      new partner while their benefits stay counted under the old one, and an
+      NGO login (which queries advocacy by ngo) sees the people but none of
+      their schemes. V5.2 closed exactly this hole in the partner-RENAME path;
+      this tool is written from that precedent. Both move together or neither
+      does, and if the second write fails the message says so and names the
+      remedy rather than leaving a silent split.
+
+    + ⛔ HOUSEHOLDS CANNOT BE SPLIT. A family member is tied to a head by
+      headId. The tool checks BOTH directions across the whole dataset - a head
+      whose family is not in the group, and a family member outside the group
+      whose head is inside it - and refuses to run, naming the people. The check
+      re-runs at the moment of applying, not when the screen was drawn.
+
+    + createdBy and coord are deliberately NOT touched. The coordinator is not
+      changing; the partner is. Nothing is deleted and nothing is created.
+
+    + ⛔ THE FIRST MUTATION RUN CAUGHT ONLY 2 OF 6, AND THE FAULT WAS THE
+      TEST. Running v189pmove.js against V18.8 goes red, but only because the
+      tool does not exist there - which says nothing about the guards inside
+      it. Breaking them one at a time showed three mutants TIMING OUT rather
+      than failing, because a build with the split guard removed walked on to
+      the confirmation dialog and waited forever; a broken build must fail,
+      not hang. A fourth survived outright: the household check has TWO
+      directions and the fixture only exercised one. With a second planted
+      household and the dialog answered, all 7 mutants are now caught.
+
+    + PROVEN ON THE REAL RECORDS in the practice copy before release: 132
+      beneficiaries and 132 scheme records moved, 30 household heads and 102
+      family members, 64 benefits changed partner, 0 households split, 0 records
+      left behind, beneficiary and advocacy totals unchanged at 137,298 and
+      137,382, and 132 per-record audit entries each carrying the old and new
+      partner plus one bulk entry.
+
   V18.8-LIVE (2026-08-28 - bulk import stops demanding a baseline it cannot have):
     + ONE FILE. index.html only. villages.js, sw.js and login-bg.jpg are
       unchanged since V18.3 - do not re-upload them.
@@ -160,9 +577,10 @@
       .startAt( 7, .update( 12, .set( 101, .remove( 114, .push( 222,
       .transaction( 6. No new call, no new listener, no change to any payload.
 
-    + Tests: 42 files, plus mutate184.py, mutate185.py, mutate186.py and
-      mutate187.py, which break one guard at a time and FAIL unless the suite
-      catches every one. v187onerule.js is new and was seen RED on V18.6 first.
+    + Tests: 47 files, plus mutate184.py, mutate185.py, mutate186.py,
+      mutate187.py, mutate189.py and mutate19.py, which break one guard at a
+      time and
+      FAIL unless the suite catches every one. v187onerule.js is new and was seen RED on V18.6 first.
       It is a RUNTIME test: it boots the real build in headless Chrome against a
       fake Firebase and calls the REAL aggregation functions on the REAL export,
       including the four the first version never called at all.
@@ -3619,6 +4037,15 @@ body[data-shell="coord"] #_v352-install-btn {
          'Income Cirtificate' -> 'Income Certificate'.
          V339: hidden from sidebar via data-sidebar-hidden (use
          window.nav('admin_scheme_rename') in the console to reach it). -->
+    <!-- V18.9: Move a coordinator's records to another partner. VISIBLE, unlike
+         the one-shot backfills above it, because a coordinator changing partner
+         is a recurring event, not a one-time correction - and asking a
+         non-technical administrator to type nav('...') into a browser console
+         is a worse risk than a button guarded by a preview and a confirmation. -->
+    <button data-admin-only class="nav-btn" data-v="admin_partner_move" onclick="nav('admin_partner_move')">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 5h8M7 2l3 3-3 3"/><path d="M14 11H6M9 8l-3 3 3 3"/></svg>
+      Move Records Between Partners
+    </button>
     <button data-admin-only data-sidebar-hidden="true" class="nav-btn" data-v="admin_scheme_rename" onclick="nav('admin_scheme_rename')" style="display:none">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 8h9M8 5l3 3-3 3"/><path d="M13 3v10"/></svg>
       Scheme Rename Backfill
@@ -4682,7 +5109,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V18.8-LIVE';
+const APP_VERSION = 'V19.5-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -5049,6 +5476,55 @@ async function _pantryMerge(userId, records) {
   for (const r of records) if (r && r.id) byId.set(r.id, r);
   await _pantryWrite(userId, Array.from(byId.values()));
 }
+// ═══════════════════════════════════════════════════════════════════════════
+// V19.2 — WHY PARTNER LOGINS COST 26 MB WHILE COORDINATOR LOGINS COST 0.2 MB
+//
+// The saved-copy machinery below is shared by every role, and on a day when
+// the copies survived (30 Aug) partner sessions cost 1.9 MB. On every other
+// day they cost ~26 MB - 81% of ALL Firebase traffic, from seven accounts on
+// two or three shared laptops each. Three causes, all fixed here:
+//   1. a known role arriving without its scope fell through to downloading
+//      the ENTIRE database (see _benefScopedQuery);
+//   2. the save of the copy was fire-and-forget - a tab closed mid-save
+//      meant full price next session, silently, forever;
+//   3. nothing ever asked the browser to PROTECT the copy, so on a shared
+//      laptop it was first in line for eviction.
+// And because the proof must not depend on anyone's memory, four counters
+// ride the existing bandwidth meter: the morning after this ships, the
+// Bandwidth screen says whether it worked.
+// ═══════════════════════════════════════════════════════════════════════════
+window._v192Counters = { pantryHit: 0, pantryMiss: 0, saveFailed: 0, fellThrough: 0 };
+
+async function _v192VerifiedPantryWrite(kind, userId, writeFn) {
+  let ok = false;
+  try { ok = (await writeFn()) !== false; } catch (_) { ok = false; }
+  if (!ok) {
+    // One retry. The common failure is transient (a busy disk, a slow
+    // commit); a second copy attempt is cheap against a 20 MB re-download.
+    try { ok = (await writeFn()) !== false; } catch (_) { ok = false; }
+  }
+  if (!ok) {
+    window._v192Counters.saveFailed += 1;
+    console.warn('[V19.2] the ' + kind + ' copy could NOT be saved on this machine - '
+      + 'the next sign-in here will re-download in full.');
+  }
+  return ok;
+}
+
+// V19.2: ask the browser to PROTECT this origin's storage. Without this the
+// saved copy is 'best effort' and a shared laptop under disk pressure evicts
+// it silently - which reads exactly like 'the partner re-downloads every
+// session'. One call, remembered; the answer lands in the bandwidth meter.
+let _v192Persisted = null;
+async function _v192RequestPersistence() {
+  try {
+    if (!navigator.storage || !navigator.storage.persist) { _v192Persisted = 'unsupported'; return; }
+    const already = await navigator.storage.persisted();
+    _v192Persisted = already ? 'yes' : ((await navigator.storage.persist()) ? 'yes' : 'no');
+    console.log('[V19.2] storage protection: ' + _v192Persisted);
+  } catch (_) { _v192Persisted = 'error'; }
+}
+
 async function _pantryRead(userId) {
   if (!userId) return null;
   const o = await _idbGet(_pantryKey(userId));
@@ -5289,16 +5765,125 @@ function _v185ReseatLastMap(which) {
   } catch (e) { console.warn('[V18.5] could not reseat the ' + which + ' last-map:', e); }
 }
 
-// V347: query tombstones for a collection since the high water timestamp.
-// Returns an array of ids that were tombstoned. Caller removes from cache.
+// V19 [2]: ⛔ A DELETED RECORD CAME BACK, AND THIS IS WHY.
+//
+// Every sync asked for tombstones NEWER THAN THE HIGHEST `_lastEditedAt` it
+// had ever seen on a record. That number is a DEVICE CLOCK - `Date.now()` on
+// whichever phone last wrote the record - and this system has already been
+// bitten by a wrong one: on 28 August a coordinator's handset wrote records
+// and audit entries stamped roughly 45 hours into the future.
+//
+// One such record anywhere in the cache pushes the watermark into the future,
+// and from that moment:
+//   - every tombstone written before that future time is SKIPPED, so deletes
+//     stop arriving and a deleted record sits in the pantry for good, coming
+//     back on every reload;
+//   - the additions query, which uses the same watermark, returns nothing
+//     either, so the device silently stops receiving new and edited records
+//     until real time catches up. That is the 'Recent Updates is stuck'
+//     report from the same week.
+//
+// Two separate things were being measured with one number. Tombstones now
+// carry their own watermark, advanced only by tombstone timestamps actually
+// seen, kept per user in localStorage. The whole tombstone node is about 45
+// KB (1,161 beneficiary + 44 advocacy), so the one-off first fetch on a fresh
+// device is cheap and every fetch after it returns nothing.
+function _v19TombKey(coll) {
+  const u = (typeof currentUser === 'function') ? currentUser() : null;
+  return 'krsf_tomb_hw_v19_' + coll + '_' + ((u && (u.userId || u.id)) || 'anon');
+}
+function _v19TombWatermark(coll) {
+  try { return parseInt(localStorage.getItem(_v19TombKey(coll)), 10) || 0; }
+  catch (_) { return 0; }
+}
+function _v19SetTombWatermark(coll, ts) {
+  // V19.4: ⛔ a tombstone's ts is a DEVICE CLOCK too. Advancing this
+  // rise-only watermark on a raw future stamp would skip every tombstone
+  // written in the skew window, fleet-wide, permanently - the V19 [2] bug
+  // rebuilt one level up. A stamp the sanity check rejects holds the
+  // watermark; re-fetching an unadvanced ~45 KB node is cheap and the
+  // re-creation guard makes re-applying tombstones harmless.
+  ts = _v19SaneStamp(ts);
+  if (!(ts > 0)) return;
+  try {
+    if (ts > _v19TombWatermark(coll)) localStorage.setItem(_v19TombKey(coll), String(ts));
+  } catch (_) {}
+}
+
+// V19 [2]: ⛔ A FIRST ATTEMPT CLAMPED THE FINISHED WATERMARK TO NOW.
+// That was backwards and review caught it. The query is
+// startAt(highWater + 1) on _lastEditedAt, so clamping to Date.now() asks
+// for records edited AFTER this instant - which excludes every legitimate
+// edit and returns only the future-stamped ones. It also poisoned the
+// persisted V18.4 watermark, which only ever moves up, hiding those records
+// from that device for good.
+//
+// The right place to act is while BUILDING the watermark: ignore a stamp
+// that is in the future, and keep the true last-seen point among the sanely
+// stamped records. Nothing else changes.
+// V19.1: ⛔ AND THE SAME MISTAKE FROM THE OTHER DIRECTION. Rejecting every
+// stamp above the LOCAL clock breaks a device whose own clock is behind: the
+// legitimately-newest records are exactly the ones discarded, the watermark
+// collapses to "newest record older than my own skew", and that device then
+// re-downloads the whole window on every sync, for ever. Review measured
+// 6.6 MB per sync at a 72-hour skew against zero before. Clocks drift both
+// ways; this release was written because one drifted forwards.
+//
+// So allow a tolerance rather than a hard ceiling - the same five minutes
+// V18.4 already uses for out-of-order writes. A phone 45 hours out is still
+// ignored; a laptop a few minutes out is not punished.
+const _V191_CLOCK_TOLERANCE_MS = (typeof _V184_CLOCK_MARGIN_MS === 'number')
+  ? _V184_CLOCK_MARGIN_MS : 5 * 60 * 1000;
+// V19.1: ⛔ A LOCAL CEILING CANNOT TELL "THEIR CLOCK IS FAST" FROM "MY
+// CLOCK IS SLOW". Judged against the local clock, a device running behind
+// sees every legitimately-new record as "future", rejects them all, and its
+// sync collapses - review measured megabytes per sync, forever. Firebase
+// tells every client how far its clock is from the server's, over the socket
+// that is already open, at no billed cost. Judge stamps against SERVER time.
+// Until the offset arrives (or in a harness with no server) the local clock
+// plus tolerance is the fallback - the V19.1 behaviour, no worse.
+let _v19ServerOffsetMs = null;
+function _v19AttachServerClock() {
+  try {
+    if (!FB || !FB.db) return;
+    FB.db.ref('.info/serverTimeOffset').on('value', function (s) {
+      const v = s && s.val();
+      if (typeof v === 'number' && isFinite(v)) _v19ServerOffsetMs = v;
+    });
+  } catch (_) {}
+}
+function _v19ServerNow() {
+  return Date.now() + (typeof _v19ServerOffsetMs === 'number' ? _v19ServerOffsetMs : 0);
+}
+function _v19SaneStamp(t) {
+  if (typeof t !== 'number' || !(t > 0)) return 0;
+  return (t <= _v19ServerNow() + _V191_CLOCK_TOLERANCE_MS) ? t : 0;
+}
+
+// Returns the tombstoned ids AND the newest tombstone timestamp seen, so the
+// caller can advance the watermark by what it actually processed.
 async function _v347FetchTombstones(coll, sinceTs) {
   try {
     const snap = await fbRef('tombstones/' + coll).orderByChild('ts').startAt(sinceTs + 1).once('value');
     const val = snap.val() || {};
-    return Object.keys(val);
+    // V19.5: ⛔ take the newest SANE stamp, not the newest stamp. Taking
+    // the raw maximum and sanitising it afterwards meant ONE tombstone from
+    // a clock-fast handset zeroed the whole batch's watermark - so it never
+    // advanced, and every device re-ran the full sweep on every sync,
+    // forever. The trigger is the very fault this release defends against.
+    let newest = 0;
+    for (const k in val) {
+      const t = _v19SaneStamp(val[k] && val[k].ts);
+      if (t > newest) newest = t;
+    }
+    const tsById = Object.create(null);
+    for (const k in val) tsById[k] = (val[k] && val[k].ts) || 0;
+    return { ids: Object.keys(val), newestTs: newest, tsById: tsById };
   } catch (e) {
     console.warn('[V347] tombstone fetch failed for', coll, ':', e);
-    return [];
+    // A failed fetch must look like 'nothing to do', never like 'everything
+    // is already handled' - newestTs 0 leaves the watermark where it was.
+    return { ids: [], newestTs: 0, tsById: Object.create(null) };
   }
 }
 
@@ -5324,7 +5909,9 @@ async function _ngoIncrementalSync() {
   try {
     let highWater = 0;
     for (const r of RecordCache.benef.values()) {
-      const t = (r && typeof r._lastEditedAt === 'number') ? r._lastEditedAt : 0;
+      // V19 [2]: a stamp in the future is a wrong device clock, not a newer
+      // record. Skipping it here keeps the real last-seen point intact.
+      const t = _v19SaneStamp(r && r._lastEditedAt);
       if (t > highWater) highWater = t;
     }
     // V18.4: start from what this device has actually SEEN fleet-wide, not from
@@ -5335,7 +5922,6 @@ async function _ngoIncrementalSync() {
     // permanently, and the partner would keep a deleted beneficiary in their
     // list and in every total for up to 30 days. Re-applying a tombstone is
     // idempotent and the node is tiny, so the cheap direction is the safe one.
-    const _ownHwB = highWater;
     const _seenB = await _v184GetSeen('benef', u.userId);
     if (_seenB > highWater) highWater = _seenB;
     if (highWater === 0) return { ok: false, reason: 'no-watermark' };
@@ -5372,21 +5958,49 @@ async function _ngoIncrementalSync() {
       FB.lastBenef[r.id] = fbHash(r);
       added++;
     }
-    // V347: remove tombstoned records. V18.4: on the OWN high-water, not the
-    // fleet watermark - see _ownHwB above.
-    const tombs = await _v347FetchTombstones('beneficiaries', _ownHwB);
+    // V347: remove tombstoned records.
+    // V19 [2]: tombstones keep their OWN watermark, because the record
+    // watermark is a device clock and one wrong phone froze deletes entirely.
+    const tombs = await _v347FetchTombstones('beneficiaries', _v19TombWatermark('beneficiaries'));
     let removed = 0;
-    for (const id of tombs) {
-      if (RecordCache.benef.has(id)) {
-        RecordCache.benef.delete(id);
-        if (FB.lastBenef) delete FB.lastBenef[id];
-        removed++;
-      }
+    // V19 [2]: ⛔ A TOMBSTONE MAY NOT REMOVE A RECORD THAT WAS RE-CREATED
+    // AFTER IT. Tombstones are never pruned, and ids ARE reused - measured on
+    // the 28 Aug export, 389 of the 1,161 beneficiary tombstones and 1 of the
+    // 44 advocacy tombstones share a key with a record that is live right now.
+    // Sweeping from an early watermark without this check would delete 389
+    // real people from every partner and admin cache, and from the pantry.
+    // Found by review before release, not in the field.
+    for (const id of tombs.ids) {
+      const _rec = RecordCache.benef.get(id);
+      if (!_rec) continue;
+      const _tts = tombs.tsById[id] || 0;
+      // V19.1: ⛔ THROUGH THE SAME SANITY CHECK. Reading this stamp raw meant
+      // the future-dated records this release was written to defend against were
+      // the ones BEST protected from being deleted - a wrong clock beat its own
+      // tombstone, and the watermark then moved past it, making the miss
+      // permanent. A stamp we cannot trust counts as no stamp.
+      // V19.4: a tombstone whose own stamp fails the sanity check cannot be
+      // compared with anything - defer it (the sanitised watermark holds, so
+      // it returns next sync) rather than letting a wrong clock win.
+      if (_tts > 0 && _v19SaneStamp(_tts) === 0) continue;
+      // V19.5: ⛔ and the same courtesy for the RECORD. Sanitising its stamp
+      // to 0 made a live record written by a clock-fast phone lose the
+      // re-creation guard and vanish from every cache. Defer it too - the
+      // record is live in Firebase and the tombstone is not going anywhere.
+      if (_rec._lastEditedAt != null && _v19SaneStamp(_rec._lastEditedAt) === 0) continue;
+      const _rts = _v19SaneStamp(_rec._lastEditedAt);
+      if (_rts > _tts) continue;   // written again after the delete - the record wins
+      RecordCache.benef.delete(id);
+      if (FB.lastBenef) delete FB.lastBenef[id];
+      removed++;
     }
     let _pantryOkB = true;
     if (added > 0 || removed > 0 || reassignedOut > 0) {
-      try { _pantryOkB = (await _pantryWrite(u.userId, Array.from(RecordCache.benef.values()))) !== false; }
-      catch(_) { _pantryOkB = false; }
+      // V19.5: verified + retried, like the cold path. This is the write a
+      // partner's laptop performs EVERY DAY; leaving it single-shot meant a
+      // failure here was invisible and re-charged on the next sign-in.
+      _pantryOkB = await _v192VerifiedPantryWrite('benef', u.userId,
+        function () { return _pantryWrite(u.userId, Array.from(RecordCache.benef.values())); });
       FB.fcCount = RecordCache.benef.size;
       try { renderCurrentView(); } catch(_){}
     }
@@ -5395,6 +6009,13 @@ async function _ngoIncrementalSync() {
     // hide them from every future window.
     if (_pantryOkB) {
       await _v184SetSeen('benef', u.userId, _newSeenB);
+      // V19 [2]: ⛔ AND THE TOMBSTONE WATERMARK MOVES WITH IT, for exactly
+      // the same reason. If the pantry write did not land, the next cold boot
+      // rehydrates the deleted record while the watermark has already passed
+      // its tombstone - and the delete never arrives again. Permanently.
+      // The first version of this advanced before the write and ignored
+      // whether it succeeded; review caught it.
+      _v19SetTombWatermark('beneficiaries', tombs.newestTs);
     } else {
       console.warn('[V18.4] pantry write failed — not advancing the watermark');
     }
@@ -5419,6 +6040,10 @@ async function _ngoIncrementalSync() {
 // already computes internally fixes both: the caller no longer has to guess.
 async function _adminIncrementalSync() {
   if (_adminIncrementalSync_inFlight) return { ok: false, reason: 'in-flight' };
+  // V19.5: ⛔ the guard both NGO syncs already had. Sweeping a tombstoned
+  // record out of the cache and the last-map WHILE a save holds an older
+  // array made the next diff re-write the deleted person back to Firebase.
+  if (FB.pendingWrites > 0) return { ok: false, reason: 'save-in-flight' };
   const u = (typeof currentUser === 'function') ? currentUser() : null;
   if (!u || u.role !== 'admin') return { ok: false, reason: 'not-admin' };
   if (!FB.db) return { ok: false, reason: 'no-db' };
@@ -5427,7 +6052,9 @@ async function _adminIncrementalSync() {
   try {
     let highWater = 0;
     for (const r of RecordCache.benef.values()) {
-      const t = (r && typeof r._lastEditedAt === 'number') ? r._lastEditedAt : 0;
+      // V19 [2]: a stamp in the future is a wrong device clock, not a newer
+      // record. Skipping it here keeps the real last-seen point intact.
+      const t = _v19SaneStamp(r && r._lastEditedAt);
       if (t > highWater) highWater = t;
     }
     if (highWater === 0) return { ok: false, reason: 'no-watermark' };
@@ -5442,17 +6069,49 @@ async function _adminIncrementalSync() {
       FB.lastBenef[r.id] = fbHash(r);
       added++;
     }
-    const tombs = await _v347FetchTombstones('beneficiaries', highWater);
+    // V19 [2]: tombstones keep their OWN watermark, because the record
+    // watermark is a device clock and one wrong phone froze deletes entirely.
+    const tombs = await _v347FetchTombstones('beneficiaries', _v19TombWatermark('beneficiaries'));
     let removed = 0;
-    for (const id of tombs) {
-      if (RecordCache.benef.has(id)) {
-        RecordCache.benef.delete(id);
-        if (FB.lastBenef) delete FB.lastBenef[id];
-        removed++;
-      }
+    // V19 [2]: ⛔ A TOMBSTONE MAY NOT REMOVE A RECORD THAT WAS RE-CREATED
+    // AFTER IT. Tombstones are never pruned, and ids ARE reused - measured on
+    // the 28 Aug export, 389 of the 1,161 beneficiary tombstones and 1 of the
+    // 44 advocacy tombstones share a key with a record that is live right now.
+    // Sweeping from an early watermark without this check would delete 389
+    // real people from every partner and admin cache, and from the pantry.
+    // Found by review before release, not in the field.
+    for (const id of tombs.ids) {
+      const _rec = RecordCache.benef.get(id);
+      if (!_rec) continue;
+      const _tts = tombs.tsById[id] || 0;
+      // V19.1: ⛔ THROUGH THE SAME SANITY CHECK. Reading this stamp raw meant
+      // the future-dated records this release was written to defend against were
+      // the ones BEST protected from being deleted - a wrong clock beat its own
+      // tombstone, and the watermark then moved past it, making the miss
+      // permanent. A stamp we cannot trust counts as no stamp.
+      // V19.4: a tombstone whose own stamp fails the sanity check cannot be
+      // compared with anything - defer it (the sanitised watermark holds, so
+      // it returns next sync) rather than letting a wrong clock win.
+      if (_tts > 0 && _v19SaneStamp(_tts) === 0) continue;
+      // V19.5: ⛔ and the same courtesy for the RECORD. Sanitising its stamp
+      // to 0 made a live record written by a clock-fast phone lose the
+      // re-creation guard and vanish from every cache. Defer it too - the
+      // record is live in Firebase and the tombstone is not going anywhere.
+      if (_rec._lastEditedAt != null && _v19SaneStamp(_rec._lastEditedAt) === 0) continue;
+      const _rts = _v19SaneStamp(_rec._lastEditedAt);
+      if (_rts > _tts) continue;   // written again after the delete - the record wins
+      RecordCache.benef.delete(id);
+      if (FB.lastBenef) delete FB.lastBenef[id];
+      removed++;
     }
+    // V19 [2]: capture whether the pantry write landed. The two NGO syncs have
+    // always done this; the admin ones discarded the result and swallowed the
+    // error, which was tolerable only while nothing depended on it.
+    let _pantryOkAdminB = true;
     if (added > 0 || removed > 0) {
-      try { await _pantryWrite(u.userId, Array.from(RecordCache.benef.values())); } catch(_){}
+      // V19.5: verified + retried - see the partner sync above.
+      _pantryOkAdminB = await _v192VerifiedPantryWrite('benef', u.userId,
+        function () { return _pantryWrite(u.userId, Array.from(RecordCache.benef.values())); });
       // V375 [Task #41 fix]: bump version + invalidate aggregation cache so
       // dashboard totals reflect the incremental sync immediately, not just
       // after the next tab change or manual refresh. Previously: admin's
@@ -5466,7 +6125,11 @@ async function _adminIncrementalSync() {
       try { if (typeof _v367InvalidateIndex === 'function') _v367InvalidateIndex(); } catch(_){}
       try { renderCurrentView(); } catch(_){}
     }
-    console.log('[V347] admin benef sync: +' + added + ' / -' + removed);
+    // V19 [2]: gated on the pantry, same discipline as the NGO syncs.
+    if (_pantryOkAdminB) _v19SetTombWatermark('beneficiaries', tombs.newestTs);
+    else console.warn('[V19] admin pantry write failed - tombstone watermark held back');
+    console.log('[V347] admin benef sync: +' + added + ' / -' + removed +
+                (_pantryOkAdminB ? '' : ' [V19 tombstone watermark held back]'));
     return { ok: true, added, removed };
   } catch (e) {
     console.warn('[V347] admin benef sync failed:', e);
@@ -5484,12 +6147,12 @@ async function _advNgoIncrementalSync() {
   try {
     let highWater = 0;
     for (const r of RecordCache.adv.values()) {
-      const t = (r && typeof r._lastEditedAt === 'number') ? r._lastEditedAt : 0;
+      // V19 [2]: see _v19SaneStamp - a future stamp is a wrong clock.
+      const t = _v19SaneStamp(r && r._lastEditedAt);
       if (t > highWater) highWater = t;
     }
     // V18.4: same watermark rule as the beneficiary sync, stored separately
     // because the two collections advance independently.
-    const _ownHwA = highWater;   // tombstone window - see the beneficiary sync
     const _seenA = await _v184GetSeen('adv', u.userId);
     if (_seenA > highWater) highWater = _seenA;
     if (highWater === 0) return { ok: false, reason: 'no-watermark' };
@@ -5521,20 +6184,46 @@ async function _advNgoIncrementalSync() {
       FB.lastAdv[key] = fbHash(record);
       added++;
     }
-    // V18.4: on the OWN high-water - see _ownHwA above.
-    const tombs = await _v347FetchTombstones('advocacy', _ownHwA);
+    // V19 [2]: tombstones keep their OWN watermark, because the record
+    // watermark is a device clock and one wrong phone froze deletes entirely.
+    const tombs = await _v347FetchTombstones('advocacy', _v19TombWatermark('advocacy'));
     let removed = 0;
-    for (const fbKey of tombs) {
-      if (RecordCache.adv.has(fbKey)) {
-        RecordCache.adv.delete(fbKey);
-        if (FB.lastAdv) delete FB.lastAdv[fbKey];
-        removed++;
-      }
+    // V19 [2]: ⛔ A TOMBSTONE MAY NOT REMOVE A RECORD THAT WAS RE-CREATED
+    // AFTER IT. Tombstones are never pruned, and ids ARE reused - measured on
+    // the 28 Aug export, 389 of the 1,161 beneficiary tombstones and 1 of the
+    // 44 advocacy tombstones share a key with a record that is live right now.
+    // Sweeping from an early watermark without this check would delete 389
+    // real people from every partner and admin cache, and from the pantry.
+    // Found by review before release, not in the field.
+    for (const fbKey of tombs.ids) {
+      const _rec = RecordCache.adv.get(fbKey);
+      if (!_rec) continue;
+      const _tts = tombs.tsById[fbKey] || 0;
+      // V19.1: ⛔ THROUGH THE SAME SANITY CHECK. Reading this stamp raw meant
+      // the future-dated records this release was written to defend against were
+      // the ones BEST protected from being deleted - a wrong clock beat its own
+      // tombstone, and the watermark then moved past it, making the miss
+      // permanent. A stamp we cannot trust counts as no stamp.
+      // V19.4: a tombstone whose own stamp fails the sanity check cannot be
+      // compared with anything - defer it (the sanitised watermark holds, so
+      // it returns next sync) rather than letting a wrong clock win.
+      if (_tts > 0 && _v19SaneStamp(_tts) === 0) continue;
+      // V19.5: ⛔ and the same courtesy for the RECORD. Sanitising its stamp
+      // to 0 made a live record written by a clock-fast phone lose the
+      // re-creation guard and vanish from every cache. Defer it too - the
+      // record is live in Firebase and the tombstone is not going anywhere.
+      if (_rec._lastEditedAt != null && _v19SaneStamp(_rec._lastEditedAt) === 0) continue;
+      const _rts = _v19SaneStamp(_rec._lastEditedAt);
+      if (_rts > _tts) continue;   // written again after the delete - the record wins
+      RecordCache.adv.delete(fbKey);
+      if (FB.lastAdv) delete FB.lastAdv[fbKey];
+      removed++;
     }
     let _pantryOkA = true;
     if (added > 0 || removed > 0 || reassignedOut > 0) {
-      try { _pantryOkA = (await _advPantryWrite(u.userId, Array.from(RecordCache.adv.values()))) !== false; }
-      catch(_) { _pantryOkA = false; }
+      // V19.5: verified + retried - see the beneficiary sync.
+      _pantryOkA = await _v192VerifiedPantryWrite('adv', u.userId,
+        function () { return _advPantryWrite(u.userId, Array.from(RecordCache.adv.values())); });
       // V4.11: `added` also counts in-place edits to records already in the
       // cache (this query is by _lastEditedAt, not just new keys) — without
       // this, RecordCache.adv is correctly updated but _advLatestRowsCache's
@@ -5544,6 +6233,13 @@ async function _advNgoIncrementalSync() {
     }
     if (_pantryOkA) {
       await _v184SetSeen('adv', u.userId, _newSeenA);
+      // V19 [2]: ⛔ AND THE TOMBSTONE WATERMARK MOVES WITH IT, for exactly
+      // the same reason. If the pantry write did not land, the next cold boot
+      // rehydrates the deleted record while the watermark has already passed
+      // its tombstone - and the delete never arrives again. Permanently.
+      // The first version of this advanced before the write and ignored
+      // whether it succeeded; review caught it.
+      _v19SetTombWatermark('advocacy', tombs.newestTs);
     } else {
       console.warn('[V18.4] advocacy pantry write failed — not advancing the watermark');
     }
@@ -5563,6 +6259,8 @@ async function _advNgoIncrementalSync() {
 // in-place edit the old size-delta-based caller couldn't see.
 async function _advAdminIncrementalSync() {
   if (_advAdminIncrementalSync_inFlight) return { ok: false, reason: 'in-flight' };
+  // V19.5: same guard as the beneficiary side - see there.
+  if (FB.pendingWrites > 0) return { ok: false, reason: 'save-in-flight' };
   const u = (typeof currentUser === 'function') ? currentUser() : null;
   if (!u || u.role !== 'admin') return { ok: false, reason: 'not-admin' };
   if (!FB.db) return { ok: false, reason: 'no-db' };
@@ -5571,7 +6269,8 @@ async function _advAdminIncrementalSync() {
   try {
     let highWater = 0;
     for (const r of RecordCache.adv.values()) {
-      const t = (r && typeof r._lastEditedAt === 'number') ? r._lastEditedAt : 0;
+      // V19 [2]: see _v19SaneStamp - a future stamp is a wrong clock.
+      const t = _v19SaneStamp(r && r._lastEditedAt);
       if (t > highWater) highWater = t;
     }
     if (highWater === 0) return { ok: false, reason: 'no-watermark' };
@@ -5588,17 +6287,47 @@ async function _advAdminIncrementalSync() {
       FB.lastAdv[key] = fbHash(record);
       added++;
     }
-    const tombs = await _v347FetchTombstones('advocacy', highWater);
+    // V19 [2]: tombstones keep their OWN watermark, because the record
+    // watermark is a device clock and one wrong phone froze deletes entirely.
+    const tombs = await _v347FetchTombstones('advocacy', _v19TombWatermark('advocacy'));
     let removed = 0;
-    for (const fbKey of tombs) {
-      if (RecordCache.adv.has(fbKey)) {
-        RecordCache.adv.delete(fbKey);
-        if (FB.lastAdv) delete FB.lastAdv[fbKey];
-        removed++;
-      }
+    // V19 [2]: ⛔ A TOMBSTONE MAY NOT REMOVE A RECORD THAT WAS RE-CREATED
+    // AFTER IT. Tombstones are never pruned, and ids ARE reused - measured on
+    // the 28 Aug export, 389 of the 1,161 beneficiary tombstones and 1 of the
+    // 44 advocacy tombstones share a key with a record that is live right now.
+    // Sweeping from an early watermark without this check would delete 389
+    // real people from every partner and admin cache, and from the pantry.
+    // Found by review before release, not in the field.
+    for (const fbKey of tombs.ids) {
+      const _rec = RecordCache.adv.get(fbKey);
+      if (!_rec) continue;
+      const _tts = tombs.tsById[fbKey] || 0;
+      // V19.1: ⛔ THROUGH THE SAME SANITY CHECK. Reading this stamp raw meant
+      // the future-dated records this release was written to defend against were
+      // the ones BEST protected from being deleted - a wrong clock beat its own
+      // tombstone, and the watermark then moved past it, making the miss
+      // permanent. A stamp we cannot trust counts as no stamp.
+      // V19.4: a tombstone whose own stamp fails the sanity check cannot be
+      // compared with anything - defer it (the sanitised watermark holds, so
+      // it returns next sync) rather than letting a wrong clock win.
+      if (_tts > 0 && _v19SaneStamp(_tts) === 0) continue;
+      // V19.5: ⛔ and the same courtesy for the RECORD. Sanitising its stamp
+      // to 0 made a live record written by a clock-fast phone lose the
+      // re-creation guard and vanish from every cache. Defer it too - the
+      // record is live in Firebase and the tombstone is not going anywhere.
+      if (_rec._lastEditedAt != null && _v19SaneStamp(_rec._lastEditedAt) === 0) continue;
+      const _rts = _v19SaneStamp(_rec._lastEditedAt);
+      if (_rts > _tts) continue;   // written again after the delete - the record wins
+      RecordCache.adv.delete(fbKey);
+      if (FB.lastAdv) delete FB.lastAdv[fbKey];
+      removed++;
     }
+    // V19 [2]: see the benef sync above - capture the pantry result.
+    let _pantryOkAdminA = true;
     if (added > 0 || removed > 0) {
-      try { await _advPantryWrite(u.userId, Array.from(RecordCache.adv.values())); } catch(_){}
+      // V19.5: verified + retried - see the beneficiary sync.
+      _pantryOkAdminA = await _v192VerifiedPantryWrite('adv', u.userId,
+        function () { return _advPantryWrite(u.userId, Array.from(RecordCache.adv.values())); });
       // V375 [Task #41 fix — symmetric to benef sync above]: bump version +
       // invalidate aggregation cache so advocacy dashboard KPIs refresh
       // immediately after incremental sync, not just after tab change.
@@ -5606,7 +6335,11 @@ async function _advAdminIncrementalSync() {
       try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
       try { renderCurrentView(); } catch(_){}
     }
-    console.log('[V347] admin adv sync: +' + added + ' / -' + removed);
+    // V19 [2]: gated on the pantry, same discipline as the NGO syncs.
+    if (_pantryOkAdminA) _v19SetTombWatermark('advocacy', tombs.newestTs);
+    else console.warn('[V19] admin advocacy pantry write failed - tombstone watermark held back');
+    console.log('[V347] admin adv sync: +' + added + ' / -' + removed +
+                (_pantryOkAdminA ? '' : ' [V19 tombstone watermark held back]'));
     return { ok: true, added, removed };
   } catch (e) {
     console.warn('[V347] admin adv sync failed:', e);
@@ -6555,6 +7288,11 @@ function fbInit() {
       console.warn('[V310-S3] Firebase Storage init skipped:', e);
     }
     console.log('[V16] Firebase initialised, namespace:', FB_NAMESPACE);
+    // V19.1: learn the server-clock offset as soon as the socket exists -
+    // every stamp-sanity decision below depends on it.
+    try { _v19AttachServerClock(); } catch (_) {}
+    // V19.2: ask once per boot that the saved copies survive on this machine.
+    try { _v192RequestPersistence(); } catch (_) {}
   } catch(e) {
     console.error('[V16] Firebase init failed:', e);
     FB.initFailed = true;
@@ -7345,7 +8083,8 @@ async function _adminBenefRestFetch() {
     _banner(total, true);
     fbUpdatePill();
     if (_u347b && _u347b.userId) {
-      try { await _pantryWrite(_u347b.userId, Array.from(RecordCache.benef.values())); } catch(_){}
+      await _v192VerifiedPantryWrite('benef', _u347b.userId,
+        function () { return _pantryWrite(_u347b.userId, Array.from(RecordCache.benef.values())); });
     }
     // V382: single final render now that all records are loaded.
     try { renderCurrentView(); } catch(_) {}
@@ -7459,7 +8198,8 @@ async function _adminAdvRestFetch() {
     FB.advReplayComplete = true;
     fbUpdatePill();
     if (_u347a && _u347a.userId) {
-      try { await _advPantryWrite(_u347a.userId, Array.from(RecordCache.adv.values())); } catch(_){}
+      await _v192VerifiedPantryWrite('adv', _u347a.userId,
+        function () { return _advPantryWrite(_u347a.userId, Array.from(RecordCache.adv.values())); });
     }
     // V382: single final render after all advocacy records loaded.
     try { renderCurrentView(); } catch(_) {}
@@ -7564,9 +8304,37 @@ function _benefScopedQuery() {
     _v337BenefOneShotFetch(fbRef('beneficiaries').orderByChild('ngo').equalTo(u.ngo));
     return null;
   }
-  // Unknown/incomplete role: fall back to full fetch rather than show
-  // empty data. Better to over-fetch than break the UI.
-  return fbRef('beneficiaries');
+  // V19.2: ⛔ NEVER THE WHOLE DATABASE FOR A NON-ADMIN. This used to fall
+  // back to the full beneficiaries node - 74.6 MB - "rather than show empty
+  // data", and a partner login whose scope was momentarily missing paid it.
+  // Measured: one partner session of 93.4 MB against her 8 MB slice. An admin
+  // is the only account whose scope IS everything; anyone else with a broken
+  // session sees an empty list, a console line says why, and the meter counts
+  // it so the Bandwidth screen shows it happened. Signing in again fixes a
+  // broken session; 75 MB of silent download never did.
+  // V19.4: 'viewer' is a real summary-only role, not a broken session - no
+  // warning, no Problems count. And the listener attach calls this three
+  // times per boot, so the counter is guarded to count a refusal ONCE.
+  // V19.5: ⛔ and it must NOT flip the replay flag. That flag means "the
+  // cache is complete"; on a no-fetch session the cache is EMPTY, and the
+  // flag is the only thing standing between an empty cache and a save that
+  // overwrites the saved copy and publishes a one-record summary.
+  if (u.role === 'viewer') { fbUpdatePill(); return null; }
+  if (!window._v192FellThisBoot) {
+    window._v192FellThisBoot = true;
+    console.warn('[V19.2] role "' + u.role + '" reached the data fetch without its scope - '
+      + 'refusing the full-database fallback. Sign out and in again.');
+    try { window._v192Counters && (window._v192Counters.fellThrough += 1); } catch (_) {}
+  }
+  // V19.5: ⛔ DO NOT flip the replay flag here. Independent review proved
+  // the cost: a refused partner session that then saved anything wrote a
+  // ONE-record copy over that partner's saved slice and published a
+  // one-record summary to the node donors read - recoverable only by
+  // waiting out the 30-day copy expiry. The flag is the V317 gate: false
+  // means "the cache is not trustworthy", which is exactly true here, and
+  // the save is then refused with "Still syncing" as it is on V18.8.
+  fbUpdatePill();
+  return null;
 }
 
 // V337: One-shot fetch for beneficiary records. Replaces the live listener
@@ -7609,6 +8377,7 @@ async function _v337BenefOneShotFetch(query, opts) {
         FB.benefCachePartial = false;   // V8.6: full scoped set is now loaded
         fbUpdatePill();
         console.log('[V347] benef from pantry:', RecordCache.benef.size, 'records');
+        try { window._v192Counters.pantryHit += 1; } catch (_) {}
         if (u.role === 'ngo') _ngoIncrementalSync();
         try { renderCurrentView(); } catch(_){}
         return;
@@ -7617,6 +8386,7 @@ async function _v337BenefOneShotFetch(query, opts) {
     RecordCache.benef.clear();
     FB.lastBenef = {};
     FB.benefReplayComplete = false;
+    try { window._v192Counters.pantryMiss += 1; } catch (_) {}
     const snap = await query.once('value');
     const val = snap.val() || {};
     let count = 0;
@@ -7629,7 +8399,13 @@ async function _v337BenefOneShotFetch(query, opts) {
     fbUpdatePill();
     console.log('[V337] benef one-shot fetch:', count, 'records');
     if (u && u.userId) {
-      try { await _pantryWrite(u.userId, Array.from(RecordCache.benef.values())); } catch(_){}
+      // V19.2: ⛔ THE SAVE USED TO BE FIRE-AND-FORGET. A failed write - tab
+      // closed mid-save, disk full, storage evicted - looked identical to a
+      // successful one, and that device then re-downloaded its whole slice
+      // every session, forever, with nothing anywhere saying so. Verify, retry
+      // once, and count the failure where the Bandwidth screen can show it.
+      await _v192VerifiedPantryWrite('benef', u.userId,
+        function () { return _pantryWrite(u.userId, Array.from(RecordCache.benef.values())); });
     }
     try { renderCurrentView(); } catch(_){}
   } catch (e) {
@@ -7785,7 +8561,12 @@ function fbAdvHandleChild(eventType) {
   // createdBy presence.
   const u = (typeof currentUser === 'function') ? currentUser() : null;
   let q;
-  if (!u || u.role === 'admin') {
+  // V19.5: ⛔ `!u` was lumped in with `admin`, so a session with no user
+  // downloaded the entire advocacy node. The beneficiary side has always
+  // refused this - "No user yet, caller should not attach" - and the two
+  // sides must agree.
+  if (!u) { fbUpdatePill(); return; }
+  if (u.role === 'admin') {
     if (_adminAdvRestMode) {
       if (eventType === 'child_added') _adminAdvRestFetch();
       return;
@@ -7809,6 +8590,15 @@ function fbAdvHandleChild(eventType) {
     }
     if (eventType === 'child_added') _v375ScopedAdvMultiFetch(assigned);
     return;
+  } else if (u.role === 'viewer') {
+    // V19.4: ⛔ the donor 'viewer' role reads STORED SUMMARIES only - it has
+    // no business streaming records, yet it fell through to the full-node
+    // listener below and paid the whole advocacy node on every sign-in.
+    // Quiet no-fetch: this is a correctly configured account, not a broken
+    // session, so no warning and no Problems count.
+    // V19.5: the replay flag stays false - see the beneficiary side.
+    fbUpdatePill();
+    return;
   } else if (u.role === 'scopedViewerByFc') {
     // V376-TL: TL advocacy via NGO one-shot (TL is anchored to one NGO,
     // same as NGO admin). Client-side filter in filteredAll() narrows to
@@ -7821,7 +8611,24 @@ function fbAdvHandleChild(eventType) {
     if (eventType === 'child_added') _v337AdvOneShotFetch(fbRef('advocacy').orderByChild('ngo').equalTo(u.ngo));
     return;
   } else {
-    q = fbRef('advocacy');
+    // V19.4: ⛔ THE OTHER HALF OF THE V19.2 FALL-THROUGH. The beneficiary
+    // dispatcher refused the whole-database fallback; this one still attached
+    // an unscoped listener on the ENTIRE advocacy node - 75 MB - for exactly
+    // the same broken sessions. Review caught it: the new counter would have
+    // claimed the refusal worked while the same session paid in full on
+    // advocacy. Same refusal, same counting.
+    // V19.5: the dispatcher is called three times per attach - warn and count
+    // ONCE, the same guard the beneficiary side uses, or one broken session
+    // reports four problems on the Bandwidth screen.
+    if (!window._v192FellThisBoot) {
+      window._v192FellThisBoot = true;
+      console.warn('[V19.4] role "' + u.role + '" reached the advocacy fetch without its scope - '
+        + 'refusing the full-node fallback. Sign out and in again.');
+      try { window._v192Counters && (window._v192Counters.fellThrough += 1); } catch (_) {}
+    }
+    // V19.5: the replay flag stays false - see the beneficiary side.
+    fbUpdatePill();
+    return;
   }
   _advQueryHandle = q;  // track for detach on logout
   q.on(eventType, snap => {
@@ -7882,6 +8689,7 @@ async function _v337AdvOneShotFetch(query, opts) {
         FB.advReplayComplete = true;
         fbUpdatePill();
         console.log('[V347] adv from pantry:', RecordCache.adv.size, 'records');
+        try { window._v192Counters.pantryHit += 1; } catch (_) {}
         if (u.role === 'ngo') _advNgoIncrementalSync();
         // V4.11: neither invalidation call existed on this path before —
         // see the note on _v361InvalidateAggCache for why this matters.
@@ -7893,6 +8701,7 @@ async function _v337AdvOneShotFetch(query, opts) {
     RecordCache.adv.clear();
     FB.lastAdv = {};
     FB.advReplayComplete = false;
+    try { window._v192Counters.pantryMiss += 1; } catch (_) {}
     const snap = await query.once('value');
     const val = snap.val() || {};
     let count = 0;
@@ -7909,7 +8718,9 @@ async function _v337AdvOneShotFetch(query, opts) {
     fbUpdatePill();
     console.log('[V337] adv one-shot fetch:', count, 'records');
     if (u && u.userId) {
-      try { await _advPantryWrite(u.userId, Array.from(RecordCache.adv.values())); } catch(_){}
+      // V19.2: verified + retried, same as the beneficiary save above.
+      await _v192VerifiedPantryWrite('adv', u.userId,
+        function () { return _advPantryWrite(u.userId, Array.from(RecordCache.adv.values())); });
     }
     try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
     try { renderCurrentView(); } catch(_){}
@@ -7996,7 +8807,8 @@ async function _v375ScopedBenefMultiFetch(ngos, opts) {
     try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
 
     if (u && u.userId) {
-      try { await _pantryWrite(u.userId, Array.from(RecordCache.benef.values())); } catch(_){}
+      await _v192VerifiedPantryWrite('benef', u.userId,
+        function () { return _pantryWrite(u.userId, Array.from(RecordCache.benef.values())); });
     }
     try { renderCurrentView(); } catch(_){}
   } catch (e) {
@@ -8069,7 +8881,8 @@ async function _v375ScopedAdvMultiFetch(ngos, opts) {
     console.log('[V375 scoped] adv multi-fetch complete:', total, 'records across', ngos.length, 'NGOs');
 
     if (u && u.userId) {
-      try { await _advPantryWrite(u.userId, Array.from(RecordCache.adv.values())); } catch(_){}
+      await _v192VerifiedPantryWrite('adv', u.userId,
+        function () { return _advPantryWrite(u.userId, Array.from(RecordCache.adv.values())); });
     }
     try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
     try { renderCurrentView(); } catch(_){}
@@ -17300,11 +18113,10 @@ function _computeNgoStats(partnerName, benefSet, advAll) {
 
   const livCompleted = livBenefs.filter(b => b.status === 'Completed');
   let livTotalIncomeAdded = 0;
-  livCompleted.forEach(b => {
-    if (b.endIncome != null && b.baseIncome != null) {
-      livTotalIncomeAdded += ((b.endIncome||0) - (b.baseIncome||0));
-    }
-  });
+  // V19.3: the one rule - see _v193Delta. This site already filtered to
+  // completed livelihood records; routing it through the shared function
+  // means the two can never diverge again.
+  livCompleted.forEach(b => { livTotalIncomeAdded += _v193Delta(b); });
   const livAvgGain = livCompleted.length > 0
     ? Math.round(livTotalIncomeAdded / livCompleted.length)
     : null;
@@ -17403,11 +18215,10 @@ function _computeFcStats(fcUserId, fcDisplayName, benefSet, advAll) {
 
   const livCompleted = livBenefs.filter(b => b.status === 'Completed');
   let livTotalIncomeAdded = 0;
-  livCompleted.forEach(b => {
-    if (b.endIncome != null && b.baseIncome != null) {
-      livTotalIncomeAdded += ((b.endIncome||0) - (b.baseIncome||0));
-    }
-  });
+  // V19.3: the one rule - see _v193Delta. This site already filtered to
+  // completed livelihood records; routing it through the shared function
+  // means the two can never diverge again.
+  livCompleted.forEach(b => { livTotalIncomeAdded += _v193Delta(b); });
   const livAvgGain = livCompleted.length > 0
     ? Math.round(livTotalIncomeAdded / livCompleted.length)
     : null;
@@ -17557,8 +18368,8 @@ function renderNGO() {
   const livStageAll = { 'Enrolled':0, 'Intervention In Progress':0, 'Completed':0 };
   livAll.forEach(b => { const _s = _v174Stage(b); if (livStageAll[_s] != null) livStageAll[_s]++; });
   const livCompAll = livAll.filter(b => b.status === 'Completed');
-  const portLivTotalAdded = livCompAll.reduce(
-    (s, b) => s + ((b.endIncome != null && b.baseIncome != null) ? (b.endIncome - b.baseIncome) : 0), 0);
+  // V19.4: the one rule - review counted 23 surfaces and this was the 24th.
+  const portLivTotalAdded = livCompAll.reduce((s, b) => s + _v193Delta(b), 0);
   const portLivAvgGain = livCompAll.length > 0 ? Math.round(portLivTotalAdded / livCompAll.length) : null;
   const portLivTotal = livAll.length;
   const portLivEnrPct  = portLivTotal > 0 ? Math.round(livStageAll['Enrolled']/portLivTotal*100) : null;
@@ -20451,11 +21262,60 @@ function filteredAll() {
   return d;
 }
 
+// V19: the single definition of "is this a livelihood beneficiary". Both the
+// dashboard and the Livelihood screen had their own copy of this test and one
+// of them was used for counting endlines while the other was not.
+function _v19IsLivelihood(b) {
+  return !!b && (b.interventions || []).some(i => i && i !== 'Advocacy (Govt. Schemes)');
+}
+
+// V19.1: ⛔ V19 FIXED THE WRONG AXIS AND I TOLD GURU IT WAS DONE.
+// He compared the dashboard's "From 2 endlines" against the Livelihood
+// screen's "Endline Completed 1". V19 excluded advocacy-only people from the
+// dashboard count - but MEASURED ON THE REAL EXPORT, ZERO advocacy-only
+// records carry an endline income, so that changed nothing and the two
+// screens still read 2 and 1. Three independent reviews said so.
+//
+// The two numbers differ on a different question entirely:
+//   the dashboard asked  "does this person have an endline income?"
+//   the chip asked       "is this person AT the Endline Completed stage?"
+// Two live records have an endline income; only one of them is at that
+// stage. The other (KRSF-NL-0005) carries an endline income of 110,000
+// against a baseline of 110,000 - a zero delta - while its stage still says
+// Enrolled. A half-finished lifecycle.
+//
+// An endline is the stage. A person is only counted once the lifecycle says
+// so AND there is a figure to count, and both screens now ask exactly that.
+// Because the odd record's delta is zero, no rupee figure moves.
+// V19.3: ⛔ THE ONE DEFINITION OF "INCOME THIS RECORD ADDED". Review put a
+// table to it: TWENTY-THREE surfaces reported income or impact, on SIX
+// different rules - some counted any record with an endline income, some
+// only livelihood, some only stage-Completed, some clamped negative deltas
+// and some did not. They all agree on today's data, which is exactly why
+// today is the day to unify them: no reported figure moves. The rule:
+//   - only a livelihood beneficiary whose lifecycle reached Endline
+//     Completed counts (_v19HasEndline - the V19.1 tile rule);
+//   - the delta is SIGNED. An income drop subtracts. V17.3 stopped a
+//     negative baseline inventing +110,000 of impact precisely because
+//     hiding a wrong number is worse than showing it. Zero drops exist
+//     today, so nothing changes on screen - but when one appears it will
+//     be visible, not clamped away.
+function _v193Delta(b) {
+  if (!_v19HasEndline(b)) return 0;
+  return (Number(b.endIncome) || 0) - (Number(b.baseIncome) || 0);
+}
+
+function _v19HasEndline(b) {
+  return _v19IsLivelihood(b) && b.endIncome != null &&
+         (typeof _v174Stage === 'function' ? _v174Stage(b) === 'Completed'
+                                           : b.status === 'Completed');
+}
+
 function getLivelihoodData() {
   // A beneficiary is "livelihood" if they have any intervention other than
   // Advocacy. This handles dynamic admin-added livelihood types automatically —
   // we don't need to maintain a hardcoded list in sync with admin config.
-  return filteredAll().filter(b => (b.interventions||[]).some(i => i && i !== 'Advocacy (Govt. Schemes)'));
+  return filteredAll().filter(_v19IsLivelihood);
 }
 
 // ⛔ V17.8: RETURNS LIVE REFERENCES into RecordCache.adv (via _v177AdvRead).
@@ -20639,9 +21499,23 @@ function summaryStrip(cells, rowClass) {
 function _filterByNgoFromRow(rowEl) {
   const name = rowEl.getAttribute('data-ngo-row');
   if (!name) return;
-  window.ngoFilter = name;
+  // ⛔ V19: `window.ngoFilter = name` DID NOTHING. ngoFilter is declared with
+  // `let` at the top level, which lives in the declarative environment record
+  // and is NOT a property of window - the bare identifier every reader uses
+  // kept resolving to the untouched binding. Setting sel.value does not fire
+  // the select's onchange either, so 'click a partner row to filter' set the
+  // dropdown's appearance and nothing else. The same trap is documented
+  // elsewhere in this file and was walked into again here.
+  ngoFilter = name;
   const sel = document.getElementById('ngo-filter');
   if (sel) sel.value = name;
+  // V19.5: do everything the dropdown's own onchange does - on a phone the
+  // data filtered while the visible control still read "All NGOs", and the
+  // state list was left showing districts the chosen partner has none of.
+  const msel = document.getElementById('mob-ngo-filter');
+  if (msel) msel.value = name;
+  try { _v13RptForgetReturn(); } catch (_) {}
+  try { _rebuildStateFilterOptions(); } catch (_) {}
   renderCurrent();
 }
 
@@ -20785,11 +21659,14 @@ function _renderDashboardTrendBands(list, advLatest) {
   const impactByMonth = {};
   months.forEach(m => { impactByMonth[m.key] = 0; });
   list.forEach(b => {
-    if (b.endIncome != null && b.baseIncome != null) {
+    // V19.3: the one rule - see _v193Delta. This chart used to count ANY
+    // record with an endline income and clamp drops to zero, so it could
+    // disagree with the tile beside it.
+    const _d193 = _v193Delta(b);
+    if (_d193 !== 0) {
       const k = _monthKey(b.endlineDate);
       if (k && impactByMonth[k] != null) {
-        const d = b.endIncome - b.baseIncome;
-        if (d > 0) impactByMonth[k] += d; // only count positive deltas toward impact
+        impactByMonth[k] += _d193;
       }
     }
   });
@@ -20857,7 +21734,15 @@ function _renderDashboardTopNGOs(list, advLatest) {
   const advBenByBid = {};
   advLatest.forEach(r => {
     if (r.benefitRecd === 'Yes') {
-      advBenByBid[r.__bid] = (advBenByBid[r.__bid] || 0) + (r.benefitAmt || 0);
+      // V19.3: ⛔ _v18RowBenefit, NOT the stored amount alone. V18.0 promised
+      // ONE valuation across all sixteen monetary totals and this row was
+      // missed: 5,874 of the 24,879 received benefits have no amount typed in
+      // (1,115 of them Ayushman Bharat, standard value 50,000), so this table
+      // sat Rs 5.65 crore BELOW the tile directly above it - 57.41 crore
+      // against 63.06 - and clicking a partner row, which V19.1 made actually
+      // filter, put the two numbers side by side. Approved by the owner:
+      // partner figures rise so the same screen finally adds up.
+      advBenByBid[r.__bid] = (advBenByBid[r.__bid] || 0) + _v18RowBenefit(r);
     }
   });
   // Aggregate per NGO
@@ -20866,10 +21751,7 @@ function _renderDashboardTopNGOs(list, advLatest) {
     const k = b.ngo || '(unassigned)';
     if (!byNgo[k]) byNgo[k] = {name: k, count: 0, income: 0, schemes: 0};
     byNgo[k].count++;
-    if (b.endIncome != null && b.baseIncome != null) {
-      const d = b.endIncome - b.baseIncome;
-      if (d > 0) byNgo[k].income += d;
-    }
+    byNgo[k].income += _v193Delta(b);   // V19.3: the one rule
     byNgo[k].schemes += (advBenByBid[b.id] || 0);
   });
   const rows = Object.values(byNgo)
@@ -21100,7 +21982,7 @@ function renderDashboard() {
   const allB   = filteredAll();
   // Livelihood beneficiaries = anyone with a non-Advocacy intervention.
   // Works automatically for admin-added types without requiring a hardcoded list.
-  const livB   = allB.filter(b => (b.interventions||[]).some(i => i && i !== 'Advocacy (Govt. Schemes)'));
+  const livB   = allB.filter(_v19IsLivelihood);
   // V361: reuse cached advocacy aggregations if available. advBids dedup and
   // getAdvocacyBids() iteration are the two heaviest calls here — cached
   // version eliminates both on warm renders. Falls back gracefully if cache
@@ -21118,8 +22000,17 @@ function renderDashboard() {
   if (progFilter==='livelihood') list = livB;
   if (progFilter==='advocacy')   list = advB;
 
-  const withEnd    = list.filter(b=>b.endIncome!=null);
-  const totalAdded = withEnd.reduce((s,b)=>s+delta(b),0);
+  // V19 [1]: ⛔ ONE RULE FOR AN ENDLINE. The dashboard read every record
+  // with an endIncome, including advocacy-only people and family members who
+  // have no livelihood at all; the Livelihood screen counts only livelihood
+  // beneficiaries. Guru saw 'from 2 endlines' on one screen and 'Endline
+  // Completed 1' on the other, for the same data. Additional income is a
+  // livelihood measure, so livelihood is the rule - the same test
+  // getLivelihoodData() uses, kept in one shared function now so the two
+  // screens cannot drift apart again. This is the V18.7 lesson applied to a
+  // second pair of counters.
+  const withEnd    = list.filter(_v19HasEndline);
+  const totalAdded = withEnd.reduce((s,b)=>s+_v193Delta(b),0);   // V19.3: the one rule
   // Unique beneficiaries per intervention — use a Set per record to guard
   // against duplicate entries in the interventions array (possible from old
   // seed data). Counts match Livelihood tab semantics: one beneficiary per
@@ -21258,15 +22149,34 @@ function renderDashboard() {
 // Each row: who did what to which beneficiary, and when (relative time).
 function _renderDashboardRecentUpdates(list) {
   const visibleIds = new Set(list.map(b => b.id));
-  const nameById = {};
   // Partner (NGO) lookup by beneficiary id — used to render the new Partner
   // column. Scoped to the currently-visible list so this matches what the
   // user would see anyway via role filters.
-  const ngoById = {};
-  list.forEach(b => {
-    nameById[b.id] = b.name;
-    ngoById[b.id] = b.ngo || '';
-  });
+  // V19 [3][4]: ⛔ READ THESE FROM THE WHOLE DATASET, NOT THE FILTERED LIST.
+  // Both of Guru's reports came from this one line. An admin's events are not
+  // scoped by visibleIds (see below), so whenever a partner filter was on, the
+  // lookups were missing almost every record the events referred to. Two things
+  // then went wrong at once: the Partner column fell back to '-', and an
+  // advocacy status_change - whose recordLabel is the SCHEME name, not a person
+  // - could not resolve its beneficiary, so the Beneficiary column printed
+  // 'Aadhar Card' or 'Ayushman Bharat' where a person's name belongs.
+  // ⛔ BUT DO NOT BUILD A DICTIONARY OF ALL OF THEM. A first attempt walked
+  // every record into two plain objects; review measured it at 67 ms and 24 MB
+  // of throwaway objects PER RENDER for an admin, and the filter signature
+  // includes ngoFilter, so every filter change pays it again. At most 5,000
+  // audit events are examined and 15 are shown, and RecordCache is already a
+  // Map with O(1) get - so look up only the handful of ids actually needed.
+  // Same answers, no allocation.
+  const _v19Rec = id => {
+    try { return (id && RecordCache && RecordCache.benef) ? (RecordCache.benef.get(id) || null) : null; }
+    catch (_) { return null; }
+  };
+  // Kept as functions with the old names' shape so every call site below reads
+  // the same; `has` is a real existence test rather than a truthiness test on
+  // the name, which used to drop a beneficiary whose name is blank.
+  const nameOfId = id => { const r = _v19Rec(id); return r ? (r.name || '') : null; };
+  const ngoOfId  = id => { const r = _v19Rec(id); return r ? (r.ngo || '') : null; };
+  const hasId    = id => !!_v19Rec(id);
 
   // Advocacy-record-id → beneficiary-id lookup. Audit log stores the advocacy
   // record id (ADV-xxx) as recordId, and historically we matched to a
@@ -21316,12 +22226,76 @@ function _renderDashboardRecentUpdates(list) {
   // local data cache for admin users.
   const isAdmin = me && me.role === 'admin';
 
+  // V19 [3]: which partner does this event belong to? Resolved from the
+  // record itself, never from who performed the action. Returns null when the
+  // record no longer exists (a deletion), and a filtered view then leaves it
+  // out rather than guessing.
+  const _v19EventNgo = e => {
+    // ⛔ Fall back to the ACTOR's partner only when the record itself is gone.
+    // Review caught this: a deleted record resolves to nothing, so under a
+    // filter every deletion vanished - and a deletion is the single most
+    // important thing an activity card exists to show. For a coordinator or
+    // partner login the actor's partner IS the record's partner; for an admin
+    // it is null and the event stays hidden under a filter, which is the
+    // honest outcome when nothing can tell us where it belonged.
+    if (e.recordType === 'beneficiary') return ngoOfId(e.recordId) || e.ngo || null;
+    if (hasId(e.recordId)) return ngoOfId(e.recordId) || null;   // status_change: recordId IS the bid
+    const bid = advBidByAdvId[e.recordId];
+    return bid ? (ngoOfId(bid) || e.ngo || null) : (e.ngo || null);
+  };
+
+  // V19.1: ⛔ CLAMPING WAS NOT ENOUGH, AND THE MUTATION RUN SAID SO. The
+  // first fix clamped a future stamp to "now" - but a stamp clamped to now
+  // still sorts ABOVE every real entry, on every render, until real time
+  // passes it. The 26 future-dated entries would have held the top of the
+  // card for two days either way, which is the exact report. (The mutant
+  // that reverted the sort SURVIVED the suite - because the clamp and the
+  // old sort behaved almost identically. A surviving mutant is the test
+  // saying the fix does nothing.)
+  // So: DEMOTE. A stamp beyond the clock tolerance is corrupt, and a corrupt
+  // stamp sorts below every sane entry rather than above them. The entries
+  // stay findable at the bottom; real activity holds the top.
+  // Declared ABOVE the sort that uses it - the first attempt put it below
+  // and the whole card threw on load.
+  const _v191Now = Date.now();
+  const _v191EventTs = e => {
+    const t = Date.parse((e && e.ts) || '') || 0;
+    return t > _v191Now + _V191_CLOCK_TOLERANCE_MS ? t - 1e13 : t;
+  };
+
   const events = audit
     .filter(e => relevantTypes.has(e.recordType))
     .filter(e => {
       if (isAdmin) {
-        // Admin sees everything in the beneficiary/advocacy audit trail —
-        // no scoping by visibleIds (which may lag behind fresh enrollments).
+        // Admin is still not scoped by visibleIds - V326 removed that on
+        // purpose, because a freshly enrolled record reaches the audit log
+        // before the listener delivers it and would otherwise vanish from
+        // this card. But 'not scoped by the cache' was implemented as 'shows
+        // everything', so the partner filter at the top of the screen did
+        // nothing here: filtering to one partner still listed every partner's
+        // activity. V19 [3]: apply the filter to the event's OWN partner.
+        //
+        // ⛔ NOT e.ngo. That field is the partner of the person who DID the
+        // action, not the partner the record belongs to - it is null for every
+        // admin action, which is why deleted records showed '-'.
+        // V19.4: honour the OTHER top-bar filters too. V19 fixed the partner
+        // filter and left state and coordinator ignored - a card that obeys
+        // one filter out of three teaches the user it is filtered when it
+        // mostly is not. Resolved from the record itself; when the record is
+        // gone (a deletion), the partner falls back to the actor and the
+        // state/coordinator filters hide it - unknowable is not a match.
+        if (ngoFilter && _v19EventNgo(e) !== ngoFilter) return false;
+        if (stateFilter || fcFilter) {
+          const _rec4 = _v19Rec(e.recordType === 'beneficiary' ? e.recordId
+            : (hasId(e.recordId) ? e.recordId : advBidByAdvId[e.recordId]));
+          // ⛔ Fresh review: only 8 of 137,298 records HAVE a .state field -
+          // the state lives inside district ("Aravalli, Gujarat"), and every
+          // other consumer of stateFilter matches district segments. Testing
+          // .state made the card read "No recent activity" - a false statement
+          // - the moment any state filter was applied. Same test as filteredAll.
+          if (stateFilter && !(_rec4 && String(_rec4.district || '').includes(stateFilter))) return false;
+          if (fcFilter && !(_rec4 && _rec4.createdBy === fcFilter)) return false;
+        }
         return true;
       }
       if (e.recordType === 'beneficiary') {
@@ -21334,10 +22308,19 @@ function _renderDashboardRecentUpdates(list) {
       const bid = advBidByAdvId[e.recordId];
       if (bid && visibleIds.has(bid)) return true;
       if (myUserId && e.userId === myUserId) return true;
-      if (!bid) return [...visibleIds].some(vid => nameById[vid] === e.recordLabel);
+      if (!bid) return [...visibleIds].some(vid => nameOfId(vid) === e.recordLabel);
       return false;
     })
-    .sort((a, b) => (b.ts||'').localeCompare(a.ts||''))
+    // V19.1: ⛔ A WRONG DEVICE CLOCK PINNED FIFTEEN ROWS TO THE TOP FOR
+    // TWO DAYS. This card takes the newest 15 by timestamp, and an audit entry
+    // is stamped with the writing device's own clock. One handset running ~45
+    // hours fast wrote 26 entries, and on the 28 Aug export ALL FIFTEEN rows
+    // were that one phone - which is the "stuck for over 20 minutes, I can't
+    // see my own entry" report. V19 wrongly claimed the sync fix covered this;
+    // it did not, because this card has no watermark and no listener - it is a
+    // plain limitToLast fetch. See _v191EventTs above: corrupt stamps are
+    // demoted below sane ones, so real activity holds the top.
+    .sort((a, b) => _v191EventTs(b) - _v191EventTs(a))
     .slice(0, 15);
 
   if (events.length === 0) {
@@ -21369,9 +22352,20 @@ function _renderDashboardRecentUpdates(list) {
   // scheme rows. Generic 'update' on advocacy records is now labelled
   // "Status Changed" since the details column always describes the scheme
   // transitions that happened.
+  // V19 [5]: ⛔ THE TWO WORDS MEAN DIFFERENT THINGS AND ONE WAS WRONG.
+  //   STAGE  belongs to the livelihood lifecycle of a PERSON:
+  //          Enrolled -> Intervention In Progress -> Endline Completed.
+  //   STATUS belongs to one government SCHEME on a person:
+  //          Need to Apply -> Applied -> Benefits Received, or Rejected.
+  // A person has one stage; they can have many schemes, each with its own
+  // status. Both were being written to the audit log under the same action
+  // name, 'status_change', and the label only looked at the action - so a
+  // scheme moving to 'Benefits Received' was announced as STAGE CHANGED.
+  // The record TYPE is what separates them: advocacy means a scheme.
   const actionLabel = e => {
     // Advocacy record edits = scheme status changes
     if (e.action === 'update' && e.recordType === 'advocacy') return 'Status Changed';
+    if (e.action === 'status_change' && e.recordType === 'advocacy') return 'Status Changed';
     const map = {
       create: e.recordType === 'advocacy' ? 'Advocacy Logged' : 'Enrolled',
       update: 'Edited',
@@ -21383,7 +22377,10 @@ function _renderDashboardRecentUpdates(list) {
     };
     return map[e.action] || e.action;
   };
-  const actionColor = a => {
+  // V19 [5]: colour follows the same split, so the two read differently at a
+  // glance rather than sharing one navy pill.
+  const actionColor = (a, e) => {
+    if (e && e.recordType === 'advocacy' && (a === 'status_change' || a === 'update')) return '#0EA5E9';
     if (a === 'create') return '#10B981';
     if (a === 'delete') return '#EF4444';
     if (a === 'endline_complete' || a === 'endline_update') return '#7C3AED';
@@ -21393,7 +22390,7 @@ function _renderDashboardRecentUpdates(list) {
   };
 
   const rowsHtml = events.map(e => {
-    const col = actionColor(e.action);
+    const col = actionColor(e.action, e);
     const label = actionLabel(e);
     // V386 [Fix]: bid resolution moved BEFORE the Beneficiary column value
     // so we can show the actual person's name on advocacy events. Previously
@@ -21425,7 +22422,7 @@ function _renderDashboardRecentUpdates(list) {
       // remaining "Stage Changed" rows still showing scheme names.
       // Try recordId-as-bid first (shape 2), then ADV-xxx lookup (shape 1),
       // then the legacy name-match fallback.
-      if (nameById[e.recordId]) {
+      if (hasId(e.recordId)) {
         bid = e.recordId;  // shape 2: status_change events
       } else {
         const resolved = advBidByAdvId[e.recordId];
@@ -21433,7 +22430,7 @@ function _renderDashboardRecentUpdates(list) {
           bid = resolved;  // shape 1: update events on advocacy records
         } else {
           // Legacy fallback: advocacy record was deleted, match by name
-          const match = [...visibleIds].find(id => nameById[id] === e.recordLabel);
+          const match = [...visibleIds].find(id => nameOfId(id) === e.recordLabel);
           if (match) bid = match;
         }
       }
@@ -21444,8 +22441,8 @@ function _renderDashboardRecentUpdates(list) {
     //   to e.recordLabel only when the bid cannot be resolved (e.g. legacy
     //   data where the advocacy record was deleted before this fix landed).
     // V308.1: full escape via escHtml.
-    const beneficiaryName = (e.recordType === 'advocacy' && bid && nameById[bid])
-      ? escHtml(nameById[bid])
+    const beneficiaryName = (e.recordType === 'advocacy' && bid && hasId(bid))
+      ? escHtml(nameOfId(bid))
       : escHtml(e.recordLabel || '');
     const summary = escHtml(e.summary||'');
     const displayName = (e.userId && fullNameById[e.userId]) || e.username || '—';
@@ -21454,8 +22451,8 @@ function _renderDashboardRecentUpdates(list) {
     return `<tr ${bid?`onclick="openDrawer('${ebid}')" style="cursor:pointer"`:''}>
       <td style="font-size:12px;color:var(--gray2);white-space:nowrap">${ago(e.ts)}</td>
       <td><div class="bname">${beneficiaryName||'—'}</div>${bid?`<div class="bid">${ebid}</div>`:''}</td>
-      <td style="font-size:12px;color:var(--gray1)">${(bid && ngoById[bid]) ? escHtml(ngoById[bid]) : (e.ngo ? escHtml(e.ngo) : '—')}</td>
-      <td><span style="display:inline-block;padding:2px 8px;border-radius:10px;background:${col}22;color:${col};font-size:10px;font-weight:600;text-transform:uppercase;white-space:nowrap">${label}</span></td>
+      <td style="font-size:12px;color:var(--gray1)">${(bid && ngoOfId(bid)) ? escHtml(ngoOfId(bid)) : (e.ngo ? escHtml(e.ngo) : '—')}</td>
+      <td><span title="${label==='Stage Changed'?'The person moved along the livelihood lifecycle: Enrolled, Intervention In Progress, Endline Completed.':label==='Status Changed'?'One government scheme for this person changed: Need to Apply, Applied, Benefits Received or Rejected.':escHtml(label)}" style="display:inline-block;padding:2px 8px;border-radius:10px;background:${col}22;color:${col};font-size:10px;font-weight:600;text-transform:uppercase;white-space:nowrap">${label}</span></td>
       <td style="font-size:12px;color:var(--gray1);line-height:1.4">${summary||'—'}</td>
       <td style="font-size:11px;color:var(--gray2);white-space:nowrap">${who}</td>
     </tr>`;
@@ -21496,8 +22493,10 @@ function renderLivelihood(sub) {
   const enrolled   = allB.filter(b=>_v174Stage(b)==='Enrolled').length;
   const inprogOnly = allB.filter(b=>_v174Stage(b)==='Intervention In Progress').length;
   const completed  = allB.filter(b=>_v174Stage(b)==='Completed').length;
-  const withEnd    = allB.filter(b=>b.endIncome!=null);
-  const totalDelta = withEnd.reduce((s,b)=>s+delta(b),0);
+  // V19.1: the same rule as the dashboard tile, so the two screens and the
+  // "Endline Completed" chip beside this one can never disagree again.
+  const withEnd    = allB.filter(_v19HasEndline);
+  const totalDelta = withEnd.reduce((s,b)=>s+_v193Delta(b),0);   // V19.3: the one rule
 
   // Single-row summary: "All Beneficiaries" (clickable, clears filter) on the
   // left, 3 stage filters in the middle, "Total Additional Income" (red,
@@ -21984,7 +22983,7 @@ function renderIntegrated(sub) {
     const schemeRows = latestByBid[b.id] || [];
     const hasLiv = (b.interventions||[]).some(i => i !== 'Advocacy (Govt. Schemes)');
     const hasAdv = schemeRows.length > 0 || (b.interventions||[]).includes('Advocacy (Govt. Schemes)');
-    const incDelta   = b.endIncome != null ? delta(b) : 0;
+    const incDelta   = _v193Delta(b);   // V19.3: the one rule
     const benefitAmt = schemeRows.filter(r => r.benefitRecd === 'Yes').reduce((s, r) => s + _v18RowBenefit(r), 0);
     return { ...b, schemeRows, hasLiv, hasAdv, incDelta, benefitAmt };
   });
@@ -22038,7 +23037,11 @@ function renderIntegrated(sub) {
   // Sr. No. | Beneficiary | Location | Partner | Program | Income Delta |
   // Scheme Benefits | Total Impact
   const rows = pageList.map((b, i) => {
-    const d = delta(b);
+    // V19.5: ⛔ the unified figure, but a record with no endline yet must
+    // still read "-", not a green Rs 0. incDelta is 0 where the old delta()
+    // returned null, which killed the dash guard below and made this column
+    // assert "no income added" for 1,149 of 1,151 livelihood rows.
+    const d = _v19HasEndline(b) ? b.incDelta : null;
     const programBadge = b.hasLiv && b.hasAdv ? `<span class="pill pill-blue" style="margin:1px">Livelihood</span><span class="pill pill-purple" style="margin:1px">Advocacy</span>`
                       : b.hasLiv ? `<span class="pill pill-blue">Livelihood</span>`
                       : `<span class="pill pill-purple">Advocacy</span>`;
@@ -22348,7 +23351,9 @@ function renderAllBeneficiaries() {
       const hasLiv = (b.interventions||[]).some(i => i && i !== 'Advocacy (Govt. Schemes)');
       const hasAdv = advBidSet.has(b.id) || (b.interventions||[]).includes('Advocacy (Govt. Schemes)');
       const schemeRows = latestByBid[b.id] || [];
-      const incDelta   = b.endIncome != null ? (b.endIncome - b.baseIncome) : 0;
+      // V19.5: the one rule - the last surviving copy. All Beneficiaries and
+      // the Integrated screen show the same column and must not part ways.
+      const incDelta   = _v193Delta(b);
       const benefitAmt = schemeRows.filter(r => r.benefitRecd === 'Yes').reduce((s, r) => s + _v18RowBenefit(r), 0);
       // V18.2: computed HERE, inside the memoised block, so it costs one
       // boolean per record per REBUILD. In the row loop below it would be five
@@ -22447,7 +23452,10 @@ function renderAllBeneficiaries() {
         const rowHtml = pagedList.map((b, i) => {
           const srNo = pageStart + i + 1; // global serial number across pages
           const isSel = allBSelected.has(b.id);
-          const d = b.incDelta;
+          // V19.5: same sentinel as the Integrated screen - the two lists show
+          // the same column and must not disagree about what "nothing yet" looks
+          // like.
+          const d = _v19HasEndline(b) ? b.incDelta : null;
           const impact = (b.incDelta||0) + (b.benefitAmt||0);
           const programBadge = (b.hasLiv && b.hasAdv)
             ? `<span class="pill pill-blue">Livelihood</span><span class="pill pill-purple" style="margin-left:4px">Advocacy</span>`
@@ -23133,7 +24141,10 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
     livN++;
     const st = b.status || 'Enrolled';
     stage[st] = (stage[st] || 0) + 1;
-    const hasEnd = b.endIncome != null && b.baseIncome != null;
+    // V19.5: the one rule. This screen said "across the 2 beneficiaries with
+    // completed surveys" three lines below its own "Endline Completed 1",
+    // and averaged the income over the wrong denominator.
+    const hasEnd = _v19HasEndline(b);
     const eDays = _rptDaysAgo(b.enrollDate);
     if (!hasEnd && eDays != null && eDays >= 365) {
       overdue++;
@@ -23143,14 +24154,14 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
       overdueNgo.set(b.ngo, g);
     }
     if (hasEnd) {
-      endN++; sumBase += b.baseIncome; sumEnd += b.endIncome;
+      endN++; sumBase += (Number(b.baseIncome) || 0); sumEnd += (Number(b.endIncome) || 0);
       if (b.baseIncome > 0 && b.endIncome < b.baseIncome * 0.5) suspects.push(b);
       const key = ints.length === 1 ? ints[0] : '__multi';
       const g = byInt.get(key) || { n: 0, base: 0, end: 0 };
-      g.n++; g.base += b.baseIncome; g.end += b.endIncome;
+      g.n++; g.base += (Number(b.baseIncome) || 0); g.end += (Number(b.endIncome) || 0);
       byInt.set(key, g);
       const gn = byNgoLiv.get(b.ngo) || { n: 0, base: 0, end: 0 };
-      gn.n++; gn.base += b.baseIncome; gn.end += b.endIncome;
+      gn.n++; gn.base += (Number(b.baseIncome) || 0); gn.end += (Number(b.endIncome) || 0);
       byNgoLiv.set(b.ngo, gn);
     }
   });
@@ -24080,7 +25091,7 @@ function renderReports() {
       </div>` +
       (endN ? `<div style="background:var(--green2);border:1px solid #A7F3D0;border-radius:12px;padding:16px;margin-bottom:14px">
         <div style="font-size:15px;font-weight:700;color:var(--green)">Total measured income added: ${_rptMoney(added)} / year</div>
-        <div style="font-size:11px;color:#065F46;margin-top:3px">Across the ${endN.toLocaleString('en-IN')} beneficiaries with completed baseline + endline surveys. Counts only measured, surveyed income change — nothing estimated.</div>
+        <div style="font-size:11px;color:#065F46;margin-top:3px">Across the ${endN.toLocaleString('en-IN')} beneficiar${endN === 1 ? 'y' : 'ies'} with completed baseline + endline surveys. Counts only measured, surveyed income change — nothing estimated.</div>
       </div>` : '') +
       (suspects.length ? card(' Suspicious endlines — endline less than HALF of baseline (' + suspects.length.toLocaleString('en-IN') + ' records)',
         'Classic sign of the "entered only the ADDITIONAL income" mistake — though genuine income drops happen too, so nothing here is auto-changed. Review each: open the record → Endline Survey and re-save (the V4.7 form now catches this mistake at entry). The last column shows what the total would be IF the entered amount was actually the additional income.',
@@ -24125,7 +25136,7 @@ function renderReports() {
 }
 
 // ── Nav ───────────────────────────────────────────────────────────────────
-const _navRoutes_v32={reports:renderReports,dashboard:renderDashboard,beneficiaries:renderAllBeneficiaries,list:renderLivelihood,ngo:renderNGO,alerts:renderAlerts,map:renderMap,integrated:renderIntegrated,advocacy:renderAdvocacy,admin_partners:renderAdminPartners,admin_users:renderAdminUsers,admin_livelihoods:renderAdminLivelihoods,admin_schemes:renderAdminSchemes,admin_audit:renderAdminAuditLog,admin_import:renderAdminImport,admin_photo_migration:renderAdminPhotoMigration,admin_advocacy_backfill:renderAdminAdvocacyBackfill,admin_dedup_ids:renderAdminDedupIds,admin_delete_dupes:renderAdminDeleteDupes,admin_scheme_rename:renderAdminSchemeRename,admin_bandwidth:renderAdminBandwidth};
+const _navRoutes_v32={reports:renderReports,dashboard:renderDashboard,beneficiaries:renderAllBeneficiaries,list:renderLivelihood,ngo:renderNGO,alerts:renderAlerts,map:renderMap,integrated:renderIntegrated,advocacy:renderAdvocacy,admin_partners:renderAdminPartners,admin_users:renderAdminUsers,admin_livelihoods:renderAdminLivelihoods,admin_schemes:renderAdminSchemes,admin_audit:renderAdminAuditLog,admin_import:renderAdminImport,admin_photo_migration:renderAdminPhotoMigration,admin_advocacy_backfill:renderAdminAdvocacyBackfill,admin_dedup_ids:renderAdminDedupIds,admin_delete_dupes:renderAdminDeleteDupes,admin_scheme_rename:renderAdminSchemeRename,admin_partner_move:renderAdminPartnerMove,admin_bandwidth:renderAdminBandwidth};
 
 // ── V357: tab-render cache (admin Lite Mode) ──────────────────────────────
 // Memoises each _navRoutes_v32 renderer's output keyed on
@@ -24269,7 +25280,7 @@ function _v361LoadingSkeleton(viewName) {
   const labels = {
     dashboard:'Dashboard', beneficiaries:'All Beneficiaries', list:'Livelihood',
     ngo:'NGO Partners', integrated:'Integrated View', advocacy:'Advocacy',
-    admin_audit:'Audit Log', admin_bandwidth:'Bandwidth Usage'
+    admin_audit:'Audit Log', admin_partner_move:'Move Records Between Partners',admin_bandwidth:'Bandwidth Usage'
   };
   const label = labels[viewName] || (viewName.charAt(0).toUpperCase() + viewName.slice(1));
   return ''
@@ -24426,7 +25437,7 @@ window.nav=function(v){
   const mobKey=mobMap[v];
   document.querySelectorAll('.mob-nav-item').forEach(b=>b.classList.remove('active'));
   if (mobKey) { const mb=document.getElementById('mob-nav-'+mobKey); if(mb)mb.classList.add('active'); }
-  const titles={dashboard:'Dashboard',beneficiaries:'All Beneficiaries',list:'Livelihood',ngo:'NGO Partners',alerts:'Alerts & Flags',map:'Field Map',integrated:'Integrated View',advocacy:'Advocacy',admin_partners:'Partner Management',admin_users:'User Management',admin_livelihoods:'Livelihood Management',admin_schemes:'Advocacy Management',admin_audit:'Audit Log',admin_bandwidth:'Bandwidth Usage'};
+  const titles={dashboard:'Dashboard',beneficiaries:'All Beneficiaries',list:'Livelihood',ngo:'NGO Partners',alerts:'Alerts & Flags',map:'Field Map',integrated:'Integrated View',advocacy:'Advocacy',admin_partners:'Partner Management',admin_users:'User Management',admin_livelihoods:'Livelihood Management',admin_schemes:'Advocacy Management',admin_audit:'Audit Log',admin_partner_move:'Move Records Between Partners',admin_bandwidth:'Bandwidth Usage'};
   // For NGO logins the "ngo" page shows their team (FCs), not partners — retitle.
   const _navUser = (typeof currentUser === 'function') ? currentUser() : null;
   if (v === 'ngo' && _navUser && (_navUser.role === 'ngo' || _navUser.role === 'scopedViewerByFc')) titles.ngo = 'Team Report';
@@ -26705,14 +27716,28 @@ function _auditActionLabel(e) {
   // lifecycle; "Status" = scheme status.
   const a = (typeof e === 'string') ? e : e.action;
   const recordType = (typeof e === 'object') ? e.recordType : null;
+  // V19.4: the filter dropdown passes a bare action STRING, and one action
+  // - status_change - renders as two different labels depending on the
+  // record type. The dropdown option used to say "Stage Changed" while
+  // half the rows it returned said "Status Changed". With no record type
+  // to split on, the honest label is both.
+  if (typeof e === 'string' && a === 'status_change') return 'Stage / Status Changed';
   if (a === 'update' && recordType === 'advocacy') return 'Status Changed';
+  // V19 [5]: a scheme reaching 'Benefits Received' is a STATUS change, not a
+  // STAGE change. The dashboard was fixed first and this was missed, so the
+  // Audit Log tab, its filter dropdown and the CSV export all still called it
+  // a stage change - the same event under two names, which is exactly the
+  // confusion the fix set out to remove.
+  if (a === 'status_change' && recordType === 'advocacy') return 'Status Changed';
   const map = {
     // V8.8: every button, tooltip and confirm dialog in the app says "sign
     // in"/"sign out"; only this audit label still said Login/Logout. Display
     // only — the stored action strings are unchanged, so old entries re-label
     // correctly too.
     login:'Signed in', logout:'Signed out',
-    create:'Created', update:'Updated', delete:'Deleted',
+    // V19.5: an advocacy `update` row renders as "Status Changed", so the
+    // dropdown that filters for it cannot call it only "Updated".
+    create:'Created', update:'Updated / Status Changed', delete:'Deleted',
     status_change:'Stage Changed', reassign:'Reassigned',
     endline_complete:'Endline Completed', endline_update:'Endline Updated'
   };
@@ -26726,7 +27751,10 @@ function _auditRecordTypeLabel(t) {
   };
   return map[t] || t;
 }
-function _auditActionColor(a) {
+function _auditActionColor(a, e) {
+  // V19 [5]: same split as the label, so the two words never share a colour.
+  const rt = (e && typeof e === 'object') ? e.recordType : null;
+  if (rt === 'advocacy' && (a === 'status_change' || a === 'update')) return '#0EA5E9';
   if (a === 'create' || a === 'login') return '#10B981';
   if (a === 'delete' || a === 'logout') return '#EF4444';
   if (a === 'update' || a === 'endline_update') return 'var(--navy2)';
@@ -26887,6 +27915,25 @@ function _filteredAudit() {
     }
   } catch(_) {}
 
+  // V19.2: counters drain into the flush so a value is only ever counted once.
+  function _v192TakeCounter(k) {
+    try {
+      const v = (window._v192Counters && window._v192Counters[k]) || 0;
+      if (window._v192Counters) window._v192Counters[k] = 0;
+      return v;
+    } catch (_) { return 0; }
+  }
+  // A random tag per browser profile, made once and kept. No personal data -
+  // it exists solely so 'how many laptops does this account use' has an
+  // answer on the Bandwidth screen instead of a guess.
+  function _v192MachineTag() {
+    try {
+      let t = localStorage.getItem('_v192_machine');
+      if (!t) { t = 'm' + Math.random().toString(36).slice(2, 8); localStorage.setItem('_v192_machine', t); }
+      const o = {}; o[t] = Date.now(); return o;
+    } catch (_) { return {}; }
+  }
+
   function _dateStr() {
     const d = new Date();
     return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
@@ -26924,6 +27971,15 @@ function _filteredAudit() {
         sessions: (prev.sessions || 0) + sessionInc,
         enrollments: (prev.enrollments || 0) + _bw.enrollments,
         reconnects: (prev.reconnects || 0) + (_bw.reconnects || 0),
+        // V19.2: the four counters that say whether the saved-copy machinery
+        // worked, and an anonymous per-browser tag so the Machines column can
+        // say how many laptops an account really signs in from. A few bytes.
+        pantryHit: (prev.pantryHit || 0) + _v192TakeCounter('pantryHit'),
+        pantryMiss: (prev.pantryMiss || 0) + _v192TakeCounter('pantryMiss'),
+        saveFailed: (prev.saveFailed || 0) + _v192TakeCounter('saveFailed'),
+        fellThrough: (prev.fellThrough || 0) + _v192TakeCounter('fellThrough'),
+        persisted: (typeof _v192Persisted === 'string') ? _v192Persisted : '',
+        machines: Object.assign({}, prev.machines || {}, _v192MachineTag()),
         lastUpdate: Date.now()
       });
       _bw.lastFlush = _bw.sessionBytes;
@@ -26987,6 +28043,13 @@ async function renderAdminBandwidth() {
         + '<td style="padding:8px 10px;font-size:12px;text-align:right">' + (r.sessions || 0) + '</td>'
         + '<td style="padding:8px 10px;font-size:12px;text-align:right">' + (r.enrollments || 0) + '</td>'
         + '<td style="padding:8px 10px;font-size:12px;text-align:right;color:' + ((r.reconnects||0) > 20 ? '#7F1D1D' : '#1F2937') + '">' + (r.reconnects || 0) + '</td>'
+        // V19.2: the three cells that say whether the saved-copy machinery is
+        // working for this account. 'Saved copy' reads hits/misses; a red
+        // number under 'Problems' is save-failures + whole-database
+        // fall-throughs, either of which explains an expensive day.
+        + '<td style="padding:8px 10px;font-size:12px;text-align:right">' + (r.pantryHit || 0) + ' / ' + (r.pantryMiss || 0) + '</td>'
+        + '<td style="padding:8px 10px;font-size:12px;text-align:right;color:' + (((r.saveFailed||0)+(r.fellThrough||0)) > 0 ? '#7F1D1D;font-weight:600' : '#1F2937') + '">' + ((r.saveFailed || 0) + (r.fellThrough || 0)) + '</td>'
+        + '<td style="padding:8px 10px;font-size:12px;text-align:right">' + Object.keys(r.machines || {}).length + '</td>'
         + '</tr>';
     }).join('');
 
@@ -27048,8 +28111,11 @@ async function renderAdminBandwidth() {
     html += '<th style="padding:10px;font-size:11px;font-weight:600;color:var(--gray2);text-align:right">Sessions</th>';
     html += '<th style="padding:10px;font-size:11px;font-weight:600;color:var(--gray2);text-align:right">Enrollments</th>';
     html += '<th style="padding:10px;font-size:11px;font-weight:600;color:var(--gray2);text-align:right">Reconnects</th>';
+    html += '<th style="padding:10px;font-size:11px;font-weight:600;color:var(--gray2);text-align:right" title="Times the saved copy was used / times a full download was needed">Saved copy</th>';
+    html += '<th style="padding:10px;font-size:11px;font-weight:600;color:var(--gray2);text-align:right" title="Copy could not be saved, or a login had to be refused the whole-database fallback">Problems</th>';
+    html += '<th style="padding:10px;font-size:11px;font-weight:600;color:var(--gray2);text-align:right" title="How many different browsers/laptops this account signed in from">Machines</th>';
     html += '</tr></thead><tbody>';
-    html += rows.length === 0 ? '<tr><td colspan="6" style="padding:30px;text-align:center;color:var(--gray2)">No data for this date.</td></tr>' : tableRows;
+    html += rows.length === 0 ? '<tr><td colspan="9" style="padding:30px;text-align:center;color:var(--gray2)">No data for this date.</td></tr>' : tableRows;
     html += '</tbody></table></div>';
     html += '<p style="font-size:11px;color:var(--gray2);margin-top:12px">V355 measurement: REST fetch + SDK once() + SDK on() listener bytes. Updates every 5 minutes per user. WebSocket framing overhead (~10–30%) still uncounted — for ground truth compare against Firebase Console daily usage.</p>';
     html += '<div style="margin-top:8px"><button onclick="window._bwFlush && window._bwFlush(true)" style="background:var(--navy);color:#fff;border:none;padding:6px 14px;border-radius:4px;font-size:12px;cursor:pointer">Flush my counter now</button></div>';
@@ -27101,7 +28167,11 @@ function renderAdminAuditLog() {
   const rowsHtml = pageRows.length === 0
     ? '<tr><td colspan="6" style="padding:40px;text-align:center;color:var(--gray2)">No audit entries match.</td></tr>'
     : pageRows.map(e => {
-        const col = _auditActionColor(e.action);
+        // V19.1: pass the event. V19 added the second parameter and did not update
+    // the one call site, one line above the call it DID update - so the colour
+    // split was dead code and the same event was blue on one screen and purple
+    // on the other.
+    const col = _auditActionColor(e.action, e);
         const label = _auditActionLabel(e);
         const rtype = _auditRecordTypeLabel(e.recordType);
         const displayName = (e.userId && fullNameById[e.userId]) || e.username || '(system)';
@@ -28448,18 +29518,27 @@ async function applyMoveFc() {
   const srcName = src.fullName || src.username;
   const oldNgo = src.ngo;
 
+  // V19.5: these five are for the CONFIRMATION TEXT only - see below.
+  const pBenefIds = new Set(loadData().filter(b => b && b.createdBy === srcId).map(b => b.id));
+  const pMovedCount = pBenefIds.size;
+  const movedAdvCount = loadAdv().filter(a => a && pBenefIds.has(a.bid)).length;
+
+  const ok = await showConfirmModal(
+    `Move ${srcName} from ${oldNgo || '(no NGO)'} to ${dstName}?\n\n` +
+    `This moves the FC's login, ${pMovedCount} beneficiar${pMovedCount === 1 ? 'y' : 'ies'}, and ${movedAdvCount} scheme/advocacy record${movedAdvCount === 1 ? '' : 's'} to ${dstName}. ` +
+    `${srcName} keeps every beneficiary — this only changes which NGO they're tagged under. Fully audit-logged. This does not delete anything.`,
+    { danger: true, okLabel: 'Move', title: 'Confirm NGO move' });
+  if (!ok) return;
+
+  // V19.5: ⛔ read the data AFTER the dialog, never before it. Holding the
+  // whole dataset across a human-length pause meant anything the sync
+  // changed in between - a delete arriving from another device - was
+  // written straight back from this stale copy. V18.9's move tool
+  // already reads in this order; this one did not.
   const data = loadData();
   const movedBenef = data.filter(b => b && b.createdBy === srcId);
   const benefIds = new Set(movedBenef.map(b => b.id));
   const advAll = loadAdv();
-  const movedAdvCount = advAll.filter(a => a && benefIds.has(a.bid)).length;
-
-  const ok = await showConfirmModal(
-    `Move ${srcName} from ${oldNgo || '(no NGO)'} to ${dstName}?\n\n` +
-    `This moves the FC's login, ${movedBenef.length} beneficiar${movedBenef.length === 1 ? 'y' : 'ies'}, and ${movedAdvCount} scheme/advocacy record${movedAdvCount === 1 ? '' : 's'} to ${dstName}. ` +
-    `${srcName} keeps every beneficiary — this only changes which NGO they're tagged under. Fully audit-logged. This does not delete anything.`,
-    { danger: true, okLabel: 'Move', title: 'Confirm NGO move' });
-  if (!ok) return;
 
   _moveFcInFlight = true;
   const btn = document.getElementById('movefc-apply-btn');
@@ -30749,6 +31828,10 @@ async function doLogout() {
   // V331 FIX (S2.16): reset all UI filters so they don't leak into the next session.
   try {
     stateFilter = ''; ngoFilter = ''; fcFilter = '';
+    // V19.5: signing out does NOT reload the page, so this flag had to be
+    // cleared here - otherwise the second person to sign in on a shared
+    // laptop got no warning and no count when their scope was missing.
+    try { window._v192FellThisBoot = false; } catch (_) {}
     baselineFrom = ''; baselineTo = '';
     endlineFrom  = ''; endlineTo  = '';
     ['state-filter','ngo-filter','mob-state-filter','mob-ngo-filter','f-baseline-from','f-baseline-to','f-endline-from','f-endline-to'].forEach(id => {
@@ -31159,12 +32242,11 @@ function _v362ComputeOneSummary(records, advRecords, ngoScope, prefiltered) {
     if (parts.length >= 1 && parts[0]) distSet.add((parts[0]||'').trim());
   }
   let totalIncome = 0;
-  for (const b of recs) {
-    if (b.endIncome != null && b.baseIncome != null) {
-      const d = (Number(b.endIncome)||0) - (Number(b.baseIncome)||0);
-      if (d > 0) totalIncome += d;
-    }
-  }
+  // V19.3: the one rule - see _v193Delta. This is the stored summary that
+  // donors and Team Leaders read; it used to count any record with an
+  // endline income, which also made livelihood.totalIncomeAdded (which
+  // reuses this figure) not actually a livelihood number.
+  for (const b of recs) totalIncome += _v193Delta(b);
 
   // ---- Advocacy tab ----
   // Reuse _advLatestRowsAll if available (it's already cached) — fallback to
@@ -31175,9 +32257,12 @@ function _v362ComputeOneSummary(records, advRecords, ngoScope, prefiltered) {
   } catch(_) { allRows = []; }
   // Filter to scope's advocacy rows (the cache returns ALL — re-filter by bid here)
   const scopedBidSet = new Set(recs.map(b => b.id));
-  if (ngoScope) {
-    allRows = allRows.filter(r => scopedBidSet.has(r.__bid));
-  }
+  // V19.5: ⛔ ALWAYS, not just for a partner scope. Every screen counts a
+  // benefit only when its beneficiary is in view (the dashboard tile does
+  // exactly this), but the GLOBAL summary skipped the check and counted
+  // scheme rows whose beneficiary no longer exists - so the stored figure
+  // sat above the tile on the same data.
+  allRows = allRows.filter(r => scopedBidSet.has(r.__bid));
   let needApply=0, applied=0, rejected=0, received=0, totalAmt=0;
   for (const r of allRows) {
     if (r._deleted) continue;
@@ -31303,8 +32388,14 @@ function _v362ComputeOneSummary(records, advRecords, ngoScope, prefiltered) {
     livelihood: {
       total: livRecs.length,
       totalIncomeAdded: totalIncome,
-      withEndline: livRecs.filter(b => b.endIncome != null).length,
-      pending: livRecs.filter(b => b.endIncome == null).length,
+      // V19.4: the stage rule, same as every screen since V19.1 - the mobile
+      // viewer read "With Endline: 2" while the dashboard read "From 1
+      // endline", on today's real data. The V19 complaint, one screen on.
+      withEndline: livRecs.filter(_v19HasEndline).length,
+      // V19.5: ⛔ pending was left on the OLD rule while withEndline moved to
+      // the new one, so this writer and the fleet recompute disagreed by one on
+      // the SAME node - and the viewer's card stopped adding up.
+      pending: livRecs.filter(b => !_v19HasEndline(b)).length,
     },
     advocacy: {
       totalBeneficiaries: advBidSet.size,
@@ -31408,11 +32499,8 @@ async function _v400ComputeAllSummaries(records, advRecords) {
     const state = parts.length >= 2 ? parts[parts.length - 1].trim() : null;
     const dist  = (parts.length >= 1 && parts[0]) ? (parts[0] || '').trim() : null;
     const isLiv = (b.interventions || []).some(function(x){ return x && x !== ADV_SENTINEL; });
-    let inc = 0;
-    if (b.endIncome != null && b.baseIncome != null) {
-      const d = (Number(b.endIncome) || 0) - (Number(b.baseIncome) || 0);
-      if (d > 0) inc = d;
-    }
+    // V19.3: the one rule - see _v193Delta.
+    const inc = _v193Delta(b);
     const wk = _v400WeekKey(b.enrollDate);
     const ist = _v400IstDayMemo(b.enrollDate);
     for (const c of ctxs) {
@@ -31421,7 +32509,7 @@ async function _v400ComputeAllSummaries(records, advRecords) {
       if (state) c.states.add(state);
       if (dist) c.dists.add(dist);
       c.totalIncome += inc;
-      if (isLiv) { c.liv++; if (b.endIncome != null) c.withEnd++; }
+      if (isLiv) { c.liv++; if (_v19HasEndline(b)) c.withEnd++; }
       if (wk) {
         if (!c.weeks[wk]) c.weeks[wk] = { week: wk, enrolled: 0, applied: 0, received: 0, rejected: 0 };
         c.weeks[wk].enrolled++;
@@ -31516,7 +32604,14 @@ async function _v400ComputeAllSummaries(records, advRecords) {
     const r = _v187Shared[i];
     if (!r || !r.scheme) continue;
     const key = r.__bid + '::' + r.scheme + '::' + (r.remarks || '');
+    // V19.5: ⛔ `scheme` was dropped here, and the valuation rule reads it to
+    // find the standard amount for a benefit with no typed figure. Without
+    // it every one of the 5,874 blank benefits was worth zero, so the
+    // summary an ADMIN writes came out Rs 5.65 crore below the same
+    // partner's summary written by the partner - the same node, flipping by
+    // crores depending on who saved last.
     const row = { status: r.status, benefitRecd: r.benefitRecd, benefitAmt: r.benefitAmt,
+                  scheme: r.scheme,
                   _deleted: r._deleted, __bid: r.__bid };
     gRows[key] = row;
     // the partner bucket follows the RECORD's partner, exactly as before
@@ -31539,7 +32634,11 @@ async function _v400ComputeAllSummaries(records, advRecords) {
     }
     return out;
   }
-  global._rowCounts = await countRows(gRows, null);               // global: NO bid filter (matches _v362)
+  // V19.5: ⛔ the global summary skipped the beneficiary check that every
+  // screen applies, so it counted scheme rows whose beneficiary no longer
+  // exists and sat above the dashboard tile on the same data. Same rule
+  // now, everywhere.
+  global._rowCounts = await countRows(gRows, global.recIds);
   await _v400Yield();
   for (const n in byNgo) {
     byNgo[n]._rowCounts = await countRows(nRows[n] || {}, byNgo[n].recIds);
@@ -31601,12 +32700,11 @@ function _v363ComputeFcSlice(records, advAll, user) {
   for (const a of adv) { if (a && a.bid) advBidSet.add(a.bid); }
   const advRecsCount = recs.filter(b => advBidSet.has(b.id)).length;
   let totalIncome = 0;
-  for (const b of recs) {
-    if (b.endIncome != null && b.baseIncome != null) {
-      const d = (Number(b.endIncome)||0) - (Number(b.baseIncome)||0);
-      if (d > 0) totalIncome += d;
-    }
-  }
+  // V19.3: the one rule - see _v193Delta. This is the stored summary that
+  // donors and Team Leaders read; it used to count any record with an
+  // endline income, which also made livelihood.totalIncomeAdded (which
+  // reuses this figure) not actually a livelihood number.
+  for (const b of recs) totalIncome += _v193Delta(b);
   // Advocacy row aggregation
   let allRows = [];
   try {
@@ -34402,7 +35500,11 @@ function _applyFilterLocks(u) {
         ngoFilt.appendChild(opt);
       }
       ngoFilt.value = u.ngo;
-      window.ngoFilter = u.ngo;
+      // V19.1: the same trap, fixed here too. V19 fixed one of the two and its
+  // own comment said the trap "was walked into again" - it was walked into a
+  // third time and left. Harmless today because getData() already scopes these
+  // roles, but it reads as a working guard and is not one.
+  ngoFilter = u.ngo;
     }
     if (mobNgoF && u.ngo) {
       if (!Array.from(mobNgoF.options).some(o => o.value === u.ngo)) {
@@ -39421,6 +40523,317 @@ async function _schemeRenameRunBackfill() {
     push('   No partial writes -- multi-path updates are atomic.', 'warn');
     _schemeRename.running = false;
     renderAdminSchemeRename();
+  }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// V18.9 — MOVE A COORDINATOR'S RECORDS TO ANOTHER PARTNER
+//
+// WHY THIS EXISTS. Hiteshkumar Maganbhai Solanki was a KRSF.Vijaynagar
+// coordinator until the end of July and is now with KRSF.Bhiloda. His account
+// was moved, but the 132 people he enrolled between 3 June and 1 July keep the
+// partner they were created under - correctly, because a record's partner is
+// fixed at enrolment and a coordinator cannot choose it. Guru wants those 132
+// to follow him.
+//
+// ⛔ NEITHER EXISTING TOOL CAN DO THIS, BY DESIGN. Transfer moves records
+// between coordinators and refuses to cross partners outright ("Transfers must
+// stay within one NGO"). Bulk Assign does set `ngo`, but it only ever lists
+// records already inside the partner you picked and only that partner's
+// coordinators as the destination, so the pair can never meet. That guard is
+// right: moving work between partners rewrites both partners' history, and it
+// should take a deliberate act rather than fall out of a two-step.
+//
+// ⛔ THE ADVOCACY RECORD CARRIES ITS OWN COPY OF THE PARTNER. 137,381 of
+// 137,382 advocacy records have an `ngo` field. Move the beneficiary alone and
+// the person lands in the new partner while their benefits stay counted under
+// the old one - and an NGO login, which queries advocacy by
+// orderByChild('ngo').equalTo(user.ngo), sees the people but none of their
+// schemes. V5.2 fixed exactly this hole in the partner-RENAME path; this tool
+// is written from that precedent rather than rediscovering it.
+//
+// ⛔ HOUSEHOLDS MUST NOT BE SPLIT. A family member is tied to a head by headId,
+// and the two must stay in the same partner or the family view breaks. The
+// tool refuses to run rather than move a head without its family, or a family
+// member without its head.
+//
+// Nothing is deleted and no record is created. The only field that changes is
+// `ngo`, on the beneficiary and on its advocacy record. createdBy and coord are
+// deliberately untouched - the coordinator is not changing, the partner is.
+// ═══════════════════════════════════════════════════════════════════════════
+let _pmove = { coordId: '', fromNgo: '', toNgo: '', running: false, result: null };
+
+function _pmoveReset() {
+  _pmove = { coordId: '', fromNgo: '', toNgo: '', running: false, result: null };
+}
+
+// Read-only scan. Uses the no-clone reader so opening the screen on 137k
+// records costs nothing measurable - same reason Bulk Assign uses it.
+function _pmoveScan() {
+  const out = { byNgo: new Map(), set: [], heads: 0, family: 0, benefits: 0,
+                split: [], advMissing: 0 };
+  if (!_pmove.coordId) return out;
+  const all = (typeof _loadDataRaw === 'function') ? _loadDataRaw() : loadData();
+  const his = all.filter(b => b && b.createdBy === _pmove.coordId);
+  for (const b of his) {
+    const g = b.ngo || '(none)';
+    out.byNgo.set(g, (out.byNgo.get(g) || 0) + 1);
+  }
+  if (!_pmove.fromNgo) return out;
+
+  out.set = his.filter(b => (b.ngo || '(none)') === _pmove.fromNgo);
+  const ids = new Set(out.set.map(b => b.id));
+
+  // ⛔ Household integrity, checked in BOTH directions across the whole
+  // dataset - not just this coordinator's records, because a family member
+  // may have been transferred to someone else while her head stayed put.
+  for (const b of out.set) {
+    if (b.headId && !ids.has(b.headId)) {
+      out.split.push({ id: b.id, name: b.name, why: 'its household head is not in this group' });
+    }
+  }
+  for (const b of all) {
+    if (b && b.headId && ids.has(b.headId) && !ids.has(b.id)) {
+      out.split.push({ id: b.id, name: b.name, why: 'belongs to a head that IS in this group' });
+    }
+  }
+
+  out.heads = out.set.filter(b => !b.headId).length;
+  out.family = out.set.filter(b => b.headId).length;
+
+  const adv = (typeof _loadAdvRaw === 'function') ? _loadAdvRaw() : loadAdv();
+  const byBid = new Map();
+  for (const a of adv) if (a && a.bid) byBid.set(a.bid, a);
+  for (const b of out.set) {
+    const a = byBid.get(b.id);
+    if (!a) { out.advMissing++; continue; }
+    for (const r of (a.schemeRows || [])) {
+      if (!r || r._deleted) continue;
+      if (r.status !== 'Need to Apply' && r.status !== 'Rejected' && r.benefitRecd === 'Yes') out.benefits++;
+    }
+  }
+  return out;
+}
+
+function _pmoveSet(field, val) {
+  _pmove[field] = val;
+  if (field === 'coordId') { _pmove.fromNgo = ''; _pmove.toNgo = ''; }
+  if (field === 'fromNgo') { _pmove.toNgo = ''; }
+  renderAdminPartnerMove();
+}
+
+function renderAdminPartnerMove() {
+  if (!isAdmin()) {
+    document.getElementById('content').innerHTML = '<div class="empty">Admin only.</div>';
+    return;
+  }
+  const coords = loadUsers().filter(u => u && u.role === 'coordinator')
+    .sort((a, b) => String(a.fullName || a.username).localeCompare(String(b.fullName || b.username)));
+  const partners = loadPartners().map(p => p.name).filter(Boolean).sort();
+  const scan = _pmoveScan();
+
+  const coordOpts = '<option value="">- Select the coordinator -</option>' +
+    coords.map(c => `<option value="${escHtml(c.id)}" ${c.id === _pmove.coordId ? 'selected' : ''}>` +
+      `${escHtml(c.fullName || c.username)} (${escHtml(c.ngo || 'no partner')})</option>`).join('');
+
+  const fromOpts = '<option value="">- Select which partner to move them out of -</option>' +
+    [...scan.byNgo.entries()].sort((a, b) => b[1] - a[1]).map(([g, n]) =>
+      `<option value="${escHtml(g)}" ${g === _pmove.fromNgo ? 'selected' : ''}>` +
+      `${escHtml(g)} - ${n} record${n === 1 ? '' : 's'}</option>`).join('');
+
+  const toOpts = '<option value="">- Select the partner they should move to -</option>' +
+    partners.filter(p => p !== _pmove.fromNgo).map(p =>
+      `<option value="${escHtml(p)}" ${p === _pmove.toNgo ? 'selected' : ''}>${escHtml(p)}</option>`).join('');
+
+  const chosen = coords.find(c => c.id === _pmove.coordId);
+  const ready = !!(_pmove.coordId && _pmove.fromNgo && _pmove.toNgo &&
+                   scan.set.length > 0 && scan.split.length === 0 && !_pmove.running);
+
+  let preview = '';
+  if (_pmove.coordId && _pmove.fromNgo) {
+    if (scan.split.length > 0) {
+      preview = `<div style="background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:14px;margin-top:14px">
+        <div style="font-weight:700;color:#991B1B;margin-bottom:6px">This move would split ${scan.split.length} household${scan.split.length === 1 ? '' : 's'} - it is blocked</div>
+        <div style="font-size:12.5px;color:#7F1D1D;line-height:1.6">A family member and their household head must stay with the same partner. Move these people together, or fix the grouping first.</div>
+        <div style="margin-top:10px;max-height:180px;overflow:auto">${scan.split.slice(0, 40).map(x =>
+          `<div style="font-size:12px;padding:3px 0;color:#7F1D1D">${escHtml(x.id)} - ${escHtml(x.name || '')} - ${escHtml(x.why)}</div>`).join('')}</div>
+      </div>`;
+    } else if (scan.set.length === 0) {
+      preview = `<div style="margin-top:14px;color:var(--gray2);font-size:13px">No records to move.</div>`;
+    } else {
+      preview = `<div style="background:var(--gray5);border:1px solid var(--gray4);border-radius:8px;padding:14px;margin-top:14px">
+        <div style="font-weight:700;color:var(--navy);margin-bottom:10px">What will move</div>
+        <div style="font-size:13px;line-height:1.9">
+          <div><strong>${scan.set.length}</strong> beneficiary record${scan.set.length === 1 ? '' : 's'} - ${scan.heads} household head${scan.heads === 1 ? '' : 's'} and ${scan.family} family member${scan.family === 1 ? '' : 's'}</div>
+          <div><strong>${scan.set.length - scan.advMissing}</strong> matching scheme record${(scan.set.length - scan.advMissing) === 1 ? '' : 's'}, moved at the same time so the benefits follow the people</div>
+          <div><strong>${scan.benefits}</strong> benefit${scan.benefits === 1 ? '' : 's'} already marked received will count under ${escHtml(_pmove.toNgo || 'the new partner')} instead of ${escHtml(_pmove.fromNgo)}</div>
+        </div>
+        <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--gray4);font-size:12.5px;color:var(--gray2);line-height:1.7">
+          The coordinator on each record does not change - only the partner. Nothing is deleted and no record is created. Every record gets its own entry in the audit log.
+          <br><strong style="color:var(--amber)">This changes both partners' past figures.</strong> ${escHtml(_pmove.fromNgo)} will show ${scan.set.length} fewer people and ${scan.benefits} fewer benefits; ${escHtml(_pmove.toNgo || 'the new partner')} that many more.
+        </div>
+      </div>`;
+    }
+  }
+
+  document.getElementById('content').innerHTML = `
+    <div style="max-width:760px">
+      <h2 style="margin:0 0 6px;font-size:19px;color:var(--navy)">Move a coordinator's records to another partner</h2>
+      <p style="color:var(--gray2);font-size:13px;line-height:1.7;margin:0 0 18px">
+        When a coordinator moves to a different partner, the people they enrolled stay with the partner they were enrolled under. That is usually right - the work was done there.
+        Use this only when those people should follow the coordinator to the new partner.
+      </p>
+
+      <div class="fg" style="margin-bottom:12px">
+        <label>Coordinator</label>
+        <select onchange="_pmoveSet('coordId', this.value)" ${_pmove.running ? 'disabled' : ''}>${coordOpts}</select>
+      </div>
+
+      ${_pmove.coordId ? `
+      <div class="fg" style="margin-bottom:12px">
+        <label>Move their records out of</label>
+        <select onchange="_pmoveSet('fromNgo', this.value)" ${_pmove.running ? 'disabled' : ''}>${fromOpts}</select>
+        ${chosen ? `<div style="font-size:12px;color:var(--gray2);margin-top:5px">Their account currently belongs to <strong>${escHtml(chosen.ngo || 'no partner')}</strong>.</div>` : ''}
+      </div>` : ''}
+
+      ${_pmove.fromNgo ? `
+      <div class="fg" style="margin-bottom:12px">
+        <label>And into</label>
+        <select onchange="_pmoveSet('toNgo', this.value)" ${_pmove.running ? 'disabled' : ''}>${toOpts}</select>
+      </div>` : ''}
+
+      ${preview}
+
+      <div style="margin-top:18px;display:flex;gap:10px;align-items:center">
+        <button class="btn btn-primary" id="pmove-apply" onclick="applyPartnerMove()" ${ready ? '' : 'disabled'}>
+          ${_pmove.running ? 'Moving...' : (scan.set.length && _pmove.toNgo ? `Move ${scan.set.length} record${scan.set.length === 1 ? '' : 's'}` : 'Move records')}
+        </button>
+        <button class="btn" onclick="_pmoveReset(); renderAdminPartnerMove();" ${_pmove.running ? 'disabled' : ''}>Start over</button>
+      </div>
+      <div id="pmove-err" style="display:none;margin-top:12px;background:#FEF2F2;border:1px solid #FCA5A5;color:#991B1B;border-radius:8px;padding:11px;font-size:13px"></div>
+      ${_pmove.result ? `<div style="margin-top:14px;background:#ECFDF5;border:1px solid #6EE7B7;color:#065F46;border-radius:8px;padding:12px;font-size:13px;line-height:1.7">${escHtml(_pmove.result)}</div>` : ''}
+    </div>`;
+}
+
+async function applyPartnerMove() {
+  const err = document.getElementById('pmove-err');
+  const showErr = m => { if (err) { err.textContent = m; err.style.display = 'block'; } };
+  if (_pmove.running) return;
+  const u = currentUser();
+  if (!u || u.role !== 'admin') return showErr('Only an administrator can move records between partners.');
+  if (!_pmove.coordId || !_pmove.fromNgo || !_pmove.toNgo) return showErr('Choose the coordinator, the partner to move out of, and the partner to move into.');
+  if (_pmove.fromNgo === _pmove.toNgo) return showErr('Those are the same partner.');
+
+  const partners = loadPartners().map(p => p.name);
+  if (!partners.includes(_pmove.toNgo)) return showErr(`"${_pmove.toNgo}" is not in the partner list. Add it under Admin - Partner Management first.`);
+
+  // ⛔ Re-scan at the moment of applying rather than trusting what the screen
+  // was showing. Somebody else may have enrolled, transferred or deleted a
+  // record since this page was drawn, and the household check has to be true
+  // NOW, not when the admin opened the tab.
+  const scan = _pmoveScan();
+  if (scan.set.length === 0) return showErr('Nothing to move - the records may have changed since this screen was drawn. Start over.');
+  if (scan.split.length > 0) return showErr(`This would split ${scan.split.length} household(s). Blocked. Start over and check the list.`);
+
+  const coord = loadUsers().find(c => c.id === _pmove.coordId);
+  const coordName = coord ? (coord.fullName || coord.username) : _pmove.coordId;
+
+  const ok = await showConfirmModal(
+    `Move ${scan.set.length} of ${escHtml(coordName)}'s records from ${escHtml(_pmove.fromNgo)} to ${escHtml(_pmove.toNgo)}?\n\n` +
+    `${scan.heads} household heads and ${scan.family} family members, with their scheme records, including ${scan.benefits} benefits already marked received.\n\n` +
+    `This changes both partners' past figures. Nothing is deleted. Every record is written to the audit log.`,
+    { danger: true, okLabel: 'Move ' + scan.set.length, title: 'Confirm partner move' });
+  if (!ok) return;
+
+  _pmove.running = true; _pmove.result = null;
+  if (err) err.style.display = 'none';
+  renderAdminPartnerMove();
+
+  try {
+    const ids = new Set(scan.set.map(b => b.id));
+
+    // ── 1. the beneficiaries ────────────────────────────────────────────────
+    const data = loadData();
+    const moved = [];
+    for (const b of data) {
+      if (!b || !ids.has(b.id)) continue;
+      if (b.ngo === _pmove.toNgo) continue;
+      b.ngo = _pmove.toNgo;
+      moved.push({ id: b.id, name: b.name });
+    }
+    if (moved.length === 0) throw new Error('nothing changed - the records may already be in that partner');
+    await saveData(data);
+
+    // ── 2. their advocacy, which carries its own copy of the partner ────────
+    // If this half fails the beneficiaries have already moved, so say so
+    // loudly and name the remedy rather than leaving a silent split - the
+    // same shape the V5.2 partner-rename cascade uses.
+    let advMoved = 0, advWarn = '';
+    try {
+      const adv = loadAdv();
+      let touched = 0;
+      for (const a of adv) {
+        if (!a || !ids.has(a.bid)) continue;
+        if (a.ngo === _pmove.toNgo) continue;
+        a.ngo = _pmove.toNgo;
+        touched++;
+      }
+      if (touched > 0) { await saveAdv(adv); advMoved = touched; }
+    } catch (e) {
+      // V19.4: ⛔ retry once before giving up - and the old remedy text was
+      // WRONG. 'Run this tool again' cannot finish the job: the scan selects by
+      // the beneficiaries' CURRENT partner, which is already the destination,
+      // so a re-run finds nothing to move. Review caught it. The message now
+      // states the remedy that actually works.
+      // V19.5: ⛔ if the first attempt WROTE and then threw, the retry finds
+      // nothing left to move - which is success, not failure. Treating it as
+      // failure told the admin a completed move had half-failed and put 0 in
+      // the audit trail when every record had in fact moved.
+      let _advOk2 = false;
+      try {
+        const adv2 = loadAdv();
+        let already = 0, t2 = 0;
+        for (const a of adv2) {
+          if (!a || !ids.has(a.bid)) continue;
+          if (a.ngo === _pmove.toNgo) { already++; continue; }
+          a.ngo = _pmove.toNgo; t2++;
+        }
+        if (t2 > 0) await saveAdv(adv2);
+        advMoved = already + t2;
+        _advOk2 = true;
+      } catch (_) {}
+      if (!_advOk2) {
+        advWarn = ' BUT their scheme records did NOT move (' +
+          ((e instanceof SaveError) ? e.message : (e && e.message) || e) +
+          '). The people are now under ' + _pmove.toNgo + ' while their benefits still count under ' +
+          _pmove.fromNgo + '. To repair: move these records BACK to ' + _pmove.fromNgo +
+          ' with this tool, then move them to ' + _pmove.toNgo + ' again - the second' +
+          ' pass carries the scheme records with it.';
+      }
+    }
+
+    // ── 3. the trail ────────────────────────────────────────────────────────
+    for (const m of moved) {
+      auditLog('reassign', 'beneficiary', m.id, m.name,
+        `Partner move: ${_pmove.fromNgo} -> ${_pmove.toNgo} (coordinator ${coordName} unchanged)`,
+        { ngo: [_pmove.fromNgo, _pmove.toNgo] });
+    }
+    auditLog('reassign', 'bulk', _pmove.coordId, coordName,
+      `Partner move of ${moved.length} beneficiaries and ${advMoved} scheme records: ` +
+      `${_pmove.fromNgo} -> ${_pmove.toNgo}`,
+      { count: moved.length, advocacy: advMoved, ngo: [_pmove.fromNgo, _pmove.toNgo] });
+
+    _pmove.result = `Moved ${moved.length} beneficiary record${moved.length === 1 ? '' : 's'} and ` +
+      `${advMoved} scheme record${advMoved === 1 ? '' : 's'} from ${_pmove.fromNgo} to ${_pmove.toNgo}.` + advWarn;
+    toast(advWarn ? 'Partly done - read the message on screen' : ('Moved ' + moved.length + ' records to ' + _pmove.toNgo),
+      advWarn ? 'warn' : 'success', advWarn ? 12000 : 5000);
+    _pmove.fromNgo = ''; _pmove.toNgo = '';
+  } catch (e) {
+    showErr((e instanceof SaveError) ? e.message : ('Move failed - nothing was changed. ' + ((e && e.message) || e)));
+  } finally {
+    _pmove.running = false;
+    renderAdminPartnerMove();
   }
 }
 
