@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V20.4-LIVE
+  KRSF Beneficiary Impact Tracker  -  V20.6-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,93 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V20.6-LIVE (2026-09-04 - three places V20.5 left saying the old number).
+
+    + WHY THERE IS A V20.6 AT ALL. V20.5 was put through an independent
+      review before upload. It found the fix correct and found three more
+      places carrying the SAME fault it had just removed - a figure on
+      screen contradicting the figure beside it. None had been uploaded, so
+      Guru never saw them; they are fixed here rather than shipped.
+
+    + THE COLUMN NOTES CONTRADICTED THE CARDS BY 28 AND 14. The four cards
+      now count the "Recorded by office staff" bucket. The little i beside
+      Applied and beside Benefits received still summed the coordinators
+      alone, so the card read 42,712 and the note two centimetres below it
+      read 42,684 - Guru's original complaint, moved down the screen. Both
+      notes now use the same total the cards use. Measured on the 31 Aug
+      data: 42,684 + 28 office = 42,712 applications, 26,989 + 14 = 27,003
+      benefits.
+
+    + AND ONE ARRAY INSTEAD OF SIX. The total is now built once at the top
+      of the function and read by the notes and the cards alike, so the two
+      cannot drift apart again by editing one and forgetting the other.
+      V20.5 rebuilt a 470-row array on each of its six calls.
+
+    + THE PARTNER TABLE COUNTED A BUCKET AS A PERSON. "Active FCs" is the
+      divisor for every per-coordinator average on the Partners tab and in
+      its export. It counted the office bucket, so three partners showed one
+      more active coordinator than they employ and their averages were
+      diluted by a head that does not exist. This is the same rule stated in
+      V20.5 and applied in one place short: a total counts the work, a
+      ranking counts the workers. The bucket keeps every figure it
+      contributes to the partner totals; it is no longer counted as staff.
+      A partner whose only in-window work is office work now shows 0 active
+      coordinators and a dash for the averages, which the renderer has
+      always handled.
+
+    + THE COORDINATOR CSV SAID BOTH "-" AND "0" FOR ONE MEASURE. The office
+      row wrote a dash under Livelihood (window) and a literal 0 under
+      Livelihood (all-time), so the same non-applicable measure appeared
+      twice in one row in two forms, and a filter for "partners with no
+      livelihood work" picked the row up as a real zero. Both are dashes now,
+      matching the screen.
+
+    + Tests: 57 files. v205fctotal.js grows from 11 checks to 31 and now
+      runs the whole survey TWICE - all-time and a 30-day window. That
+      matters: under all-time the windowed keys equal the all-time keys by
+      construction and the cards do not even render their all-time line, so
+      the V20.5 suite would have passed against half the fix reverted. It
+      also asserts the NEGATIVES the doctrine rests on - no office row in
+      the coordinator list, the office row rendered last and never as #1,
+      the office bucket outside Active FCs - and reads the CSV by column
+      NAME rather than by a hard-coded index.
+  V20.5-LIVE (2026-09-04 - the coordinator page was 14 benefits short of every
+  other screen).
+
+    + WHAT GURU SAW. Advocacy said 27,889 benefits received. Reports, on the
+      Advocacy timeline, said 27,889. Reports, on FC Performance, said
+      27,875. Applications were short by 28 in the same place.
+
+    + WHY. V18.7 found that advocacy saved under an admin or partner login,
+      for somebody whose coordinator name matches nobody, belonged to no row
+      at all, and gave that work its own labelled row - "Recorded by office
+      staff" - included in the partner rollup. That bucket is deliberately
+      NOT in fcList, because fcList is read as "the coordinators" by the
+      active/inactive split, the leaderboard and the conversion rate, and
+      this is not a person. But the four cards ABOVE the leaderboard summed
+      fcList, and those cards are TOTALS. So the office row sat on screen
+      carrying a tooltip that says it "counts in the totals above" while the
+      totals above did not count it.
+
+    + THE FIX IS ONE LINE AND ITS CHOICE OF SIDE. The cards now sum the
+      coordinators AND the office rows, exactly as the partner rollup has
+      since V18.7. The leaderboard, the active/inactive split and the
+      conversion rate are untouched: those ARE statements about people, and
+      the office bucket must stay out of them. A total counts the work; a
+      ranking counts the workers.
+
+    + AND THE CSV, WHICH WAS WORSE. The coordinator export sorted fcList and
+      filtered to rows with beneficiaries, so it dropped the office row
+      entirely - a spreadsheet made from that screen could not be reconciled
+      with the screen it came from. It now carries the same row the table
+      shows, at the end, with a dash where a person would have a figure.
+
+    + Tests: v205fctotal.js is new: it reads the number off the
+      card, off the Advocacy tab and out of the aggregation, and fails unless
+      all three agree. Seen failing on V20.4 first, short by exactly the 14
+      and 28 Guru reported. ⛔ A regex inside the CDP survey needs its
+      backslashes doubled - the survey is a template literal, so \s became s
+      and the check passed against text it had quietly mangled.
   V20.4-LIVE (2026-09-04 - the cleanup screen comes back out, and the sidebar
   gets shorter).
 
@@ -33,7 +120,7 @@
     + Nothing else changed. The dashboard, Reports, every partner and
       coordinator screen, the filter bar and the offline queue are untouched.
 
-    + Tests: 56 files. v204nav.js is new and replaces v203orphans.js, whose
+    + Tests: v204nav.js is new and replaces v203orphans.js, whose
       subject no longer exists. It checks what this release REMOVES, not just
       what it adds: the cleanup screen is gone from the route table, the
       title map, the never-cache set and the sidebar; the partner-move page
@@ -4255,7 +4342,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V20.4-LIVE';
+const APP_VERSION = 'V20.6-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -25210,7 +25297,15 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
       { ngo: n, activeFcs: 0, enrolled: 0,
         applied: 0, benefits: 0, livelihood: 0,                  // in-window
         appliedAll: 0, benefitsAll: 0, livelihoodAll: 0 };       // all-time
-    if (a.enrolledWin > 0 || a.advWin > 0) g.activeFcs++;
+    // ⛔ V20.6: WORK, YES. HEADCOUNT, NO. The office bucket is inside this
+    // loop on purpose - its applications and benefits belong in the partner's
+    // totals. But activeFcs is a COUNT OF PEOPLE and the divisor for every
+    // per-coordinator average on this tab and in its export, so counting the
+    // bucket showed three partners one more coordinator than they employ and
+    // diluted their averages by a head that does not exist. A partner whose
+    // only in-window work is office work now reads 0 active coordinators and
+    // a dash for the averages - a case the renderer has always handled.
+    if (!a._isOffice && (a.enrolledWin > 0 || a.advWin > 0)) g.activeFcs++;
     g.enrolled      += a.enrolledWin;
     // V12.3: the partner table's main figures are now WINDOWED, matching the
     // date chip, with the all-time totals carried alongside for the export and
@@ -25363,17 +25458,34 @@ function _rptRenderFc(A, nowMs) {
                        A.benefitsFellBack ? 'Benefits received (all-time)' : 'Benefits received',
                        'Livelihood','Data quality','Last active'];
   const scope = A.allTime ? 'in total, across all time' : 'inside the selected date window';
+
+  // V20.5: the four cards below are TOTALS, so they count every row the page
+  // knows about - including the "Recorded by office staff" bucket rendered
+  // under the leaderboard, which V18.7 created and which the partner rollup
+  // has counted ever since. Summing fcList alone left this page 14 benefits
+  // and 28 applications short of the Advocacy tab and of its own timeline,
+  // with an office row on screen whose tooltip promised it counted here.
+  // V20.6: and the column notes are the SAME claim as the cards, so they read
+  // the same total. Left summing fcList alone they said 42,684 while the card
+  // above them said 42,712 - the fault V20.5 removed, moved down the screen.
+  // Built ONCE here, above both readers, so the two cannot drift apart again.
+  // ⛔ fcList stays untouched everywhere else on this page. The leaderboard,
+  // the active/inactive split and the #1 marker are statements about PEOPLE,
+  // and this bucket is not one. A total counts the work; a ranking counts the
+  // workers.
+  const _v206AllRows = fcList.concat(A.officeRows || []);
+  const sum = k => _v206AllRows.reduce((s2, a) => s2 + (a[k] || 0), 0);
   const RPT_FC_TIPS = [
     '',
     'Beneficiaries this coordinator enrolled ' + scope + '.',
     'Scheme applications filed ' + scope + ' — every entry past "Need to Apply".'
       + (A.allTime ? '' : ' Applications filed from 30 July 2026 onward carry their own exact filing date; older ones fall back to the date the beneficiary’s advocacy record was created, which can place a late addition outside the window it was really filed in. That approximation shrinks as new applications replace old ones.')
-      + ' All-time total: ' + fcList.reduce((s, a) => s + a.applied, 0).toLocaleString('en-IN') + '.',
+      + ' All-time total: ' + sum('applied').toLocaleString('en-IN') + '.',
     (A.benefitsFellBack
       ? 'ALL-TIME, not the selected window. This app only began recording the DATE a benefit was received on 30 July 2026, and no benefit carries one yet — so a windowed figure would be nothing but zeros. Every benefit ever recorded is shown instead, and this column will start following the date filter on its own as soon as dated benefits exist.'
       : 'Benefits that arrived ' + scope + '.'
-        + (A.allTime ? '' : ' ⚠ This app only began recording the DATE a benefit was received on 30 July 2026, so benefits from before then cannot appear here — they still count in the all-time total of ' + fcList.reduce((s, a) => s + a.benefits, 0).toLocaleString('en-IN') + '.')),
-    'Beneficiaries enrolled ' + scope + ' who have at least one REAL livelihood activity — goat rearing, tailoring, a shop. The "Advocacy (Govt. Schemes)" entry is not a livelihood activity and is deliberately excluded, which is why a coordinator doing only advocacy work shows 0. All-time total: ' + fcList.reduce((s, a) => s + a.livelihood, 0).toLocaleString('en-IN') + '.',
+        + (A.allTime ? '' : ' ⚠ This app only began recording the DATE a benefit was received on 30 July 2026, so benefits from before then cannot appear here — they still count in the all-time total of ' + sum('benefits').toLocaleString('en-IN') + '.')),
+    'Beneficiaries enrolled ' + scope + ' who have at least one REAL livelihood activity — goat rearing, tailoring, a shop. The "Advocacy (Govt. Schemes)" entry is not a livelihood activity and is deliberately excluded, which is why a coordinator doing only advocacy work shows 0. All-time total: ' + sum('livelihood').toLocaleString('en-IN') + '.',
     'How complete their records are: the average of three checks — % of their beneficiaries with a phone number, % with a GPS location, and % with at least one photo. All-time, across every record they hold. A low score means paperwork is missing, not that the fieldwork was poor.',
     'The most recent day they enrolled someone or logged an advocacy update. Red means 30+ days with nothing at all. Not affected by the date filter.'
   ];
@@ -25441,7 +25553,8 @@ function _rptRenderFc(A, nowMs) {
       <td>${a.tot.toLocaleString('en-IN')}</td>
     </tr>`).join('');
 
-  const sum = k => fcList.reduce((s2, a) => s2 + (a[k] || 0), 0);
+  // sum() is defined at the top of this function, above the column notes,
+  // because the notes make the same claim these cards do and must agree.
   const win = _rptWinLabel();
   // V12.6: when a measure fell back to all-time its card must SAY all-time, and
   // the "All-time" line beneath is dropped — repeating the same number twice
@@ -25667,6 +25780,21 @@ window.rptExportFc = function () {
     a.tot ? Math.round(((a.phone / a.tot + a.gps / a.tot + a.photo / a.tot) / 3) * 100) : 0,
     a.last ? _istDate(a.last) : ''
   ]);
+  // V20.5: the office row is on the screen this file is made from, so it has
+  // to be in the file. It is appended after the sorted coordinators rather
+  // than sorted among them, matching the table, and it carries a dash in the
+  // columns that only mean something for a person.
+  (A.officeRows || []).filter(a => a.filed > 0).forEach(a => rows.push([
+    'Recorded by office staff', a.u.ngo || '',
+    '\u2014', a.appliedWin, a.benefitsWin, '\u2014',
+    // V20.6: a dash here too. An office bucket can never carry a livelihood
+    // activity - only the beneficiary pass increments that, and it has no
+    // office fallback - so writing the literal 0 beside the dash in the
+    // window column stated the same non-applicable measure two ways, and a
+    // filter for "no livelihood work" picked this row up as a real zero.
+    '\u2014', a.applied, a.benefits, '\u2014',
+    '\u2014', ''
+  ]));
   const W = ' (' + (rptRange ? rptRange + 'd' : 'all-time') + ')';
   // When Benefits fell back, its "window" column is really the all-time figure.
   // Saying so in the header is the whole difference between a usable file and a
