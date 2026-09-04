@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V20.3-LIVE
+  KRSF Beneficiary Impact Tracker  -  V20.4-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,36 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V20.4-LIVE (2026-09-04 - the cleanup screen comes back out, and the sidebar
+  gets shorter).
+
+    + THE CLEANUP RAN, SO THE SCREEN GOES. V20.3 added an admin screen to
+      remove the 1,215 scheme sheets whose beneficiary was not in the
+      database. It was run on 4 September: 1,215 removed, 0 kept, 0 failed.
+      The 21st export confirms it - zero sheets without a farmer, 1,39,540
+      sheets belonging to a living farmer all still present with every scheme
+      line intact, no beneficiary missing, one audit entry, and 1,214 new
+      deletion markers (the 1,215th key already carried one). A one-off tool
+      that stays in the file costs every coordinator ~7 KB of download on
+      every load, for ever, so it is removed here rather than left to rot.
+      The two saved copies remain outside the repository if it is ever needed.
+
+    + MOVE RECORDS BETWEEN PARTNERS NOW LIVES IN USER MANAGEMENT, beside
+      Transfer Beneficiaries, Move FC to NGO and Bulk Assign FC, with the same
+      tap-to-open note the other three carry. It is the fourth tool of exactly
+      the same kind - it moves who owns records - so the sidebar was the wrong
+      home for it. The route still exists and still works; only the doorway
+      moved. The sidebar is two entries shorter than it was this morning.
+
+    + Nothing else changed. The dashboard, Reports, every partner and
+      coordinator screen, the filter bar and the offline queue are untouched.
+
+    + Tests: 56 files. v204nav.js is new and replaces v203orphans.js, whose
+      subject no longer exists. It checks what this release REMOVES, not just
+      what it adds: the cleanup screen is gone from the route table, the
+      title map, the never-cache set and the sidebar; the partner-move page
+      still opens from its new button; and the other three tools in that
+      header still open. Seen failing on V20.3 first.
   V20.3-LIVE (2026-09-04 - the scheme sheets whose farmer is gone).
 
     + WHAT WAS FOUND. 1,215 advocacy records name a beneficiary id that is
@@ -3123,14 +3153,6 @@ body[data-shell="coord"] #_v352-install-btn {
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8m0 0l-3-3m3 3l3-3M3 14h10"/></svg>
       Advocacy Backfill
     </button>
-    <!-- V20.3: remove advocacy records whose beneficiary is not in the
-         database. VISIBLE for admin, same reasoning as the partner-move
-         tool above: this is a job for the person who runs the programme,
-         not for someone willing to type nav() into a console. -->
-    <button data-admin-only class="nav-btn" data-v="admin_orphan_sheets" onclick="nav('admin_orphan_sheets')">
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 2h6l3 3v9H4z"/><path d="M6 8h5M6 11h3"/><path d="M2 2l12 12"/></svg>
-      Sheets With No Farmer
-    </button>
     <button data-admin-only data-sidebar-hidden="true" class="nav-btn" data-v="admin_dedup_ids" onclick="nav('admin_dedup_ids')" style="display:none">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h8M2 12h5"/><circle cx="12" cy="11" r="3"/><path d="M11 11h2M12 10v2"/></svg>
       Fix Duplicate IDs
@@ -3150,7 +3172,12 @@ body[data-shell="coord"] #_v352-install-btn {
          is a recurring event, not a one-time correction - and asking a
          non-technical administrator to type nav('...') into a browser console
          is a worse risk than a button guarded by a preview and a confirmation. -->
-    <button data-admin-only class="nav-btn" data-v="admin_partner_move" onclick="nav('admin_partner_move')">
+    <!-- V20.4: reached from the Users page now, not the sidebar. It is the
+         fourth tool of the same kind as Transfer Beneficiaries, Move FC to
+         NGO and Bulk Assign FC, so it belongs with them; the sidebar is for
+         places, not operations. The button stays in the markup so nav() can
+         still mark it active while the page is open. -->
+    <button data-admin-only data-sidebar-hidden="true" class="nav-btn" data-v="admin_partner_move" onclick="nav('admin_partner_move')" style="display:none">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 5h8M7 2l3 3-3 3"/><path d="M14 11H6M9 8l-3 3 3 3"/></svg>
       Move Records Between Partners
     </button>
@@ -4228,7 +4255,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V20.3-LIVE';
+const APP_VERSION = 'V20.4-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -26239,7 +26266,7 @@ function renderReports() {
 }
 
 // ── Nav ───────────────────────────────────────────────────────────────────
-const _navRoutes_v32={reports:renderReports,dashboard:renderDashboard,beneficiaries:renderAllBeneficiaries,list:renderLivelihood,ngo:renderNGO,alerts:renderAlerts,map:renderMap,integrated:renderIntegrated,advocacy:renderAdvocacy,admin_partners:renderAdminPartners,admin_users:renderAdminUsers,admin_livelihoods:renderAdminLivelihoods,admin_schemes:renderAdminSchemes,admin_audit:renderAdminAuditLog,admin_import:renderAdminImport,admin_photo_migration:renderAdminPhotoMigration,admin_advocacy_backfill:renderAdminAdvocacyBackfill,admin_dedup_ids:renderAdminDedupIds,admin_delete_dupes:renderAdminDeleteDupes,admin_scheme_rename:renderAdminSchemeRename,admin_partner_move:renderAdminPartnerMove,admin_bandwidth:renderAdminBandwidth,admin_orphan_sheets:renderAdminOrphanSheets};
+const _navRoutes_v32={reports:renderReports,dashboard:renderDashboard,beneficiaries:renderAllBeneficiaries,list:renderLivelihood,ngo:renderNGO,alerts:renderAlerts,map:renderMap,integrated:renderIntegrated,advocacy:renderAdvocacy,admin_partners:renderAdminPartners,admin_users:renderAdminUsers,admin_livelihoods:renderAdminLivelihoods,admin_schemes:renderAdminSchemes,admin_audit:renderAdminAuditLog,admin_import:renderAdminImport,admin_photo_migration:renderAdminPhotoMigration,admin_advocacy_backfill:renderAdminAdvocacyBackfill,admin_dedup_ids:renderAdminDedupIds,admin_delete_dupes:renderAdminDeleteDupes,admin_scheme_rename:renderAdminSchemeRename,admin_partner_move:renderAdminPartnerMove,admin_bandwidth:renderAdminBandwidth};
 
 // ── V357: tab-render cache (admin Lite Mode) ──────────────────────────────
 // Memoises each _navRoutes_v32 renderer's output keyed on
@@ -26415,7 +26442,7 @@ function _v361LoadingSkeleton(viewName) {
 // Admin-only, because _v357CacheEnabled() is admin-only — which is why this was
 // invisible to all 559 coordinators and only ever hit the one person who could
 // open the map most often.
-const _v357NeverCache = new Set(['map', 'admin_orphan_sheets']);
+const _v357NeverCache = new Set(['map']);
 
 function _v357WrapRoute(view, originalFn) {
   const wrapped = function() {
@@ -26542,7 +26569,7 @@ window.nav=function(v){
   const mobKey=mobMap[v];
   document.querySelectorAll('.mob-nav-item').forEach(b=>b.classList.remove('active'));
   if (mobKey) { const mb=document.getElementById('mob-nav-'+mobKey); if(mb)mb.classList.add('active'); }
-  const titles={dashboard:'Dashboard',beneficiaries:'All Beneficiaries',list:'Livelihood',ngo:'NGO Partners',alerts:'Alerts & Flags',map:'Field Map',integrated:'Integrated View',advocacy:'Advocacy',admin_partners:'Partner Management',admin_users:'User Management',admin_livelihoods:'Livelihood Management',admin_schemes:'Advocacy Management',admin_audit:'Audit Log',admin_partner_move:'Move Records Between Partners',admin_bandwidth:'Bandwidth Usage',admin_orphan_sheets:'Sheets With No Farmer'};
+  const titles={dashboard:'Dashboard',beneficiaries:'All Beneficiaries',list:'Livelihood',ngo:'NGO Partners',alerts:'Alerts & Flags',map:'Field Map',integrated:'Integrated View',advocacy:'Advocacy',admin_partners:'Partner Management',admin_users:'User Management',admin_livelihoods:'Livelihood Management',admin_schemes:'Advocacy Management',admin_audit:'Audit Log',admin_partner_move:'Move Records Between Partners',admin_bandwidth:'Bandwidth Usage'};
   // For NGO logins the "ngo" page shows their team (FCs), not partners — retitle.
   const _navUser = (typeof currentUser === 'function') ? currentUser() : null;
   if (v === 'ngo' && _navUser && (_navUser.role === 'ngo' || _navUser.role === 'scopedViewerByFc')) titles.ngo = 'Team Report';
@@ -27327,6 +27354,7 @@ function renderAdminUsers() {
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-sm" onclick="openTransferTool()" title="Move selected beneficiaries from one FC to another (same NGO)">⇄ Transfer Beneficiaries${_rptTip("Moves the people you choose from one coordinator to another inside the SAME partner. It changes who owns those records - they leave one coordinator list and join another - while the people, their schemes and their history stay exactly as they are. It will not move anyone to a different partner; that is what Move FC to NGO is for. Nothing changes until you pick the people and confirm.")}</button>
           <button class="btn btn-sm" onclick="openMoveFcTool()" title="Move an FC + all their beneficiaries + advocacy records to a different NGO">⇄ Move FC to NGO${_rptTip("Moves one coordinator to a different partner and takes all their people and scheme records with them. This rewrites the partner name on every one of those records, so every total counted by partner changes afterwards. Nothing changes until you pick the coordinator and the new partner and confirm.")}</button>
+          <button class="btn btn-sm" onclick="nav('admin_partner_move')" title="Move one coordinator's records from one partner to another. Blocks the move if it would split a household.">⇄ Move Records Between Partners${_rptTip("Moves the records one coordinator holds out of one partner and into another. It rewrites the partner name on every record it moves, so partner totals change on both sides afterwards. It refuses outright if the move would separate a family member from their household head. It shows you exactly what will move and changes nothing until you confirm.")}</button>
           <button class="btn btn-sm" onclick="openBulkAssignTool()" title="Assign many beneficiaries (e.g. freshly bulk-imported, still-unassigned) to a Field Coordinator at once">📥 Bulk Assign FC${_rptTip("Hands a coordinator a batch of people in one go, normally straight after a bulk import. It offers only people inside the partner you pick, and by default only those who have no coordinator yet, so it does not quietly take anyone off somebody else. Nothing changes until you confirm.")}</button>
           ${_v11IsAdmin?`<button class="btn btn-sm" onclick="adminRefreshUsers()" title="Fetch the staff list from the server again. Use this if somebody added a user on another device and you cannot see them here.">↻ Refresh users${_rptTip("Fetches the staff list from the server again. Use it when somebody added or changed a user on another device and you cannot see them here. It only reads - nothing is written and nobody is affected.")}</button>`:''}
           ${_v11IsAdmin?`<button class="btn btn-sm" onclick="adminRequirePinChange()" title="Ask the people currently listed below to choose their own PIN next time they open the app. Filter by NGO first to do one NGO at a time. Does not change anyone's password and cannot lock anyone out.">🔑 Require PIN change${_v11PendingCount?` <span style="color:var(--gray2);font-weight:400">(${_v11PendingCount} asked)</span>`:''}${_rptTip("Asks the people currently listed below to choose their own PIN the next time they open the app. Their present password keeps working until they do, so nobody is locked out and no password is changed. Filter by partner first if you want to do one partner at a time; it tells you how many will be asked and does nothing until you confirm.")}</button>`:''}
@@ -41375,360 +41403,6 @@ async function _delDupDelete() {
   _delDupState.phase   = 'done';
   _delDupLog('\nDone. ' + deleted + ' deleted, ' + failed + ' failed.');
   renderAdminDeleteDupes();
-}
-
-// ── V20.3: scheme sheets whose beneficiary no longer exists ───────────────
-// WHY THIS EXISTS. Two old paths removed a beneficiary without removing their
-// advocacy record: the Delete-Duplicate-Records tool (hard-disabled in V358
-// after the 28 May 2026 incident) called fbRef('beneficiaries/'+id).remove()
-// and stopped there, and the pre-V310-S2 delete had no advocacy cascade at
-// all. 1,215 advocacy records in production still name a beneficiary id that
-// is not in the database - 707 of people deleted deliberately (tombstone
-// present, mostly the 3 June Poshina cleanup) and 507 with no record of any
-// deletion, created 28 Apr - 26 May 2026.
-//
-// They are invisible everywhere. Every view joins through the beneficiary, so
-// nothing on the dashboard, in Reports, or in any partner or coordinator
-// login counts them - measured by sweeping all 22 routes as admin, as an NGO
-// login and as a coordinator, with and without them: the page text comes back
-// character-identical. The single exception is the admin scheme-usage tally,
-// which counts scheme LINES and so reads about 1% high (98,436 against
-// 97,492). 3,717 of their 3,862 lines say 'Need to Apply'; 143 say 'Applied'.
-//
-// ⛔ SAFETY RULES BELOW, EVERY ONE DELIBERATE:
-//   1. It NEVER calls saveAdv() or saveData(). Those write the WHOLE
-//      collection, and a whole-collection write is the shape behind every
-//      mass-delete this app has suffered. Each sheet is removed on its own
-//      path, one at a time.
-//   2. A cache miss is not proof. The beneficiary is read LIVE from Firebase
-//      immediately before each removal; if that read finds them, the sheet is
-//      kept and reported as skipped.
-//   3. It refuses to start until the beneficiary replay has finished, and
-//      refuses if the candidates exceed 2% of the advocacy collection. A
-//      half-loaded cache looks exactly like a mass orphaning, and must not be
-//      allowed to act like one.
-//   4. Cache and last-map are dropped TOGETHER. A surplus FB.lastAdv key
-//      becomes a REAL delete on the next whole-array save - see the invariant
-//      note in fbSyncCollection.
-//   5. A tombstone is written for every removal, stamped with SERVER time, so
-//      a device that was offline during the run cannot push the sheet back.
-//   6. The backup must be downloaded before the real removal unlocks.
-var _v203 = { phase: 'idle', cand: [], log: [], removed: 0, skipped: 0, failed: 0,
-              backedUp: false, stop: false, scanErr: '', capRefused: '' };
-
-function _v203Log(s) {
-  _v203.log.push(s);
-  if (_v203.log.length > 500) _v203.log.shift();
-}
-
-function _v203HasWork(rec) {
-  var rows = (rec && rec.schemeRows) || [];
-  for (var i = 0; i < rows.length; i++) {
-    var x = rows[i];
-    if (!x || x._deleted) continue;
-    if ((x.status || '') !== 'Need to Apply') return true;
-    if (x.remarks && String(x.remarks).trim()) return true;
-  }
-  return false;
-}
-
-// Candidates straight from the local copy. This is a SHORTLIST, never an
-// instruction: _v203Scan checks every one of them against the live database.
-function _v203CandidatesFromCache() {
-  var out = [];
-  RecordCache.adv.forEach(function (rec, key) {
-    if (!rec) return;
-    if (rec.bid && RecordCache.benef.has(rec.bid)) return;
-    out.push({ key: key, bid: rec.bid || '', name: rec.bname || '',
-               ngo: rec.ngo || '', work: _v203HasWork(rec) });
-  });
-  out.sort(function (a, b) { return a.key < b.key ? -1 : (a.key > b.key ? 1 : 0); });
-  return out;
-}
-
-// Run one worker over a list a few items at a time. Plain, no dependencies.
-function _v203Pool(items, limit, worker, onTick) {
-  return new Promise(function (resolve, reject) {
-    var i = 0, active = 0, finished = 0, failure = null;
-    if (!items.length) { resolve(); return; }
-    function pump() {
-      if (failure) { if (active === 0) reject(failure); return; }
-      if (finished >= items.length) { resolve(); return; }
-      while (active < limit && i < items.length) {
-        (function (item) {
-          active++; i++;
-          Promise.resolve().then(function () { return worker(item); })
-            .catch(function (e) { failure = e; })
-            .then(function () {
-              active--; finished++;
-              if (onTick) onTick(finished);
-              pump();
-            });
-        })(items[i]);
-      }
-    }
-    pump();
-  });
-}
-
-async function _v203Scan() {
-  if (!isAdmin()) return;
-  if (_v203.phase === 'scanning' || _v203.phase === 'removing') return;
-  _v203.phase = 'scanning'; _v203.log = []; _v203.cand = [];
-  _v203.removed = 0; _v203.skipped = 0; _v203.failed = 0;
-  _v203.backedUp = false; _v203.stop = false; _v203.scanErr = ''; _v203.capRefused = '';
-  renderAdminOrphanSheets();
-  try {
-    // ⛔ rule 3: never act on a half-loaded copy.
-    if (!(FB && FB.benefReplayComplete)) {
-      throw new Error('the beneficiary list has not finished loading yet - wait a few seconds and scan again');
-    }
-    if (!RecordCache.benef.size || !RecordCache.adv.size) {
-      throw new Error('nothing is loaded on this device yet');
-    }
-    var shortlist = _v203CandidatesFromCache();
-    _v203Log('On this device: ' + RecordCache.benef.size.toLocaleString('en-IN') + ' farmers, ' +
-             RecordCache.adv.size.toLocaleString('en-IN') + ' scheme sheets.');
-    _v203Log(shortlist.length + ' sheet(s) name a farmer this device cannot find. Checking each one against the database...');
-    var cap = Math.max(50, Math.floor(RecordCache.adv.size * 0.02));
-    if (shortlist.length > cap) {
-      _v203.capRefused = shortlist.length + ' sheets looked orphaned, which is more than 2% of the collection. ' +
-        'That is far more likely to be a half-loaded copy than a real problem, so nothing was checked. ' +
-        'Sign out, sign in again, wait for the loading to finish, and scan again.';
-      throw new Error(_v203.capRefused);
-    }
-    // ⛔ rule 2: the local copy is only a shortlist. Ask the database.
-    var kept = [], came = 0, done = 0;
-    await _v203Pool(shortlist, 6, async function (c) {
-      if (!c.bid) { kept.push(c); return; }
-      var snap = await fbRef('beneficiaries/' + c.bid).once('value');
-      if (snap && snap.val()) { came++; return; }
-      kept.push(c);
-    }, function (n) {
-      done = n;
-      if (n % 100 === 0) { _v203Log('  checked ' + n + ' of ' + shortlist.length + '...'); renderAdminOrphanSheets(); }
-    });
-    kept.sort(function (a, b) { return a.key < b.key ? -1 : (a.key > b.key ? 1 : 0); });
-    _v203.cand = kept;
-    if (came) _v203Log('  ' + came + ' of them DO have a farmer in the database after all. Those are left alone.');
-    _v203Log('Ready: ' + kept.length + ' sheet(s) can be removed, ' +
-             kept.filter(function (c) { return c.work; }).length + ' of which record a real application.');
-    _v203.phase = 'scanned';
-  } catch (e) {
-    _v203.scanErr = (e && e.message) ? e.message : String(e);
-    _v203Log('Stopped: ' + _v203.scanErr);
-    _v203.phase = 'error';
-  }
-  renderAdminOrphanSheets();
-}
-
-// ⛔ rule 6: a copy leaves the building before anything is removed.
-function _v203Backup() {
-  if (!isAdmin() || _v203.phase !== 'scanned') return;
-  var records = {};
-  for (var i = 0; i < _v203.cand.length; i++) {
-    var rec = RecordCache.adv.get(_v203.cand[i].key);
-    if (rec) records[_v203.cand[i].key] = rec;
-  }
-  var payload = {
-    _note: 'Scheme sheets whose beneficiary is not in the database, taken from the KRSF Impact Tracker before removal. ' +
-           'To put them back, write these under ' + FB_NAMESPACE + '/advocacy using the same keys.',
-    _takenOn: new Date().toISOString(),
-    _takenBy: ((typeof currentUser === 'function' && currentUser()) || {}).username || '',
-    _path: FB_NAMESPACE + '/advocacy',
-    _count: Object.keys(records).length,
-    records: records
-  };
-  var blob = new Blob([JSON.stringify(payload, null, 1)], { type: 'application/json' });
-  var url = URL.createObjectURL(blob);
-  var a = document.createElement('a');
-  a.href = url;
-  a.download = 'krsf-sheets-with-no-farmer-' + new Date().toISOString().slice(0, 10) + '.json';
-  a.style.display = 'none';
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(function () { document.body.removeChild(a); URL.revokeObjectURL(url); }, 200);
-  _v203.backedUp = true;
-  _v203Log('Saved a copy of ' + payload._count + ' sheet(s) to your Downloads folder.');
-  renderAdminOrphanSheets();
-}
-
-function _v203StopNow() {
-  _v203.stop = true;
-  _v203Log('Stopping after the current sheet...');
-  renderAdminOrphanSheets();
-}
-
-async function _v203Remove(includeWork) {
-  if (!isAdmin() || _v203.phase !== 'scanned') return;
-  if (!_v203.backedUp) { alert('Download the copy first. The button below it unlocks once you have.'); return; }
-  var todo = _v203.cand.filter(function (c) { return includeWork || !c.work; });
-  if (!todo.length) { alert('Nothing to remove.'); return; }
-  var typed = (document.getElementById('v203-confirm') || {}).value || '';
-  if (String(typed).trim().toUpperCase() !== 'DELETE') {
-    alert('Type DELETE in the box to confirm.');
-    return;
-  }
-  var msg = 'Remove ' + todo.length + ' scheme sheet(s) whose farmer is not in the database?';
-  if (includeWork) {
-    var w = todo.filter(function (c) { return c.work; }).length;
-    if (w) msg += '\n\n' + w + ' of them record an application that was actually filed. Removing them removes the only trace of that work.';
-  }
-  msg += '\n\nA copy has been downloaded. Each sheet is removed on its own, after checking again that the farmer is still missing.';
-  if (!await showConfirmModal(msg, { danger: true, okLabel: 'Remove ' + todo.length, title: 'Remove sheets with no farmer' })) return;
-
-  _v203.phase = 'removing'; _v203.stop = false;
-  _v203.removed = 0; _v203.skipped = 0; _v203.failed = 0;
-  _v203Log('Removing ' + todo.length + ' sheet(s)...');
-  renderAdminOrphanSheets();
-
-  for (var i = 0; i < todo.length; i++) {
-    if (_v203.stop) { _v203Log('Stopped by you.'); break; }
-    var c = todo[i];
-    try {
-      // ⛔ rule 2 again, immediately before the write.
-      if (c.bid) {
-        var snap = await fbRef('beneficiaries/' + c.bid).once('value');
-        if (snap && snap.val()) {
-          _v203.skipped++;
-          _v203Log('  kept ' + c.key + ' - the farmer is in the database');
-          continue;
-        }
-      }
-      // ⛔ rule 1: one path, never the whole collection.
-      await fbRef('advocacy/' + c.key).remove();
-      // ⛔ rule 5: server time, not this laptop's clock.
-      var _ts = (typeof _v19ServerNow === 'function') ? _v19ServerNow() : Date.now();
-      await fbRef('tombstones/advocacy/' + c.key).set({ ts: _ts });
-      // ⛔ rule 4: cache and last-map together, never one without the other.
-      RecordCache.adv.delete(c.key);
-      try { if (FB && FB.lastAdv) delete FB.lastAdv[c.key]; } catch (_) {}
-      _v203.removed++;
-      if (_v203.removed % 25 === 0) { _v203Log('  ' + _v203.removed + ' removed...'); renderAdminOrphanSheets(); }
-    } catch (e) {
-      _v203.failed++;
-      _v203Log('  FAILED ' + c.key + ' - ' + ((e && e.message) ? e.message : e));
-      _v203Log('Stopping, because a failure here usually means the connection went.');
-      break;
-    }
-  }
-
-  // One audit entry for the whole run. Per-sheet entries would add 1,215 rows
-  // to a node that is already 215,000 long, and the downloaded copy is the
-  // real record of what went.
-  try {
-    auditLog('delete', 'advocacy', 'orphan-cleanup-' + Date.now(),
-      'Sheets with no farmer',
-      'Removed ' + _v203.removed + ' advocacy record(s) whose beneficiary is not in the database' +
-      (_v203.skipped ? (', kept ' + _v203.skipped + ' whose beneficiary was found') : '') +
-      (_v203.failed ? (', ' + _v203.failed + ' failed') : ''), null);
-  } catch (_) {}
-
-  try { _v357InvalidateTabCache(); } catch (_) {}
-  try { _v361InvalidateAggCache(); } catch (_) {}
-  try { _invalidateAdvCache(); } catch (_) {}
-  try { _v401TodayCache = null; } catch (_) {}
-  _v203.cand = _v203.cand.filter(function (c) { return RecordCache.adv.has(c.key); });
-  _v203.phase = _v203.failed ? 'error' : 'done';
-  _v203Log('Finished. ' + _v203.removed + ' removed, ' + _v203.skipped + ' kept, ' + _v203.failed + ' failed.');
-  renderAdminOrphanSheets();
-}
-
-function renderAdminOrphanSheets() {
-  var el = document.getElementById('content');
-  if (!el) return;
-  if (!isAdmin()) { el.innerHTML = '<div class="empty">Admin only.</div>'; return; }
-  var s = _v203;
-  var withWork = s.cand.filter(function (c) { return c.work; }).length;
-  var empty = s.cand.length - withWork;
-  var busy = (s.phase === 'scanning' || s.phase === 'removing');
-  var esc = (typeof escHtml === 'function') ? escHtml : function (x) { return String(x == null ? '' : x); };
-
-  var byNgo = {};
-  for (var i = 0; i < s.cand.length; i++) {
-    var g = s.cand[i].ngo || '(no partner)';
-    if (!byNgo[g]) byNgo[g] = { all: 0, work: 0 };
-    byNgo[g].all++; if (s.cand[i].work) byNgo[g].work++;
-  }
-  var ngoRows = Object.keys(byNgo).sort(function (a, b) { return byNgo[b].all - byNgo[a].all; })
-    .map(function (g) {
-      return '<tr><td style="padding:4px 10px">' + esc(g) + '</td>' +
-             '<td style="padding:4px 10px;text-align:right">' + byNgo[g].all + '</td>' +
-             '<td style="padding:4px 10px;text-align:right">' + byNgo[g].work + '</td></tr>';
-    }).join('');
-
-  var logHtml = s.log.length
-    ? s.log.map(function (l) {
-        return '<div style="font-family:Consolas,monospace;font-size:11px;color:var(--gray1);padding:1px 0">' + esc(l) + '</div>';
-      }).join('')
-    : '<div style="color:var(--gray2);font-size:12px">Press Check to begin. Checking changes nothing.</div>';
-
-  var h = '';
-  h += '<div style="max-width:900px;margin:0 auto;padding:0 4px">';
-  h += '<h2 style="margin:0 0 4px">Scheme sheets with no farmer</h2>';
-  h += '<div style="color:var(--gray2);font-size:13px;line-height:1.65;margin-bottom:16px">';
-  h += 'Some scheme sheets name a farmer who is no longer in the database. They were left behind ';
-  h += 'by two old delete paths that removed the person and not the sheet. Nobody can see them: ';
-  h += 'every screen is drawn from the farmer outwards, so they appear in no list, no report and no ';
-  h += 'count. This page removes them, one at a time, after checking each farmer against the database.';
-  h += '</div>';
-
-  h += '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px">';
-  h += '<button class="btn btn-primary" onclick="_v203Scan()"' + (busy ? ' disabled style="opacity:.5"' : '') + '>';
-  h += (s.phase === 'scanning' ? 'Checking...' : 'Check the database') + '</button>';
-  h += '<button class="btn" onclick="_v203Backup()"' + ((s.phase === 'scanned' && s.cand.length) ? '' : ' disabled style="opacity:.5"') + '>';
-  h += 'Download a copy first</button>';
-  if (s.phase === 'removing') {
-    h += '<button class="btn" onclick="_v203StopNow()" style="color:var(--red);border-color:var(--red)">Stop</button>';
-  }
-  h += '</div>';
-
-  if (s.capRefused) {
-    h += '<div style="background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:14px">' +
-         esc(s.capRefused) + '</div>';
-  } else if (s.scanErr) {
-    h += '<div style="background:#FEF3C7;border:1px solid #FCD34D;border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:14px">' +
-         esc(s.scanErr) + '</div>';
-  }
-
-  if (s.phase !== 'idle' && s.cand.length) {
-    h += '<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:14px">';
-    h += '<tr style="background:#F8FAFC"><th style="text-align:left;padding:6px 10px">Partner</th>' +
-         '<th style="text-align:right;padding:6px 10px">Sheets</th>' +
-         '<th style="text-align:right;padding:6px 10px">Of those, an application was filed</th></tr>';
-    h += ngoRows;
-    h += '<tr style="border-top:2px solid var(--gray3);font-weight:600">' +
-         '<td style="padding:6px 10px">Total</td>' +
-         '<td style="padding:6px 10px;text-align:right">' + s.cand.length + '</td>' +
-         '<td style="padding:6px 10px;text-align:right">' + withWork + '</td></tr>';
-    h += '</table>';
-  }
-
-  if (s.phase === 'scanned' && s.cand.length) {
-    h += '<div style="border:1px solid var(--gray3);border-radius:8px;padding:12px 14px;margin-bottom:14px">';
-    h += '<div style="font-size:13px;margin-bottom:8px">Type DELETE to unlock, then choose how much to remove.</div>';
-    h += '<input id="v203-confirm" type="text" autocomplete="off" placeholder="DELETE" ' +
-         'style="padding:7px 10px;border:1px solid var(--gray3);border-radius:6px;width:140px;margin-bottom:10px">';
-    h += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
-    h += '<button class="btn" onclick="_v203Remove(false)"' + (s.backedUp ? '' : ' disabled style="opacity:.5"') + '>';
-    h += 'Remove the ' + empty + ' with nothing on them</button>';
-    h += '<button class="btn" onclick="_v203Remove(true)" style="' + (s.backedUp ? 'color:var(--red);border-color:var(--red)' : 'opacity:.5') + '"' +
-         (s.backedUp ? '' : ' disabled') + '>';
-    h += 'Remove all ' + s.cand.length + ', including the ' + withWork + ' with an application</button>';
-    h += '</div>';
-    if (!s.backedUp) h += '<div style="color:var(--gray2);font-size:12px;margin-top:8px">Download the copy above and these unlock.</div>';
-    h += '</div>';
-  }
-
-  if (s.phase === 'removing' || s.phase === 'done' || s.removed || s.skipped || s.failed) {
-    h += '<div style="font-size:13px;margin-bottom:10px">Removed <strong>' + s.removed + '</strong>, ' +
-         'kept <strong>' + s.skipped + '</strong> because the farmer was found, ' +
-         'failed <strong>' + s.failed + '</strong>.</div>';
-  }
-
-  h += '<div style="background:#F8FAFC;border:1px solid var(--gray3);border-radius:8px;padding:10px 12px;max-height:260px;overflow:auto">' + logHtml + '</div>';
-  h += '</div>';
-  el.innerHTML = h;
 }
 
 function renderAdminDeleteDupes() {
