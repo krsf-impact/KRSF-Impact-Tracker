@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V20.6-LIVE
+  KRSF Beneficiary Impact Tracker  -  V20.9-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,132 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V20.9-LIVE (2026-09-06 - three ways a breakdown could stop adding up).
+
+    + WHY. V20.7 and V20.8 went through an independent review before upload.
+      Neither was broken on the data as it stands today, and every test
+      passed. The review found three cases where a figure could disagree
+      with the figure printed beside it - the exact fault V20.5 existed to
+      remove. None had been uploaded, so nobody saw them.
+
+    + AN ORPHANED SCHEME RECORD COUNTED ON THE CARD AND IN NOBODY'S ROW.
+      When a scheme sheet names a farmer who is no longer in the database,
+      the fleet card counted the person and the per-partner row did not, so
+      the rows totalled one less than the card above them. It only showed on
+      the unfiltered admin view - the default one. It is dormant because all
+      1,215 orphans were cleared on 4 September, but the class recurs: the
+      cascade that removes a scheme sheet when a farmer is deleted is
+      best-effort and logs a failure rather than stopping. Such work now
+      lands in a row headed with a dash, so the table still adds up and the
+      orphan is visible instead of silently missing.
+
+    + ⛔ THE LIVELIHOOD COLUMN COUNTED MORE THAN THE CARD DID. The card
+      counts three named stages; the per-partner column counted every record
+      the loop reached. A stage outside those three would make the rows
+      total MORE than the card. Nothing writes such a stage today - the form,
+      the import validator and the map filter all restrict it - so this was
+      an invariant held up by data hygiene rather than by code. The column
+      now increments inside the same three branches the card uses, so the
+      two cannot drift whatever the data says.
+
+    + AND THE TREND BANDS, FOR A DATE THAT SHOULD NOT EXIST. V20.8 replaced
+      twenty-four passes with one. The two agree on every well-formed date,
+      which the review confirmed independently over all 139,324 records. They
+      part company on a malformed month - "2025-13" from a hand-edit or a
+      restore - which the old code counted from January onward and the new
+      one dropped. No code path in the app can write such a date. It is
+      handled explicitly now rather than left as a footnote, so "identical
+      output" is true without a caveat.
+
+    + Tests: 60 files. v209sums.js is new: it INJECTS an orphaned scheme
+      sheet and an out-of-vocabulary stage into the caches, asserts the rows
+      still total the card, and removes them again. v208bands.js gains a
+      malformed-month case. ⛔ Both were seen failing on V20.8 first - the
+      point of injecting is that waiting for the data to produce these
+      states is waiting for the bug to reach Guru.
+  V20.8-LIVE (2026-09-06 - the dashboard chart was counting everybody
+  twenty-four times).
+
+    + WHAT GURU SAID. "I feel the app has become slower in loading the
+      dashboard and overall navigation."
+
+    + WHAT THE MEASUREMENT SAID, after two wrong theories of mine. It is
+      not a regression: V19.5 and V20.6 render within 3% of each other on
+      every screen. It is not the cache either - every other heavy block
+      remembers its answer and costs nothing on a revisit. It is SIZE. The
+      app holds 139,324 farmers and 139,422 advocacy records, and one
+      function scales with that number far worse than the rest.
+
+    + THE ONE FUNCTION. _renderDashboardTrendBands measured 1,491 ms cold
+      and 1,496 ms warm - the largest single item in a 5.5 s dashboard, and
+      the only heavy one that paid in full on EVERY visit. It built the
+      cumulative line with months.map(m => list.filter(...)), which is twelve
+      complete passes over every farmer, and then twelve more for the
+      new-per-month line. Twenty-four passes, about 3.3 million date
+      conversions, to produce twenty-four numbers.
+
+    + THE FIX IS ONE PASS. Count each month once into a small histogram,
+      then add the buckets up. The cumulative figure is a running total of
+      the same buckets, so it needs no second walk. Farmers enrolled BEFORE
+      the twelve-month window still have to be in every cumulative point -
+      they are counted once, up front, and the running total starts there.
+      Farmers enrolled after the window stay out of every point, exactly as
+      before.
+
+    + ⛔ DELIBERATELY NOT CACHED. A cache has to be invalidated, and an
+      invalidation that is a shade too narrow shows a stale chart - which is
+      worse than a slow one. This is still computed fresh on every render;
+      it simply stops doing the same work twenty-four times.
+
+    + ⛔ THE OUTPUT MUST NOT MOVE. v208bands.js lifts the OLD function out of
+      index-V20.7-LIVE.html and the new one out of this build, runs both over
+      the real 139,324 records, and fails unless the HTML they produce is
+      character-for-character identical. A faster chart that draws something
+      different is not a fix.
+
+    + Tests: v208bands.js is new.
+  V20.7-LIVE (2026-09-06 - today's work, partner by partner).
+
+    + WHAT WAS MISSING. The TODAY card counts the whole foundation, or one
+      partner when the dropdown is set. So "how did each partner do today"
+      meant changing that dropdown twenty-one times and writing the answers
+      down. And the card is admin-only, so a partner could not see even
+      their own day.
+
+    + WHAT IS THERE NOW. A compact table under the card: one row per
+      partner, with people enrolled, schemes applied for, benefits received
+      and livelihood records touched today, and a total row. Admins see
+      every partner. A partner sees their own row and nothing else.
+
+    + IT COSTS NOTHING EXTRA. The rows are built inside the SAME two loops
+      the card already runs, so there is no second pass over 139,324
+      beneficiaries or 139,422 advocacy records, no new Firebase read, and
+      the result rides the cache the card already keeps. The only added work
+      is one map lookup per advocacy record edited TODAY - a few dozen rows.
+
+    + ⛔ THE ROWS MUST SUM TO THE CARD. A breakdown that does not add up to
+      the figure above it is worse than no breakdown. Applied and Benefits
+      count PEOPLE, not applications, exactly as the card has since V403, so
+      the per-partner counts are de-duplicated per person before they are
+      summed. A person belongs to one partner, so the rows add up by
+      construction - and the test asserts it rather than trusting that.
+
+    + ⛔ SCOPED BY THE FARMER, NOT BY THE ADVOCACY RECORD. An advocacy row
+      carries its own stale copy of the partner name, which goes wrong the
+      moment somebody is moved between partners (V18.9). The partner comes
+      from the beneficiary, the same rule V19.9 set for the card.
+
+    + WHERE IT SITS IN REPORTS. At the top of Partners for an admin, and at
+      the top of Coordinators for a partner - because a partner has no
+      Partners tab (V12.7 removes it, since it exists to compare partners
+      and they can only ever see themselves). One place each, never twice.
+
+    + ⛔ LIVELIHOOD SAYS WHAT IT CAN HONESTLY SAY. The app has never stored
+      the day a livelihood stage changed, so that column is headed "records
+      touched" and carries a note. Enrolments, applications and benefits all
+      have real dates and are exact.
+
+    + Tests: v207today.js is new, 30 checks.
   V20.6-LIVE (2026-09-04 - three places V20.5 left saying the old number).
 
     + WHY THERE IS A V20.6 AT ALL. V20.5 was put through an independent
@@ -50,7 +176,7 @@
       livelihood work" picked the row up as a real zero. Both are dashes now,
       matching the screen.
 
-    + Tests: 57 files. v205fctotal.js grows from 11 checks to 31 and now
+    + Tests: v205fctotal.js grows from 11 checks to 31 and now
       runs the whole survey TWICE - all-time and a 30-day window. That
       matters: under all-time the windowed keys equal the all-time keys by
       construction and the cards do not even render their all-time line, so
@@ -4342,7 +4468,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V20.6-LIVE';
+const APP_VERSION = 'V20.9-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -22754,14 +22880,65 @@ function _renderDashboardTrendBands(list, advLatest) {
   // A beneficiary "exists" from the month they were enrolled onwards, so the
   // cumulative line is monotonically non-decreasing — we count how many
   // beneficiaries had enrollDate ≀ end-of-month for each month in the window.
-  const cumCounts = months.map(m => {
-    const cutoff = m.key; // 'YYYY-MM' string comparison works for this purpose
-    return list.filter(b => {
-      const k = _monthKey(b.enrollDate);
-      return k && k <= cutoff;
-    }).length;
-  });
-  const newPerMonth = months.map(m => list.filter(b => _monthKey(b.enrollDate) === m.key).length);
+  // ⛔ V20.8: ONE PASS, NOT TWENTY-FOUR. This was
+  //     months.map(m => list.filter(b => _monthKey(b.enrollDate) <= m.key))
+  // for the cumulative line and another months.map(list.filter(...)) for the
+  // new-per-month line: twelve complete walks over every farmer each, about
+  // 3.3 million date conversions on 139,324 records, to produce 24 numbers.
+  // Measured at 1,491 ms - the largest single item on the dashboard, paid in
+  // full on EVERY visit because this block caches nothing.
+  //
+  // Count each month once, then add the buckets up. Identical output, and
+  // still computed fresh every render so there is no cache to go stale.
+  //
+  // ⛔ THE TWO EDGES THAT THE OLD CODE GOT RIGHT AND A HISTOGRAM CAN LOSE:
+  //   - a farmer enrolled BEFORE the window counts in every cumulative
+  //     point (their k is <= every cutoff), so they are tallied once up
+  //     front and the running total STARTS there rather than at zero;
+  //   - a farmer enrolled AFTER the window counts in none of them, so they
+  //     fall into neither bucket and are simply dropped.
+  // A blank or unparseable enrolment date was excluded before and still is.
+  const _v208Idx = new Map();
+  for (let i = 0; i < months.length; i++) _v208Idx.set(months[i].key, i);
+  const _v208First = months.length ? months[0].key : null;
+  const _v208Last = months.length ? months[months.length - 1].key : null;
+  const _v208Stray = [];   // V20.9: keys inside the range that match no month
+  const newPerMonth = new Array(months.length).fill(0);
+  let _v208Before = 0;
+  for (let i = 0; i < list.length; i++) {
+    const k = _monthKey(list[i].enrollDate);
+    if (!k) continue;
+    const at = _v208Idx.get(k);
+    if (at !== undefined) newPerMonth[at]++;
+    else if (_v208First !== null && k < _v208First) _v208Before++;
+    // ⛔ V20.9: A KEY THAT IS INSIDE THE RANGE BUT IS NOT ONE OF THE TWELVE.
+    // The old code asked k <= cutoff, which is a string comparison and so
+    // accepted keys no calendar can produce - "2025-13" from a hand-edit or a
+    // restore sorts after 2025-12 and before 2026-01, and counted from that
+    // month onward. Nothing in this app writes such a date, but dropping it
+    // silently would make "identical output" a claim with a footnote.
+    else if (_v208Last !== null && k <= _v208Last) _v208Stray.push(k);
+  }
+  // Strays contribute to every cumulative point from the first month that is
+  // not before them - exactly what k <= cutoff meant - and to no monthly bar,
+  // because the old per-month line used === and they match no key. There are
+  // normally none of these, so the loop below costs nothing.
+  const _v208StrayAt = _v208Stray.length ? new Array(months.length).fill(0) : null;
+  if (_v208StrayAt) {
+    for (let s = 0; s < _v208Stray.length; s++) {
+      const k = _v208Stray[s];
+      for (let i = 0; i < months.length; i++) {
+        if (k <= months[i].key) { _v208StrayAt[i]++; break; }
+      }
+    }
+  }
+  const cumCounts = new Array(months.length);
+  let _v208Run = _v208Before;
+  for (let i = 0; i < months.length; i++) {
+    _v208Run += newPerMonth[i];
+    if (_v208StrayAt) _v208Run += _v208StrayAt[i];
+    cumCounts[i] = _v208Run;
+  }
 
   // ── Chart 2 (V6.4): cumulative TOTAL impact — livelihood income-added and
   // advocacy scheme benefits combined into ONE number per month, no
@@ -22977,12 +23154,26 @@ function _v401TodayStats() {
   const dayEndMs = dayStartMs + 86400000;
   const ADV_SENTINEL = 'Advocacy (Govt. Schemes)';
   let enrolledToday = 0, enrolledYest = 0, livEnr = 0, livProg = 0, livDone = 0;
+  // V20.7: the same four figures per PARTNER, filled in by the two loops
+  // below as they already walk the records. No second pass, no extra read.
+  // ⛔ Applied and Benefits hold SETS of beneficiary ids, not counters,
+  // because the card counts PEOPLE and one person applying for three schemes
+  // today is one person. Counters here would make the rows sum to more than
+  // the figure printed above them.
+  const _v207ByNgo = new Map();
+  const _v207For = function (n) {
+    const k = n || '\u2014';
+    let g = _v207ByNgo.get(k);
+    if (!g) { g = { ngo: k, enrolled: 0, liv: 0, ap: new Set(), br: new Set() };
+              _v207ByNgo.set(k, g); }
+    return g;
+  };
   for (const b of RecordCache.benef.values()) {
     if (!b) continue;
     if (_filtered && !_inScope(b)) continue;   // V19.9
     if (b.enrollDate) {
       const d = _v400IstDayMemo(b.enrollDate);
-      if (d === todayIst) enrolledToday++;
+      if (d === todayIst) { enrolledToday++; _v207For(b.ngo).enrolled++; }   // V20.7
       else if (d === yestIst) enrolledYest++;
     }
     // Livelihood status pulse: livelihood beneficiaries whose record was
@@ -22992,10 +23183,15 @@ function _v401TodayStats() {
     const bts = (typeof b._lastEditedAt === 'number') ? b._lastEditedAt : 0;
     if (bts >= dayStartMs && bts < dayEndMs
         && (b.interventions || []).some(function(i){ return i && i !== ADV_SENTINEL; })) {
+      // ⛔ V20.9: THE COLUMN MUST COUNT EXACTLY WHAT THE CARD COUNTS.
+      // The per-partner increment used to sit outside this chain, so a stage
+      // outside the three below added 1 to the row and 0 to the card, and the
+      // table would have totalled MORE than the figure above it. Nothing
+      // writes such a stage today; that is data hygiene, not a guarantee.
       const _st = _v174Stage(b);
-      if (_st === 'Enrolled') livEnr++;
-      else if (_st === 'Intervention In Progress') livProg++;
-      else if (_st === 'Completed') livDone++;
+      if (_st === 'Enrolled') { livEnr++; _v207For(b.ngo).liv++; }
+      else if (_st === 'Intervention In Progress') { livProg++; _v207For(b.ngo).liv++; }
+      else if (_st === 'Completed') { livDone++; _v207For(b.ngo).liv++; }
     }
   }
   // V403: advocacy counts are UNIQUE PEOPLE, not scheme applications — one
@@ -23020,7 +23216,13 @@ function _v401TodayStats() {
     // belongs to. The lookup only runs for records edited TODAY — the numeric
     // gate above has already dropped everything else — and only when a filter
     // is actually set, so the unfiltered card costs exactly what it did.
-    if (_filtered && !_inScope(RecordCache.benef.get(a.bid))) continue;
+    // V20.7: the lookup was already here for the filter; it is now also how
+    // the row finds its PARTNER. ⛔ From the beneficiary, never from the
+    // advocacy record's own copy of the partner name - that copy goes stale
+    // the moment somebody is moved between partners (V18.9). Same rule V19.9
+    // set for the card itself. Only records edited today reach this line.
+    const _pb207 = RecordCache.benef.get(a.bid);
+    if (_filtered && !_inScope(_pb207)) continue;
     advUpdatesToday++;
     const _pid = a.bid || a.__fbk;
     for (const r of (a.schemeRows || [])) {
@@ -23050,11 +23252,30 @@ function _v401TodayStats() {
       // Rows saved before 30 Jul 2026 carry neither, because _rptStampOk
       // refuses to stamp on or before the poisoned day. That is not a problem
       // for a counter that only ever asks about today.
-      if (r._aAt === todayIst) _apBids.add(_pid);
-      if (r._bAt === todayIst) _brBids.add(_pid);
+      // ⛔ V20.9: NO if (_pb207) GUARD. A scheme sheet whose farmer is not in
+      // the database still counts on the card, so it must land in a row too or
+      // the rows total one less than the figure above them. _v207For(null)
+      // keys it under a dash, which is honest - the work happened, the farmer
+      // is missing - and keeps the table reconcilable. All 1,215 known orphans
+      // were cleared on 4 Sep, but the cascade that removes a scheme sheet
+      // with its farmer is best-effort, so the class recurs.
+      if (r._aAt === todayIst) { _apBids.add(_pid); _v207For(_pb207 ? _pb207.ngo : null).ap.add(_pid); }
+      if (r._bAt === todayIst) { _brBids.add(_pid); _v207For(_pb207 ? _pb207.ngo : null).br.add(_pid); }
     }
   }
+  // V20.7: sets become counts here, once, and rows with nothing at all are
+  // dropped so the table shows the partners who worked today rather than a
+  // column of zeros. Busiest first.
+  const _v207Rows = Array.from(_v207ByNgo.values()).map(function (g) {
+    return { ngo: g.ngo, enrolled: g.enrolled, liv: g.liv,
+             applied: g.ap.size, benefits: g.br.size };
+  }).filter(function (g) { return g.enrolled || g.liv || g.applied || g.benefits; })
+    .sort(function (x, y) {
+      return (y.enrolled + y.applied + y.benefits + y.liv)
+           - (x.enrolled + x.applied + x.benefits + x.liv);
+    });
   _v401TodayCache = { ver: ver, day: todayIst, ngoF: _ngoF, stF: _stF,
+    byNgo: _v207Rows,
     enrolledToday: enrolledToday,
     enrolledYest: enrolledYest, livEnr: livEnr, livProg: livProg, livDone: livDone,
     benefitsToday: _brBids.size, appliedToday: _apBids.size, advUpdatesToday: advUpdatesToday };
@@ -23064,6 +23285,74 @@ function _v401TodayStats() {
 // still reads "all NGOs", so the unfiltered screen is unchanged; with a filter
 // on it names the partner or the district, because a number that has narrowed
 // under a label that says "all NGOs" is worse than no label.
+
+// V20.7: today, partner by partner. Admin sees every partner; a partner
+// sees their own row and nothing else; anyone else gets nothing.
+// ⛔ THE ROLE GUARD IS BELT AND BRACES. A partner login never receives
+// another partner's beneficiaries - they are scoped at the Firebase query
+// (_v337BenefOneShotFetch) - so their buckets can only hold their own work.
+// The filter below does not depend on that being true.
+function _v207TodayByNgo(opts) {
+  const u = (typeof currentUser === 'function') ? currentUser() : null;
+  if (!u) return '';
+  if (u.role !== 'admin' && u.role !== 'ngo') return '';
+  let s;
+  try { s = _v401TodayStats(); } catch (_) { return ''; }
+  let rows = (s.byNgo || []);
+  if (u.role === 'ngo') rows = rows.filter(function (r) { return r.ngo === u.ngo; });
+  const o = opts || {};
+  const esc = function (x) { return escHtml(String(x == null ? '' : x)); };
+  const n = function (v) { return (v || 0).toLocaleString('en-IN'); };
+  const MON = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  const dp = String(s.day || '').split('-');
+  const dateLbl = parseInt(dp[2], 10) + ' ' + (MON[parseInt(dp[1], 10) - 1] || '');
+  const TH = 'text-align:right;padding:6px 8px;font-size:11px;color:var(--gray2);font-weight:600;white-space:nowrap';
+  const TD = 'text-align:right;padding:6px 8px;font-size:13px;color:var(--navy);white-space:nowrap';
+  const TDL = 'text-align:left;padding:6px 8px;font-size:13px;color:var(--navy)';
+  // A day with nothing on it is a real answer, and an empty table is not.
+  if (!rows.length) {
+    return '<div style="background:#fff;border:1px solid var(--gray3);border-radius:12px;padding:12px 14px;margin:0 0 16px">'
+      + '<div style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--navy2);margin-bottom:6px">TODAY BY PARTNER · ' + esc(dateLbl) + '</div>'
+      + '<div style="font-size:12px;color:var(--gray2)">Nothing recorded yet today.</div></div>';
+  }
+  const tot = rows.reduce(function (a, r) {
+    return { enrolled: a.enrolled + r.enrolled, applied: a.applied + r.applied,
+             benefits: a.benefits + r.benefits, liv: a.liv + r.liv };
+  }, { enrolled: 0, applied: 0, benefits: 0, liv: 0 });
+  const body = rows.map(function (r) {
+    return '<tr>'
+      + '<td style="' + TDL + '">' + esc(r.ngo) + '</td>'
+      + '<td style="' + TD + '">' + n(r.enrolled) + '</td>'
+      + '<td style="' + TD + '">' + n(r.applied) + '</td>'
+      + '<td style="' + TD + '">' + n(r.benefits) + '</td>'
+      + '<td style="' + TD + '">' + n(r.liv) + '</td></tr>';
+  }).join('');
+  // The total row is shown even for a single partner: it is the line that
+  // reconciles this table with the card above it.
+  const totRow = '<tr style="border-top:2px solid var(--gray3)">'
+    + '<td style="' + TDL + ';font-weight:700">Total</td>'
+    + '<td style="' + TD + ';font-weight:700">' + n(tot.enrolled) + '</td>'
+    + '<td style="' + TD + ';font-weight:700">' + n(tot.applied) + '</td>'
+    + '<td style="' + TD + ';font-weight:700">' + n(tot.benefits) + '</td>'
+    + '<td style="' + TD + ';font-weight:700">' + n(tot.liv) + '</td></tr>';
+  const note = 'Enrolments, applications and benefits carry a real date and are exact. '
+    + 'Livelihood counts records TOUCHED today - the app has never stored the day a '
+    + 'livelihood stage changed, so it cannot say which of them changed stage.';
+  return '<div style="background:#fff;border:1px solid var(--gray3);border-radius:12px;padding:12px 14px;margin:' + (o.margin || '0 0 16px') + '">'
+    + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;gap:10px;flex-wrap:wrap">'
+    + '<span style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--navy2)">TODAY BY PARTNER · ' + esc(dateLbl) + '</span>'
+    + '<span style="font-size:10px;color:var(--gray2)">' + (rows.length === 1 ? esc(rows[0].ngo) : rows.length + ' partners active today') + '</span></div>'
+    + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">'
+    + '<thead><tr>'
+    + '<th style="' + TH + ';text-align:left">Partner</th>'
+    + '<th style="' + TH + '">Enrolled</th>'
+    + '<th style="' + TH + '">Applied</th>'
+    + '<th style="' + TH + '">Benefits received</th>'
+    + '<th style="' + TH + '">Livelihood touched</th>'
+    + '</tr></thead><tbody>' + body + totRow + '</tbody></table></div>'
+    + '<div style="font-size:10px;color:var(--gray2);margin-top:8px;line-height:1.5">' + note + '</div></div>';
+}
+window._v207TodayByNgo = _v207TodayByNgo;
 function _v401TodayScopeLabel() {
   const n = (typeof ngoFilter !== 'undefined' && ngoFilter) ? String(ngoFilter) : '';
   const s = (typeof stateFilter !== 'undefined' && stateFilter) ? String(stateFilter) : '';
@@ -23250,6 +23539,7 @@ function renderDashboard() {
       ${tile('Total Impact', totalImpact>0 ? '₹'+totalImpact.toLocaleString('en-IN') : '—', 'Income + Scheme Benefits', 's-blue', totalImpact>0?'var(--navy)':'')}
     </div>
     ${_v401TodayStrip()}
+    ${_v207TodayByNgo()}
     ${filterBadges?`<div style="display:flex;gap:8px;margin-bottom:12px;margin-top:-6px;align-items:center;flex-wrap:wrap">
       <span style="font-size:12px;color:var(--gray2)">Filters:</span>${filterBadges}
       <button onclick="stateFilter='';ngoFilter='';fcFilter='';progFilter='';document.getElementById('state-filter').value='';document.getElementById('ngo-filter').value='';var mp=document.getElementById('prog-filter');if(mp)mp.value='';renderCurrent()" style="font-size:11px;color:var(--red);background:none;border:none;cursor:pointer;padding:0;font-family:var(--font)">✕ Clear all</button>
@@ -26166,10 +26456,17 @@ function renderReports() {
   let body = '';
 
   // ══ TAB 1 : FC PERFORMANCE ═══════════════════════════════════════════════
-  if (rptTab === 'fc') { body = _rptRenderFc(_A, now); }
+  // V20.7: today-by-partner goes at the top of Partners for an admin, and at
+  // the top of Coordinators for a partner - who has no Partners tab, because
+  // V12.7 removes it (it exists to compare partners, and they can only ever
+  // see themselves). One place each; never on two tabs at once.
+  const _v207Here = fleet ? 'ngo' : 'fc';
+  const _v207Card = (rptTab === _v207Here) ? _v207TodayByNgo({ margin: '0 0 16px' }) : '';
+
+  if (rptTab === 'fc') { body = _v207Card + _rptRenderFc(_A, now); }
 
   // ══ TAB 2 : NGO COMPARISON (V12) ═════════════════════════════════════════
-  if (rptTab === 'ngo') { body = _rptRenderNgo(_A); }
+  if (rptTab === 'ngo') { body = _v207Card + _rptRenderNgo(_A); }
 
   // ══ TAB 2 : ENROLLMENT TRENDS ════════════════════════════════════════════
   if (rptTab === 'trend') {
