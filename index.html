@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V20.9-LIVE
+  KRSF Beneficiary Impact Tracker  -  V21.1-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,90 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V21.1-LIVE (2026-09-06 - the Find bar moves to the two pages it means
+  something on).
+
+    + WHAT GURU ASKED FOR, in his words: "remove the filter from the
+      dashboard. Just keep the filter for the livelihood page and advocacy
+      page. We don't need the selection of livelihood or advocacy by
+      default. For advocacy, it becomes advocacy, and for livelihood, it
+      becomes livelihood."
+
+    + WHY IT WAS WRONG WHERE IT WAS. On the dashboard the bar narrowed every
+      tile, and a status picks PEOPLE, not scheme rows - so choosing "Need to
+      apply" left Scheme Benefits reading 13 crore, which is what those same
+      people received on their OTHER schemes. The figure was right and the
+      screen did not say so. It was also the slowest thing on the page:
+      measured at 7.6 to 9.3 seconds per change on 139,324 records, and
+      NARROWING made it slower, not faster - 9.3 s for the 22,252-record
+      view, because the cost is deciding who matches, not drawing them.
+
+    + WHERE IT IS NOW. Livelihood and Advocacy only. The category is the page
+      you are on, so that dropdown is gone: Livelihood offers Enrolled,
+      Intervention in progress and Completed; Advocacy offers Need to apply,
+      Applied, Rejected and Benefits received.
+
+    + ⛔ AND IT CLEARS ITSELF ON THE WAY OUT. A filter left set while the bar
+      is hidden would silently narrow the dashboard with no visible control -
+      worse than the problem being fixed. Leaving either page resets the
+      category, the status and every date, so the dashboard is always whole.
+
+    + ⛔ THE DISABLED DATE BUTTON NOW LOOKS DISABLED. "Need to apply" and
+      "Intervention in progress" are states the app records no date for, so
+      the button is correctly dead - but it still looked like a button, and
+      Guru reported it as broken. It is greyed, shows a not-allowed cursor,
+      and says why on hover.
+
+    + ⛔ WHAT THIS COSTS: All Beneficiaries loses the bar, exactly as asked.
+      The same search now lives on Advocacy, which is where a scheme status
+      belongs. If that turns out to be wrong it is one line to put back.
+
+    + Tests: 62 files. v211scope.js is new.
+  V21.0-LIVE (2026-09-06 - two of the three ways to mark a benefit never
+  wrote down the day).
+
+    + WHAT GURU SAW. Recent Updates listed fifteen scheme rows moved to
+      "Benefits Received" fourteen minutes earlier, all at KRSF.Meghraj. The
+      beneficiary list, filtered to Benefits received on the same date,
+      returned three people - different people, at a different partner.
+
+    + ⛔ THE FILTER WAS RIGHT. THE DATE WAS NEVER WRITTEN. A benefit can be
+      marked received three ways, and only one of them stamped the day:
+        the advocacy drawer      -> _saveAdvocacyInner  -> STAMPED
+        the quick status button  -> _advApplyStatus     -> not stamped
+        Bulk Update Status       -> applyBulkStatusUpdate -> not stamped
+      The quick button is the fast, obvious way to work, so most of the
+      day's benefits carried no date and were invisible to every surface
+      that asks WHEN: the date filter, the TODAY card, the today-by-partner
+      table and the Reports benefits timeline. The three the filter found
+      were the three saved through the drawer.
+
+    + HOW LONG IT HAS BEEN TRUE. Measured on the 31 Aug export: 25,574 of
+      27,034 rows marked Benefits Received - 94.6% - carry no date at all.
+      Some of that is genuinely historical, from before stamping existed on
+      30 Jul 2026. The rest is this.
+
+    + THE FIX. Both paths now call _rptStampRowDates, the same pure function
+      the drawer has used since V12.4, with the rows as they were before the
+      edit. It stamps only on an observed transition, never re-dates a row
+      that was already in that state, and never invents a date for a
+      historical row whose real date is unknown.
+
+    + AND UNDO NOW CLEARS THE DATE TOO. Undoing a bulk update restored the
+      status but left the benefit date behind, so a row could read "not
+      received" while still carrying the day it arrived. Running the same
+      stamper on the restored rows removes it, because the stamper drops
+      _bAt from any row that is no longer at Benefits Received.
+
+    + ⛔ WHAT THIS DOES NOT DO. It cannot recover the 25,574 rows already
+      saved without a date. Their day is not in the record. The audit log may
+      hold it for some of them; that is a separate decision.
+
+    + FIREBASE. No new read, and no new write: these paths already saved the
+      record they changed. The record grows by about twenty bytes per row
+      actually moved - which is the whole point of the release.
+
+    + Tests: v210stamp.js is new.
   V20.9-LIVE (2026-09-06 - three ways a breakdown could stop adding up).
 
     + WHY. V20.7 and V20.8 went through an independent review before upload.
@@ -46,7 +130,7 @@
       handled explicitly now rather than left as a footnote, so "identical
       output" is true without a caveat.
 
-    + Tests: 60 files. v209sums.js is new: it INJECTS an orphaned scheme
+    + Tests: v209sums.js is new: it INJECTS an orphaned scheme
       sheet and an out-of-vocabulary stage into the caches, asserts the rows
       still total the card, and removes them again. v208bands.js gains a
       malformed-month case. ⛔ Both were seen failing on V20.8 first - the
@@ -300,293 +384,39 @@
       already 215,000 rows and the downloaded copy is the real record.
 
     + Tests: _tests/v203orphans.js - 21 checks, every one seen failing on
-      V20.2 first.
+      V20.2 first.
   V20.2-LIVE (2026-09-04 - what four independent reviews of V19.6-V20.1 found).
-
-    + FOUR REVIEWERS, FOUR LENSES, ONE FILE. The offline enrolment queue,
-      the offline scheme-change merge, everything that counts or filters,
-      and Firebase cost / load speed / breakage by role. Each read the full
-      V19.5-to-V20.1 diff and the code around it, and checked every claim
-      against the 1 Sep export with its own Node probes. What follows is
-      what survived my own verification, fixed here with a failing test
-      first, the full suite after.
-
-    + ⛔ A PERSON THE SERVER ALREADY HAD COULD BE DELETED. A queued
-      enrolment whose photo kept failing was, after 25 passes, dropped from
-      the phone's list while its id stayed in the last-map. The coordinator's
-      next ordinary save - any edit, any enrolment - read that gap as a
-      delete, and Firebase received it, tombstone and all, fanned out to the
-      fleet. Two reviewers found it independently. The blocked branch now
-      leaves a person the server has exactly where they are, and only the
-      attachment that would not go is given up on.
-
-    + ⛔ THE PHOTO STEP REVERTED OFFICE EDITS. Once the person had landed
-      the pump uploaded the photo and then wrote the phone's WHOLE stale
-      record back, undoing every correction the office had made in between
-      and stamping it as the coordinator's edit. Only the photo field
-      travels now.
-
-    + ⛔ AN ONLINE SAVE NEVER CANCELLED THE QUEUED ONE. A change queued
-      when the 8-second guard gave up - while the write still landed - sat
-      in the waiting line; the coordinator corrected the row online; forty
-      seconds later the sender replayed the stale rows over the correction.
-      Reproduced three ways, including a deleted row with money on it coming
-      back. A successful online save for a person now drops whatever was
-      waiting for them.
-
-    + ⛔ AN OFFLINE DELETE AFTER AN OFFLINE EDIT WAS THROWN AWAY by a merge
-      guard written before rows carried their occurrence key. The row stayed
-      alive on the server while the phone showed it gone. A keyed tombstone
-      is now the later change, as it should be.
-
-    + A FIELD NOTE WAS OVERWRITTEN WITH NOTHING by the next offline save,
-      because an empty notes box was read as a clearing. It is the box's
-      default state; only typed text replaces a note now, as online.
-
-    + AFTER A RELOAD WITH NO SIGNAL a first-ever scheme change was rebuilt
-      without a record key and never put back on screen. Stamped now.
-
-    + "VIEW MY RECORDS" DROPPED THE QUEUED PEOPLE from the list - the reseat
-      hung off a timer in the Refresh button only, and the old test called
-      the repair by hand instead of the real function. Both list rebuilds
-      now reseat, awaited, after the rebuild they follow.
-
-    + ⛔ ONE RENDER REBUILT THE ADVOCACY ROW SET TWICE once the filter bar
-      was set: the bar read the full array through a one-slot memo that the
-      dashboard's aggregation then evicted with a subset, and the summary
-      chip rebuilt it again. 826 ms became 2,011 ms on the export, every
-      tap. The earlier tests timed a warm second call - a state that never
-      occurs, because renderCurrent() clears the memo first. A second slot
-      for the full array; measured back to one build per render.
-
-    + THE TODAY CARD STILL COUNTED THE RECORD WITH NO BENEFICIARY - the
-      27,004-against-27,003 phantom V19.9 removed from six surfaces was
-      standing on the seventh, the card V19.9 itself rewrote.
-
-    + BETWEEN MIDNIGHT AND 05:25 IST TODAY'S WORK READ AS "FUTURE". A bare
-      date is parsed at UTC midnight, which is 05:30 IST, and Last active
-      refused it. A date-only stamp is an IST day now. The three Reports
-      renderers also judge "future" against the server clock, the rule
-      V19.1 set, not the device's.
-
-    + THE SIGN-OUT WARNING LOST ITS SECOND SENTENCE AND ITS BUTTON: the
-      reassurance was passed where the options go, and the options were
-      dropped. The coordinator saw "Please confirm ... [OK]". Whole now.
-
-    + A SUCCESS MESSAGE INSIDE A WARNING'S HOLD WAS DROPPED, not deferred -
-      on the enrol path deterministically, 450 ms after a 9-second warning.
-      The waiting message is shown when the warning's time is up.
-
-    + HOUSEKEEPING THAT COST TIME ON EVERY PHONE: the 40-second top-up tested
-      all 36 state codes and so never took its early exit, scanning the
-      records on every beat for every device; the id floor copied all
-      1,39,324 records into a fresh array twice on the first login of an
-      office device; an admin's cache tail (alphabetical, not recent)
-      reserved 25 Nagaland numbers for people who will never enrol there;
-      an absent counter was treated as zero; the boot ran twice a second
-      apart; and the ordinary save still stamped the device clock where the
-      queue already stamps the server's. All fixed; the top-up now runs
-      when the browser is idle.
-
-    + AND THE HEADER. This comment had grown back to 104 KB raw, ~39 KB
-      gzipped - 5.4% of every download, for text no browser reads, which is
-      the very reason line 9 gives for moving it out in the first place.
-      V17.8-V19.4 are in CHANGELOG.md now.
-
-    + Also: the calendar closes on a tap elsewhere; Clear filters clears the
-      date button too; the edit form no longer re-enables a button that is
-      still spinning; "nothing to send" no longer shows two messages; the
-      offline confirmation counts items, not "enrolments".
-
-    + ⛔ STATED LIMITS, LEFT AS THEY ARE. Advocacy -> Rejected offers a
-      date range only 5 of 181 rejected people can be found with, because
-      rejections mostly predate 30 Jul 2026 - the chip says so. The Reports
-      "Applied" column counts rows filed in a window whatever happened
-      after; the bar's Applied finds people whose row is CURRENTLY applied
-      - two questions, both kept. The TODAY card follows the State and NGO
-      dropdowns, not the new bar, because it is about today. Last active
-      credits dated scheme work to the record's creator even when the
-      office ticked it - the same rule the Applied and Benefits columns
-      already use.
-
-    + Firebase: 0 change on the wire for every role, idle or busy - the
-      review's own table. The bid index the merge relies on is present in
-      all three rules files. One extra ~550-byte write per queued photo is
-      gone with the photo-field fix.
-
-    + Tests: 56 files. v202queue.js (39) and v202admin.js (33) are new, and
-      every check in both was seen RED on V20.1 first. v185card.js,
-      v184sync.js and v183map.js now look for their own entries in
-      CHANGELOG.md as well as here.
-
+   + ⛔ A PERSON THE SERVER ALREADY HAD COULD BE DELETED. A queued
+   + ⛔ THE PHOTO STEP REVERTED OFFICE EDITS. Once the person had landed
+   + ⛔ AN ONLINE SAVE NEVER CANCELLED THE QUEUED ONE. A change queued
+   + ⛔ AN OFFLINE DELETE AFTER AN OFFLINE EDIT WAS THROWN AWAY by a merge
+   + ⛔ ONE RENDER REBUILT THE ADVOCACY ROW SET TWICE once the filter bar
+   + ⛔ STATED LIMITS, LEFT AS THEY ARE. Advocacy -> Rejected offers a
+      Full entry in CHANGELOG.md.
+
   V20.1-LIVE (2026-09-03 - the enrol button answers, and one row of filters).
-
-    + THE ENROL BUTTON NOW SHOWS WHAT ACTUALLY HAPPENED. It spins while the
-      save is genuinely in flight, turns green with a tick only once the
-      server has confirmed, and turns amber saying "Saved on phone" when the
-      enrolment went into the waiting line instead. It holds that state for
-      a beat so it can be seen, then the usual success screen opens.
-
-    + ⛔ NEVER ON A TIMER. The reference design for this was a fixed 1.5s
-      switch to "success", which would show a tick while the write was still
-      in flight - the exact lie V19.6 spent seven bugs removing. Every state
-      here is driven by the real result. _tests/v201enroll.js gates a real
-      save open and proves the button cannot reach green before it resolves;
-      a version that flips on a timer fails that one check and passes the
-      rest.
-
-    + SIX DATE BOXES BECAME THREE CONTROLS. Instead of Baseline, Endline and
-      Benefit received all sitting open at once, the bar now asks which
-      beneficiaries (all, livelihood, advocacy), then which point in their
-      lifecycle, and only then offers a date range - which applies to
-      whichever date that point actually has. Each step stays disabled until
-      the one before it is answered, so a range can never be set against
-      nothing in particular. The calendar is plain JS, no library, because
-      this app deliberately carries no external UI dependency.
-
-    + ⛔ NOTHING THAT WORKED BEFORE WAS TAKEN AWAY. "Baseline 1 Aug to 31
-      Aug" used to mean everyone enrolled in August, unscoped. That query is
-      still there, as All beneficiaries + Enrolled, and the test asserts it
-      returns the identical set against a count computed outside the app.
-
-    + ⛔ AND TWO STATUSES HONESTLY HAVE NO DATE. "Need to apply" is the
-      state before anything has happened, and livelihood "Intervention in
-      progress" records no per-transition date anywhere. For those the date
-      step is disabled with a line saying so, and the status narrowing still
-      works on its own. Applied and Rejected both use the day the scheme was
-      FILED, which is the only real date either one has.
-
-    + ⛔ FILED IS NOT THE SAME AS APPLIED. The filing stamp sits on every
-      row that ever left "Need to apply", including rows now sitting at
-      Benefits Received - so the Applied window checks the row's current
-      status as well as the date. Without that it would quietly return
-      people already paid; on the 1 Sep export a deliberate break of that
-      rule was caught by exactly one person.
-
-    + Measured on the full 1,39,324-person export: a warm filtered list with
-      the bar set is 96 ms.
-
+   + ⛔ NEVER ON A TIMER. The reference design for this was a fixed 1.5s
+   + ⛔ NOTHING THAT WORKED BEFORE WAS TAKEN AWAY. "Baseline 1 Aug to 31
+   + ⛔ AND TWO STATUSES HONESTLY HAVE NO DATE. "Need to apply" is the
+   + ⛔ FILED IS NOT THE SAME AS APPLIED. The filing stamp sits on every
+      Full entry in CHANGELOG.md.
+
   V20-LIVE (2026-09-03 - find the people who received a benefit between two dates).
-
-    + Guru: "We added beneficiary ABC on 10th August. We enabled benefits
-      for the same scheme on 1st September. How do I search beneficiaries
-      who received benefits on 1st September?" The date bar could answer
-      that for enrolments and for endlines and not for benefits. It now has
-      a third range, Benefit received, beside the other two. It works with
-      the State and NGO dropdowns like the others, follows the list into
-      the export, and Clear dates clears it.
-
-    + The date was already there. Every scheme row has carried the day its
-      benefit was marked received since V12.4, and the Reports tab has
-      windowed its Benefits column on it since V12.6. The list simply never
-      asked.
-
-    + ⛔ THE LIMIT, SAID ONCE AND SHOWN ON SCREEN. The app only began
-      recording that date on 30 July 2026. A benefit from before then has
-      no date, cannot be found this way, and still counts in every total.
-      The summary chip says "dated from 30 Jul 2026 only" whenever the
-      range is in use, and the small i beside it explains why.
-
-    + Measured on the full 1,39,332-person export: a warm filtered list
-      with the range set is a few milliseconds, because it reads the same
-      per-person row Map the Partners tab already builds. It never calls
-      loadAdv(), which deep-copies every advocacy record on every call.
-
+   + ⛔ THE LIMIT, SAID ONCE AND SHOWN ON SCREEN. The app only began
+      Full entry in CHANGELOG.md.
+
   V19.9-LIVE (2026-09-03 - four screens that were saying the wrong thing).
-
-    + LAST ACTIVE FOLLOWED THE PAPERWORK, NOT THE WORK. The coordinator
-      leaderboard showed 19 benefits received in the last 7 days next to
-      "68 days ago" on the same row, from the same pass over the same data.
-      A scheme status change EDITS the record it already sits in rather than
-      creating a new one, so the date this column read never moved for
-      anyone doing follow-up work - which is most advocacy work. It now
-      reads the same two stamps the Applied and Benefits columns already
-      use. 28 coordinators on the 1 Sep export were reading stale, the worst
-      by 85 days. A stamp from a handset whose clock runs fast is refused,
-      and deleted work still does not count.
-
-    + THE TODAY CARD IGNORED THE NGO AND STATE DROPDOWNS. It counted the
-      whole fleet under a small grey "all NGOs" label while the rest of the
-      screen was filtered to one partner. Both halves of the card now follow
-      the filters, and the card names what it is showing. Its cache now
-      remembers WHICH filter produced the numbers - without that it would
-      have handed back the previous partner's figures on every change, which
-      is a stale answer that looks exactly like a real one.
-
-    + THE SEVEN ADMIN BUTTONS NOW SAY WHAT THEY DO. Transfer Beneficiaries,
-      Move FC to NGO, Bulk Assign FC, Refresh users, Require PIN change,
-      Login adoption and Bulk Update Status each carry the app's own
-      tap-to-open note saying what the button changes, what it leaves alone,
-      and that nothing happens until you confirm. The hover text they had
-      needed a slow hover and never appeared on a phone at all.
-
-    + 27,004 AGAINST 27,003 WAS ONE ROW. One advocacy record carries no
-      beneficiary id at all - keyed nobid__unknown, three scheme rows, one a
-      Caste Certificate marked received on 31 Aug. The headline counted it
-      and every partner and coordinator table could not, because there is
-      nobody to attribute it to. A row that names no person is no longer
-      counted anywhere, so all six surfaces agree. ⛔ The record is still in
-      the database and wants deleting; the app only stops counting it.
-
+   counted anywhere, so all six surfaces agree. ⛔ The record is still in
+      Full entry in CHANGELOG.md.
+
   V19.8-LIVE (2026-09-03 - what five rounds of review found).
-    Supersedes V19.5-LIVE and carries V19.6 and V19.7 with it: enrolling
-    and changing a scheme status with no signal.
-
-    Five independent rounds, thirty defects. Every round found that a fix
-    from the round before had introduced a new one - five times running.
-    The ones that mattered, and what they teach:
-
-    + ⛔ THE REPAIR WAS WORSE THAN THE FAULT. A stale-copy repair added in
-      one round fell through, for a coordinator, to the full refresh - which
-      CLEARS the cache, the last-map and the saved copy and only then asks
-      the server for the data. With no signal that request never returns.
-      One offline scheme change and forty seconds later the coordinator's
-      list was empty, their saved copy deleted, every later save refused.
-      A repair must never clear before it fetches, and never run when the
-      connection is down.
-
-    + ⛔ THE WAITING LINE MUST NOT BE A SHARED OBJECT. It kept an index
-      array; two writers read-modify-wrote it, and four of eight enrolments
-      made while the sender ran were lost - each reported as saved. The
-      queue is now the keys themselves: nothing left to overwrite.
-
-    + ⛔ SCHEME + REMARKS IS NOT A UNIQUE KEY. 288 real records hold two
-      rows sharing it and 52 of those pairs differ - Rs 7,55,400 and five
-      rows recording a benefit as received. Rebuilding the list through a
-      map keyed on it deleted one of every pair, permanently, on any queued
-      change for that person. Occurrence is now part of the key, and a send
-      replaces one row in place instead of rebuilding the list.
-
-    + ⛔ A BOUNDED WAIT DOES NOT CANCEL THE WRITE. The SDK still delivers
-      it on reconnect, and for a scheme record that is a whole-record
-      replace from a stale copy landing after the merge. So when the socket
-      is known to be down the write is not issued at all.
-
-    + ⛔ COMPARE FIELDS, NOT TEXT. Rows were compared with JSON.stringify;
-      Firebase returns keys alphabetically, so every row always compared as
-      changed and the queue carried the whole stale copy - Rs 77,000 written
-      back to zero in one measured case. And the field list must name the
-      fields the app really writes: mine named three that exist nowhere.
-
-    + Also fixed: an item held back by a photo re-wrote its person from a
-      stale snapshot every forty seconds for ever; the Advocacy tag and a
-      notes-only edit were both silently dropped; a change that could never
-      succeed was retried for ever, unreported; a brand-new coordinator
-      could never reserve an offline number at all; the offline job
-      deep-copied all 139,000 records every forty seconds, costing an idle
-      admin 2.8 seconds of frozen screen in every hundred; a timed-out
-      reservation still committed, burning 150 numbers where 25 were
-      needed; and the waiting line was invisible after any sign-out.
-
-    + Measured against V19.5-LIVE: zero extra bytes read on the wire for all
-      six roles cold and warm; the online enrol and scheme save write
-      byte-identical operations; idle main thread back to 0 ms; every
-      reported figure on every screen identical.
-
-    + ⛔ AND THE TESTS LIED TWICE. A check that asserts against the test's
-      own writes proves nothing; a simulated reload proves nothing; and the
-      suite ran as an administrator while the feature is for coordinators -
-      which is why it could not see the worst defect in the release.
+   + ⛔ THE REPAIR WAS WORSE THAN THE FAULT. A stale-copy repair added in
+   + ⛔ THE WAITING LINE MUST NOT BE A SHARED OBJECT. It kept an index
+   + ⛔ SCHEME + REMARKS IS NOT A UNIQUE KEY. 288 real records hold two
+   + ⛔ A BOUNDED WAIT DOES NOT CANCEL THE WRITE. The SDK still delivers
+   + ⛔ COMPARE FIELDS, NOT TEXT. Rows were compared with JSON.stringify;
+   + ⛔ AND THE TESTS LIED TWICE. A check that asserts against the test's
+      Full entry in CHANGELOG.md.
 
   V19.7 (2026-09-01 - change a scheme's status with no signal). Shipped
     inside V19.8-LIVE.
@@ -656,72 +486,14 @@
     + Deliberately NOT included: editing an existing person offline. That
       raises "whose edit wins", which this release does not answer.
       Editing still needs signal.
-
+
   V19.5-LIVE (2026-08-31 - what four independent reviews found in V19.4):
-    + ONE FILE. index.html only. villages.js, sw.js and login-bg.jpg are
-      unchanged since V18.3 - do not re-upload them. THIS is the file that
-      goes live; it carries V18.9, V19, V19.1, V19.2, V19.3 and V19.4.
-
-    + ⛔ A REFUSED SESSION COULD STILL SAVE, AND THE SAVE WAS DESTRUCTIVE.
-      V19.2 taught a login with no scope to refuse the whole-database
-      download - and then set the flag that says "the cache is complete".
-      On an empty cache that flag let the next save write a ONE-record copy
-      over that partner's saved slice and publish a one-record summary to
-      the node donors read, with no way back short of the 30-day copy
-      expiry. V18.8 refuses that save; V19.4 did not. The flag now stays
-      false on every refusal, which is the truth about that session, and
-      the save is refused with "Still syncing" exactly as it is today.
-
-    + ⛔ ONE CLOCK-FAST TOMBSTONE PINNED THE WATERMARK FOR EVERY DEVICE.
-      The newest stamp was taken raw and sanity-checked afterwards, so a
-      single delete written by a phone running fast zeroed the whole
-      batch's watermark. It never advanced, and every device re-ran the
-      full sweep on every sync, forever - triggered by the very fault this
-      release exists to defend against. The watermark now advances on the
-      newest SANE stamp.
-
-    + ⛔ A LIVE RECORD WRITTEN BY A CLOCK-FAST PHONE VANISHED FROM EVERY
-      CACHE. Its own stamp sanitised to zero, so it lost the re-creation
-      guard against an old tombstone with the same id - while remaining
-      live in Firebase. A record with an unreadable stamp is now deferred,
-      the same courtesy the tombstone already got.
-
-    + ⛔ A DELETED PERSON CAME BACK, ON THE SERVER, FOR EVERYONE. The two
-      admin syncs lacked the save-in-flight guard both partner syncs have,
-      so sweeping a tombstoned record out of the cache while a save held an
-      older copy made the next comparison re-write that person to Firebase
-      permanently. Guard added. The move-a-coordinator-between-partners
-      tool also read the whole dataset BEFORE its confirmation dialog and
-      saved that stale copy afterwards; it now reads after, as the V18.9
-      tool already did.
-
-    + ⛔ THE SUMMARY AN ADMIN WRITES WAS Rs 5.65 CRORE BELOW THE SAME NODE
-      WRITTEN BY A PARTNER. The scheme name was dropped when the row was
-      rebuilt, and the valuation rule reads it to find the standard amount
-      for a benefit with no typed figure - so all 5,874 blank benefits were
-      worth zero. The donor's phone therefore showed Rs 57.41 crore or
-      Rs 63.06 crore depending on who had saved last.
-
-    + REPORTS STILL COUNTED ENDLINES THE OLD WAY - "across the 2
-      beneficiaries with completed surveys" three lines below its own
-      "Endline Completed 1", and an average over the wrong denominator.
-      All Beneficiaries kept its own income rule after the sweep. Both now
-      use the one rule, which is every surface.
-
-    + The two stored-summary writers disagreed on "pending" by one, so the
-      viewer's card did not add up. The Integrated income column printed a
-      green "Rs 0" for 1,149 of 1,151 people whose endline had simply not
-      been done - it says "-" again. The refusal counter counted four
-      problems per broken sign-in and went silent on the second sign-in of
-      a shared laptop. The partner-move retry declared failure when there
-      was nothing left to move, and put 0 in the audit trail. The audit
-      dropdown offered "Updated" for rows that read "Status Changed".
-      Clicking a partner row left the phone's own filter behind.
-
-    + Proven: 9 suites and 320 checks green on this file, every one of the
-      findings above first seen FAILING on V19.4. Nine deliberate
-      breakages, all nine caught.
-
+   + ⛔ A REFUSED SESSION COULD STILL SAVE, AND THE SAVE WAS DESTRUCTIVE.
+   + ⛔ ONE CLOCK-FAST TOMBSTONE PINNED THE WATERMARK FOR EVERY DEVICE.
+   + ⛔ A LIVE RECORD WRITTEN BY A CLOCK-FAST PHONE VANISHED FROM EVERY
+   + ⛔ A DELETED PERSON CAME BACK, ON THE SERVER, FOR EVERYONE. The two
+   + ⛔ THE SUMMARY AN ADMIN WRITES WAS Rs 5.65 CRORE BELOW THE SAME NODE
+      Full entry in CHANGELOG.md.
 -->
 <html lang="en">
 <head>
@@ -3468,6 +3240,8 @@ body[data-shell="coord"] #_v352-install-btn {
        to the right of "Date ranges" and the column read as bent. -->
   <div id="date-range-filter-row" style="display:none;padding:8px 22px;background:var(--gray4);border-bottom:1px solid var(--gray3);align-items:center;gap:12px;flex-wrap:wrap;font-size:12px">
     <span style="font-weight:600;color:var(--navy);display:inline-flex;align-items:center;gap:5px">🔎 Find</span>
+    <!-- V21.1: the category is the page you are on, so it is stated, not chosen. -->
+    <span id="f-scope-label" style="font-weight:600;color:var(--navy2);font-size:12px"></span>
     <select class="fsel" id="f-category" onchange="_v201CategoryChanged(this.value)" style="font-size:12px;padding:4px 8px" aria-label="Category">
       <option value="">Select category</option>
     </select>
@@ -4468,7 +4242,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V20.9-LIVE';
+const APP_VERSION = 'V21.1-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -13191,6 +12965,55 @@ function _v201StageChanged(v) {
 }
 // Repaints the three controls from the current state. Called on every change
 // and by _clearDateFilters, so the bar and the variables cannot drift apart.
+
+// ── V21.1: the Find bar belongs to two pages ───────────────────────────────
+// It used to sit above every view and narrow all of them, including the
+// dashboard - where a status picks PEOPLE, so "Need to apply" still showed
+// the benefits those people had received on other schemes. It was also the
+// slowest control in the app: 7.6-9.3 s per change on 139,324 records.
+//
+// Now: Livelihood and Advocacy only, with the category implied by the page.
+//
+// ⛔ LEAVING EITHER PAGE CLEARS IT. A filter still set while the bar is
+// hidden would narrow the dashboard with nothing on screen to say why -
+// strictly worse than what this release removes.
+const _V211_SCOPED = { list: 'liv', advocacy: 'adv' };
+function _v211FilterScopeFor(view) {
+  return Object.prototype.hasOwnProperty.call(_V211_SCOPED, view) ? _V211_SCOPED[view] : null;
+}
+function _v211ApplyFilterScope() {
+  const row = document.getElementById('date-range-filter-row');
+  if (!row) return;
+  const u = (typeof currentUser === 'function') ? currentUser() : null;
+  const roleOk = !!(u && (u.role === 'admin' || u.role === 'ngo'
+                          || u.role === 'scopedViewer' || u.role === 'scopedViewerByFc'));
+  const cat = _v211FilterScopeFor(typeof currentView !== 'undefined' ? currentView : '');
+  const show = !!(cat && roleOk);
+  if (!show) {
+    // ⛔ clear, do not merely hide.
+    try {
+      filterCategory = ''; filterStage = '';
+      baselineFrom = baselineTo = endlineFrom = endlineTo = '';
+      benefitFrom = benefitTo = '';
+      appliedFrom = appliedTo = '';
+      _v201CalFrom = _v201CalTo = '';
+    } catch (_) {}
+    row.style.display = 'none';
+    const cal = document.getElementById('f-cal');
+    if (cal) cal.style.display = 'none';
+    try { _refreshDateFilterSummary(); } catch (_) {}
+    return;
+  }
+  // the category IS the page, so force it and hide its dropdown
+  if (filterCategory !== cat) { filterCategory = cat; filterStage = ''; }
+  row.style.display = 'flex';
+  const sel = document.getElementById('f-category');
+  if (sel) sel.style.display = 'none';
+  const lab = document.getElementById('f-scope-label');
+  if (lab) lab.textContent = (cat === 'liv') ? 'Livelihood' : 'Advocacy';
+  try { _v201SyncBar(); } catch (_) {}
+}
+window._v211ApplyFilterScope = _v211ApplyFilterScope;
 function _v201SyncBar() {
   const cat = document.getElementById('f-category');
   const stg = document.getElementById('f-stage');
@@ -13209,6 +13032,15 @@ function _v201SyncBar() {
   stg.disabled = !filterCategory;
   const kind = (filterCategory && filterStage) ? _v201DateKindFor(filterCategory, filterStage) : null;
   btn.disabled = !kind;
+  // ⛔ V21.1: it was correctly disabled and still looked like a live button,
+  // so Guru clicked it, got nothing, and reported it broken. Say so.
+  btn.style.opacity = btn.disabled ? '0.45' : '';
+  btn.style.cursor = btn.disabled ? 'not-allowed' : '';
+  btn.title = btn.disabled
+    ? (filterStage
+        ? 'The app does not record a date for this status, so there is nothing to filter by.'
+        : 'Pick a status first.')
+    : 'Pick a date range';
   const lbl = document.getElementById('f-daterange-label');
   if (lbl) lbl.textContent = (_v201CalFrom && _v201CalTo)
     ? (_v201Fmt(_v201CalFrom) + ' → ' + _v201Fmt(_v201CalTo))
@@ -14056,6 +13888,10 @@ async function _advApplyStatus(bid, scheme, remarks, next) {
         r.scheme === scheme && (r.remarks || '') === (remarks || ''))) parentRec = a;
   }
   if (!parentRec) { toast('Record not found — reload the page.', 'error'); return; }
+  // ⛔ V21.0: the rows AS THEY WERE, captured before anything below mutates
+  // them. _rptStampRowDates needs the previous state to tell a real
+  // transition from a re-save, which is how it avoids re-dating history.
+  const _v210Before = (parentRec.schemeRows || []).map(function (r) { return Object.assign({}, r); });
   const row = (parentRec.schemeRows || []).find(r =>
     r.scheme === scheme && (r.remarks || '') === (remarks || ''));
   if (!row) { toast('Row not found — reload the page.', 'error'); return; }
@@ -14071,6 +13907,14 @@ async function _advApplyStatus(bid, scheme, remarks, next) {
     if (!row.benefitAmt && isSchemeBenefitLocked(scheme)) { const def = getSchemeDefaultAmount(scheme); if (def) row.benefitAmt = def; }
   }
   row.status = storedStatus; row.benefitRecd = storedBenefitRecd;
+  // ⛔ V21.0: WRITE DOWN THE DAY. This path set the status and saved, and
+  // never stamped, so a benefit marked with the quick button was invisible to
+  // the date filter, the TODAY card, the today-by-partner table and the
+  // Reports timeline. The drawer has stamped since V12.4; this is the same
+  // pure function, given the same two arguments. It returns NEW row objects,
+  // so the array is replaced rather than mutated in place.
+  try { parentRec.schemeRows = _rptStampRowDates(parentRec.schemeRows, _v210Before); }
+  catch (_) { /* a stamping failure must never block the status change */ }
   // V329: optimistic local update — reflect new status in the list immediately
   // without waiting for the Firebase round-trip (was ~1-2 s delay before).
   // saveAdv will also call _hydrateAdvCache after the write (idempotent).
@@ -26972,6 +26816,8 @@ window.nav=function(v){
     if (!allowed.has(v)) v = 'dashboard';
   }
   currentView=v;
+  // V21.1: the Find bar follows the page, and clears itself on the way out.
+  try { _v211ApplyFilterScope(); } catch (_) {}
   // V324: reset pagination and memoization cache on every nav so that
   // newly restored records (e.g. after dedup fix) are always visible.
   if (typeof allBCurrentPage !== 'undefined') allBCurrentPage = 1;
@@ -28986,6 +28832,10 @@ async function applyBulkStatusUpdate() {
     if (!visibleIdSet.has(rec.bid)) return;
     if (!inScopeBid(rec.bid)) return;
     const rowsBefore = {};
+    // ⛔ V21.0: rowsBefore holds only the three fields undo needs, keyed by
+    // remarks. The stamper needs the WHOLE rows as they were, so take a
+    // shallow copy of each before the loop below mutates them.
+    const _v210Before = (rec.schemeRows || []).map(function (r) { return Object.assign({}, r); });
     let changedHere = 0;
     (rec.schemeRows || []).forEach(r => {
       if (!r || r._deleted) return;
@@ -29022,6 +28872,11 @@ async function applyBulkStatusUpdate() {
       touchedRows++;
     });
     if (changedHere > 0) {
+      // ⛔ V21.0: the same stamper the drawer uses. Only records that really
+      // changed are stamped, and they were being saved anyway, so this adds
+      // no Firebase write - only about twenty bytes to a record already going.
+      try { rec.schemeRows = _rptStampRowDates(rec.schemeRows, _v210Before); }
+      catch (_) { /* never block a bulk update on stamping */ }
       // Stamp the snapshot. Depth 1 — if a previous bulk update on this
       // record hasn't been undone, this overwrites it (same as the
       // endline bulk pattern).
@@ -29086,6 +28941,12 @@ async function _undoBulkStatusForBeneficiary(bid) {
   targets.forEach(rec => {
     const s = rec._preBulkStatusSnapshot;
     if (!s) return;
+    // ⛔ V21.0: undo restored the status but left the benefit DATE behind, so
+    // a row could read "not received" while still carrying the day it
+    // arrived - and still be found by a benefit-date search. The stamper
+    // drops _bAt from any row that is no longer at Benefits Received, so
+    // running it after the restore takes the date back off.
+    const _v210Before = (rec.schemeRows || []).map(function (r) { return Object.assign({}, r); });
     (rec.schemeRows || []).forEach(r => {
       if (!r || r._deleted) return;
       if (r.scheme !== s.scheme) return;
@@ -29097,6 +28958,8 @@ async function _undoBulkStatusForBeneficiary(bid) {
       r.benefitAmt = before.benefitAmt;
       restored++;
     });
+    try { rec.schemeRows = _rptStampRowDates(rec.schemeRows, _v210Before); }   // V21.0
+    catch (_) { /* never block an undo on stamping */ }
     delete rec._preBulkStatusSnapshot;
   });
 
@@ -37037,8 +36900,11 @@ function _applyRoleVisibility() {
   // V375: scopedViewer (donors) also get the date-range filter — they often
   // need to answer "impact in Q1" or "endlines in March" without rebuilding
   // the dashboard themselves. Same display:flex requirement as admin/NGO.
-  if (dr) dr.style.display = (isAdm || isNgo || isSV || isTL) ? 'flex' : 'none';
-  try { if (dr && dr.style.display === 'flex') _v201SyncBar(); } catch (_) {}   // V20.1
+  // V21.1: role is necessary but no longer sufficient - the bar also has to
+  // be on one of its two pages. _v211ApplyFilterScope decides both, and
+  // clears any filter left set when it is not shown.
+  if (dr && !(isAdm || isNgo || isSV || isTL)) dr.style.display = 'none';
+  try { _v211ApplyFilterScope(); } catch (_) {}   // V21.1 (was _v201SyncBar)
   // Set body data-role so CSS selectors can target role-specific UI
   // (see CSS rule body[data-role="coordinator"] ... { display:none })
   document.body.dataset.role = u ? u.role : '';
