@@ -1,13 +1,346 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V21.1-LIVE
+  KRSF Beneficiary Impact Tracker  -  V21.4-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
   cost every user ~155 KB of gzipped download on every load for text no
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
+  ============================================================================
+  V21.4-LIVE (2026-09-08 - a phone that can actually enrol with no signal).
+
+    + ⛔ THE DEFECT WAS ONE LINE, AND IT WAS AN EARLY RETURN JUDGED OVER THE
+      WRONG SET. _v196TopUpIfLow asked whether every code the phone ALREADY
+      HOLDS was stocked, and stopped if so. Guru's phone held a full block of
+      25 Haryana numbers - from ONE stray past record - so it answered "all
+      stocked" and returned. Gujarat was never weighed and rejected; it was
+      never considered at all, and no amount of waiting or reconnecting would
+      have changed that. He switched data off, filled in an enrolment, and was
+      refused. I had told him offline enrolment works.
+
+    + WHAT A PHONE NEEDS IS NOT ONLY WHERE IT HAS BEEN. _v214WantedCodes asks
+      three things in order of certainty: the state on the enrolment form in
+      front of the coordinator, the partner's own state, and the states they
+      have actually enrolled into before. Capped at three, because each state
+      held costs 25 numbers off a shared counter and V19.6 already learned what
+      happens when that runs away. It never returns nothing - a brand-new
+      coordinator with no records, no partner state and no form open still has
+      to be able to enrol.
+
+    + AND IT STOCKS AT SIGN-IN. The first attempt rode requestIdleCallback with
+      an 8-second timeout and then a 40-second timer. A phone losing signal in
+      those first seconds - walking out of the office, into a village - reached
+      neither and then had nothing to give. _v214StockNow fires at login; the
+      idle call stays as the unhurried follow-up.
+
+    + THE MESSAGE SAYS WHAT TO DO. "No reserved ID numbers left" explained the
+      app's machinery to somebody standing in a village. It now says the phone
+      needs the internet once, and that nothing they typed is lost.
+
+    + ⛔ SHIPPED ALONE, DELIBERATELY. Guru asked for the offline work last and
+      by itself, because three previous rounds of fixes in this area each
+      introduced a new fault. Nothing else moves in this release.
+
+    + TESTS: _tests/v214.js - 63 checks, on a reconstruction of Guru's actual
+      phone: 25 numbers for a state he does not work in, zero for the one he
+      does. The 93-check offline suite is green. ⛔ THIS LINE HAS BEEN WRONG
+      TWICE. It first said 21 checks all seen RED on V21.3; the suite had 27
+      and two were already green there. Read a count here as a count, not as
+      evidence - the mutants below are the evidence.
+
+    + ⛔ AND THE CENTRAL CHECK DID NOT EXIST UNTIL THE VERY END. For most of
+      this release the suite counted numbers in a block and never once enrolled
+      anybody. An audit severed the reserved-number lookup so no offline
+      enrolment could ever obtain an id, and all 21 checks still passed.
+      Section 3c now opens the real form, taps the real chips, calls the real
+      submitEnroll with the network off and reads the id back off the saved
+      record. On that same mutant it dies with five failures and reports the
+      refusal the coordinator would have seen.
+
+    + ⛔ THREE FORM GATES HAD TO BE SATISFIED, NOT ONE, and naming the right
+      element ids was not enough. f-district-sel holds no options at all until
+      onStateChange builds them from DISTRICTS[state], so assigning a district
+      to it is a silent no-op; gender and programme are div.ichip taps wired to
+      selectGender and toggleProgChip, not checkboxes, so a checkbox selector
+      matched nothing and the programme gate would have refused it anyway. A
+      typed phone number also arms the duplicate-mobile banner, which returns
+      without saving. The probe now records the text of #enroll-err, because
+      every one of those gates writes there before returning - a future failure
+      names itself instead of reporting a bare created:false.
+
+    + ⛔ AND ONE CHECK WAS DEAD ON ARRIVAL. The id pattern was written as
+      /^KRSF-[A-Z]{2}-\d{4,}$/ INSIDE the SURVEY template literal, where \d
+      collapses to a bare d before it ever reaches the browser. Nothing could
+      match it, so a perfectly good KRSF-GJ-142373 was called malformed. It is
+      [0-9]{4,} now, which is immune to that class of trap. An audit of all 65
+      test files found no other dead pattern in any browser-bound literal.
+
+    + ⛔ 19 MUTANTS BUILT AND 8 SURVIVED - so the suite went from 27 checks to
+      63 and each of those eight now has one that kills it. Every defence in
+      this release is named by a check that has been seen to fail on a build
+      with that defence removed: the sign-in stock-up (both emptying
+      _v214StockNow AND dropping its cheapOnly argument, which sends it back
+      through the replay gate that made it a no-op in the field to begin with);
+      the _V214_MAX_CODES cap; the cheapOnly guard on the record scan; the
+      hold-off inside _v196TopUpBlock; the /^[A-Z]{2}$/ validation that keeps
+      junk out of a Firebase path; the editingId gate; _v214ClearFormState;
+      and the refusal branch, which is now provoked for real rather than
+      grepped for. Section 0 proves the sign-in stock-up on a SECOND page load
+      with benefReplayComplete still false, touching nothing.
+
+    + ⛔ AND THE SUITE WAS RACY, WITH A FALLBACK THAT HID IT. WANTED read
+      partnerCode || 'GJ', so on the runs where loadPartners had not populated
+      the suite quietly tested Gujarat while its own output claimed otherwise -
+      5 of 12 runs. The fallback is gone; it aborts and says how many partners
+      loaded. A second race was the sandbox itself, serving 155 MB of records
+      and id_counters in one Promise.all: when the counters lost, the app
+      correctly wrote the state off for five minutes and every check then
+      failed for something the harness did. Detected and reloaded past, up to
+      three attempts - and it cannot mask a real fault, because a build that
+      never asks leaves no back-off at all, which is how both sign-in mutants
+      still die. Six consecutive runs, 63 green each.
+
+    + ⛔ TWO CHECKS COULD NOT FAIL AND WERE MADE TO MEAN SOMETHING. One is now
+      read back through the real _v196HeldCodes; the other stubs in an invented
+      Tamil Nadu record, because this coordinator has none of her own and
+      stubbing her records to empty was indistinguishable from not stubbing
+      them at all.
+
+    + Worth knowing: dropping the `return` from the refusal does not merely
+      save a bad record, it FREEZES the renderer. The shipped build has the
+      return - but the branch below it is not survivable, so do not remove it.
+
+    + ⛔ THREE OF THOSE CHECKS WERE TOO WEAK AND WERE REWRITTEN. One passed on a
+      build with the sign-in call DELETED, because "function _v214StockNow()"
+      also matches a grep for "_v214StockNow()". One could not tell the
+      partner's state from the fallback, because this coordinator's partner is
+      in Gujarat and so is the fallback - the test user is now put in
+      Maharashtra, where only one source can answer. And the isolation did not
+      isolate: the enrolment form stays in the DOM after navigating away, so
+      its state field kept answering the question it was meant to be silent for.
+
+    + ⛔ AND THE SOURCE-STRIPPER IN v213/v214 WAS EATING REAL CODE. A /* */
+      regex is unbalanced against this file, so it swallowed a large region and
+      source checks quietly reported things missing that were right there. Only
+      the changelog and whole-line // comments are stripped now, which is all
+      that was ever needed: prose must not satisfy a grep.
+
+    + Tests: 65 files. v214.js is new.
+  ============================================================================
+  V21.3-LIVE (2026-09-08 - income can be recorded without a baseline, a
+  second upload adds instead of erasing, a missing baseline prints a dash,
+  and typing a remark stops destroying a benefit's date).
+
+    + ⛔ EVERY ENDLINE UPLOAD USED TO ERASE THE ONE BEFORE IT. The writer
+      REPLACED the whole income log with a single entry. Record Rs 5,000 in
+      September, upload Rs 10,000 in October, and September was gone - the
+      record read Rs 10,000 where the truth was Rs 15,000, with nothing on
+      screen to say so. Guru's programme pays income in instalments, so that
+      is his normal case, not an edge. A `mode` column now takes "add"; blank
+      still REPLACES, so an admin who changes nothing gets exactly what V21.2
+      did. ⛔ endIncome is a MIRROR of baseline plus everything logged, so
+      after an append it is RECOMPUTED rather than set to the figure just
+      typed - setting it would have thrown away the very instalment the change
+      exists to keep.
+
+    + AN additionalIncome COLUMN, so a household with no recorded baseline can
+      still be measured. 1,330 of the 3,553 rows in the Navchetna spreadsheet
+      Guru is about to import are that shape - that count comes from HIS FILE,
+      not from the database, so it cannot be verified against an export. Of the
+      1,156 livelihood records live today, every one has a baseline. And
+      for a family given a cow the whole milk income is new anyway. It is also
+      the exact figure the dashboard counts. ⛔ Filling BOTH columns is refused
+      rather than guessed at - they mean different things, and picking one
+      would record a number nobody typed. ⛔ AND THE OLD GUARD STAYS for a
+      TOTAL with no baseline, because that is the mistake the Suspicious
+      Endlines report exists to catch.
+
+    + ⛔ TYPING A REMARK DESTROYED THE DATE. _rptStampRowDates keys its rows
+      scheme::remarks. The importer writes no remark and the drawer always
+      writes one, so the first remark typed on an imported benefit changed the
+      key, the row read as brand new, and it was re-stamped with TODAY - a
+      benefit imported as August silently became October. Pre-existing for
+      every row; V21.2 was simply the first release where an imported row had
+      a date to lose. The fallback is deliberately NARROW: only where the
+      scheme appears exactly once on each side. Where somebody holds several
+      applications under one scheme (i-Khedut for a tractor and a rotavator),
+      matching by scheme alone would hand one row the other's date, which is
+      worse than the bug. A tombstoned row still donates nothing.
+
+    + A DASH INSTEAD OF NOUGHT PER CENT. Five screens printed 0% where there
+      was no baseline, sitting beside the rupees the programme created. Nobody
+      measured a change of nothing, and it understated the work in front of
+      whoever was reading. _v213PctText is the one place that decides; a
+      genuine zero on a real baseline still reads +0%.
+
+    + ⛔ TWO INDEPENDENT REVIEWS, AND BOTH BLOCKERS WERE MINE. The preview
+      column and the audit trail printed baseline + typed, while an append
+      actually produces baseline + what was already logged + typed - so every
+      appended row was reported short by exactly the income already there. And
+      a TOTAL combined with mode=add was accepted: "the household now earns
+      Rs 40,000" and "keep what is there and add this" are contradictory
+      instructions, and together they stored a figure nobody typed. The
+      both-columns case was refused while the only logically impossible
+      combination was let through.
+
+    + ⛔ AND THE DATE FALLBACK WAS TOO WIDE. Deleting one claim and adding
+      another under one scheme in a SINGLE save leaves exactly one live row on
+      each side, so the new benefit inherited the deleted one's date and would
+      have charted in the wrong month. The donor must now match on status AND
+      amount, which narrows it to what it is for: a remark typed or corrected
+      on the same application. The residual - a genuinely different application
+      at the identical status and amount - is accepted and stated here rather
+      than hidden. Measured on the live export: 240,747 of 241,983 (person,
+      scheme) pairs hold exactly one row, so the fix reaches nearly everybody,
+      and 1,236 pairs across 848 people hold more than one and are left alone.
+
+    + THE WORKBOOK AND THE SCREEN STILL DESCRIBED V21.2. Both said the upload
+      REPLACES and that previous history will be lost, and pointed the admin at
+      Log Income for anything incremental - the exact opposite of what this
+      release does. Neither new column appeared anywhere. Rewritten.
+
+    + A TOMBSTONE IS NOT AN EVENT. The bulk-status writers pass the whole row
+      set, deleted rows included, so those matched nothing, read as brand new
+      and were stamped with today: fabricated dates on 6,378 rows and the bytes
+      to carry them on every read. No figure moved, because every reader filters
+      deleted rows, but it was never true. Pre-existing since V21.0.
+
+    + ⛔ AND THE SUITE WAS WEAKER THAN ITS COUNT SUGGESTED. A reviewer built
+      mutants: one that silently kept only the two NEWEST instalments passed
+      all 30 checks, because the file only ever appended onto a log holding ONE
+      entry - and at that depth "concat" and "keep the newest two" are the same
+      thing. The third instalment is the first that loses money. Another read
+      additionalIncome as a TOTAL and passed every check in the section that
+      claims to test it, because that section used a record whose baseline had
+      been stripped to zero, and subtracting zero changes nothing. Both now go
+      red, along with six others.
+
+    + ⛔ AND A FOURTH REVIEW, AFTER THE FIXES. The Alerts screen still told the
+      user "no endline income should be entered until the baseline is filled
+      in" - permanently, about exactly the households additionalIncome exists
+      to serve. mode=add on a legacy record (an endIncome and no log, which is
+      what the sheet PRINTS in currentTotalIncome) replaced instead of adding,
+      destroying the amount. Two rows for one person under mode=add counted the
+      money twice AND overwrote the undo snapshot so it could not get back. And
+      the Avg uplift percentage divided a gain by a denominator that household
+      contributed nothing to. All four fixed.
+
+    + Tests: 64 files. v213.js is new - 60 checks, every one seen RED on V21.2
+      first, and eleven mutants confirm it bites.
+  ============================================================================
+  V21.2-LIVE (2026-09-08 - an imported benefit carries its date, Reports can
+  be asked for a calendar month, and the endline sheet stops showing the
+  figure it is not asking for).
+
+    + ⛔ THE IMPORTER WAS THE FOURTH SAVE PATH, AND THE ONLY ONE LEFT. V21.0
+      fixed the drawer, the quick button and Bulk Update. The importer built
+      its scheme rows itself and wrote them straight to the database, so
+      every benefit that ever came in through a spreadsheet was born with no
+      date - and could never gain one, because _rptStampRowDates stamps on an
+      OBSERVED transition and an imported row arrives already reading
+      "Benefits Received". There is no transition, on that save or any later
+      one. Those rows counted in every all-time total while being invisible
+      to every date filter: the exact split Guru reported from the field,
+      fifteen benefits in Recent Activity against three under the filter.
+      _v212StampImportedRows now passes an EMPTY stored set to the same
+      function, which makes every row new - which it is - and applies the
+      identical rule a coordinator's own first save gets. Reused rather than
+      repeated on purpose: two copies of this rule would drift, and the last
+      time one rule lived in several places it cost a whole release to put
+      right.
+
+    + THE SHEET CAN NOW SAY WHEN. The schemes cell takes an optional fourth
+      part - Scheme:Status:Amount:Date - so a partner can load a backlog with
+      the days it actually happened. Safe to split on ':' because no scheme
+      in the catalogue contains one. Blank means the day of import.
+
+    + ⛔ AND A DATE THE APP CANNOT READ IS REFUSED, NOT QUIETLY REPLACED.
+      _rptStampOk discards anything on or before 2026-07-29, so an older date
+      would be written, billed on every read of that row for ever, and still
+      show nothing. The first build of this release fell back to TODAY in
+      that case - which would have filed a March benefit into today's TODAY
+      card and into September's figure. Caught by its own test. The row is
+      now left honestly undated, with a warning in the preview that says why.
+
+    + THIS MONTH AND LAST MONTH ON REPORTS, SHIPPED SWITCHED OFF. Guru turns
+      them on himself once October is a complete month, because benefits are
+      only fully dated from 7 September 2026 and any month before that reads
+      low. The switch is an admin-only link beside the buttons; the flag
+      lives in config/flags, inside the node the app already downloads whole
+      at boot, so it costs no extra Firebase. Absent means off, so a device
+      that has never seen it behaves exactly as V21.1 did.
+
+    + ⛔ A CALENDAR MONTH IS NOT A ROLLING WINDOW, so inWin gained a CEILING.
+      "Last 30 days" is a floor with an open end, which is fine when nothing
+      is dated ahead of now. August needs both ends: without the ceiling,
+      asking for August would also count September and the button would be a
+      rolling window wearing a month's name. Verified safe for every figure
+      that exists: all 142,060 records and 250,786 scheme rows in the live
+      export carry no future date, so the five day-windows are unchanged.
+      rptMonth is deliberately NOT another value of rptRange - that variable
+      is a COUNT OF DAYS and half this file multiplies it by 86400000.
+
+    + THE ENDLINE SHEET SHOWED THE GAIN WHILE ASKING FOR THE TOTAL. The
+      reference column summed the income-log entries, which are the
+      ADDITIONAL income on top of the baseline, and sat directly beside
+      newEndIncome, which is the household's whole income. Read 25,000, type
+      30,000, and a family who started on 40,000 is recorded as having lost
+      income - the very mistake the Suspicious Endlines report exists to
+      catch. It is now baseline + everything logged since, named
+      currentTotalIncome, built by _v212EndlineRow so a test can see it.
+
+    + AND THE INSTRUCTIONS STOPPED PROMISING A BUTTON THAT WAS REMOVED.
+      Unmatched ids are skipped and counted in the closing message; the sheet
+      now says so, and says the figure wanted is the full annual household
+      income, not the increase.
+
+    + ⛔ FIVE INDEPENDENT REVIEWS, AND THE WORST FINDING WAS MINE. The first
+      build of this release put an UNCONDITIONAL ceiling on the window -
+      `t <= nowMs`. Stored dates are bare 'YYYY-MM-DD' IST calendar days;
+      new Date() reads them as UTC midnight = 05:30 IST; nowMs is a real
+      instant. So between midnight and half past five every morning,
+      everything recorded that day sat in the 'future' and vanished from
+      all five day-windows. _rptActiveAt carries the V20.2 note describing
+      this exact fault NINETY LINES ABOVE the line I changed. Two reviewers
+      found it independently. The ceiling is now an argument only a month
+      supplies, so the day-windows are identical to V21.1 by construction.
+
+    + AND FOUR MORE, ALL FIXED. A month-filtered CSV went out named
+      'alltime' with every column headed '(all-time)'. Picking August made
+      a coordinator who worked in September read 'never' and drop into the
+      inactive table - 'Last active' is not a windowed figure and its own
+      tooltip says so, but it was measured against the window's end. The
+      Trends tab divided a month's total by 365 under the heading 'Enrolled
+      (all time)', so month buttons are not offered there. And a
+      spreadsheet cell reached the import preview as unescaped HTML.
+
+    + ⛔ 'Approved' IN A SHEET NOW SETS benefitRecd:'Yes'. All 29,061
+      Approved rows the app itself writes carry the flag, and
+      _advNormStatus reads the flag and never the word - so an imported
+      Approved row was classifying as merely Applied and would never have
+      been counted as a benefit anywhere.
+
+    + ⛔ AND THE SUITE ITSELF WAS LYING. A reviewer built mutants: a window
+      helper returning an infinite window - every day-chip silently showing
+      all-time numbers - PASSED all 113 checks, because the probe
+      re-implemented the very expression this release deleted. Breaking the
+      boot path so the switch never reaches a device PASSED too, because
+      the test set localStorage itself instead of driving that path. Both
+      now go red. _v212AdoptFlags exists so both boot reads share one rule
+      a test can call. Source greps strip comments first - 'config/flags'
+      appears in this changelog, so deleting every line of flag code used
+      to satisfy that check.
+
+    + TESTS: _tests/v212.js - 122 checks, every one seen RED on V21.1 first,
+      and the baseline it compares against is committed beside it as
+      _tests/v211-baseline.json rather than left in a temporary folder.
+      Three mutants confirm it bites: a window helper that returns an
+      infinite window, a boot read of the wrong config key, and the
+      unconditional ceiling described above. The first two passed an
+      earlier draft of this suite and are why it was rewritten.
+    + Tests: 63 files at the time of that release.
   ============================================================================
   V21.1-LIVE (2026-09-06 - the Find bar moves to the two pages it means
   something on).
@@ -47,7 +380,7 @@
       The same search now lives on Advocacy, which is where a scheme status
       belongs. If that turns out to be wrong it is one line to put back.
 
-    + Tests: 62 files. v211scope.js is new.
+    + Tests: 62 files at the time of that release.
   V21.0-LIVE (2026-09-06 - two of the three ways to mark a benefit never
   wrote down the day).
 
@@ -95,23 +428,6 @@
     + Tests: v210stamp.js is new.
   V20.9-LIVE (2026-09-06 - three ways a breakdown could stop adding up).
 
-    + WHY. V20.7 and V20.8 went through an independent review before upload.
-      Neither was broken on the data as it stands today, and every test
-      passed. The review found three cases where a figure could disagree
-      with the figure printed beside it - the exact fault V20.5 existed to
-      remove. None had been uploaded, so nobody saw them.
-
-    + AN ORPHANED SCHEME RECORD COUNTED ON THE CARD AND IN NOBODY'S ROW.
-      When a scheme sheet names a farmer who is no longer in the database,
-      the fleet card counted the person and the per-partner row did not, so
-      the rows totalled one less than the card above them. It only showed on
-      the unfiltered admin view - the default one. It is dormant because all
-      1,215 orphans were cleared on 4 September, but the class recurs: the
-      cascade that removes a scheme sheet when a farmer is deleted is
-      best-effort and logs a failure rather than stopping. Such work now
-      lands in a row headed with a dash, so the table still adds up and the
-      orphan is visible instead of silently missing.
-
     + ⛔ THE LIVELIHOOD COLUMN COUNTED MORE THAN THE CARD DID. The card
       counts three named stages; the per-partner column counted every record
       the loop reached. A stage outside those three would make the rows
@@ -120,81 +436,27 @@
       an invariant held up by data hygiene rather than by code. The column
       now increments inside the same three branches the card uses, so the
       two cannot drift whatever the data says.
-
-    + AND THE TREND BANDS, FOR A DATE THAT SHOULD NOT EXIST. V20.8 replaced
-      twenty-four passes with one. The two agree on every well-formed date,
-      which the review confirmed independently over all 139,324 records. They
-      part company on a malformed month - "2025-13" from a hand-edit or a
-      restore - which the old code counted from January onward and the new
-      one dropped. No code path in the app can write such a date. It is
-      handled explicitly now rather than left as a footnote, so "identical
-      output" is true without a caveat.
-
-    + Tests: v209sums.js is new: it INJECTS an orphaned scheme
-      sheet and an out-of-vocabulary stage into the caches, asserts the rows
-      still total the card, and removes them again. v208bands.js gains a
       malformed-month case. ⛔ Both were seen failing on V20.8 first - the
       point of injecting is that waiting for the data to produce these
       states is waiting for the bug to reach Guru.
+
+      Full entry in CHANGELOG.md.
+  ============================================================================
   V20.8-LIVE (2026-09-06 - the dashboard chart was counting everybody
-  twenty-four times).
-
-    + WHAT GURU SAID. "I feel the app has become slower in loading the
-      dashboard and overall navigation."
-
-    + WHAT THE MEASUREMENT SAID, after two wrong theories of mine. It is
-      not a regression: V19.5 and V20.6 render within 3% of each other on
-      every screen. It is not the cache either - every other heavy block
-      remembers its answer and costs nothing on a revisit. It is SIZE. The
-      app holds 139,324 farmers and 139,422 advocacy records, and one
-      function scales with that number far worse than the rest.
-
-    + THE ONE FUNCTION. _renderDashboardTrendBands measured 1,491 ms cold
-      and 1,496 ms warm - the largest single item in a 5.5 s dashboard, and
-      the only heavy one that paid in full on EVERY visit. It built the
-      cumulative line with months.map(m => list.filter(...)), which is twelve
-      complete passes over every farmer, and then twelve more for the
-      new-per-month line. Twenty-four passes, about 3.3 million date
-      conversions, to produce twenty-four numbers.
-
-    + THE FIX IS ONE PASS. Count each month once into a small histogram,
-      then add the buckets up. The cumulative figure is a running total of
-      the same buckets, so it needs no second walk. Farmers enrolled BEFORE
-      the twelve-month window still have to be in every cumulative point -
-      they are counted once, up front, and the running total starts there.
-      Farmers enrolled after the window stay out of every point, exactly as
-      before.
 
     + ⛔ DELIBERATELY NOT CACHED. A cache has to be invalidated, and an
       invalidation that is a shade too narrow shows a stale chart - which is
       worse than a slow one. This is still computed fresh on every render;
       it simply stops doing the same work twenty-four times.
-
     + ⛔ THE OUTPUT MUST NOT MOVE. v208bands.js lifts the OLD function out of
       index-V20.7-LIVE.html and the new one out of this build, runs both over
       the real 139,324 records, and fails unless the HTML they produce is
       character-for-character identical. A faster chart that draws something
       different is not a fix.
 
-    + Tests: v208bands.js is new.
+      Full entry in CHANGELOG.md.
+  ============================================================================
   V20.7-LIVE (2026-09-06 - today's work, partner by partner).
-
-    + WHAT WAS MISSING. The TODAY card counts the whole foundation, or one
-      partner when the dropdown is set. So "how did each partner do today"
-      meant changing that dropdown twenty-one times and writing the answers
-      down. And the card is admin-only, so a partner could not see even
-      their own day.
-
-    + WHAT IS THERE NOW. A compact table under the card: one row per
-      partner, with people enrolled, schemes applied for, benefits received
-      and livelihood records touched today, and a total row. Admins see
-      every partner. A partner sees their own row and nothing else.
-
-    + IT COSTS NOTHING EXTRA. The rows are built inside the SAME two loops
-      the card already runs, so there is no second pass over 139,324
-      beneficiaries or 139,422 advocacy records, no new Firebase read, and
-      the result rides the cache the card already keeps. The only added work
-      is one map lookup per advocacy record edited TODAY - a few dozen rows.
 
     + ⛔ THE ROWS MUST SUM TO THE CARD. A breakdown that does not add up to
       the figure above it is worse than no breakdown. Applied and Benefits
@@ -202,169 +464,34 @@
       the per-partner counts are de-duplicated per person before they are
       summed. A person belongs to one partner, so the rows add up by
       construction - and the test asserts it rather than trusting that.
-
     + ⛔ SCOPED BY THE FARMER, NOT BY THE ADVOCACY RECORD. An advocacy row
       carries its own stale copy of the partner name, which goes wrong the
       moment somebody is moved between partners (V18.9). The partner comes
       from the beneficiary, the same rule V19.9 set for the card.
-
-    + WHERE IT SITS IN REPORTS. At the top of Partners for an admin, and at
-      the top of Coordinators for a partner - because a partner has no
-      Partners tab (V12.7 removes it, since it exists to compare partners
-      and they can only ever see themselves). One place each, never twice.
-
     + ⛔ LIVELIHOOD SAYS WHAT IT CAN HONESTLY SAY. The app has never stored
       the day a livelihood stage changed, so that column is headed "records
       touched" and carries a note. Enrolments, applications and benefits all
       have real dates and are exact.
 
-    + Tests: v207today.js is new, 30 checks.
+      Full entry in CHANGELOG.md.
+  ============================================================================
   V20.6-LIVE (2026-09-04 - three places V20.5 left saying the old number).
 
-    + WHY THERE IS A V20.6 AT ALL. V20.5 was put through an independent
-      review before upload. It found the fix correct and found three more
-      places carrying the SAME fault it had just removed - a figure on
-      screen contradicting the figure beside it. None had been uploaded, so
-      Guru never saw them; they are fixed here rather than shipped.
-
-    + THE COLUMN NOTES CONTRADICTED THE CARDS BY 28 AND 14. The four cards
-      now count the "Recorded by office staff" bucket. The little i beside
-      Applied and beside Benefits received still summed the coordinators
-      alone, so the card read 42,712 and the note two centimetres below it
-      read 42,684 - Guru's original complaint, moved down the screen. Both
-      notes now use the same total the cards use. Measured on the 31 Aug
-      data: 42,684 + 28 office = 42,712 applications, 26,989 + 14 = 27,003
-      benefits.
-
-    + AND ONE ARRAY INSTEAD OF SIX. The total is now built once at the top
-      of the function and read by the notes and the cards alike, so the two
-      cannot drift apart again by editing one and forgetting the other.
-      V20.5 rebuilt a 470-row array on each of its six calls.
-
-    + THE PARTNER TABLE COUNTED A BUCKET AS A PERSON. "Active FCs" is the
-      divisor for every per-coordinator average on the Partners tab and in
-      its export. It counted the office bucket, so three partners showed one
-      more active coordinator than they employ and their averages were
-      diluted by a head that does not exist. This is the same rule stated in
-      V20.5 and applied in one place short: a total counts the work, a
-      ranking counts the workers. The bucket keeps every figure it
-      contributes to the partner totals; it is no longer counted as staff.
-      A partner whose only in-window work is office work now shows 0 active
-      coordinators and a dash for the averages, which the renderer has
-      always handled.
-
-    + THE COORDINATOR CSV SAID BOTH "-" AND "0" FOR ONE MEASURE. The office
-      row wrote a dash under Livelihood (window) and a literal 0 under
-      Livelihood (all-time), so the same non-applicable measure appeared
-      twice in one row in two forms, and a filter for "partners with no
-      livelihood work" picked the row up as a real zero. Both are dashes now,
-      matching the screen.
-
-    + Tests: v205fctotal.js grows from 11 checks to 31 and now
-      runs the whole survey TWICE - all-time and a 30-day window. That
-      matters: under all-time the windowed keys equal the all-time keys by
-      construction and the cards do not even render their all-time line, so
-      the V20.5 suite would have passed against half the fix reverted. It
-      also asserts the NEGATIVES the doctrine rests on - no office row in
-      the coordinator list, the office row rendered last and never as #1,
-      the office bucket outside Active FCs - and reads the CSV by column
-      NAME rather than by a hard-coded index.
+      Full entry in CHANGELOG.md.
+  ============================================================================
   V20.5-LIVE (2026-09-04 - the coordinator page was 14 benefits short of every
-  other screen).
 
-    + WHAT GURU SAW. Advocacy said 27,889 benefits received. Reports, on the
-      Advocacy timeline, said 27,889. Reports, on FC Performance, said
-      27,875. Applications were short by 28 in the same place.
-
-    + WHY. V18.7 found that advocacy saved under an admin or partner login,
-      for somebody whose coordinator name matches nobody, belonged to no row
-      at all, and gave that work its own labelled row - "Recorded by office
-      staff" - included in the partner rollup. That bucket is deliberately
-      NOT in fcList, because fcList is read as "the coordinators" by the
-      active/inactive split, the leaderboard and the conversion rate, and
-      this is not a person. But the four cards ABOVE the leaderboard summed
-      fcList, and those cards are TOTALS. So the office row sat on screen
-      carrying a tooltip that says it "counts in the totals above" while the
-      totals above did not count it.
-
-    + THE FIX IS ONE LINE AND ITS CHOICE OF SIDE. The cards now sum the
-      coordinators AND the office rows, exactly as the partner rollup has
-      since V18.7. The leaderboard, the active/inactive split and the
-      conversion rate are untouched: those ARE statements about people, and
-      the office bucket must stay out of them. A total counts the work; a
-      ranking counts the workers.
-
-    + AND THE CSV, WHICH WAS WORSE. The coordinator export sorted fcList and
-      filtered to rows with beneficiaries, so it dropped the office row
-      entirely - a spreadsheet made from that screen could not be reconciled
-      with the screen it came from. It now carries the same row the table
-      shows, at the end, with a dash where a person would have a figure.
-
-    + Tests: v205fctotal.js is new: it reads the number off the
-      card, off the Advocacy tab and out of the aggregation, and fails unless
-      all three agree. Seen failing on V20.4 first, short by exactly the 14
       and 28 Guru reported. ⛔ A regex inside the CDP survey needs its
       backslashes doubled - the survey is a template literal, so \s became s
       and the check passed against text it had quietly mangled.
+
+      Full entry in CHANGELOG.md.
+  ============================================================================
   V20.4-LIVE (2026-09-04 - the cleanup screen comes back out, and the sidebar
-  gets shorter).
 
-    + THE CLEANUP RAN, SO THE SCREEN GOES. V20.3 added an admin screen to
-      remove the 1,215 scheme sheets whose beneficiary was not in the
-      database. It was run on 4 September: 1,215 removed, 0 kept, 0 failed.
-      The 21st export confirms it - zero sheets without a farmer, 1,39,540
-      sheets belonging to a living farmer all still present with every scheme
-      line intact, no beneficiary missing, one audit entry, and 1,214 new
-      deletion markers (the 1,215th key already carried one). A one-off tool
-      that stays in the file costs every coordinator ~7 KB of download on
-      every load, for ever, so it is removed here rather than left to rot.
-      The two saved copies remain outside the repository if it is ever needed.
-
-    + MOVE RECORDS BETWEEN PARTNERS NOW LIVES IN USER MANAGEMENT, beside
-      Transfer Beneficiaries, Move FC to NGO and Bulk Assign FC, with the same
-      tap-to-open note the other three carry. It is the fourth tool of exactly
-      the same kind - it moves who owns records - so the sidebar was the wrong
-      home for it. The route still exists and still works; only the doorway
-      moved. The sidebar is two entries shorter than it was this morning.
-
-    + Nothing else changed. The dashboard, Reports, every partner and
-      coordinator screen, the filter bar and the offline queue are untouched.
-
-    + Tests: v204nav.js is new and replaces v203orphans.js, whose
-      subject no longer exists. It checks what this release REMOVES, not just
-      what it adds: the cleanup screen is gone from the route table, the
-      title map, the never-cache set and the sidebar; the partner-move page
-      still opens from its new button; and the other three tools in that
-      header still open. Seen failing on V20.3 first.
+      Full entry in CHANGELOG.md.
+  ============================================================================
   V20.3-LIVE (2026-09-04 - the scheme sheets whose farmer is gone).
-
-    + WHAT WAS FOUND. 1,215 advocacy records name a beneficiary id that is
-      not in the database, and one more names nobody at all. They came from
-      two old paths that removed the person and left the sheet: the
-      Delete-Duplicate-Records tool, which called remove() on the
-      beneficiary and stopped there and was hard-disabled in V358 after the
-      28 May 2026 incident, and the pre-V310-S2 delete, which had no
-      advocacy cascade. 707 belong to people deleted deliberately - a
-      tombstone is present, 599 of them on 3 June, almost all Poshina. The
-      other 507 have no record of any deletion at all; their sheets were
-      created 28 Apr - 26 May 2026 and the people were already gone from the
-      first backup that exists, 14 June 2026.
-
-    + NOTHING WAS WRONG ON ANY SCREEN, AND THAT WAS MEASURED, NOT ARGUED.
-      All 22 routes were swept as admin, as an NGO login and as a
-      coordinator, with the sheets present and then removed from the local
-      copy: the page text came back character-identical every time. The one
-      surface that notices is the admin scheme-usage tally, which counts
-      scheme LINES rather than people and so read about 1% high (98,436
-      against 97,492). 3,717 of the 3,862 lines say Need to Apply; 143 say
-      Applied, one Rejected, one Approved, and one line carries Rs 1,000.
-
-    + THE NEW SCREEN, admin only, "Sheets with no farmer". It shortlists
-      from the local copy, then CHECKS EVERY ONE against the live database
-      before it is willing to touch it, downloads a copy of everything it is
-      about to remove, and then removes them one at a time. Two buttons: the
-      ones with nothing on them, or all of them including the ones that
-      record an application.
 
     + ⛔ THE SAFETY RULES IN IT ARE THE POINT, not the screen. It never
       calls saveAdv() or saveData() - a whole-collection write is the shape
@@ -380,11 +507,8 @@
       was offline during the run cannot push the sheet back. The download
       must happen before the remove buttons unlock.
 
-    + One audit entry for the whole run, not 1,215. The audit node is
-      already 215,000 rows and the downloaded copy is the real record.
-
-    + Tests: _tests/v203orphans.js - 21 checks, every one seen failing on
-      V20.2 first.
+      Full entry in CHANGELOG.md.
+  ============================================================================
   V20.2-LIVE (2026-09-04 - what four independent reviews of V19.6-V20.1 found).
    + ⛔ A PERSON THE SERVER ALREADY HAD COULD BE DELETED. A queued
    + ⛔ THE PHOTO STEP REVERTED OFFICE EDITS. Once the person had landed
@@ -419,11 +543,6 @@
       Full entry in CHANGELOG.md.
 
   V19.7 (2026-09-01 - change a scheme's status with no signal). Shipped
-    inside V19.8-LIVE.
-
-    + Applied -> Benefits Received now works with no signal, the same way
-      an enrolment does: saved on the phone, shown on screen at once,
-      survives the app closing, sent when the signal returns.
 
     + ⛔ BUT IT IS NOT SENT THE SAME WAY. An enrolment is a new record
       nobody else can touch; a scheme change EDITS one that exists, and
@@ -435,16 +554,14 @@
       coordinator's from start to finish and only 45 have ever been
       touched by more than one person - but the merge costs nothing and
       protects those 45.
-
     + ⛔ A QUEUED ROW MUST CARRY status AND benefitRecd. 'Benefits
       Received' is not stored as a status - it is worked out from
       benefitRecd === 'Yes'. A row carrying only the status arrives
       reading 'Applied'. That mistake has shipped in this app twice, so
       there is now a check that fails if the flag stops travelling.
 
-    + Two changes to the same person before either is sent are merged into
-      one waiting item, so they cannot fight each other.
-
+      Full entry in CHANGELOG.md.
+  ============================================================================
   V19.6 (2026-09-01 - enrol with no signal). Shipped inside V19.8-LIVE.
 
     + ⛔ THE APP COULD NOT SUBMIT WITHOUT SIGNAL. Guru switched mobile data
@@ -453,40 +570,21 @@
       there is no route out - not resolved, not rejected - and the phone's
       own copy is written only AFTER the server confirms, so closing the
       app in between lost the enrolment entirely.
-
     + ⛔ navigator.onLine IS NOT AN OFFLINE TEST. With data switched off the
       phone still reports online. Every wait is now bounded - 8 seconds
       with signal, 2 without - and giving up is the only honest test.
-
-    + THE ID NUMBERS. The online path is UNCHANGED: the counter still
-      hands out one number per enrolment. In addition the phone reserves
-      a block of 25 in advance, so the counter has already moved past
-      them and no other phone can ever be given one. A queued enrolment
-      lands in a slot nobody else can occupy. Blocks top up when fewer
-      than 10 remain; run out with no signal and the form says so before
-      anything is typed.
-
-    + THE WAITING LINE. The person, their scheme plan and their photo are
-      kept together as one unit in IndexedDB - as KEYS in the existing
-      store, never a new store, because a version bump blocks while any
-      other tab is open and would hang the app. Sent on reconnect, on
-      opening the app, and every 40 seconds while anything is waiting.
-
     + ⛔ REPLAYED ONE RECORD AT A TIME through fbWriteChangedRecords. The
       offline queue removed in V310-S2 replayed WHOLE-ARRAY saves, which
       could resurrect records deleted on another device. This one cannot
       touch a record it was not handed. It also reads the target id first
       and REFUSES to send if that id already belongs to somebody else.
-
     + ⛔ FOUND BY THE FIELD TEST: the sender's re-entry guard was claimed
       AFTER an await, so the 40-second timer and the reconnect handler
       could both pass the check and send the same six people twice. The
       flag is now claimed synchronously.
 
-    + Deliberately NOT included: editing an existing person offline. That
-      raises "whose edit wins", which this release does not answer.
-      Editing still needs signal.
-
+      Full entry in CHANGELOG.md.
+  ============================================================================
   V19.5-LIVE (2026-08-31 - what four independent reviews found in V19.4):
    + ⛔ A REFUSED SESSION COULD STILL SAVE, AND THE SAVE WAS DESTRUCTIVE.
    + ⛔ ONE CLOCK-FAST TOMBSTONE PINNED THE WATERMARK FOR EVERY DEVICE.
@@ -2343,6 +2441,16 @@ body[data-shell="coord"] #_v352-install-btn {
    status buttons. Reuses _advApplyStatus() for save + audit logging so
    the NGO desktop view + Firebase stay in sync. */
 .coord-card-schemes { margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
+/* V21.2: the month switch is an admin action, not a window to choose. Quiet,
+   underlined, and set apart from the chips so it can never read as "the
+   selected range". */
+.rpt-chips .rpt-flag-btn {
+  margin-left: auto; background: none; border: 0; color: var(--gray2);
+  font-size: 11.5px; text-decoration: underline; text-underline-offset: 2px;
+  cursor: pointer; padding: 4px 2px; font-family: var(--font);
+}
+.rpt-chips .rpt-flag-btn:hover { color: var(--navy); }
+.rpt-chips .rpt-flag-btn:focus-visible { outline: 2px solid var(--navy); outline-offset: 2px; }
 .coord-scheme-tag {
   display: inline-flex; align-items: center;
   font-size: 12px; font-weight: 600;
@@ -4242,7 +4350,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V21.1-LIVE';
+const APP_VERSION = 'V21.4-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -4856,6 +4964,90 @@ function _v196LocalMax(code) {
 let _v196TopUpBusy = false;
 let _v196TopUpHoldUntil = 0;   // set when a reservation times out - see below
 // V20.2: the state codes this device holds a reserved block for.
+// ── V21.4: which states does THIS phone need numbers for? ─────────────────
+//
+// ⛔ NOT "which does it already hold". That question is what broke: a phone
+// holding a full block for one state answered "yes, all stocked" and never
+// looked at the state it was actually being asked to enrol into. One stray
+// Haryana record decided everything for a coordinator working in Gujarat.
+//
+// The answer is three things, in order of certainty:
+//   1. the state showing on the enrolment form, if one is open - the most
+//      direct evidence there is of where this person is about to work
+//   2. the partner's own state - where they work when nothing says otherwise
+//   3. the states they have actually enrolled into before
+//
+// Capped, because each state held costs 25 reserved numbers off a shared
+// counter and V19.6 already learned what happens when that runs away.
+const _V214_MAX_CODES = 3;
+function _v214WantedCodes(cheapOnly) {
+  const u = (typeof currentUser === 'function') ? currentUser() : null;
+  const wanted = [];
+  // ⛔ A CODE REACHES A FIREBASE PATH, so it must look like one. Anything else
+  // is dropped rather than concatenated into 'id_counters/...'.
+  const add = c => {
+    if (!c || !/^[A-Z]{2}$/.test(c)) return;
+    if (wanted.indexOf(c) < 0 && wanted.length < _V214_MAX_CODES) wanted.push(c);
+  };
+  // 1. THE PARTNER'S OWN STATE, FIRST. 493 of the 498 coordinators who have
+  // enrolled anybody work in exactly one state, so this alone answers the
+  // question this release exists for, and it cannot go stale.
+  try {
+    const p = (loadPartners() || []).find(function (x) { return x && u && x.name === u.ngo; });
+    add(_v196CodeForState((u && u.state) || (p && p.state) || ''));
+  } catch (_) {}
+  // 2. the form in front of them - but ⛔ ONLY WHILE THE ENROLMENT SCREEN IS
+  // ACTUALLY OPEN. f-state lives in the static markup, exists on every screen,
+  // and openEdit() writes it when somebody merely LOOKS at an old record. Left
+  // trusted and placed first, a single Rajasthan record opened once made the
+  // phone reserve Rajasthan ahead of the state its owner actually works in -
+  // and a timeout there armed a ten-minute hold-off that then blocked Gujarat
+  // in the same sweep, leaving them refused offline. Found in review.
+  try {
+    // ⛔ ASK WHETHER THE FORM IS ON SCREEN, not what the route is. nav('enroll')
+    // says in its own comment that enrolment is "a modal trigger, not a real
+    // view" and sets currentView to 'beneficiaries', so a route test could
+    // never open - my first attempt at this gate was shut permanently and the
+    // form's state was silently ignored. The overlay's own open class is the
+    // honest signal.
+    const ov = document.getElementById('enroll-overlay');
+    // ⛔ AND NOT WHILE EDITING. openEdit() opens this same overlay and fills
+    // f-state from the record being looked at, which is the precise way a
+    // Rajasthan record somebody merely opened could steer what this phone
+    // reserves. editingId is null only for a NEW enrolment.
+    const onEnroll = !!(ov && ov.classList && ov.classList.contains('open')) &&
+                     (typeof editingId === 'undefined' || editingId == null);
+    const el = onEnroll ? document.getElementById('f-state') : null;
+    if (el && el.value) add(_v196CodeForState(el.value));
+  } catch (_) {}
+  // 3. the blocks this phone already holds - history, already on disk, free to
+  // read. This is what lets the cheap question below stand in for the scan.
+  try { _v196HeldCodes().forEach(add); } catch (_) {}
+  // ⛔ THE SCAN IS THE EXPENSIVE PART, and V20.2 moved it below the early
+  // return for a reason: on every 40-second tick it cost an idle admin 2,838 ms
+  // of blocked main thread per 100 s. Callers deciding whether a top-up is
+  // needed at all pass cheapOnly and never reach it.
+  if (cheapOnly) return wanted.length ? wanted : ['GJ'];
+  // 4. where they have worked before, most-used first
+  try {
+    const tally = Object.create(null);
+    const all = _v196Records();
+    for (let k = all.length - 1, seen = 0; k >= 0 && seen < 4000; k--, seen++) {
+      const b = all[k];
+      if (!b || !u || b.createdBy !== u.userId) continue;
+      const m = /^KRSF-([A-Z]{2})-/.exec(b.id || '');
+      if (m) tally[m[1]] = (tally[m[1]] || 0) + 1;
+    }
+    Object.keys(tally)
+      .sort(function (a, b) { return tally[b] - tally[a]; })
+      .forEach(add);
+  } catch (_) {}
+  // ⛔ never return nothing. A brand-new coordinator with no records, no
+  // partner state and no form open still has to be able to enrol.
+  if (!wanted.length) wanted.push('GJ');
+  return wanted;
+}
+
 function _v196HeldCodes() {
   const out = [];
   try {
@@ -4867,8 +5059,17 @@ function _v196HeldCodes() {
   } catch (_) {}
   return out;
 }
+// ⛔ WHEN EACH CODE MAY NEXT BE ASKED AGAIN. Per code, never global, and
+// always TIMED - never a permanent "this state is dead" memo. An earlier version
+// of this fix marked a code as counter-less for the whole session after ONE
+// aborted transaction, and since the sign-in pass now runs early, a single
+// unlucky abort at boot left that state unstocked for ever: precisely the
+// failure this release exists to remove, reintroduced by its own fix. Its own
+// test caught it.
+const _v214HoldUntil = Object.create(null);
 async function _v196TopUpBlock(code) {
   if (_v196TopUpBusy || !code) return false;
+  if (_v214HoldUntil[code] && Date.now() < _v214HoldUntil[code]) return false;
   if (Date.now() < _v196TopUpHoldUntil) return false;
   if (navigator.onLine === false) return false;
   if (typeof FB === 'undefined' || !FB || !FB.db || FB.initFailed) return false;
@@ -4893,12 +5094,32 @@ async function _v196TopUpBlock(code) {
       // reserved are NOT recovered - the next one returns a fresh top and
       // only that block is kept. They are simply burned, which is why the
       // hold-off matters.)
+      // V21.4: the global stays, because a timeout means the CONNECTION is bad
+      // and hammering any code is wasteful - but the per-code stamp is what the
+      // sweep consults, so one slow state no longer starves the others once the
+      // connection recovers.
       _v196TopUpHoldUntil = Date.now() + 10 * 60 * 1000;
+      _v214HoldUntil[code] = Date.now() + 10 * 60 * 1000;
       console.warn('[V19.6] the id reservation did not answer - not asking again for ten minutes');
       return false;
     }
     const tx = g.value;
-    if (!tx || !tx.committed) return false;
+    if (!tx || !tx.committed) {
+      // ⛔ AN ABORTED TRANSACTION NEEDS A BACK-OFF TOO. The counter for this
+      // state does not exist yet (only 13 of 38 codes have one), so the
+      // transaction aborts - and with no hold-off this cost a round trip every
+      // forty seconds, for ever, per tab. Shorter than the timeout hold-off,
+      // because the first online enrolment in that state seeds the counter and
+      // this becomes worth trying again. Found in review.
+      // ⛔ AND REMEMBER IT. Only 13 of the 36 state codes have a counter at
+      // all, and for those the transaction can never commit - so without this
+      // the cheap check never passes, and the FULL record scan runs every forty
+      // seconds for the rest of the session. Measured at ~90 scans an hour on
+      // an office device. The first online enrolment in that state seeds the
+      // counter, and a reload clears this. Found in review.
+      _v214HoldUntil[code] = Date.now() + 5 * 60 * 1000;
+      return false;
+    }
     const top = tx.snapshot.val();
     if (typeof top !== 'number' || !(top > 0)) return false;
     // Keep whatever is still unused - it is already ours - and ADD only the
@@ -4919,7 +5140,7 @@ async function _v196TopUpBlock(code) {
 }
 // Called after paint, and again on reconnect. Tops up only the states this
 // device actually enrols into, and only when the block is running low.
-async function _v196TopUpIfLow() {
+async function _v196TopUpIfLow(cheapOnly) {
   try {
     const u = (typeof currentUser === 'function') ? currentUser() : null;
     if (!u || !u.userId) return;
@@ -4934,49 +5155,57 @@ async function _v196TopUpIfLow() {
     // 40-second beat, for every device, for ever - the exact cost the comment
     // above says was removed. Measured 2.6 ms a tick on a desktop over the
     // full export, and a fresh 1.1 MB array each time.
-    const _held = _v196HeldCodes();
-    if (_held.length && _held.every(function (c) { return _v196BlockLeft(c) >= _V196_TOPUP_AT; })) return;
+    // ⛔ V21.4: JUDGED OVER WHAT IT NEEDS, NOT WHAT IT HOLDS. This used to read
+    // _v196HeldCodes(), so a phone with a full block for one state answered
+    // "all stocked" and returned before the state it was actually being asked
+    // for was ever looked at. Guru's phone held 25 Haryana numbers and zero
+    // Gujarat ones, and no amount of waiting would have changed that.
+    // ⛔ CHEAP FIRST - no record scan. V20.2 put the scan below this line and
+    // v202queue guards that it stays there.
+    // a code inside its back-off cannot be stocked right now, so it must not
+    // keep the sweep - and the expensive scan below it - alive every 40 seconds.
+    const _stocked214 = function (c) {
+      return (_v214HoldUntil[c] && Date.now() < _v214HoldUntil[c]) ||
+             _v196BlockLeft(c) >= _V196_TOPUP_AT;
+    };
+    if (_v214WantedCodes(true).every(_stocked214)) return;
     // ⛔ DO NOT REFUSE WHEN THERE ARE NO RECORDS. Guarding on an empty cache
     // starved the 62 real coordinators who have never enrolled anybody - the
     // exact people who need a reserved number for their FIRST enrolment - and
     // it sat above the fallback written for precisely that case. Wait only
     // until the app has finished loading whatever it has; then reserve, using
     // the partner's own state when there is nothing to learn from.
-    if (typeof FB !== 'undefined' && FB && FB.benefReplayComplete === false) return;
+    // ⛔ THIS GATE PROTECTS THE RECORD SCAN, NOTHING ELSE - and it is exactly
+    // what is shut at sign-in, so _v214StockNow was very probably doing nothing
+    // at all for the phones it was written for. In cheap mode there is no scan
+    // to protect: the partner's state and the blocks already held need no
+    // records. Found in review.
+    if (!cheapOnly && typeof FB !== 'undefined' && FB && FB.benefReplayComplete === false) return;
     // ⛔ Reserve for the state this person actually ENROLS INTO, not for
     // whatever happens to sit at the end of the list. Taking the last 400
     // records gave an admin Nagaland and Rajasthan while every enrolment they
     // make is in Gujarat - so the block was full of numbers they never use and
     // empty of the ones they need.
-    const tally = Object.create(null);
-    const count = function (id, weight) {
-      const m = /^KRSF-([A-Z]{2})-/.exec(id || '');
-      if (m) tally[m[1]] = (tally[m[1]] || 0) + weight;
-    };
-    try {
-      const all = _v196Records();
-      for (let k = all.length - 1, seen = 0; k >= 0 && seen < 4000; k--, seen++) {
-        const b = all[k];
-        // ⛔ V20.2: THIS PERSON'S OWN ENROLMENTS ONLY. An admin's cache tail
-        // is the alphabetical end of the fleet (GJ, HR, NL, RJ...), not
-        // recent work, so weighting others 1:50 still reserved 25 Nagaland
-        // numbers for every office login - counters advanced for people who
-        // will never enrol there. Somebody with no enrolments of their own
-        // falls through to their partner's state below, as before.
-        if (!b || b.createdBy !== u.userId) continue;
-        count(b.id, 1);
-      }
-    } catch (_) {}
-    let codes = Object.keys(tally).sort(function (a, b) { return tally[b] - tally[a]; }).slice(0, 2);
-    if (codes.length === 0) {
-      // a brand-new coordinator has no records to learn from
-      try {
-        const p = (loadPartners() || []).find(function (x) { return x && x.name === u.ngo; });
-        const c = _v196CodeForState((u.state || (p && p.state) || ''));
-        codes = c ? [c] : ['GJ'];
-      } catch (_) { codes = ['GJ']; }
-    }
+    // (the per-user tally moved into _v214WantedCodes, which is now the one
+    //  place that decides which states this phone needs.)
+    // ⛔ V20.2, still true and now enforced inside _v214WantedCodes: THIS
+    // PERSON'S OWN ENROLMENTS ONLY. An admin's cache tail is the alphabetical
+    // end of the fleet, not recent work, so counting other people's records
+    // reserved Nagaland numbers on every office login.
+    // V21.4: one rule decides which states matter, and it is the same rule the
+    // early return above consulted - so the two can never disagree.
+    // ⛔ THE HOLD-OFF IS PER CODE. A single global one meant the first state
+    // to time out or abort in a sweep stalled EVERY state for minutes - and my
+    // first attempt at this only moved the check earlier while still breaking
+    // out of the loop on the same global flag, so the comment claimed a fix the
+    // code did not make. A review caught both. One slow or unknown state must
+    // never starve the state a coordinator is actually standing in.
+    // Something is short. Now it is worth learning where they actually work -
+    // unless this is the sign-in pass, which must not wait on the record replay
+    // and therefore never scans.
+    const codes = _v214WantedCodes(!!cheapOnly);
     for (const c of codes) {
+      if (_v214HoldUntil[c] && Date.now() < _v214HoldUntil[c]) continue;  // this code only
       if (_v196BlockLeft(c) < _V196_TOPUP_AT) await _v196TopUpBlock(c);
     }
   } catch (e) { console.warn('[V19.6] top-up sweep failed:', e && e.message); }
@@ -5518,9 +5747,22 @@ async function _v196Boot() {
       + _restored + ' put back in the list');
     try { fbUpdatePill(); } catch (_) {}
     _v196Pump();
+    // ⛔ V21.4: AT SIGN-IN, NOT ON AN IDLE CALLBACK. The first attempt rode
+    // requestIdleCallback with an 8-second timeout and then a 40-second timer.
+    // A phone that loses signal in those first seconds - walking out of the
+    // office, into a village - reached neither, and then had nothing to give.
+    // The idle call stays as the unhurried follow-up.
+    _v214StockNow();
     _v196Idle(function () { _v196TopUpIfLow(); });
   } catch (e) { console.warn('[V19.6] boot failed:', e && e.message); }
   finally { _v196BootBusy = false; }
+}
+// Reserve now, without waiting for the browser to be idle. Deliberately not
+// awaited: nothing on the login-to-first-screen path may block on it.
+function _v214StockNow() {
+  // cheap mode: no record scan, and therefore no wait for the listener replay -
+  // which at sign-in has not finished and would have skipped this entirely.
+  try { Promise.resolve(_v196TopUpIfLow(true)).catch(function () {}); } catch (_) {}
 }
 let _v196Timer = null;
 function _v196StartPumps() {
@@ -7851,6 +8093,8 @@ async function fbInitialSync() {
     if (Array.isArray(cfg.schemes) && cfg.schemes.length) {
       localStorage.setItem('krsf_schemes_v1', JSON.stringify(cfg.schemes));
     }
+    // V21.2: feature switches ride in the same node, so this costs nothing.
+    try { _v212AdoptFlags(cfg); } catch (_) {}
     // ─ Audit log ─────────────────────────────────────────────────────
     // V308.2: audit log is Firebase-only. Hydrate the in-memory cache;
     // do NOT mirror to localStorage (was the cause of QuotaExceededError
@@ -8157,14 +8401,29 @@ function _attachNonBenefListeners() {
       try { renderCurrentView(); } catch(_){}
     }
   });
-  fbRef('config/schemes').once('value').then(snap => {
-    const v = snap.val();
+  // ⛔ V21.2: ONE fetch of `config` where V21.1 made TWO (config/schemes and
+  // config/schemes_meta). That is one FEWER Firebase request on every boot for
+  // every device, and it is what carries the feature flags fresh to every
+  // device on every start - the 30-day config cache above would otherwise have
+  // held a toggle back for up to a month.
+  fbRef('config').once('value').then(snap => {
+    const cfgAll = snap.val() || {};
+    const v = cfgAll.schemes;
     if (Array.isArray(v) && v.length) {
       localStorage.setItem('krsf_schemes_v1', JSON.stringify(v));
       try { renderCurrentView(); } catch(_){}
     }
-  });
-  fbRef('config/schemes_meta').once('value').then(snap => {
+    // feature switches, through the one rule both boot reads share.
+    try {
+      // the switch decides whether two buttons are drawn, so a cached render
+      // made under the old value has to go.
+      if (_v212AdoptFlags(cfgAll)) {
+        try { if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache(); } catch(_){}
+        try { renderCurrentView(); } catch(_){}
+      }
+    } catch (_) {}
+    return { val: function () { return cfgAll.schemes_meta; } };
+  }).then(snap => {
     const v = snap.val();
     if (v && typeof v === 'object' && !Array.isArray(v)) {
       localStorage.setItem('krsf_schemes_meta_v1', JSON.stringify(v));
@@ -12039,12 +12298,12 @@ function showBeneficiaryPhotos(id) {
   let incomeLine = '';
   if (b.baseIncome != null && b.endIncome != null) {
     const d = (b.endIncome||0) - (b.baseIncome||0);
-    const pct = b.baseIncome ? Math.round((d / b.baseIncome) * 100) : 0;
+    const pctT = _v213PctText(d, b.baseIncome);   // V21.3: a dash, not "0%"
     const sign = d >= 0 ? '+' : '';
     const col  = d >= 0 ? 'var(--green)' : 'var(--red)';
     incomeLine = '<div style="font-size:13px;margin-top:8px">'
       + '<span style="color:var(--gray2)">Income change:</span> '
-      + '<strong style="color:' + col + '">' + sign + '₹' + Math.abs(d).toLocaleString('en-IN') + ' (' + sign + pct + '%)</strong>'
+      + '<strong style="color:' + col + '">' + sign + '₹' + Math.abs(d).toLocaleString('en-IN') + ' (' + pctT + ')</strong>'
       + '</div>';
   } else if (b.baseIncome != null) {
     incomeLine = '<div style="font-size:13px;margin-top:8px;color:var(--gray2)">Baseline income: <strong>₹' + (b.baseIncome||0).toLocaleString('en-IN') + '</strong> · Endline pending</div>';
@@ -13216,7 +13475,9 @@ function _ensureIncomeLogMigrated(b) {
   return true;
 }
 function _incomeLogGrandTotal(b) {
-  return (b && b.baseIncome || 0) + _incomeLogTotal(b);
+  // V21.3: Number(), because endIncome is computed from this after a bulk
+  // append now. A baseline that ever arrived as a string would CONCATENATE.
+  return (Number(b && b.baseIncome) || 0) + _incomeLogTotal(b);
 }
 
 
@@ -13486,7 +13747,7 @@ function openDrawer(id) {
       const additionalTotal = hasRealLog ? _incomeLogTotal(b)
                              : (hasLegacyOnly ? (b.endIncome - (b.baseIncome||0)) : 0);
       const grandTotal = (b.baseIncome||0) + additionalTotal;
-      const pctL = (hasEnd && b.baseIncome) ? Math.round(additionalTotal/b.baseIncome*100) : 0;
+      const pctL = hasEnd ? _v213PctText(additionalTotal, b.baseIncome) : '—';   // V21.3
       const deltaColor = additionalTotal >= 0 ? 'var(--green)' : 'var(--red)';
       // Fix 2: 3-state color scheme. Red for income DROP below baseline
       // (signals a bad outcome the user should notice), green for any
@@ -13513,7 +13774,7 @@ function openDrawer(id) {
           <div class="delta-val" style="color:${endValColor}">${hasEnd ? fmt(grandTotal) : '—'}</div>
           <div style="font-size:12px;color:var(--gray2);margin-top:4px">
             ${hasEnd
-              ? `${entryCount} log ${entryCount===1?'entry':'entries'} · Δ <span style="color:${deltaColor};font-weight:700">${additionalTotal>=0?'+':''}${fmt(additionalTotal)} (${additionalTotal>=0?'+':''}${pctL}%)</span>`
+              ? `${entryCount} log ${entryCount===1?'entry':'entries'} · Δ <span style="color:${deltaColor};font-weight:700">${additionalTotal>=0?'+':''}${fmt(additionalTotal)} (${pctL})</span>`
               : 'No income logged yet'}
           </div>
         </div>
@@ -15417,7 +15678,15 @@ function openEdit(id) {
   }
   closeDrawer();
 }
+// ⛔ V21.4: A CLOSED FORM MUST STOP VOTING. f-state is static markup and keeps
+// whatever was last written to it - including by openEdit() - so leaving it set
+// let a record somebody merely opened steer which state this phone reserves
+// numbers for. Cleared on the way out.
+function _v214ClearFormState() {
+  try { const el = document.getElementById('f-state'); if (el) el.value = ''; } catch (_) {}
+}
 function closeEnroll() {
+  _v214ClearFormState();
   _v14StopGpsWatch();   // V14: no background GPS polling once the form is gone
   document.getElementById('enroll-overlay').classList.remove('open');
   _v410ResetEnrollPhoto();  // V410: discard any optional enroll photo not yet submitted
@@ -17124,8 +17393,10 @@ async function _submitEnrollInner() {
         const _code = _v196CodeForState(stateForId);
         const _reserved = _code ? _v196BlockTake(_code) : null;
         if (!_reserved) {
-          return showError('No internet, and this phone has no reserved ID numbers left. '
-            + 'Connect to the internet once and try again - nothing you typed is lost.', null);
+          // ⛔ V21.4: NO MACHINERY IN IT. "Reserved ID numbers" means nothing to
+          // a coordinator standing in a village; they need to know what to do.
+          return showError('This phone needs the internet once before it can save without '
+            + 'a signal. Connect for a moment and try again - nothing you typed is lost.', null);
         }
         id = _reserved;
         _v196Offline = true;
@@ -18182,13 +18453,13 @@ function calcDelta() {
   if (!box) return; // live-delta element is optional; bail if not rendered
   if (total && b) {
     const d = total - b.baseIncome;
-    const p = b.baseIncome ? Math.round(d / b.baseIncome * 100) : 0;
+    const p = _v213PctText(d, b.baseIncome);   // V21.3
     const pos = d >= 0;
     box.className = `live-delta show ${pos?'delta-box positive':'delta-box negative'}`;
     box.style.background = pos ? 'var(--green2)' : 'var(--red2)';
     box.style.borderLeftColor = pos ? 'var(--green)' : 'var(--red)';
     box.innerHTML = `<div style="font-size:11px;font-weight:600;color:var(--gray2);margin-bottom:4px">${t('endline.liveDelta')}</div>
-      <div style="font-size:22px;font-weight:600;color:${pos?'var(--green)':'var(--red)'}">${pos?'+':''}₹${Math.abs(d).toLocaleString('en-IN')} (${pos?'+':''}${p}%)</div>`;
+      <div style="font-size:22px;font-weight:600;color:${pos?'var(--green)':'var(--red)'}">${pos?'+':''}₹${Math.abs(d).toLocaleString('en-IN')} (${p})</div>`;
   } else { box.className = 'live-delta'; }
 }
 
@@ -18340,11 +18611,11 @@ async function submitEndline() {
   _restoreSaveBtn(_saveBtnHandle_endline);
   closeEndline();
   const d = b.endIncome - b.baseIncome;
-  const p = b.baseIncome ? Math.round(d/b.baseIncome*100) : 0;
+  const p = _v213PctText(d, b.baseIncome);   // V21.3
   auditLog(wasEdit?'endline_update':'endline_complete', 'beneficiary', b.id, b.name,
-    `${wasEdit?'Updated':'Completed'} endline: baseline ₹${(b.baseIncome||0).toLocaleString('en-IN')} → endline ₹${b.endIncome.toLocaleString('en-IN')} (${d>=0?'+':''}${p}%)`,
+    `${wasEdit?'Updated':'Completed'} endline: baseline ₹${(b.baseIncome||0).toLocaleString('en-IN')} → endline ₹${b.endIncome.toLocaleString('en-IN')} (${p})`,
     {endIncome: [wasEdit ? '(existing)' : null, b.endIncome]});
-  toast((wasEdit?'Endline updated! ':'Endline saved! ') + `Income delta: ${d>=0?'+':''}₹${Math.abs(d).toLocaleString('en-IN')} (${d>=0?'+':''}${p}%)`, 'success');
+  toast((wasEdit?'Endline updated! ':'Endline saved! ') + `Income delta: ${d>=0?'+':''}₹${Math.abs(d).toLocaleString('en-IN')} (${p})`, 'success');
   renderCurrent();
   updateAlertBadge();
 }
@@ -18421,7 +18692,7 @@ function _renderLogIncomeBody(b) {
   // kept as separate names only for readability at each call site.
   const additionalTotal = _incomeLogTotal(b);
   const grandTotal = (b.baseIncome || 0) + additionalTotal;
-  const pct = b.baseIncome ? Math.round(additionalTotal / b.baseIncome * 100) : 0;
+  const pct = _v213PctText(additionalTotal, b.baseIncome);   // V21.3
   const isAdmin = (currentUser() || {}).role === 'admin';
   const today = _istDate();
   // Source chips pool: this beneficiary's own livelihood interventions
@@ -18517,7 +18788,7 @@ function _renderLogIncomeBody(b) {
       <div style="background:${bg};border:1px solid ${border};border-radius:8px;padding:10px">
         <div style="font-size:11px;color:var(--gray2);text-transform:uppercase;letter-spacing:.05em;font-weight:600">New Total Income</div>
         <div style="font-size:18px;font-weight:700;margin-top:4px;color:${valCol}">${hasLog ? '₹'+grandTotal.toLocaleString('en-IN') : '—'}</div>
-        <div style="font-size:10px;color:var(--gray2);margin-top:2px">${log.length} entr${log.length===1?'y':'ies'}${log.length ? ` · Additional ${additionalTotal>=0?'+':''}₹${Math.abs(additionalTotal).toLocaleString('en-IN')} (${additionalTotal>=0?'+':''}${pct}%)` : ''}</div>
+        <div style="font-size:10px;color:var(--gray2);margin-top:2px">${log.length} entr${log.length===1?'y':'ies'}${log.length ? ` · Additional ${additionalTotal>=0?'+':''}₹${Math.abs(additionalTotal).toLocaleString('en-IN')} (${pct})` : ''}</div>
       </div>`;
       })()}
     </div>
@@ -19494,7 +19765,14 @@ function getAlerts() {
     // record, so there was no way to find them again. Without this the whole
     // safety argument ("fill them in before any endline") had no mechanism
     // behind it. Amber, not red: it is a known gap, not an error.
-    if (liv && !(Number(b.baseIncome) > 0)) {
+    // ⛔ V21.3: ...unless income HAS been recorded. The additionalIncome column
+    // exists precisely so a household with no known baseline can be measured,
+    // and leaving this rule as it was left the Alerts screen insisting no
+    // endline should be entered for the very people who now have one. Two
+    // screens disagreeing about one person is what V18 spent a release fixing.
+    const _hasIncome213 = (Array.isArray(b.incomeLog) && b.incomeLog.length > 0) ||
+                          b.endIncome != null;
+    if (liv && !(Number(b.baseIncome) > 0) && !_hasIncome213) {
       alerts.push({type:'amber',msg:`<strong>${_eid} — ${_en}</strong> (${_eng}) — <strong>no baseline income recorded</strong>. Impact cannot be measured for this person, and no endline income should be entered until the baseline is filled in.`,id:b.id});
     }
 
@@ -21044,6 +21322,28 @@ function _rptStampOk(d) {
   return (typeof d === 'string' && d > '2026-07-29') ? d : null;
 }
 
+// ── V21.3: a percentage needs something to divide by ───────────────────────
+//
+// ⛔ FIVE SCREENS PRINTED "0%" WHERE THERE WAS NO BASELINE, sitting directly
+// beside the rupees the programme created. Zero per cent is a statement, and it
+// is false: nobody measured a change of nothing. It also understates the work
+// in front of whoever is reading, which after the Navchetna import is 1,330
+// households whose baseline nobody can ever recover.
+//
+// Returns the finished text so every screen says it the same way, and so a
+// missing baseline cannot be turned back into a number further down.
+// A genuine zero on a real baseline stays "+0%" — that one IS zero.
+function _v213PctText(amount, base) {
+  const b = Number(base);
+  if (!(b > 0)) return '—';
+  const raw = (Number(amount) || 0) / b * 100;
+  const n = Math.round(raw);
+  // ⛔ THE SIGN COMES FROM THE REAL VALUE, NOT THE ROUNDED ONE.
+  // Math.round(-0.1) is -0, and -0 < 0 is false, so a small LOSS printed as
+  // "+0%". Found in an independent audit of the tests.
+  return ((raw < 0 || n < 0) ? '−' : '+') + Math.abs(n) + '%';
+}
+
 function _rptStampRowDates(outgoing, stored, todayIso) {
   const today = todayIso || _istDate();
   // If today's date would itself be ignored by _rptStampOk (a clock stuck on /
@@ -21055,10 +21355,57 @@ function _rptStampRowDates(outgoing, stored, todayIso) {
   // Tombstoned rows must not donate a date to a live row — that entry was
   // deleted, and reviving its date would put a phantom point on the chart.
   (stored || []).forEach(r => { if (r && !r._deleted) prev.set(key(r), r); });
+  // ── V21.3: ⛔ TYPING A REMARK USED TO DESTROY THE DATE ────────────────────
+  // The key above is scheme + remarks. The importer writes no remark and the
+  // drawer always writes one, so the first remark typed on an imported benefit
+  // changed the key, the row read as brand new, and it was re-stamped with
+  // TODAY. A benefit imported as August silently became October — and the same
+  // happened to any row whose remark was ever corrected.
+  //
+  // ⛔ THE FALLBACK IS DELIBERATELY NARROW: only when the scheme appears
+  // EXACTLY ONCE on each side. Where a person holds several applications under
+  // one scheme (i-Khedut for a tractor and a rotavator), matching by scheme
+  // alone would hand one row the other's date, which is worse than the bug.
+  // Ambiguous cases keep the old behaviour and stay unmatched.
+  const bySchemeStored = new Map(), bySchemeOut = new Map();
+  const bump = (m, k) => m.set(k, (m.get(k) || 0) + 1);
+  (stored || []).forEach(r => { if (r && !r._deleted && r.scheme) bump(bySchemeStored, r.scheme); });
+  // ⛔ !r._deleted on BOTH sides. bySchemeStored filtered tombstones and this
+  // did not, so for the 231 (person, scheme) pairs holding a live row beside a
+  // tombstone the count read 2 and the fallback silently switched itself off -
+  // contradicting the comment above it. Harmless today only because the three
+  // callers that pass tombstones never change a remark.
+  (outgoing || []).forEach(r => { if (r && !r._deleted && r.scheme) bump(bySchemeOut, r.scheme); });
+  const soleFor = new Map();
+  // ⛔ AND THE DONOR MUST BE THE SAME APPLICATION, not merely the same scheme.
+  // A save that DELETES one row and ADDS another under one scheme leaves
+  // exactly one live row on each side, so without this the new benefit would
+  // inherit the deleted one's date and chart in the wrong month. Requiring the
+  // status and the amount to match narrows the donation to what it is for: a
+  // remark typed or corrected on the SAME application. Found in review. The
+  // residual - a genuinely different application at the identical status AND
+  // amount - is accepted and stated here rather than hidden.
+  const sameApplication = (a, c) => _advNormStatus(a) === _advNormStatus(c) &&
+    (Number(a.benefitAmt) || 0) === (Number(c.benefitAmt) || 0);
+  (stored || []).forEach(r => {
+    if (!r || r._deleted || !r.scheme) return;
+    if (bySchemeStored.get(r.scheme) === 1 && bySchemeOut.get(r.scheme) === 1) {
+      soleFor.set(r.scheme, r);
+    }
+  });
   return (outgoing || []).map(r => {
     const out = Object.assign({}, r);            // never mutate the caller's rows
+    // ⛔ A TOMBSTONE IS NOT AN EVENT. The bulk-status writers pass the whole row
+    // set, deleted rows included, so those matched nothing, read as brand new,
+    // and were stamped with today - fabricated dates on 6,378 rows and the
+    // bytes to carry them on every read. No figure moved, because every reader
+    // filters _deleted, but it was never true. Pre-existing since V21.0.
+    if (r && r._deleted) return out;
     const s = _advNormStatus(r);
-    const was = prev.get(key(r));
+    // V21.3: exact key first; then the sole-row-for-this-scheme fallback, which
+    // is what carries a date through a remark being typed or corrected.
+    const _sole = soleFor.get(r.scheme);
+    const was = prev.get(key(r)) || ((_sole && sameApplication(_sole, r)) ? _sole : undefined);
     const wasS = was ? _advNormStatus(was) : null;
 
     // ── _aAt : the day this scheme was FILED (V12.4) ────────────────────────
@@ -21084,6 +21431,52 @@ function _rptStampRowDates(outgoing, stored, todayIso) {
     else if (canStamp && (!was || wasS !== 'Benefits Received')) out._bAt = today;
     else delete out._bAt;                        // historical — date unknown
 
+    return out;
+  });
+}
+
+// ── V21.2: the importer was the fourth save path, and the only one left ────
+//
+// ⛔ AN IMPORTED ROW IS STAMPED AT CREATION OR NEVER. _rptStampRowDates writes
+// a date only on an OBSERVED transition. An imported row arrives already
+// reading "Benefits Received", so there is no transition to observe - not on
+// this save, and not on any save afterwards either. Every benefit that came in
+// through a spreadsheet was therefore born with no date and could never
+// acquire one, invisible to every date filter while still counting in the
+// all-time totals. That is the exact split Guru reported from the field:
+// fifteen benefits in Recent Activity, three under the filter.
+//
+// Passing an EMPTY stored set makes every row new, which is what it is, and
+// _rptStampRowDates then applies the same rule a coordinator's own first save
+// gets. Reusing that function rather than repeating its logic is deliberate:
+// two copies of this rule would drift, and the last time this app held one
+// rule in several places it cost a release to put right.
+//
+// A date supplied in the spreadsheet wins, so a partner can load a backlog
+// with the days it actually happened.
+function _v212StampImportedRows(rows, todayIso) {
+  const stamped = _rptStampRowDates(rows || [], [], todayIso);
+  return stamped.map(function (r, i) {
+    const out = Object.assign({}, r);
+    const src = (rows || [])[i];
+    const given = src && src._impDate;
+    // ⛔ never persist the working fields. Object.assign above copies them in,
+    // and every byte would be written to Firebase for that row for ever.
+    delete out._impDate;
+    delete out._impNoDate;
+    // The sheet gave a date the app cannot read. It said WHEN this happened,
+    // so today's date would be a lie - leave the row honestly undated.
+    if (src && src._impNoDate) {
+      delete out._aAt;
+      delete out._bAt;
+      return out;
+    }
+    if (given) {
+      // only overwrite a stamp the rule actually produced - a "Need to Apply"
+      // row has earned neither date and must not gain one from a stray cell.
+      if (out._aAt) out._aAt = given;
+      if (out._bAt) out._bAt = given;
+    }
     return out;
   });
 }
@@ -25039,6 +25432,10 @@ function _rptTh(cols, activeIdx, dir, handler, tips) {
 // — every FC's total enrollments, applications and benefits — and narrowing to
 // a window is now a deliberate act rather than the state you land in.
 let rptRange = 0;           // 0 = all time; otherwise the day-window for FC/Partners/Trends
+// V21.2: 'YYYY-MM' when a calendar month is being shown, null otherwise. It is
+// deliberately NOT another value of rptRange - that variable is a COUNT OF DAYS
+// and half the file multiplies it by 86400000. A month is not a number of days.
+let rptMonth = null;
 
 function _rptMoney(v) {
   if (v == null || isNaN(v)) return '—';
@@ -25115,17 +25512,174 @@ function _rptDismissTip() {
   document.getElementById('_rpt-tip-pop')?.remove();
   _rptTipOpenEl = null;
 }
-window.rptSetTab   = function(t) { _rptDismissTip(); rptTab = t; renderReports(); };
-window.rptSetRange = function(d) { _rptDismissTip(); rptRange = d; renderReports(); };
+window.rptSetTab   = function(t) {
+  _rptDismissTip();
+  // ⛔ and a month already chosen must not survive the move to Trends, or that
+  // tab would render a month-scoped aggregate with no way on screen to leave it.
+  if (t === 'trend') rptMonth = null;
+  rptTab = t;
+  renderReports();
+};
+// ⛔ choosing a day-window must CLEAR the month, or the two would both be set
+// and whichever the reader consulted first would win.
+window.rptSetRange = function(d) { _rptDismissTip(); rptMonth = null; rptRange = d; renderReports(); };
+window.rptSetMonth = function(m) { _rptDismissTip(); rptMonth = m || null; rptRange = 0; renderReports(); };
+
+// ── V21.2: the month buttons, and the switch that hides them ───────────────
+//
+// Guru asked for them built but not shown: September is only accurate from the
+// 7th and August is badly incomplete, so a month view switched on today would
+// print figures he would have to explain away. He turns them on himself once
+// October is a complete month.
+//
+// ⛔ THE FLAG COSTS NO FIREBASE. It lives inside the `config` node, which the
+// app already downloads whole at boot (_v348FetchCfg). Nothing new is fetched,
+// nothing new is listened to. An absent flag means off, so a device that has
+// never seen it behaves exactly as V21.1 did.
+const _V212_FLAGS_KEY = 'krsf_flags_v1';
+// Take the feature switches out of a config payload. Both boot reads call this
+// - the pantry-backed one and the fresh second pass - so there is ONE rule for
+// what an absent flags object means, and a test can exercise it.
+// ⛔ AN ABSENT OBJECT CLEARS. Otherwise switching a feature off would never
+// reach a device that had already seen it on.
+function _v212AdoptFlags(cfg) {
+  const wasOn = _v212MonthOn();
+  try {
+    const f = cfg && cfg.flags;
+    if (f && typeof f === 'object') localStorage.setItem(_V212_FLAGS_KEY, JSON.stringify(f));
+    else localStorage.removeItem(_V212_FLAGS_KEY);
+  } catch (_) {}
+  return wasOn !== _v212MonthOn();   // did the switch actually move?
+}
+function _v212Flags() {
+  try {
+    const raw = localStorage.getItem(_V212_FLAGS_KEY);
+    const o = raw ? JSON.parse(raw) : null;
+    return (o && typeof o === 'object') ? o : {};
+  } catch (_) { return {}; }
+}
+// Explicit true only. A typo, a string "true", or a half-finished edit in the
+// console therefore leaves the buttons hidden rather than switching them on for
+// the whole office by accident - the same rule _v11Config uses for serverLogin.
+function _v212MonthOn() { return _v212Flags().monthChips === true; }
+
+// The first and last instant of a calendar month, in the same frame the stored
+// dates are parsed in. ⛔ The end is the last MILLISECOND of the month, not
+// midnight on the 1st of the next one - inWin's ceiling is inclusive, so
+// midnight would let the whole of the following day's first instant in.
+function _v212MonthBounds(m) {
+  if (typeof m !== 'string' || !/^\d{4}-\d{2}$/.test(m)) return null;
+  const y = Number(m.slice(0, 4)), mo = Number(m.slice(5, 7));
+  if (!(mo >= 1 && mo <= 12)) return null;
+  const startMs = Date.UTC(y, mo - 1, 1);
+  const endMs = Date.UTC(mo === 12 ? y + 1 : y, mo === 12 ? 0 : mo, 1) - 1;
+  return { startMs: startMs, endMs: endMs };
+}
+
+// ONE place that turns the current selection into the (now, window) pair every
+// aggregate call needs. ⛔ Every caller goes through this: three call sites read
+// the window, and a fourth reading it differently is precisely how a screen
+// starts disagreeing with the screen beside it.
+function _v212Win() {
+  if (_v212MonthOn() && rptMonth) {
+    const b = _v212MonthBounds(rptMonth);
+    // ⛔ `ceil` is finite ONLY here. Everything else must leave it null, or the
+    // day-windows inherit an upper bound they never had - see the note in
+    // inWin about the five and a half hours every morning that cost.
+    if (b) return { now: b.endMs, win: b.endMs - b.startMs, ceil: b.endMs };
+  }
+  return { now: _v19ServerNow(), win: rptRange ? rptRange * 86400000 : Infinity, ceil: null };
+}
+
+const _V212_MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'];
+function _v212MonthLabel(m) {
+  if (typeof m !== 'string' || m.length < 7) return '';
+  const mo = Number(m.slice(5, 7));
+  return (_V212_MONTH_NAMES[mo - 1] || m) + ' ' + m.slice(0, 4);
+}
+// This month and the one before it, taken from the IST day the app already uses
+// for every other "today" question.
+function _v212MonthOptions() {
+  const t = _istDate();
+  const y = Number(t.slice(0, 4)), mo = Number(t.slice(5, 7));
+  const prevY = mo === 1 ? y - 1 : y, prevMo = mo === 1 ? 12 : mo - 1;
+  const pad = n => (n < 10 ? '0' : '') + n;
+  return [y + '-' + pad(mo), prevY + '-' + pad(prevMo)];
+}
+// The switch itself. Admin only, and deliberately sitting next to the buttons
+// it controls rather than buried in a settings screen - it is flipped once.
+async function _v212ToggleMonthChips() {
+  if (!isAdmin()) { toast('Only an admin can change this.', 'error'); return; }
+  const now = _v212MonthOn();
+  const next = !now;
+  if (!await showConfirmModal(
+      next
+        ? 'Show the month buttons on Reports for everyone in the office?\n\n' +
+          'Benefits are only fully dated from 7 September 2026, so any month before ' +
+          'that will read low.'
+        : 'Hide the month buttons on Reports again?',
+      { okLabel: next ? 'Show them' : 'Hide them', title: 'Month filters' })) return;
+  const flags = _v212Flags();
+  flags.monthChips = next;
+  // local first, so this device is right even if the write is refused
+  try { localStorage.setItem(_V212_FLAGS_KEY, JSON.stringify(flags)); } catch (_) {}
+  if (!next) rptMonth = null;
+  const okWrite = await fbSyncWholeObject('config/flags', flags);
+  // ⛔ AND THE CACHED COPY, or this device un-does itself on its next reload.
+  // config is served from a 30-day IndexedDB cache; without this the next boot
+  // read a cached config carrying no flags key and cleared the local one.
+  try {
+    const _c = await _configPantryRead();
+    const _cfg = (_c && _c.config && typeof _c.config === 'object') ? _c.config : {};
+    _cfg.flags = flags;
+    await _configPantryWrite(_cfg);
+  } catch (_) {}
+  try { if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache(); } catch (_) {}
+  toast(okWrite
+    ? (next ? 'Month buttons are on for the office.' : 'Month buttons hidden.')
+    : 'Changed on this device, but the server did not accept it - other people will not see it yet.',
+    okWrite ? 'success' : 'warn', okWrite ? 4000 : 8000);
+  try { auditLog('feature_flag', 'config', 'monthChips', 'Month filters on Reports',
+    'Month filters switched ' + (next ? 'ON' : 'OFF') + ' for the fleet.',
+    { monthChips: [now, next] }); } catch (_) {}
+  renderReports();
+}
+function _v212MonthSwitch() {
+  if (!isAdmin()) return '';
+  return '<button class="rpt-flag-btn" onclick="_v212ToggleMonthChips()" title="'
+    + (_v212MonthOn()
+        ? 'Hide the month buttons for everyone in the office'
+        : 'Show This month and Last month on Reports, for everyone in the office')
+    + '">' + (_v212MonthOn() ? 'Hide month filters' : 'Show month filters') + '</button>';
+}
+function _v212MonthChips() {
+  if (!_v212MonthOn()) return '';
+  // ⛔ NOT ON TRENDS. That tab draws a twelve-month series, divides by 365 for
+  // its daily average and picks its KPI title from rptRange - which choosing a
+  // month zeroes. August's total therefore appeared under the heading
+  // "Enrolled (all time)" with an average twelve times too small. A single
+  // month is not a trend; the buttons simply are not offered there.
+  if (typeof rptTab !== 'undefined' && rptTab === 'trend') return '';
+  return _v212MonthOptions().map(function (m) {
+    return '<button class="' + (rptMonth === m ? 'on' : '') + '" onclick="rptSetMonth(\'' + m + '\')"'
+      + ' aria-pressed="' + (rptMonth === m) + '">' + escHtml(_v212MonthLabel(m)) + '</button>';
+  }).join('');
+}
 
 // V12.6: ONE place that turns rptRange into words, so the chip, the KPI cards,
 // the card headings and both CSV filenames can never describe the same window
 // differently. 0 is all time.
 function _rptWinLabel(range) {
+  // V21.2: a month answers first, so the KPI cards, the card headings and both
+  // CSV filenames say "September 2026" instead of "all time" - the whole point
+  // of V12.6 putting this in one place.
+  if (range == null && _v212MonthOn() && rptMonth) return _v212MonthLabel(rptMonth);
   const r = (range == null) ? rptRange : range;
   return !r ? 'all time' : r === 365 ? 'last 12 months' : 'last ' + r + ' days';
 }
 function _rptWinChip(range) {
+  if (range == null && _v212MonthOn() && rptMonth) return _v212MonthLabel(rptMonth);
   const r = (range == null) ? rptRange : range;
   return !r ? 'All time' : r === 365 ? '12 months' : r + ' days';
 }
@@ -25180,7 +25734,14 @@ function _rptShowTip(el) {
 // every input arrives as an argument -- and it must never read Firebase: the
 // whole Reports feature is required to add zero download. rptverify.js asserts
 // that statically.
-function _rptAggregate(allB, advParents, users, nowMs, winMs) {
+function _rptAggregate(allB, advParents, users, nowMs, winMs, ceilMs) {
+  // ⛔ V21.2: "Last active" IS NOT A WINDOWED FIGURE - the column's own tooltip
+  // says "Not affected by the date filter." It was nonetheless computed against
+  // `nowMs`, which for a calendar month is the END OF THAT MONTH. Choose August
+  // and a coordinator who worked on 4 September reads "never" and falls into
+  // the inactive table an admin uses to decide who to reassign. Found in
+  // review. Staleness is measured against the real clock, always.
+  const _realNow212 = (typeof _v19ServerNow === 'function') ? _v19ServerNow() : Date.now();
   // Declared up here because the per-FC pass below needs it too (V12's
   // livelihood column). It used to sit further down, next to its first use.
   const ADVI = 'Advocacy (Govt. Schemes)';
@@ -25200,7 +25761,26 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
     if (ALL_TIME) return true;
     if (!iso) return false;
     const t = new Date(iso).getTime();
-    return !isNaN(t) && (nowMs - t) <= winMs;
+    if (isNaN(t)) return false;
+    // V21.2: an OPTIONAL ceiling, finite only for a calendar month.
+    //
+    // ⛔ A CALENDAR MONTH CANNOT BE EXPRESSED WITHOUT ONE. "Last 30 days" is a
+    // floor with an open end; August is a floor AND a ceiling, or asking for
+    // August would also count September.
+    //
+    // ⛔ AND IT MUST NOT APPLY TO THE DAY-WINDOWS. The first build of this
+    // release used `t <= nowMs` unconditionally, which reintroduced the exact
+    // fault _rptActiveAt documents ninety lines above: a bare 'YYYY-MM-DD' is
+    // an IST calendar day, `new Date('2026-09-08')` is UTC midnight = 05:30
+    // IST, so between midnight and half past five every morning a row stamped
+    // with today's date read as the future and was dropped from every windowed
+    // figure. V21.1 counted it. An independent review caught it.
+    //
+    // Making the ceiling an explicit argument that only a month supplies means
+    // the five day-windows are identical to V21.1 BY CONSTRUCTION, not by
+    // argument - and a device with a fast clock cannot be silenced either.
+    if (ceilMs != null && t > ceilMs) return false;
+    return (nowMs - t) <= winMs;
   };
 
   // ── single pass: per-FC aggregation ──────────────────────────────────────
@@ -25259,8 +25839,8 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
     if ((b.photos || []).length) a.photo++;
     // V19.9: both now go through _rptActiveAt — see the note on that function.
     // A beneficiary record carrying a future updatedAt used to win outright.
-    const t1 = _rptActiveAt(b.enrollDate, nowMs);
-    const t2 = _rptActiveAt(b.updatedAt, nowMs);
+    const t1 = _rptActiveAt(b.enrollDate, _realNow212);
+    const t2 = _rptActiveAt(b.updatedAt, _realNow212);
     if (t1 > a.last) a.last = t1;
     if (t2 > a.last) a.last = t2;
   });
@@ -25382,10 +25962,10 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
     // Residual, stated plainly: a status change that writes NO stamp (a move
     // to "Rejected", a notes-only edit) still does not register. Those carry
     // no date anywhere in the record, so there is nothing honest to read.
-    let t = _rptActiveAt(_r.__createdAt, nowMs);
+    let t = _rptActiveAt(_r.__createdAt, _realNow212);
     const _aStamp = _rptStampOk(_r._aAt), _bStamp = _rptStampOk(_r._bAt);
-    if (_aStamp) { const ta = _rptActiveAt(_aStamp, nowMs); if (ta > t) t = ta; }
-    if (_bStamp) { const tb = _rptActiveAt(_bStamp, nowMs); if (tb > t) t = tb; }
+    if (_aStamp) { const ta = _rptActiveAt(_aStamp, _realNow212); if (ta > t) t = ta; }
+    if (_bStamp) { const tb = _rptActiveAt(_bStamp, _realNow212); if (tb > t) t = tb; }
     if (t > a.last) a.last = t;
   });
   const fcList = Array.from(fcAgg.values());
@@ -25470,6 +26050,14 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
   const dayCounts = new Map(), ngoWin = new Map(), villageFirst = new Map();
   let enrolledWinTotal = 0;
   let livN = 0, endN = 0, sumBase = 0, sumEnd = 0, overdue = 0;
+  // ⛔ V21.3: a SEPARATE pair for the percentage. sumEnd - sumBase is the
+  // rupees created and is right as it stands - a household whose whole income
+  // is new really did gain all of it. But dividing that by a denominator the
+  // household contributes nothing to inflates the headline "Avg uplift" with no
+  // lift behind it, and the tooltip calling it "a % of baseline" stops being
+  // true. The percentage now uses only households that have a baseline to
+  // measure against; the rupees figure is untouched.
+  let upliftBase = 0, upliftAdded = 0;
   const stage = { 'Enrolled': 0, 'Intervention In Progress': 0, 'Completed': 0 };
   const byInt = new Map(), byNgoLiv = new Map(), overdueNgo = new Map();
   // V4.7: endlines less than HALF of baseline — the signature of the
@@ -25514,6 +26102,10 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
     }
     if (hasEnd) {
       endN++; sumBase += (Number(b.baseIncome) || 0); sumEnd += (Number(b.endIncome) || 0);
+      if (Number(b.baseIncome) > 0) {
+        upliftBase += (Number(b.baseIncome) || 0);
+        upliftAdded += ((Number(b.endIncome) || 0) - (Number(b.baseIncome) || 0));
+      }
       if (b.baseIncome > 0 && b.endIncome < b.baseIncome * 0.5) suspects.push(b);
       const key = ints.length === 1 ? ints[0] : '__multi';
       const g = byInt.get(key) || { n: 0, base: 0, end: 0 };
@@ -25569,7 +26161,7 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs) {
   });
   const stuckTotal = Array.from(stuckByScheme.values()).reduce((s, g) => s + g.n, 0);
   const advTotal = latestRows.length;
-  return { fcAgg, fcByName, fcList, officeRows, ngoRows, benefitDayCounts, totalEverEnrolled, benefitFirstStamp, activeFcs, inactiveFcs, convDen, convNum, ADVI, dayCounts, ngoWin, villageFirst, enrolledWinTotal, livN, endN, sumBase, sumEnd, overdue, stage, byInt, byNgoLiv, overdueNgo, suspects, uName, newVillages, statusCount, stuckByScheme, schemeStats, stuckTotal, advTotal, latestRows, bById, inWin, fcs, allTime: ALL_TIME, benefitsFellBack };
+  return { fcAgg, fcByName, fcList, officeRows, ngoRows, benefitDayCounts, totalEverEnrolled, benefitFirstStamp, activeFcs, inactiveFcs, convDen, convNum, ADVI, dayCounts, ngoWin, villageFirst, enrolledWinTotal, livN, endN, sumBase, sumEnd, upliftBase, upliftAdded, overdue, stage, byInt, byNgoLiv, overdueNgo, suspects, uName, newVillages, statusCount, stuckByScheme, schemeStats, stuckTotal, advTotal, latestRows, bById, inWin, fcs, allTime: ALL_TIME, benefitsFellBack };
 }
 
 // ── V12: FC Performance tab ─────────────────────────────────────────────────
@@ -25882,7 +26474,12 @@ function _rptExportRows(cols, rows, slug) {
     if (typeof stateFilter !== 'undefined' && stateFilter) scope.push(_fileSlug(stateFilter));
     if (typeof ngoFilter !== 'undefined' && ngoFilter) scope.push(_fileSlug(ngoFilter));
   } catch (_) {}
-  const name = ['KRSF', slug, scope.join('-'), rptRange ? rptRange + 'd' : 'alltime', stamp].filter(Boolean).join('_') + '.csv';
+  // ⛔ V21.2: the window token used to be read off rptRange alone, and
+  // rptSetMonth forces rptRange to 0 - so a month-filtered export went out
+  // named "alltime" carrying one month of figures. Caught in review.
+  const _win212 = (typeof _v212MonthOn === 'function' && _v212MonthOn() && rptMonth)
+    ? rptMonth : (rptRange ? rptRange + 'd' : 'alltime');
+  const name = ['KRSF', slug, scope.join('-'), _win212, stamp].filter(Boolean).join('_') + '.csv';
   _downloadCsv(name, lines.join('\r\n'));
   if (typeof toast === 'function') toast('Exported all ' + rows.length.toLocaleString('en-IN') + ' rows to ' + name, 'success', 4500);
 }
@@ -25892,7 +26489,8 @@ window.rptExportFc = function () {
   // scoped roster as the screen — an export that ignored either would hand an
   // NGO admin the whole fleet in a file.
   if (!_rptCanView()) return;
-  const A = _rptAggregate(filteredAll(), loadAdv(), _rptScopedUsers(), _v19ServerNow(), rptRange ? rptRange * 86400000 : Infinity);   // V20.2: server clock
+  const _w212 = _v212Win();   // V21.2: month or day-window, decided in one place
+  const A = _rptAggregate(filteredAll(), loadAdv(), _rptScopedUsers(), _w212.now, _w212.win, _w212.ceil);
   // V12.6: these MUST be the windowed keys, matching _rptRenderFc exactly. They
   // were the all-time ones, so exporting while sorted by Applied produced a
   // different row order than the screen it was exported from.
@@ -25929,7 +26527,8 @@ window.rptExportFc = function () {
     '\u2014', a.applied, a.benefits, '\u2014',
     '\u2014', ''
   ]));
-  const W = ' (' + (rptRange ? rptRange + 'd' : 'all-time') + ')';
+  // V21.2: same reason as the filename - a month must not be headed "all-time".
+  const W = ' (' + _rptWinLabel() + ')';
   // When Benefits fell back, its "window" column is really the all-time figure.
   // Saying so in the header is the whole difference between a usable file and a
   // misleading one — a spreadsheet outlives the screen that produced it.
@@ -25948,7 +26547,8 @@ window.rptExportNgo = function () {
   // an NGO admin, but a hidden button is not a control — this is, and it is
   // why the check is here and not only in the markup.
   if (!_rptIsFleet()) return;
-  const A = _rptAggregate(filteredAll(), loadAdv(), _rptScopedUsers(), _v19ServerNow(), rptRange ? rptRange * 86400000 : Infinity);   // V20.2: server clock
+  const _w212 = _v212Win();   // V21.2: month or day-window, decided in one place
+  const A = _rptAggregate(filteredAll(), loadAdv(), _rptScopedUsers(), _w212.now, _w212.win, _w212.ceil);
   const totE = (A.ngoRows || []).reduce((s, r) => s + r.enrolled, 0);
   // Export always carries BOTH lenses, whichever the screen is showing — the
   // per-FC average is the whole point of the tab and a spreadsheet that dropped
@@ -25963,7 +26563,7 @@ window.rptExportNgo = function () {
     r.appliedAll, r.benefitsAll, r.livelihoodAll,
     totE ? Math.round((r.enrolled / totE) * 1000) / 10 : 0
   ]);
-  const W = ' (' + (rptRange ? rptRange + 'd' : 'all-time') + ')';
+  const W = ' (' + _rptWinLabel() + ')';   // V21.2: names the month when one is chosen
   const BW = A.benefitsFellBack ? ' (all-time — no dated benefits yet)' : W;
   _rptExportRows(
     ['NGO', 'Active FCs',
@@ -26191,8 +26791,11 @@ function _rptChrome(body) {
     `<button class="${rptTab === id ? 'on' : ''}" onclick="rptSetTab('${id}')" role="tab" aria-selected="${rptTab === id}">`
     + `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${TAB_ICON[id] || ''}</svg>`
     + `${label}</button>`;
+  // V21.2: while a month is showing, no day-window chip is the active one -
+  // otherwise "All time" would sit highlighted next to "August 2026".
+  const _mOn212 = _v212MonthOn() && !!rptMonth;
   const chipBtn = d =>
-    `<button class="${rptRange === d ? 'on' : ''}" onclick="rptSetRange(${d})" aria-pressed="${rptRange === d}">${_rptWinChip(d)}</button>`;
+    `<button class="${!_mOn212 && rptRange === d ? 'on' : ''}" onclick="rptSetRange(${d})" aria-pressed="${!_mOn212 && rptRange === d}">${_rptWinChip(d)}</button>`;
   // The NGO tab is driven by the same window as FC + Trends, so it gets the
   // range chips too. Advocacy and Livelihood remain all-time views.
   const showChips = (rptTab === 'fc' || rptTab === 'ngo' || rptTab === 'trend');
@@ -26218,7 +26821,7 @@ function _rptChrome(body) {
       <div class="rpt-seg" role="tablist">
         ${tab('fc', 'FC Performance')}${fleet ? tab('ngo', 'Partners') : ''}${tab('trend', 'Enrollment Trends')}${tab('adv', 'Advocacy Pipeline')}${tab('liv', 'Livelihood Impact')}
       </div>
-      ${showChips ? `<div class="rpt-chips">${chipBtn(0)}${chipBtn(7)}${chipBtn(30)}${chipBtn(90)}${chipBtn(365)}</div>` : ''}
+      ${showChips ? `<div class="rpt-chips">${chipBtn(0)}${chipBtn(7)}${chipBtn(30)}${chipBtn(90)}${chipBtn(365)}${_v212MonthChips()}${_v212MonthSwitch()}</div>` : ''}
       ${_v13RptFilterBanner()}
       ${body}
     </div>`;
@@ -26257,9 +26860,10 @@ function renderReports() {
   const advParents = loadAdv();
   // V12.6: rptRange 0 = all time. Infinity makes _rptAggregate's ALL_TIME
   // branch fire, which counts undated records too.
-  const now = _v19ServerNow(), winMs = rptRange ? rptRange * 86400000 : Infinity;   // V20.2: server clock
-  const _A = _rptAggregate(allB, advParents, users, now, winMs);
-  const { fcAgg, fcByName, fcList, ngoRows, benefitDayCounts, totalEverEnrolled, benefitFirstStamp, activeFcs, inactiveFcs, convDen, convNum, ADVI, dayCounts, ngoWin, villageFirst, enrolledWinTotal, livN, endN, sumBase, sumEnd, overdue, stage, byInt, byNgoLiv, overdueNgo, suspects, uName, newVillages, statusCount, stuckByScheme, schemeStats, stuckTotal, advTotal, latestRows, bById, inWin, fcs } = _A;
+  const _w212 = _v212Win();   // V21.2: month or day-window, decided in one place
+  const now = _w212.now, winMs = _w212.win;
+  const _A = _rptAggregate(allB, advParents, users, now, winMs, _w212.ceil);
+  const { fcAgg, fcByName, fcList, ngoRows, benefitDayCounts, totalEverEnrolled, benefitFirstStamp, activeFcs, inactiveFcs, convDen, convNum, ADVI, dayCounts, ngoWin, villageFirst, enrolledWinTotal, livN, endN, sumBase, sumEnd, upliftBase, upliftAdded, overdue, stage, byInt, byNgoLiv, overdueNgo, suspects, uName, newVillages, statusCount, stuckByScheme, schemeStats, stuckTotal, advTotal, latestRows, bById, inWin, fcs } = _A;
 
 
   // ── shared HTML helpers ───────────────────────────────────────────────────
@@ -26440,7 +27044,7 @@ function renderReports() {
   if (rptTab === 'liv') {
     const added = sumEnd - sumBase;
     const avgInc = endN ? added / endN : null;
-    const uplift = sumBase ? (added / sumBase) * 100 : null;
+    const uplift = upliftBase ? (upliftAdded / upliftBase) * 100 : null;
     const maxStage = Math.max(1, ...Object.values(stage));
     const frow = (label, n, color) =>
       `<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
@@ -26625,7 +27229,19 @@ function _v357ComputeSig(view) {
   // temporal dead zone if the signature is ever computed before these
   // declarations have been evaluated.
   try {
-    parts.push('rpt', rptTab, rptRange,
+    // ⛔ V21.2: rptMonth belongs here. Without it, switching from September to
+    // August would replay September's rendered HTML - the same class of bug
+    // V18.5 fixed for the IST day, and the reason the whole signature exists.
+    //
+    // ⛔ AND SO DOES THE SWITCH ITSELF. It decides whether two buttons are on
+    // the page, so a cached render made while it was off would be replayed
+    // after it was turned on and the buttons would simply not appear. The
+    // toggle clears the cache itself, but the flag also arrives from the config
+    // download at boot, and a signature that cannot see it would be trusting
+    // that every path remembers to invalidate. Caught by v212.js, which set the
+    // flag the way the config download does and then found the old screen.
+    parts.push('rpt', rptTab, rptRange, rptMonth || '',
+               (typeof _v212MonthOn === 'function' && _v212MonthOn()) ? 'm1' : 'm0',
                rptFcSort, rptFcDir, rptNgoSort, rptNgoDir, rptNgoMode);
   } catch (_) { parts.push('rpt', 'unavailable'); }
   // ── V18.5: the IST calendar day ────────────────────────────────────
@@ -37320,7 +37936,7 @@ async function downloadImportTemplateXlsx() {
       ['',               'Copy from Reference Lists → Livelihood Types. Example: Organic Farming|Poultry'],
       ['',               'LEAVE BLANK if the beneficiary is in the Advocacy program only.'],
       ['',               'You do NOT need to add "Advocacy (Govt. Schemes)" — schemes alone imply advocacy.'],
-      ['schemes',        'Pipe-separated scheme rows. Format: SchemeName:Status:Amount'],
+      ['schemes',        'Pipe-separated scheme rows. Format: SchemeName:Status:Amount:Date'],
       ['',               'Amount is optional. Example: PM-KISAN:Benefits Received:6000|MGNREGA:Applied'],
       ['',               'Valid statuses: Need to Apply, Applied, Approved, Rejected, Benefits Received'],
       ['',               'Amount is only meaningful when status is "Benefits Received".'],
@@ -37823,6 +38439,19 @@ function _validateImportRows() {
         const schemeName = parts[0];
         const status = parts[1];
         const amountRaw = parts[2];  // may be undefined
+        // V21.2: an optional FOURTH part - the day this status was reached.
+        // Safe to split on ':' because no scheme in the catalogue contains one
+        // (checked against all 20 in the live config before this was added).
+        const dateRaw = parts[3];    // may be undefined
+        // ⛔ say so rather than ignore it. A sixth colon is a typo, and
+        // swallowing it would leave the person sure they had entered something
+        // the app never read.
+        if (parts.length > 4) {
+          errors.push('Scheme "' + escHtml(schemeName || '(blank)') + '" has too many parts. ' +
+            'The format is SchemeName:Status:Amount:Date - for example ' +
+            'PM-KISAN:Benefits Received:6000:2026-08-15.');
+          return;
+        }
         if (!schemeName) return;
         if (!schemes.includes(schemeName)) {
           errors.push(`Unknown scheme "${schemeName}" — add via Admin → Advocacy Management first`);
@@ -37849,8 +38478,60 @@ function _validateImportRows() {
           }
           amount = n;
         }
-        const benefitRecd = (amount > 0 || st === 'Benefits Received') ? 'Yes' : 'No';
-        schemeRows.push({ scheme: schemeName, status: st, benefitRecd, benefitAmt: amount });
+        // V21.2: ⛔ _rptStampOk DISCARDS ANY DATE ON OR BEFORE 2026-07-29.
+        // Every reader in the app goes through it. So writing an older date
+        // would edit a live record, add bytes to every read of that row for
+        // ever, and still show the user nothing. It is refused here and the row
+        // is left honestly undated, with a warning that says why - rather than
+        // accepted in silence and quietly dropped later.
+        let _impDate = null;
+        let _impNoDate = false;
+        if (dateRaw !== undefined && dateRaw !== '') {
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(dateRaw)) {
+            errors.push('Scheme "' + escHtml(schemeName) + '" has an unreadable date "' +
+              escHtml(dateRaw) + '". Write it as YYYY-MM-DD, for example 2026-08-15. ' +
+              'This row will not be imported until it is corrected.');
+            return;
+          }
+          const _d = new Date(dateRaw + 'T00:00:00Z');
+          // ⛔ a real Date check, not just the shape. '2026-02-31' passes the
+          // pattern above and is not a day.
+          if (isNaN(_d.getTime()) || _d.toISOString().slice(0, 10) !== dateRaw) {
+            errors.push('Scheme "' + escHtml(schemeName) + '" has a date that does not exist: "' +
+              escHtml(dateRaw) + '". This row will not be imported until it is corrected.');
+            return;
+          }
+          if (dateRaw > _istDate()) {
+            errors.push('Scheme "' + escHtml(schemeName) + '" is dated ' + escHtml(dateRaw) +
+              ', which is in the future. This row will not be imported until it is corrected.');
+            return;
+          }
+          if (typeof _rptStampOk === 'function' && !_rptStampOk(dateRaw)) {
+            warnings.push('Scheme "' + escHtml(schemeName) + '" is dated ' + escHtml(dateRaw) +
+              ', before this app started recording benefit dates on 30 July 2026. It will be ' +
+              'imported and will count in every all-time total, but it will not appear under any ' +
+              'date filter or month view.');
+            // ⛔ AND IT MUST NOT FALL BACK TO TODAY. Someone has told us when
+            // this benefit arrived. Stamping the import day instead would put a
+            // March benefit into today's TODAY card and into September's month
+            // figure - a stated falsehood, which is worse than the absence.
+            _impNoDate = true;
+          } else {
+            _impDate = dateRaw;
+          }
+        }
+        // ⛔ V21.2: 'Approved' HAD TO JOIN THIS LIST. The app itself stores a
+        // received benefit as status:'Approved' + benefitRecd:'Yes' - all 29,061
+        // Approved rows in the live database carry the flag, and _advNormStatus
+        // reads the flag, never the word. So an imported 'Approved' row was
+        // getting benefitRecd:'No' and classifying as merely Applied: it would
+        // never have been counted as a benefit anywhere, on any screen.
+        const benefitRecd = (amount > 0 || st === 'Benefits Received' || st === 'Approved') ? 'Yes' : 'No';
+        const _v212Row = { scheme: schemeName, status: st, benefitRecd, benefitAmt: amount };
+        // carried only as far as confirmBulkImport, which strips them before saving
+        if (_impDate) _v212Row._impDate = _impDate;
+        if (_impNoDate) _v212Row._impNoDate = true;
+        schemeRows.push(_v212Row);
       });
     }
 
@@ -38354,7 +39035,16 @@ async function confirmBulkImport() {
         id: 'ADV-' + _safeUUID().slice(0, 8),
         bid: id,
         bname: p.name,
-        schemeRows: p.schemeRows,
+        // V21.2: stamped here, on the way in - see _v212StampImportedRows.
+        // ⛔ and it can never make the import worse than V21.1. A throw inside
+        // this loop would escape past the V383 ghost purge, which only guards
+        // the final save, leaving per-row records in localStorage that Firebase
+        // never received. Falling back to the unstamped rows is exactly what
+        // V21.1 wrote.
+        schemeRows: (function () {
+          try { return _v212StampImportedRows(p.schemeRows, today); }
+          catch (e) { console.warn('[V21.2] date stamping failed, importing undated:', e); return p.schemeRows; }
+        })(),
         notes: 'Initial scheme plan at bulk import',
         createdAt: nowIso,
         // V3.1: Same batch ID as the parent record, so undo removes the
@@ -39612,6 +40302,68 @@ let _endlineImportState = {
 // NGO sees their NGO's beneficiaries, coordinator sees their own. Even
 // though only admins reach this UI today (page is admin-only), the scope
 // rule is future-proof for when we open it to NGO users.
+// ── V21.2: one row of the endline sheet, lifted out so it can be tested ────
+//
+// ⛔ THE REFERENCE COLUMN AND THE COLUMN BEING FILLED MUST MEAN THE SAME THING.
+// It used to print the sum of the income-log entries, which are the ADDITIONAL
+// income on top of the baseline - while newEndIncome, the cell the admin fills,
+// is the household's TOTAL. Sitting side by side under the headings
+// "currentEndIncome" and "newEndIncome", that invites the exact mistake the
+// Suspicious Endlines report exists to catch: read 25,000, type 30,000, and a
+// family who started on 40,000 is recorded as having lost income - which then
+// flows into the partner totals and the impact figure.
+//
+// _incomeLogGrandTotal is the app's own answer to "what does this household
+// earn now" (baseline + the log). Using it here means the sheet cannot drift
+// from the screen.
+// ⛔ ONE list of headings, used by the template AND by the test. Two copies
+// would drift, and the column order is what _v212EndlineRow's positions mean.
+function _v213EndlineHeaders() {
+  return [
+    'id',                  // [LOCKED - match key]
+    'name',                // ref
+    'village',             // ref
+    'district',            // ref
+    'ngo',                 // ref
+    'coord',               // ref
+    'baseIncome',          // ref
+    'currentTotalIncome',  // ref - V21.2: baseline + everything logged since
+    'newEndIncome',        // <- the household's TOTAL income now
+    'additionalIncome',    // <- V21.3: OR just what your work added. Never both.
+    'entryDate',           // <- optional, defaults to today
+    'mode',                // <- V21.3: blank or "add" to keep what is there
+    'note',                // <- optional
+  ];
+}
+
+function _v212EndlineRow(b) {
+  const log = Array.isArray(b.incomeLog) ? b.incomeLog : [];
+  let currentEnd = '';
+  if (log.length > 0) {
+    currentEnd = (typeof _incomeLogGrandTotal === 'function')
+      ? _incomeLogGrandTotal(b)
+      : (b.baseIncome || 0) + log.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
+  } else if (b.endIncome != null) {
+    // a legacy record: endIncome was already the absolute total
+    currentEnd = b.endIncome;
+  }
+  return [
+    b.id,
+    b.name || '',
+    b.village || '',
+    b.district || '',
+    b.ngo || '',
+    b.coord || '',
+    b.baseIncome || '',
+    currentEnd === '' ? '' : currentEnd,
+    '',  // newEndIncome - the household's TOTAL
+    '',  // additionalIncome - OR just what was added
+    '',  // entryDate
+    '',  // mode - blank replaces, "add" keeps what is already there
+    '',  // note
+  ];
+}
+
 async function downloadEndlineTemplateXlsx() {
   try {
     await _ensureBulkImportLibs();
@@ -39636,47 +40388,17 @@ async function downloadEndlineTemplateXlsx() {
     const wb = XLSX.utils.book_new();
 
     // Header row + one row per beneficiary
-    const HEADERS = [
-      'id',                  // [LOCKED — match key]
-      'name',                // ref
-      'village',             // ref
-      'district',            // ref
-      'ngo',                 // ref
-      'coord',               // ref
-      'baseIncome',          // ref
-      'currentEndIncome',    // ref (live total — sum of incomeLog entries)
-      'newEndIncome',        // ← fill this
-      'entryDate',           // ← optional, defaults to today
-      'note',                // ← optional
-    ];
+    const HEADERS = _v213EndlineHeaders();
 
-    const dataRows = livOnly.map(b => {
-      const log = Array.isArray(b.incomeLog) ? b.incomeLog : [];
-      const currentEnd = log.length > 0
-        ? log.reduce((s,e) => s + (parseFloat(e.amount)||0), 0)
-        : (b.endIncome != null ? b.endIncome : '');
-      return [
-        b.id,
-        b.name || '',
-        b.village || '',
-        b.district || '',
-        b.ngo || '',
-        b.coord || '',
-        b.baseIncome || '',
-        currentEnd === '' ? '' : currentEnd,
-        '',  // newEndIncome — to be filled
-        '',  // entryDate
-        '',  // note
-      ];
-    });
+    const dataRows = livOnly.map(_v212EndlineRow);
 
     const wsMain = XLSX.utils.aoa_to_sheet([HEADERS, ...dataRows]);
     // Reasonable column widths
     wsMain['!cols'] = [
       { wch: 28 }, // id (long internal id format)
       { wch: 22 }, { wch: 16 }, { wch: 22 }, { wch: 18 }, { wch: 18 },
-      { wch: 14 }, { wch: 16 }, { wch: 16 },
-      { wch: 12 }, { wch: 32 }
+      { wch: 14 }, { wch: 18 }, { wch: 16 }, { wch: 17 },
+      { wch: 12 }, { wch: 10 }, { wch: 32 }
     ];
     XLSX.utils.book_append_sheet(wb, wsMain, 'Endline Update');
 
@@ -39693,23 +40415,44 @@ async function downloadEndlineTemplateXlsx() {
       ['1. The "Endline Update" sheet has one row per beneficiary in your access scope.'],
       ['2. The first 8 columns are READ-ONLY reference — DO NOT edit them.'],
       ['   Especially: do not change the "id" column. It is the match key on upload.'],
-      ['3. Fill the "newEndIncome" column for any beneficiary whose endline you want to update.'],
-      ['4. Leave "newEndIncome" blank for beneficiaries you do not want to update.'],
+      ['3. Fill ONE of the two income columns. Never both - a row with both is refused.'],
+      [''],
+      ['   newEndIncome    The FULL annual household income now. The app knows the'],
+      ['                   baseline and works out the gain itself. The'],
+      ['                   "currentTotalIncome" column beside it is the same kind of'],
+      ['                   figure, so you can read across the row. Needs a baseline on'],
+      ['                   the record - without one the whole amount would be counted'],
+      ['                   as income this programme created.'],
+      [''],
+      ['   additionalIncome  Just what your work ADDED. Use this when the baseline is'],
+      ['                   not known, or when the whole of a new income is new - a'],
+      ['                   family given a cow had no milk income before. Nothing is'],
+      ['                   subtracted from it, so no baseline is needed.'],
+      ['4. Leave BOTH income columns blank for beneficiaries you do not want to update.'],
       ['5. Optionally set "entryDate" (YYYY-MM-DD format). Blank defaults to upload date.'],
+      ['5a. "mode" decides what happens to income already recorded:'],
+      ['      blank   REPLACE - the entry you upload becomes the only one. This is'],
+      ['              what happens if you leave the column alone.'],
+      ['      add     KEEP what is there and add this on top. Use this when income'],
+      ['              arrives in instalments - Rs 5,000 in September and Rs 10,000'],
+      ['              in October should read Rs 15,000, not Rs 10,000.'],
+      ['    Any other word is refused rather than guessed at.'],
       ['6. Optionally add a "note" (free text, e.g. "Q4 income from poultry sales").'],
       ['7. Save the file as .xlsx and upload via the same Bulk Update screen.'],
       [''],
       ['WHAT HAPPENS ON UPLOAD'],
-      ['- Each row with a non-blank "newEndIncome" REPLACES that beneficiary\'s'],
-      ['  income log with a single new entry. Previous log history will be lost'],
-      ['  for those rows. Use the per-beneficiary "Log Income" UI if you need to'],
-      ['  preserve history.'],
-      ['- Rows with blank "newEndIncome" are skipped (no change).'],
+      ['- With "mode" blank, the row REPLACES that beneficiary\'s income log with a'],
+      ['  single new entry and the previous history is lost for that row.'],
+      ['- With "mode" set to "add", nothing already recorded is touched - the new'],
+      ['  entry is added alongside, keeping its own date and note.'],
+      ['- Uploading the SAME file twice with "add" will count it twice. There is'],
+      ['  no way for the app to tell a repeat from a real second instalment.'],
+      ['- Rows with BOTH income columns blank are skipped (no change).'],
       ['- Beneficiaries whose stage was Enrolled or In Progress will be auto-moved'],
       ['  to Completed status (mirrors the manual endline modal behaviour).'],
-      ['- If an "id" in the upload does not match any beneficiary, you will be asked'],
-      ['  on the preview screen whether to skip those rows or treat them as new'],
-      ['  enrollments (which routes to the regular Bulk Import).'],
+      ['- If an "id" in the upload does not match any beneficiary, that row is skipped.'],
+      ['  The number skipped is shown in the message at the end of the import.'],
+      ['  To add somebody new, use the regular Bulk Import instead.'],
       [''],
       ['SCOPE'],
       ['This template only includes LIVELIHOOD beneficiaries — advocacy-only records'],
@@ -39817,6 +40560,9 @@ function _validateEndlineRows() {
     const get = k => (row[k] != null ? String(row[k]).trim() : '');
     const id = get('id');
     const newEndRaw = get('newEndIncome');
+    // V21.3: the household's TOTAL, or just what your work added. Never both.
+    const addRaw    = get('additionalIncome');
+    const modeRaw   = get('mode').toLowerCase();
     const entryDate = get('entryDate');
     const note      = get('note');
 
@@ -39831,21 +40577,79 @@ function _validateEndlineRows() {
       return { rowNum: idx + 2, id, parsed: { newEndIncome: newEndRaw, entryDate, note }, status: 'unmatched', reason: 'No beneficiary with this id in the system', beforeIncome: null, afterIncome: null };
     }
 
-    // ID matched. Check newEndIncome.
-    if (newEndRaw === '' || newEndRaw == null) {
-      return { rowNum: idx + 2, id, parsed: null, status: 'skip', reason: 'newEndIncome blank — row left as-is', beforeIncome: b.endIncome, afterIncome: null };
+    // ⛔ V21.3: BOTH FILLED IS A REFUSAL, NEVER A GUESS. They mean different
+    // things - one is the household's whole income, the other is only what this
+    // programme added - and picking one for the admin would silently record a
+    // figure nobody typed.
+    if (newEndRaw !== '' && addRaw !== '') {
+      return { rowNum: idx + 2, id, parsed: null, status: 'error',
+        reason: 'Both newEndIncome and additionalIncome are filled. Fill only one: ' +
+                'newEndIncome is the full annual household income now, ' +
+                'additionalIncome is just what your work added.',
+        beforeIncome: b.endIncome, afterIncome: null };
     }
-    // V18.8: strict read. This path REPLACES a beneficiary's endline income, so
-    // '1,20,000' arriving as Rs 1 would not merely understate a lift - it would
-    // overwrite a correct figure with a wrong one.
-    const _neErr = _v188NumErr(_v188Clean(newEndRaw), 'newEndIncome');
+    // ⛔ V21.3: A TOTAL CANNOT BE ADDED TO. "The household now earns Rs 40,000"
+    // and "keep what is recorded and add this to it" are contradictory
+    // instructions, and accepting both stored a number nobody typed. The
+    // both-columns case was refused while this one - the only combination that
+    // is logically impossible - was let through. Found in review.
+    if (newEndRaw !== '' && newEndRaw != null && modeRaw === 'add') {
+      return { rowNum: idx + 2, id, parsed: null, status: 'error',
+        reason: 'newEndIncome is the whole household income, so it cannot be ADDED to what ' +
+                'is already recorded. Either clear the mode column to replace, or put the ' +
+                'figure in the additionalIncome column instead.',
+        beforeIncome: b.endIncome, afterIncome: null };
+    }
+    if (modeRaw && modeRaw !== 'add' && modeRaw !== 'replace') {
+      return { rowNum: idx + 2, id, parsed: null, status: 'error',
+        reason: 'mode "' + escHtml(modeRaw) + '" is not understood. Leave it blank to replace ' +
+                'what is recorded, or write "add" to keep it and add to it.',
+        beforeIncome: b.endIncome, afterIncome: null };
+    }
+    // ⛔ ONE PERSON, ONE ROW. Two rows for the same id under mode=add appended
+    // twice - the money counted twice, the second row's preview understating by
+    // the first, and the undo snapshot overwritten with post-first-row state so
+    // it could not get back. Under V21.2 a duplicate was harmless because the
+    // last row simply won. A copy-pasted row in Excel is all it takes.
+    if (_endlineImportState.rawRows.filter(function (o2) {
+          return o2 && String(o2.id || '').trim() === id;
+        }).length > 1) {
+      return { rowNum: idx + 2, id, parsed: null, status: 'error',
+        reason: 'This beneficiary appears on more than one row of the sheet. Keep one row ' +
+                'per person - two rows that both add income would count it twice, and the ' +
+                'undo could not get back.',
+        beforeIncome: b.endIncome, afterIncome: null };
+    }
+    // ID matched. Nothing asked for?
+    if ((newEndRaw === '' || newEndRaw == null) && (addRaw === '' || addRaw == null)) {
+      return { rowNum: idx + 2, id, parsed: null, status: 'skip', reason: 'newEndIncome and additionalIncome both blank — row left as-is', beforeIncome: b.endIncome, afterIncome: null };
+    }
+    // V21.3: which column was used decides everything below.
+    const isTotal = newEndRaw !== '' && newEndRaw != null;
+    const rawUsed = isTotal ? newEndRaw : addRaw;
+    const colName = isTotal ? 'newEndIncome' : 'additionalIncome';
+    // V18.8: strict read, on whichever column it is. '1,20,000' arriving as
+    // Rs 1 would not merely understate a lift - it would overwrite a correct
+    // figure with a wrong one.
+    const _neErr = _v188NumErr(_v188Clean(rawUsed), colName);
     if (_neErr) {
       return { rowNum: idx + 2, id, parsed: null, status: 'error', reason: _neErr, beforeIncome: b.endIncome, afterIncome: null };
     }
-    const newEnd = _v188NumOf(_v188Clean(newEndRaw));
-    if (isNaN(newEnd) || newEnd < 0) {
-      return { rowNum: idx + 2, id, parsed: null, status: 'error', reason: `newEndIncome "${newEndRaw}" is not a valid non-negative number`, beforeIncome: b.endIncome, afterIncome: null };
+    const typed = _v188NumOf(_v188Clean(rawUsed));
+    if (isNaN(typed) || typed < 0) {
+      return { rowNum: idx + 2, id, parsed: null, status: 'error', reason: `${colName} "${rawUsed}" is not a valid non-negative number`, beforeIncome: b.endIncome, afterIncome: null };
     }
+    // ⛔ THE ADDITIONAL AMOUNT IS THE FIGURE ITSELF. A total has the baseline
+    // taken off it; an additional amount has nothing taken off, which is the
+    // whole reason it works without one.
+    const newEnd = isTotal ? typed : ((Number(b.baseIncome) || 0) + typed);
+    const addAmount = isTotal ? (typed - (Number(b.baseIncome) || 0)) : typed;
+    // What is already logged, and whether this row will really append. "add"
+    // onto an EMPTY log is just a replace, and the dialog, the summary and the
+    // writer all have to agree about that or they contradict each other.
+    const _existingLog = (Array.isArray(b.incomeLog) ? b.incomeLog : [])
+      .reduce((s, e) => s + (parseFloat(e && e.amount) || 0), 0);
+    const willAppend = modeRaw === 'add' && Array.isArray(b.incomeLog) && b.incomeLog.length > 0;
 
     // Validate date if provided
     let dateClean = '';
@@ -39871,20 +40675,46 @@ function _validateEndlineRows() {
     // donors and Team Leaders read. The template shows a zero baseline as an
     // EMPTY cell, which reads like a formatting quirk, and the preview never
     // mentions the baseline at all, so nothing would have told the admin.
-    if (!(Number(b.baseIncome) > 0)) {
+    // ⛔ V21.3: THE GUARD STAYS, BUT ONLY FOR A TOTAL. Entering a TOTAL with no
+    // baseline books the household's whole income as income this programme
+    // created - the mistake the Suspicious Endlines report exists to catch.
+    // Entering the ADDITIONAL amount has nothing to subtract, so there is
+    // nothing to get wrong: it is the figure itself. That is what lets the
+    // 1,330 Navchetna households with no recorded baseline be measured at all,
+    // and it is the right shape for a family given a cow, whose entire milk
+    // income is new.
+    if (isTotal && !(Number(b.baseIncome) > 0)) {
       return { rowNum: idx + 2, id, parsed: null, status: 'error',
-        reason: 'No baseline income on this record — the whole endline would count as income created. Enter the baseline on the beneficiary first.',
+        reason: 'No baseline income on this record, so a TOTAL cannot be used — the whole ' +
+                'amount would count as income created. Either enter the baseline on the ' +
+                'beneficiary first, or put the figure in the additionalIncome column instead.',
         beforeIncome: b.endIncome, afterIncome: null };
     }
 
     return {
       rowNum: idx + 2,
       id,
-      parsed: { newEndIncome: newEnd, entryDate: dateClean, note },
+      // ⛔ `append` IS THE INTENT THE SHEET EXPRESSED, not a decision about a
+      // record. Whether it can actually append depends on what the record holds
+      // when Apply is pressed, and only the writer knows that. Carrying the
+      // decision here meant a log that filled up in the gap - a coordinator
+      // recording income while the preview sat open - was REPLACED, and the
+      // admin was told it was an ordinary update. My own first fix moved the
+      // emptiness re-check into the writer but left this frozen, so it was only
+      // half a fix; the test written for the gap caught it. `willAppend` stays
+      // purely to word the confirmation dialog, which is a prediction.
+      parsed: { newEndIncome: newEnd, addAmount: addAmount, isTotal: isTotal,
+                append: modeRaw === 'add', willAppend: willAppend,
+                entryDate: dateClean, note },
       status: 'ok',
       reason: '',
       beforeIncome: b.endIncome,
-      afterIncome: newEnd,
+      // ⛔ V21.3: THE FIGURE SHOWN MUST BE THE FIGURE WRITTEN. This said newEnd,
+      // which is baseline + typed - but an append produces baseline + what was
+      // already logged + typed. So every appended row was previewed, and
+      // recorded in the audit trail, short by exactly the income already there.
+      // Found in review.
+      afterIncome: willAppend ? ((Number(b.baseIncome) || 0) + _existingLog + addAmount) : newEnd,
     };
   });
 
@@ -39910,7 +40740,13 @@ async function confirmEndlineBulkUpdate() {
     return;
   }
 
-  if (!confirm(`Ready to apply endline updates to ${okRows.length} beneficiar${okRows.length===1?'y':'ies'}.\n\nThis REPLACES the existing income log for each updated record. A per-record snapshot is saved so you can undo this batch later from the beneficiary detail (admin only).\n\nContinue?`)) return;
+  if (!confirm(`Ready to apply endline updates to ${okRows.length} beneficiar${okRows.length===1?'y':'ies'}.\n\n${(function(){
+    // V21.3: say what it will actually do. It no longer always replaces.
+    const a = okRows.filter(r => r.parsed && r.parsed.willAppend).length, rp = okRows.length - a;
+    return a === 0 ? 'This REPLACES the income already recorded for each of them.'
+         : rp === 0 ? 'This ADDS to the income already recorded, keeping what is there.'
+         : rp + ' will be REPLACED and ' + a + ' will be ADDED to, keeping what is there.';
+  })()} A per-record snapshot is saved so you can undo this batch later from the beneficiary detail (admin only).\n\nContinue?`)) return;
 
   const data = loadData();
   const me = currentUser() || {};
@@ -39922,6 +40758,7 @@ async function confirmEndlineBulkUpdate() {
   const bulkBatchId = 'ENDB-' + String(Date.now()).slice(-7);
   let updatedCount = 0;
   let stageFlipped = 0;
+  let appended = 0;      // V21.3: how many kept what was already there
 
   okRows.forEach(r => {
     const b = data.find(x => x.id === r.id);
@@ -39944,23 +40781,66 @@ async function confirmEndlineBulkUpdate() {
       endlineDate: b.endlineDate || null,
       status: b.status || null,
     };
-    // Per #4.5: REPLACE existing income log with single new entry.
-    // V4.8: the CSV column "newEndIncome" is (and stays) the admin-typed
-    // TOTAL income — that behavior is unchanged. But incomeLog entries now
-    // always mean ADDITIONAL income, so the stored amount here must be the
-    // delta (newEndIncome - baseline), not the raw total.
-    b.incomeLog = [{
+    // ⛔ V21.3: ADD, OR REPLACE, AS ASKED. Until now every upload REPLACED the
+    // whole income log with one entry. Record Rs 5,000 in September, upload
+    // Rs 10,000 in October, and September was gone: the record read Rs 10,000
+    // where the truth was Rs 15,000, with nothing on screen to say so. For a
+    // programme whose income arrives in instalments that is the normal case,
+    // not an edge. Replacing is still the DEFAULT, so an admin who does
+    // nothing different gets exactly what V21.2 did.
+    //
+    // incomeLog entries always mean ADDITIONAL income on top of the baseline
+    // (V4.8), so p.addAmount is what goes in - already worked out by the
+    // validator from whichever column was filled.
+    // ⛔ V21.3 (post-review): RECOMPUTED HERE, against the record actually being
+    // written. Both of these used to be frozen at upload time, and the gap
+    // between uploading a sheet and pressing Apply is exactly when a
+    // coordinator logs income or an admin corrects a baseline.
+    //   - the subtraction: a corrected baseline stored a figure nobody typed
+    //   - the emptiness test: a stale "the log was empty" REPLACED a
+    //     coordinator's entry instead of adding to it, and reported it as an
+    //     ordinary update
+    // V21.2 recomputed the subtraction inside this loop and self-corrected; the
+    // first round of fixes lost that. Found by an independent re-review.
+    const _base213 = Number(b.baseIncome) || 0;
+    const _amount213 = p.isTotal ? (p.newEndIncome - _base213) : p.addAmount;
+    // ⛔ A LEGACY RECORD HAS AN endIncome AND NO LOG, and the sheet prints that
+    // figure in currentTotalIncome - so an admin adding to it would have seen
+    // the amount, asked to add, and had it replaced. _ensureIncomeLogMigrated
+    // only ever ran from the Log Income drawer, never on this path. Carry it in
+    // first, so "add" means add to what the sheet showed.
+    if (p.append && !(Array.isArray(b.incomeLog) && b.incomeLog.length) && b.endIncome != null) {
+      try {
+        if (typeof _ensureIncomeLogMigrated === 'function') _ensureIncomeLogMigrated(b);
+      } catch (_) { /* a migration failure must never block the update */ }
+    }
+    const _hasLog213 = Array.isArray(b.incomeLog) && b.incomeLog.length > 0;
+    const _append213 = !!p.append && _hasLog213;
+    const _entry213 = {
       date: dt,
-      amount: p.newEndIncome - (b.baseIncome || 0),
+      amount: _amount213,
       sources: [],
       note: p.note ? `Bulk update: ${p.note}` : 'Bulk endline update',
       addedBy: me.userId || 'u-admin',
       addedByName: 'Bulk Endline Update (' + (me.fullName || me.username || 'admin') + ')',
       addedAt: nowIso,
       _bulkBatchId: bulkBatchId,
-    }];
-    // b.endIncome is the absolute total the admin typed — unchanged.
-    b.endIncome = p.newEndIncome;
+    };
+    if (_append213) {
+      // ⛔ Array.isArray guarded: _hasLog213 already proves it, but a throw
+      // inside this loop would skip the save for the whole batch with no toast
+      // and no explanation.
+      b.incomeLog = (Array.isArray(b.incomeLog) ? b.incomeLog : []).concat([_entry213]);
+      appended++;
+    } else {
+      b.incomeLog = [_entry213];
+    }
+    // ⛔ endIncome is a MIRROR of baseline + everything logged (V4.8), so after
+    // an append it must be RECOMPUTED, not set to the figure just typed - that
+    // would throw away the instalment this upload exists to preserve.
+    b.endIncome = (typeof _incomeLogGrandTotal === 'function')
+      ? _incomeLogGrandTotal(b)
+      : ((b.baseIncome || 0) + b.incomeLog.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0));
     b.endlineDate = dt;
     // Conflict detection for undo uses the app-wide _lastEditedAt stamp
     // that fbSyncCollection applies on every save. If b._lastEditedAt is
@@ -39972,9 +40852,15 @@ async function confirmEndlineBulkUpdate() {
       stageFlipped++;
     }
     updatedCount++;
+    // ⛔ V21.3 (post-review): the STORED figure, not the one the validator
+    // predicted. p.newEndIncome is baseline + typed; an append produces
+    // baseline + what was already logged + typed, so every appended row was
+    // recorded in the audit trail short by exactly the income already there.
+    // The changelog claimed this was fixed alongside the preview column. It was
+    // not - only the preview was. Found by an independent re-review.
     auditLog('endline_bulk_update', 'beneficiary', b.id, b.name,
-      `Bulk endline update: set endIncome to ₹${p.newEndIncome.toLocaleString('en-IN')} on ${fmtD(dt)}${p.note?' · '+p.note:''}.${prevStatus !== 'Completed' ? ' Status auto-flipped to Completed.' : ''}`,
-      { endIncome: [r.beforeIncome, p.newEndIncome], status: prevStatus !== 'Completed' ? [prevStatus, 'Completed'] : undefined });
+      `Bulk endline update: set endIncome to ₹${(b.endIncome || 0).toLocaleString('en-IN')} on ${fmtD(dt)}${_append213 ? ' (added to what was already recorded)' : ''}${p.note?' · '+p.note:''}.${prevStatus !== 'Completed' ? ' Status auto-flipped to Completed.' : ''}`,
+      { endIncome: [r.beforeIncome, b.endIncome], status: prevStatus !== 'Completed' ? [prevStatus, 'Completed'] : undefined });
   });
 
   // V310-S2: await Firebase. On failure, surface and bail.
@@ -39988,6 +40874,7 @@ async function confirmEndlineBulkUpdate() {
   const errors         = v.filter(r => r.status === 'error').length;
   const skippedUnmatched = unmatched.length;
   let summary = `✓ Updated ${updatedCount}`;
+  if (appended > 0) summary += ` (${appended} added to existing income)`;
   if (stageFlipped > 0) summary += ` (${stageFlipped} auto-completed)`;
   if (skippedUnmatched > 0) summary += ` · skipped ${skippedUnmatched} unmatched`;
   if (skippedBlank > 0) summary += ` · skipped ${skippedBlank} blank`;
@@ -40372,7 +41259,7 @@ function _renderEndlineLandingBlock() {
       <p style="font-size:13px;color:var(--gray1);margin-bottom:12px">
         Update endline income for many existing beneficiaries at once. Download a pre-filled template (one row per beneficiary), fill the <code>newEndIncome</code> column, and re-upload.
         <br>
-        <span style="color:#92400E;font-size:12px">⚠ This <b>replaces</b> the income log for updated beneficiaries — for incremental income tracking, use each beneficiary's "Log Income" button instead.</span>
+        <span style="color:#92400E;font-size:12px">Fill <b>newEndIncome</b> (the household's whole income now) <b>or</b> <b>additionalIncome</b> (just what your work added) — never both. Leave <b>mode</b> blank to replace what is recorded, or write <b>add</b> to keep it and add on top.</span>
       </p>
       <button class="btn btn-primary" onclick="downloadEndlineTemplateXlsx()" style="background:#F59E0B;border-color:#D97706">
         📥 Download Endline Update Template (.xlsx)
