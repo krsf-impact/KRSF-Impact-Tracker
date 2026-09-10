@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V21.4-LIVE
+  KRSF Beneficiary Impact Tracker  -  V21.5-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,76 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V21.5-LIVE (2026-09-09 - a coordinator who has left).
+
+    + WHAT IT IS: an Admin can mark a coordinator inactive. Their name then
+      shows faded, labelled, and LAST in every list, they cannot sign in, and
+      they stop counting as an active coordinator. Their beneficiaries do NOT
+      move - that is the point. The faded name is what tells the NGO those
+      families are still sitting with somebody who has gone and need handing
+      over, which is done with the Transfer Beneficiaries tool that already
+      exists.
+
+    + ⛔ ONE FIELD ON ONE PERSON. Nothing is written to any beneficiary
+      record, no migration, no backfill. Absent means active, so not one of
+      the 575 users needed a write and not one figure moves on the day this
+      ships - the active-coordinator count falls only as people are actually
+      marked.
+
+    + ⛔ THE SIGN-IN BLOCK HAD TO REACH THE PHONE. The users list is cached
+      for 30 days and fetched once per session, and the sign-in check reads
+      that same cached list - so on its own this would not have stopped
+      anybody for up to a month. Marking somebody now bumps the fleet
+      invalidate flag V10.1 added for password changes; that flag is ALREADY
+      read on every boot, so reading it costs nothing new. ⛔ IT IS NOT FREE
+      THOUGH, and an earlier draft of this note said it was: a device that
+      boots after a bump refetches the whole users list once, about 120 KB.
+      Bounded - any number of markings costs each device ONE refetch, not
+      one per marking - and identical to what a password change already
+      costs. Worst realistic day is well under a rupee.
+
+    + ⛔ AND IT MUST NEVER COST SOMEBODY THEIR WORK. The block is not on the
+      save path. A phone still holding unsent enrolments stays signed in and
+      keeps working; the queue flushes and the sign-out happens on a later
+      boot. A tidy-up of the staff list must not destroy a day in the field.
+
+    + ⛔ THE TRANSFER USED TO DESTROY THE ORIGINAL NAME. It overwrites
+      createdBy, createdByName AND coord, so after a handover nothing on the
+      record said who actually enrolled that family - it survived only in the
+      audit log. The enroller is now stamped once, on the first move, and
+      never touched again, so a family handed on twice still names the person
+      who enrolled them rather than whoever held them in between. Shown in the
+      beneficiary drawer. Only records that actually move are written.
+
+    + ⛔ AN INACTIVE COORDINATOR KEEPS A ROW AT 0-0-0. _computeFcStats
+      returns null at zero beneficiaries and NGO admins hide those rows, so
+      the moment a handover finished the person handed over FROM would have
+      vanished from the table and there would be nothing on screen to confirm
+      it had happened.
+
+    + ⛔ "INACTIVE" WAS ALREADY TAKEN. Reports has computed activeFcs and
+      inactiveFcs for a long time, meaning "did something in the last 30 days"
+      and "did not" - that is DORMANCY, not departure. Only the unambiguous
+      half changed: somebody who has left is not counted as active, whatever
+      they did last week (it is also the divisor for every per-coordinator
+      average). The quiet list is untouched, but now says which of those
+      people have actually left, so nobody chases them.
+
+    + Destination lists offer ACTIVE coordinators only, so families cannot be
+      handed to somebody who cannot sign in. Moving families off an inactive
+      coordinator is the whole point and stays available.
+
+    + Tests: 66 files. v215.js is new - 201 checks, and 43 mutants built on
+      this build, every one of them killed. ⛔ THE COUNT IS NOT THE EVIDENCE,
+      THE MUTANTS ARE: 87 of the checks go red on V21.4 simply because the
+      feature is absent there, which proves only that they are wired to it and
+      not that any one of them watches its own line. Two faults were found that
+      way - a mutant that emptied the page's memory instead of failing, and a
+      check on the winner's highlight that could not fail at all because the
+      grouping always leaves an active coordinator at the top. That second one
+      is exactly the fault that made the V21.4 suite worthless for most of its
+      life, and this time it was caught before it counted.
+
   V21.4-LIVE (2026-09-08 - a phone that can actually enrol with no signal).
 
     + ⛔ THE DEFECT WAS ONE LINE, AND IT WAS AN EARLY RETURN JUDGED OVER THE
@@ -4350,7 +4420,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V21.4-LIVE';
+const APP_VERSION = 'V21.5-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -5661,6 +5731,7 @@ function _v196Idle(fn) {
     } else setTimeout(function () { try { fn(); } catch (_) {} }, 3000);
   } catch (_) { try { fn(); } catch (_) {} }
 }
+let _v196BootDone = false;   // V21.5: the outbox has actually been read
 async function _v196Boot() {
   // V20.2: this runs from the Firebase init AND from renderAfterLogin, so on
   // a reload with a saved session it used to run twice a second apart. Once.
@@ -5670,6 +5741,7 @@ async function _v196Boot() {
     const u = (typeof currentUser === 'function') ? currentUser() : null;
     if (!u || !u.userId) return;
     const ids = await _v196OutboxIds(u.userId);
+    if (ids !== null) _v196BootDone = true;   // V21.5: the queue is now known
     if (ids === null) {
       // ⛔ null means the store could not be READ. Iterating it threw, which
       // skipped the restore, the sender and the top-up, and left the pill
@@ -9624,6 +9696,11 @@ function _renderCurrentViewNow() {
   try {
     // Modal guard — common patterns from V15
     if (_isUserMidEdit()) return;
+    // ⛔ V21.5: BELOW THE MID-EDIT GUARD, NOT ABOVE IT. That guard exists
+    // because a re-render while a form is open destroys what has been typed,
+    // and this signs somebody out - so running it first could take a
+    // half-finished enrolment with it. Checked once; it settles and stops.
+    try { _v215EnforceInactive(); } catch (_) {}
     // V313 (2026-05-12) shell dispatch fix: coord shell has its own list
     // renderer (coordRenderList) and writes to #coord-list. The manager
     // shell uses _navRoutes_v32 which writes to admin DOM elements.
@@ -10994,6 +11071,106 @@ function saveSession(s) {
   else   localStorage.removeItem(SESSION_KEY);
 }
 function currentUser() { return loadSession(); }
+
+// ⛔ V21.5: GETTING AN ALREADY-SIGNED-IN PERSON OUT, WITHOUT COSTING THEM
+// WORK. Nothing in this app re-checks who you are once you have signed in, so
+// marking somebody inactive does not by itself end their session. This runs
+// once, after boot, when the users list is in hand.
+//
+// It refuses to sign anybody out while their phone still holds unsent work.
+// That is deliberate and it is the whole point: somebody marked inactive on
+// the same day they were out enrolling families must still get that work up.
+// They keep working, the queue flushes, and the sign-out happens on a later
+// boot. A staff-list tidy-up must never destroy a day in the field.
+let _v215Enforced = false;
+let _v215Forcing = false;   // set only by the forced sign-out below
+function _v215EnforceInactive() {
+  if (_v215Enforced) return;
+  try {
+    const me = currentUser();
+    if (!me || !me.userId) { _v215Enforced = true; return; }
+    // the list has to actually be the server's, not an empty pre-boot cache
+    if (typeof RecordCache === 'undefined' || !RecordCache || !RecordCache.usersFromStore) return;
+    const rec = (loadUsers() || []).find(function (x) { return x && x.id === me.userId; });
+    if (!rec) return;                       // deleted, or not loaded - not our business
+    // ⛔ SETTLED, SO STOP LOOKING. Without this the flag was set only on the
+    // way out for the ONE person being removed, and all 575 others paid a
+    // 575-record deep clone on every single re-render. Found in review.
+    if (!_v215Inactive(rec)) { _v215Enforced = true; return; }
+    // ⛔ AN EMPTY QUEUE IS NOT THE SAME AS A QUEUE NOBODY HAS LOOKED AT.
+    // _v196PendingIds is filled by _v196Boot, which is scheduled seconds out
+    // and then awaits IndexedDB - while the users list comes from a local
+    // pantry read and fires a render about 200 ms in. Signing somebody out in
+    // that window strands their queued enrolments for ever: doLogout clears
+    // the Set, the items stay on disk, and the sender refuses to run with
+    // nobody signed in. The exact case is a departed coordinator walking into
+    // the office on wifi to get their work up. Found in review.
+    if (!_v196BootDone) return;
+    // ⛔ UNSENT WORK WINS. _v196PendingIds is the phone's own view of what is
+    // still queued; if it holds anything, leave them signed in.
+    if (typeof _v196PendingIds !== 'undefined' && _v196PendingIds && _v196PendingIds.size > 0) {
+      console.warn('[V21.5] account is inactive but ' + _v196PendingIds.size +
+                   ' item(s) are still waiting to send - staying signed in until they do');
+      return;
+    }
+    _v215Enforced = true;
+    try {
+      auditLog('logout', 'session', me.userId, me.username,
+        'Signed out: account marked inactive', null);
+    } catch (_) {}
+    // ⛔ NOT CANCELLABLE. This used to call doLogout(), which opens its own
+    // confirm with a Cancel button - and both overlays listen for Escape on
+    // the document with capture, so ONE Escape resolved both to false. The
+    // natural gesture of dismissing the notice cancelled the sign-out, and
+    // because the flag above was already set, nothing tried again for the
+    // life of the page. Found in review. _v215Forcing makes doLogout skip
+    // both of its questions; there is nothing here for the person to decide.
+    _v215Forcing = true;
+    try { showConfirmModal(
+      'This account has been marked inactive, so it has been signed out.\n\n' +
+      'Nothing you saved has been lost. Please contact your administrator.',
+      { okLabel: 'OK', title: 'Account inactive' }); } catch (_) {}
+    setTimeout(function () { try { doLogout(); } catch (_) {} }, 400);
+  } catch (_) {}
+}
+
+// ── V21.5: a coordinator who has left ────────────────────────────────────
+// ⛔ ONE FIELD ON THE PERSON, NOTHING ON ANY BENEFICIARY RECORD. Absent
+// means active, so no existing user needs a write and no figure moves on the
+// day this ships. The active-coordinator count falls only as people are
+// actually marked.
+//
+// Marking somebody inactive deliberately does NOT move their beneficiaries.
+// The faded name IS the prompt: it tells the NGO those families are still
+// sitting with somebody who has gone, and need handing over.
+function _v215Inactive(u) { return !!(u && u.inactive); }
+// ⛔ WHO ENROLLED THEM, WRITTEN ONCE AND NEVER AGAIN. Four separate tools
+// rewrite ownership - Transfer, Reassign, Bulk Assign and deleting a user -
+// and only one of them used to record the original name. That was not merely
+// a gap: a family reassigned A→B by one tool and transferred B→C by another
+// got B stamped as the enroller, so the drawer named the wrong person with
+// complete confidence. Called from all four now.
+//
+// ⛔ AND IT PREFERS THE TYPED COORDINATOR NAME over the account name. On 116
+// records the account that created the row is an office login while `coord`
+// names the field worker who actually did the enrolment. "Enrolled by" should
+// say the person, not the desk.
+function _v215StampEnroller(b, fallbackName, fallbackId) {
+  if (!b) return;
+  if (!b.enrolledByName) b.enrolledByName = b.coord || b.createdByName || fallbackName || '';
+  if (!b.enrolledById)   b.enrolledById   = b.createdBy || fallbackId || '';
+}
+// ⛔ ACTIVE FIRST, THEN INACTIVE, and whatever sort the table already
+// applies runs INSIDE each group - so clicking a column header cannot
+// scatter the inactive people back through the list.
+function _v215GroupCmp(aOff, bOff) { return (aOff ? 1 : 0) - (bOff ? 1 : 0); }
+const _V215_CHIP = '<span title="This coordinator has left or stopped working. Their beneficiaries still need handing over." style="font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:9px;background:#E5E7EB;color:#4B5563;margin-left:6px">Inactive</span>';
+// ⛔ NOT #9CA3AF - that is 2.54:1 on white, below even the large-text floor,
+// and this is read on cheap phones in daylight. The app's own --gray2 is
+// 4.83:1 and passes. The chip beside it carries the meaning; the fade alone
+// never does. Found in review.
+const _V215_FADE = 'color:var(--gray2)';
+
 function isAdmin()  { const s=currentUser(); return s && s.role==='admin'; }
 function isNgoUser(){ const s=currentUser(); return s && s.role==='ngo'; }
 function isCoord()  { const s=currentUser(); return s && s.role==='coordinator'; }
@@ -13813,7 +13990,11 @@ function openDrawer(id) {
         ${(b.interventions||[]).includes('Advocacy (Govt. Schemes)') ? '<span style="background:var(--purple2);color:var(--purple);font-size:11px;font-weight:700;padding:3px 9px;border-radius:5px;letter-spacing:.02em">✓ Advocacy</span>' : ''}
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:6px">${(b.interventions||[]).map(i=>`<span style="background:var(--navy3);color:var(--navy);font-size:12px;font-weight:600;padding:4px 10px;border-radius:5px">${escHtml(i)}</span>`).join('')}</div>
-      <div style="margin-top:8px;font-size:12px;color:var(--gray2)">NGO: ${escHtml(b.ngo)} · Coordinator: ${escHtml(b.coord||'—')}</div>
+      <div style="margin-top:8px;font-size:12px;color:var(--gray2)">NGO: ${escHtml(b.ngo)} · Coordinator: ${escHtml(b.coord||'—')}${
+        // V21.5: only ever shown on a family who has actually been handed on,
+        // and only when the two names really differ.
+        (b.enrolledByName && b.enrolledByName !== b.coord)
+          ? ` · Enrolled by: ${escHtml(b.enrolledByName)}` : ''}</div>
     </div>
     ${_linkedFamilyHtml}
     ${_v405GalleryHtml(b)}
@@ -14517,7 +14698,20 @@ function openEnroll() {
   // to resolve duplicate-id clash with the coord shell's beneficiary list.
   const coordList = document.getElementById('coord-name-list');
   if (coordList) {
-    const coords = [...new Set(getData().map(b => (b.coord||'').trim()).filter(Boolean))].sort();
+    // ⛔ V21.5: NOT SOMEBODY WHO HAS LEFT. This list is built from names
+    // already in the data, not from the staff list, so a departed
+    // coordinator's name kept being offered on brand-new enrolments - and
+    // because the leaderboard also attributes by name, it kept crediting
+    // them after they were marked. Exact match only, which is all this can
+    // honestly do against a free-text field. Found in review.
+    const _offNames = new Set();
+    try {
+      (loadUsers() || []).forEach(function (x) {
+        if (x && x.inactive) { const n = (x.fullName || x.username || '').trim(); if (n) _offNames.add(n); }
+      });
+    } catch (_) {}
+    const coords = [...new Set(getData().map(b => (b.coord||'').trim()).filter(Boolean))]
+      .filter(n => !_offNames.has(n)).sort();
     coordList.innerHTML = coords.map(c => `<option value="${escHtml(c)}"></option>`).join('');
   }
   // V4.1: ensure Section 2 title resets to "Programme" (not "Programme Planning")
@@ -19432,7 +19626,30 @@ function renderNGO() {
     rows = ngoUsers
       .map(fc => {
         const r = _computeFcStats(fc.id, fc.fullName || fc.username, data, advAll);
-        if (r) return r;
+        if (r) { r._inactive = _v215Inactive(fc); return r; }
+        // ⛔ V21.5: AN INACTIVE COORDINATOR KEEPS THEIR ROW AT ZERO. Without
+        // this they disappear from the table the instant a handover finishes -
+        // _computeFcStats returns null at zero beneficiaries and NGO admins
+        // hide those rows - and there would be nothing on screen to confirm
+        // the handover had happened. Same zero-row shape the team-leader
+        // branch below already builds.
+        // ⛔ AND ONLY A COORDINATOR. ngoUsers is every user in the partner,
+        // not just field staff, so without the role check marking an NGO
+        // admin or a team leader inactive invented a phantom coordinator row
+        // for them. Found in review.
+        if (_v215Inactive(fc) && fc.role === 'coordinator') {
+          return {
+            name: fc.fullName || fc.username, _fcId: fc.id, state: '', _inactive: true,
+            livBenef: 0, livEnrPct: null, livProgPct: null, livCompPct: null,
+            livEnrCount: 0, livProgCount: 0, livCompCount: 0,
+            livTotalAdded: 0, livAvgGain: null,
+            advBenef: 0, advNeedPct: null, advAppliedPct: null,
+            advReceivedPct: null, advRejectedPct: null,
+            advNeedCount: 0, advAppliedCount: 0, advReceivedCount: 0, advRejectedCount: 0,
+            advTotalBenefits: 0, advAvgBenefit: null,
+            _livCompletedCount: 0, _advRowsCount: 0, _advReceivedCount: 0
+          };
+        }
         // V380 [Fix #2] _computeFcStats returns null for FCs with 0
         // beneficiaries. For TL (scopedViewerByFc), the team-report MUST
         // show every assigned FC — even empty ones — so the TL can see
@@ -19520,6 +19737,12 @@ function renderNGO() {
   // null values sort to the bottom regardless of direction.
   const key = _ngoSort.key, dir = _ngoSort.dir;
   rows.sort((a, b) => {
+    // ⛔ GROUP FIRST, THEN SORT. Active people above inactive ones whatever
+    // column is chosen and whichever direction - otherwise clicking a header
+    // scatters the people who have left back through the list, which is the
+    // confusion this release exists to remove.
+    const g = _v215GroupCmp(!!a._inactive, !!b._inactive);
+    if (g !== 0) return g;
     const va = a[key], vb = b[key];
     if (va == null && vb == null) return 0;
     if (va == null) return 1;
@@ -19576,8 +19799,8 @@ function renderNGO() {
 
     return `
       <tr style="border-bottom:1px solid #F3F4F6${r._fcId === '__orphan__' ? ';opacity:.7' : ''}" ${clickHandler} title="${clickTitle}">
-        <td style="padding:10px 12px;text-align:left;font-weight:500;font-size:13px">
-          ${r.name}
+        <td style="padding:10px 12px;text-align:left;font-weight:500;font-size:13px${r._inactive ? ';' + _V215_FADE : ''}">
+          ${r.name}${r._inactive ? _V215_CHIP : ''}
           <div style="font-size:10px;color:var(--gray2);font-weight:400;margin-top:1px">${r.state}</div>
         </td>
         <!-- LIVELIHOOD block -->
@@ -25820,7 +26043,17 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs, ceilMs) {
     return a;
   };
   allB.forEach(b => {
-    const a = fcAgg.get(b.createdBy) || fcByName.get(b.coord);
+    // ⛔ V21.5: NOT BY NAME, ONCE THEY HAVE LEFT. This falls back to matching
+    // on the typed coordinator name, and a transfer only moves records matched
+    // by createdBy - so name-attributed records stayed behind and this board
+    // still credited somebody whose FC-wise table already read 0-0-0.
+    // Measured: after handing over all 846 of one coordinator's families, the
+    // FC-wise table read 0 and this board read 2. Found in review.
+    let a = fcAgg.get(b.createdBy);
+    if (!a) {
+      const _byName = fcByName.get(b.coord);
+      if (_byName && !(_byName.u && _v215Inactive(_byName.u))) a = _byName;
+    }
     if (!a) return;
     a.tot++;
     if (inWin(b.enrollDate)) a.enrolledWin++;
@@ -25969,7 +26202,12 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs, ceilMs) {
     if (t > a.last) a.last = t;
   });
   const fcList = Array.from(fcAgg.values());
-  const activeFcs   = fcList.filter(a => a.last && (nowMs - a.last) <= 30 * 86400000);
+  // ⛔ V21.5: SOMEBODY WHO HAS LEFT IS NOT ACTIVE, whatever they did last
+  // week. This figure is also the divisor for every per-coordinator average
+  // on the page, so leaving a departed coordinator in it would quietly
+  // understate what the people still working are each carrying.
+  const activeFcs   = fcList.filter(a => a.last && (nowMs - a.last) <= 30 * 86400000
+                                         && !_v215Inactive(a.u));
   const inactiveFcs = fcList.filter(a => a.tot > 0 && (!a.last || (nowMs - a.last) > 30 * 86400000))
                             .sort((x, y) => (x.last || 0) - (y.last || 0));
   const convDen = fcList.reduce((s, a) => s + a.filed, 0);
@@ -26019,7 +26257,12 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs, ceilMs) {
     // diluted their averages by a head that does not exist. A partner whose
     // only in-window work is office work now reads 0 active coordinators and
     // a dash for the averages - a case the renderer has always handled.
-    if (!a._isOffice && (a.enrolledWin > 0 || a.advWin > 0)) g.activeFcs++;
+    // ⛔ V21.5: AND NOT SOMEBODY WHO HAS LEFT. This is the divisor for every
+    // per-coordinator average in the partner table and its export, so leaving
+    // a departed coordinator in it diluted the averages of the people still
+    // doing the work - and made two figures called "active coordinators"
+    // disagree on one page. Found in review.
+    if (!a._isOffice && !(a.u && _v215Inactive(a.u)) && (a.enrolledWin > 0 || a.advWin > 0)) g.activeFcs++;
     g.enrolled      += a.enrolledWin;
     // V12.3: the partner table's main figures are now WINDOWED, matching the
     // date chip, with the all-time totals carried alongside for the export and
@@ -26227,8 +26470,16 @@ function _rptRenderFc(A, nowMs) {
     a => (a.tot ? ((a.phone / a.tot + a.gps / a.tot + a.photo / a.tot) / 3) * 100 : 0),
     a => a.last || 0
   ];
-  const withRecords = fcList.filter(a => a.tot > 0);
-  const sortedFc = _rptSortRows(withRecords, fcKeys[rptFcSort] || fcKeys[1], rptFcDir);
+  // ⛔ V21.5: AN INACTIVE COORDINATOR KEEPS THEIR ROW HERE TOO, even at zero -
+  // this is the coordinator table an Admin actually sees, and a row that
+  // vanishes gives no way to confirm the handover happened.
+  const withRecords = fcList.filter(a => a.tot > 0 || (a.u && _v215Inactive(a.u)));
+  const sortedFc = _rptSortRows(withRecords, fcKeys[rptFcSort] || fcKeys[1], rptFcDir)
+    // ⛔ AND THEY GO LAST, whatever column is chosen. Sorted by enrolments,
+    // somebody who left last month holding 846 families would otherwise take
+    // the #1 row and its green winner's highlight, and push an active person
+    // off the 25-row cap entirely. Found in review.
+    .sort((x, y) => _v215GroupCmp(!!(x.u && _v215Inactive(x.u)), !!(y.u && _v215Inactive(y.u))));
   // Still capped: re-rendering ~470 rows on every header click would make the
   // page feel slow, and "who is the best" is answered by the head of the list.
   // Filtering to one NGO drops almost everyone under the cap anyway.
@@ -26246,8 +26497,9 @@ function _rptRenderFc(A, nowMs) {
     // V4.9: click-through to this FC's beneficiary list — reuses the same
     // fcFilter + nav('list') pattern the NGO Partners drill-down already uses.
     const fcClick = `_v13RptDrill('${(a.u.id || '').replace(/'/g, "\\'")}')`;
-    return `<tr class="${a === bestFc ? 'rpt-top' : ''}" style="cursor:pointer" onclick="${fcClick}" title="Click to see ${esc(nm)}'s beneficiaries">
-      <td><div class="rpt-person"><span class="rpt-av" style="background:${_rptNgoColor(a.u.ngo)}">${esc(inits)}</span><span><span class="rpt-pname">${esc(nm)}</span><span class="rpt-psub">${esc(a.u.ngo || '\u2014')}</span></span></div></td>
+    const _off = !!(a.u && _v215Inactive(a.u));
+    return `<tr class="${(a === bestFc && !_off) ? 'rpt-top' : ''}" style="cursor:pointer" onclick="${fcClick}" title="Click to see ${esc(nm)}'s beneficiaries">
+      <td><div class="rpt-person"><span class="rpt-av" style="background:${_rptNgoColor(a.u.ngo)}">${esc(inits)}</span><span><span class="rpt-pname" style="${_off ? _V215_FADE : ''}">${esc(nm)}${_off ? _V215_CHIP : ''}</span><span class="rpt-psub">${esc(a.u.ngo || '\u2014')}</span></span></div></td>
       <td class="rpt-strong">${a.enrolledWin.toLocaleString('en-IN')}</td>
       <td>${a.appliedWin.toLocaleString('en-IN')}</td>
       <td>${a.benefitsWin.toLocaleString('en-IN')}</td>
@@ -26275,7 +26527,7 @@ function _rptRenderFc(A, nowMs) {
 
   const inactiveRows = inactiveFcs.slice(0, 10).map(a => `<tr>
       <td><div class="rpt-person"><span class="rpt-av" style="background:${_rptNgoColor(a.u.ngo)}">${esc((a.u.fullName || a.u.username || '\u2014').split(/\s+/).map(w => w[0] || '').join('').slice(0, 2).toUpperCase())}</span><span><span class="rpt-pname">${esc(a.u.fullName || a.u.username)}</span><span class="rpt-psub">${esc(a.u.ngo || '\u2014')}</span></span></div></td>
-      <td><span class="rpt-warn">${_rptAgoLabelPlain(a.last)}</span></td>
+      <td><span class="rpt-warn">${_rptAgoLabelPlain(a.last)}</span>${_v215Inactive(a.u) ? _V215_CHIP : ''}</td>
       <td>${a.tot.toLocaleString('en-IN')}</td>
     </tr>`).join('');
 
@@ -26510,7 +26762,12 @@ window.rptExportFc = function () {
     a.enrolledWin, a.appliedWin, a.benefitsWin, a.livelihoodWin,
     a.tot, a.applied, a.benefits, a.livelihood,
     a.tot ? Math.round(((a.phone / a.tot + a.gps / a.tot + a.photo / a.tot) / 3) * 100) : 0,
-    a.last ? _istDate(a.last) : ''
+    a.last ? _istDate(a.last) : '',
+    // ⛔ APPENDED, NOT INSERTED. A spreadsheet has no colour and outlives the
+    // screen, so the state has to be a column - but v205fctotal addresses these
+    // columns BY POSITION and went red immediately, and anyone with a sheet
+    // keyed to the old order would have been broken the same way in silence.
+    _v215Inactive(a.u) ? 'Inactive' : 'Active'
   ]);
   // V20.5: the office row is on the screen this file is made from, so it has
   // to be in the file. It is appended after the sorted coordinators rather
@@ -26525,7 +26782,8 @@ window.rptExportFc = function () {
     // window column stated the same non-applicable measure two ways, and a
     // filter for "no livelihood work" picked this row up as a real zero.
     '\u2014', a.applied, a.benefits, '\u2014',
-    '\u2014', ''
+    '\u2014', '',
+    '\u2014'
   ]));
   // V21.2: same reason as the filename - a month must not be headed "all-time".
   const W = ' (' + _rptWinLabel() + ')';
@@ -26538,7 +26796,7 @@ window.rptExportFc = function () {
      'Enrollments' + W, 'Schemes applied' + W, 'Benefits received' + BW, 'Livelihood' + W,
      'Total beneficiaries (all-time)', 'Schemes applied (all-time)',
      'Benefits received (all-time)', 'Livelihood (all-time)',
-     'Data quality %', 'Last active'],
+     'Data quality %', 'Last active', 'Status'],
     rows, 'coordinators');
 };
 
@@ -28156,6 +28414,10 @@ function renderAdminUsers() {
     );
   }
 
+  // V21.5: inactive people go last, and the list is otherwise left in the
+  // order it already had - this is a stable sort, so nothing else moves.
+  users = users.slice().sort((a, b) => _v215GroupCmp(_v215Inactive(a), _v215Inactive(b)));
+
   // V11: resetting someone's PIN is an administrator action. The server
   // function enforces this from the token's own claims; this only keeps the
   // button from appearing where it would always fail.
@@ -28185,18 +28447,20 @@ function renderAdminUsers() {
   const rows = users.map((u, i) => {
     const isMe = me && u.id === me.userId;
     const owned = ownedCount[u.id] || 0;
+    const _off = _v215Inactive(u);
     // V308.1: escape user-controlled fields (fullName, username, ngo) the same
     // way the rest of the app now does. Was previously raw — same XSS hole as
     // Bug 1, just on the admin-only User Management page.
     return `<tr>
       <td style="color:var(--gray2);font-size:12px;text-align:center">${i+1}</td>
-      <td><div class="bname">${escHtml(u.fullName||u.username)}${isMe?' <span style="color:var(--gray2);font-size:11px">(you)</span>':''}${u.mustChangePin?' <span title="Asked to choose their own PIN — waiting for them to do it" style="font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:9px;background:#FEF3C7;color:#92400E">PIN change asked</span>':''}</div><div class="bid">${escHtml(u.username)}</div></td>
+      <td><div class="bname" style="${_off?_V215_FADE:''}">${escHtml(u.fullName||u.username)}${_off?_V215_CHIP:''}${isMe?' <span style="color:var(--gray2);font-size:11px">(you)</span>':''}${u.mustChangePin?' <span title="Asked to choose their own PIN — waiting for them to do it" style="font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:9px;background:#FEF3C7;color:#92400E">PIN change asked</span>':''}</div><div class="bid">${escHtml(u.username)}</div></td>
       <td>${roleBadge(u.role)}</td>
       <td style="font-size:13px">${u.ngo?escHtml(u.ngo):'<span style="color:var(--gray2)">—</span>'}</td>
       <td style="text-align:center;font-weight:500">${owned}</td>
       <td style="white-space:nowrap">
         <button class="btn btn-sm" onclick="adminEditUser('${escHtml(u.id)}')">Edit</button>
         ${_v11IsAdmin?`<button class="btn btn-sm" title="Give this person a temporary PIN. They must choose their own the next time they sign in." onclick="adminResetUserPin('${escHtml(u.id)}')">Reset PIN</button>`:''}
+        ${(_v11IsAdmin && !isMe)?`<button class="btn btn-sm" title="${_off?'Let this person sign in again and appear normally.':'This person has left or stopped working. They will not be able to sign in, and their name shows faded and last. Their beneficiaries do not move.'}" onclick="adminToggleInactive('${escHtml(u.id)}')">${_off?'Mark active':'Mark inactive'}</button>`:''}
         ${isMe?'':`<button class="btn btn-sm" style="color:var(--red)" onclick="adminDeleteUser('${escHtml(u.id)}')">Delete</button>`}
       </td>
     </tr>`;
@@ -28612,6 +28876,93 @@ async function _adminSaveUserInner() {
   renderAdminUsers();
 }
 
+// ⛔ ADMIN ONLY, AND REVERSIBLE. The role check is written as its own
+// statement rather than folded into a wider condition - a guard shaped
+// `role === X && X.something` has failed OPEN in this file before.
+async function adminToggleInactive(id) {
+  const me = currentUser();
+  if (!me) return;
+  if (me.role !== 'admin') return toast('Only Admin can mark a coordinator inactive.', 'error');
+  if (me.userId === id) return toast('You cannot mark your own account inactive.', 'error');
+  const users = loadUsers();
+  const u = users.find(x => x.id === id);
+  if (!u) return;
+  // ⛔ NEVER THE LAST ADMIN. Marking yourself is already refused above, but
+  // with two administrators A could mark B and B could mark A, and nobody
+  // could get back in without the Firebase console.
+  if (!u.inactive && u.role === 'admin') {
+    const _liveAdmins = users.filter(x => x && x.role === 'admin' && !x.inactive).length;
+    if (_liveAdmins <= 2) {
+      return toast('There would be too few administrators left. Add another admin first.', 'error');
+    }
+  }
+  const going = !u.inactive;
+  // ⛔ RAW READ. loadData() deep-clones all 139,324 beneficiaries - 1,466 ms
+  // and about 150 MB - and this number only fills in a sentence in a confirm
+  // box. _loadDataRaw exists for exactly this. Found in review.
+  const _rawAll = (typeof _loadDataRaw === 'function') ? _loadDataRaw() : loadData();
+  const owned = _rawAll.filter(b => b && b.createdBy === id).length;
+  const who = u.fullName || u.username;
+  const msg = going
+    ? 'Mark ' + who + ' as inactive?\n\nThey will not be able to sign in, and their name will show faded, last in every list.'
+      + (owned ? '\n\n' + owned + ' beneficiar' + (owned === 1 ? 'y is' : 'ies are') +
+                 ' still with them. Nothing moves \u2014 use Transfer Beneficiaries to hand them to somebody else.'
+               : '')
+    : 'Mark ' + who + ' as active again?\n\nThey will be able to sign in, and will appear normally.';
+  if (!await showConfirmModal(msg, { okLabel: going ? 'Mark inactive' : 'Mark active',
+                                     title: going ? 'Mark inactive' : 'Mark active' })) return;
+  if (going) {
+    u.inactive = true;
+    u.inactiveAt = (typeof _v19ServerNow === 'function') ? _v19ServerNow() : Date.now();
+    u.inactiveBy = me.username || me.userId || '';
+  } else {
+    delete u.inactive; delete u.inactiveAt; delete u.inactiveBy;
+  }
+  // ⛔ DO NOT WRITE BACK A CACHED RECORD. saveOneUser does .set() on the whole
+  // thing, and this copy came from a pantry that can be 30 days old - so it
+  // would silently restore an old PIN, and revert fullName, role and NGO with
+  // it. That is the exact failure _v11AfterPinWrite documents. Re-read first,
+  // and refuse rather than write a stale copy. Found in review.
+  let _fresh = null;
+  try {
+    const _snap = await fbRef('users/' + id).once('value');
+    _fresh = _snap && _snap.val();
+  } catch (_) {}
+  if (!_fresh || !_fresh.id) {
+    return toast('Could not reach the server to change this. Try again when you have a connection.', 'error');
+  }
+  if (going) {
+    _fresh.inactive = true;
+    _fresh.inactiveAt = (typeof _v19ServerNow === 'function') ? _v19ServerNow() : Date.now();
+    _fresh.inactiveBy = me.username || me.userId || '';
+  } else {
+    delete _fresh.inactive; delete _fresh.inactiveAt; delete _fresh.inactiveBy;
+  }
+  // single-record write, like every other user change since V381
+  if (!await _trySave(() => saveOneUser(_fresh), 'mark user inactive')) return;
+  // ⛔ AND TELL THE FLEET. Every device caches the users list for 30 days and
+  // fetches it once per session, and the sign-in check reads that same cached
+  // list - so without this an inactive coordinator would have gone on signing
+  // in for up to a month. This is the flag V10.1 added for password changes,
+  // reused: ~30 bytes, and it is already read on every boot, so no device
+  // does any extra reading. Best-effort by design - the marking itself has
+  // already been saved and must not be undone by a flag write failing.
+  // ⛔ SERVER TIME, NOT THIS LAPTOP'S. The flag is compared against a
+  // timestamp each phone wrote itself; if the admin's clock runs behind a
+  // coordinator's handset - routine on cheap Android - the comparison says
+  // the cache is newer and that phone never refetches. Found in review.
+  try {
+    await fbRef('_usersInvalidateFleet').set(
+      (window.firebase && firebase.database && firebase.database.ServerValue)
+        ? firebase.database.ServerValue.TIMESTAMP : Date.now());
+  } catch (_) {}
+  auditLog(going ? 'deactivate' : 'reactivate', 'user', u.id, u.username,
+    going ? ('Marked inactive: ' + u.username + (owned ? ', ' + owned + ' beneficiaries still with them' : ''))
+          : ('Marked active: ' + u.username), null);
+  toast((going ? 'Marked inactive: ' : 'Marked active: ') + who, 'success');
+  renderAdminUsers();
+}
+
 async function adminDeleteUser(id) {
   const users = loadUsers();
   const u = users.find(x => x.id === id);
@@ -28629,7 +28980,9 @@ async function adminDeleteUser(id) {
   // V310-S2: Reassign owned records to admin before deleting. Bail on failure.
   if (owned > 0) {
     const data = loadData();
-    data.forEach(b => { if (b.createdBy === id) { b.createdBy = 'u-admin'; b.createdByName = 'System Administrator'; } });
+    // V21.5: deleting somebody reassigns their records to the admin account,
+    // which erases the last trace of who enrolled them. Stamped first.
+    data.forEach(b => { if (b.createdBy === id) { _v215StampEnroller(b, u.fullName || u.username, id); b.createdBy = 'u-admin'; b.createdByName = 'System Administrator'; } });
     if (!await _trySave(() => saveData(data), 'reassign records before delete user')) return;
   }
   // V381: single-record remove — only deletes /users/<id>. The old code
@@ -31156,10 +31509,13 @@ function openTransferTool() {
   const coords = loadUsers().filter(x => x.role === 'coordinator');
   const byNgo = {};
   coords.forEach(c => { (byNgo[c.ngo || '(no NGO)'] = byNgo[c.ngo || '(no NGO)'] || []).push(c); });
+  // V21.5: people who have left go last inside each NGO and say so, because
+  // moving families OFF them is exactly what this list is for.
   const groups = Object.keys(byNgo).sort().map(n =>
     `<optgroup label="${escHtml(n)}">` + byNgo[n]
-      .sort((a, b) => (a.fullName || a.username).localeCompare(b.fullName || b.username))
-      .map(c => `<option value="${escHtml(c.id)}">${escHtml(c.fullName || c.username)}</option>`).join('') + '</optgroup>'
+      .sort((a, b) => _v215GroupCmp(_v215Inactive(a), _v215Inactive(b))
+                      || (a.fullName || a.username).localeCompare(b.fullName || b.username))
+      .map(c => `<option value="${escHtml(c.id)}">${escHtml(c.fullName || c.username)}${_v215Inactive(c) ? ' \u2014 inactive' : ''}</option>`).join('') + '</optgroup>'
   ).join('');
   document.getElementById('transfer-src').innerHTML = `<option value="">— Select source FC —</option>${groups}`;
   document.getElementById('transfer-body').style.display = 'none';
@@ -31182,11 +31538,17 @@ function _transferSrcChanged() {
   document.getElementById('transfer-pool-count').textContent = '— ' + _transferPool.length + ' record' + (_transferPool.length === 1 ? '' : 's');
   // Target pool: same-NGO coordinators, excluding the source.
   const src = loadUsers().find(x => x.id === srcId);
-  const targets = loadUsers().filter(x => x.role === 'coordinator' && x.id !== srcId && x.ngo === (src && src.ngo))
+  // ⛔ ACTIVE COORDINATORS ONLY as a destination. Handing families to somebody
+  // who has left would leave them invisible to everybody in the field, since
+  // that person cannot sign in - so it is simply not offered, and there is
+  // nothing to block or warn about. Moving families FROM somebody inactive is
+  // the whole point of this release and stays available above.
+  const targets = loadUsers().filter(x => x.role === 'coordinator' && x.id !== srcId
+      && x.ngo === (src && src.ngo) && !_v215Inactive(x))
     .sort((a, b) => (a.fullName || a.username).localeCompare(b.fullName || b.username));
   document.getElementById('transfer-dst').innerHTML = targets.length
     ? `<option value="">— Select target FC —</option>` + targets.map(c => `<option value="${escHtml(c.id)}">${escHtml(c.fullName || c.username)}</option>`).join('')
-    : '<option value="">No other coordinators in ' + escHtml((src && src.ngo) || 'this NGO') + '</option>';
+    : '<option value="">No other active coordinators in ' + escHtml((src && src.ngo) || 'this NGO') + '</option>';
   document.getElementById('transfer-dst').disabled = targets.length === 0;
   document.getElementById('transfer-search').value = '';
   document.getElementById('transfer-body').style.display = '';
@@ -31257,6 +31619,13 @@ async function applyTransfer() {
     const moved = [];
     for (const b of data) {
       if (!b || !_transferSel.has(b.id) || b.createdBy !== srcId) continue;
+      // ⛔ V21.5: REMEMBER WHO ENROLLED THEM, ONCE. The three writes below
+      // erase every trace of the original coordinator from the record - until
+      // now it survived only in the audit log. Written only if absent, so a
+      // family handed on a second time still names the person who enrolled
+      // them rather than whoever held them in between. Only records that
+      // actually move are touched.
+      _v215StampEnroller(b, srcName, srcId);
       b.createdBy = dst.id;
       b.createdByName = dstName;
       b.coord = dstName;               // keep display field in sync (same as saveReassign)
@@ -31275,6 +31644,8 @@ async function applyTransfer() {
     for (const b of data) {
       if (!b || !b.headId || movedIds.has(b.id) || !movedIds.has(b.headId)) continue;
       if (b.createdBy !== srcId) continue; // wasn't with this FC — leave alone rather than guess
+      // same stamp on a cascaded family member — they are moving too
+      _v215StampEnroller(b, srcName, srcId);
       b.createdBy = dst.id;
       b.createdByName = dstName;
       b.coord = dstName;
@@ -31345,7 +31716,9 @@ function _bulkAssignNgoChanged() {
   _bulkAssignSel = new Set();
   document.getElementById('bulkassign-err').style.display = 'none';
   if (!ngo) { document.getElementById('bulkassign-body').style.display = 'none'; return; }
-  const targets = loadUsers().filter(x => x.role === 'coordinator' && x.ngo === ngo)
+  // V21.5: active coordinators only — handing families to somebody who cannot
+  // sign in would leave them invisible to everybody in the field.
+  const targets = loadUsers().filter(x => x.role === 'coordinator' && x.ngo === ngo && !_v215Inactive(x))
     .sort((a, b) => (a.fullName || a.username).localeCompare(b.fullName || b.username));
   document.getElementById('bulkassign-dst').innerHTML = targets.length
     ? `<option value="">— Select target FC —</option>` + targets.map(c => `<option value="${escHtml(c.id)}">${escHtml(c.fullName || c.username)}</option>`).join('')
@@ -31435,6 +31808,7 @@ async function applyBulkAssign() {
     for (const b of data) {
       if (!b || !_bulkAssignSel.has(b.id)) continue;
       oldOwnerById.set(b.id, b.createdBy);
+      _v215StampEnroller(b, b.createdByName, b.createdBy);   // V21.5
       b.createdBy = dst.id;
       b.createdByName = dstName;
       b.coord = dstName;                          // keep display field in sync (same as saveReassign)
@@ -31453,6 +31827,9 @@ async function applyBulkAssign() {
       if (!b || !b.headId || movedIds.has(b.id) || !movedIds.has(b.headId)) continue;
       if (b.createdBy !== oldOwnerById.get(b.headId)) continue; // wasn't with the same owner as her head — leave alone
       const oldName = b.createdByName;
+      // ⛔ V21.5: same as the reassign cascade - this member is being moved
+      // with her head and would otherwise lose who enrolled her.
+      _v215StampEnroller(b, oldName, b.createdBy);
       b.createdBy = dst.id;
       b.createdByName = dstName;
       b.coord = dstName;
@@ -31642,7 +32019,8 @@ function openReassign(bid) {
 
   // Build the coordinator pool
   const allUsers = loadUsers();
-  let pool = allUsers.filter(x => x.role === 'coordinator');
+  // V21.5: active coordinators only, same reason as every other target list.
+  let pool = allUsers.filter(x => x.role === 'coordinator' && !_v215Inactive(x));
   if (u.role === 'ngo') {
     // NGO users can only reassign within their own NGO
     pool = pool.filter(x => x.ngo === u.ngo);
@@ -31696,6 +32074,7 @@ async function saveReassign() {
   if (idx < 0) return;
   const b = data[idx];
   const oldOwnerName = b.createdByName || 'previous owner';
+  _v215StampEnroller(b, oldOwnerName, b.createdBy);   // V21.5: before it is overwritten
   const oldNgo = b.ngo;
   b.createdBy = newOwner.id;
   b.createdByName = newOwner.fullName || newOwner.username;
@@ -31714,6 +32093,12 @@ async function saveReassign() {
   // and siblings with her.
   const linkedFamily = !b.headId ? data.filter(x => x && x.headId === b.id) : [];
   linkedFamily.forEach(fm => {
+    // ⛔ V21.5: STAMP HER TOO, FROM HER OWN VALUES. This cascade rewrites the
+    // whole household's owner, so without this a family member loses who
+    // enrolled her the moment her head is reassigned - silently, and there is
+    // nothing left to recover it from. Her own prior names, not the head's:
+    // a household member enrolled by somebody else must keep her own answer.
+    _v215StampEnroller(fm, fm.createdByName, fm.createdBy);
     fm.createdBy = b.createdBy;
     fm.createdByName = b.createdByName;
     fm.coord = b.coord;
@@ -32444,6 +32829,46 @@ function _v11RecordSeen(userId, mode) {
 // always safe because the client path re-verifies the typed password itself.
 async function _v11FinishServerLogin(res, typedUsername) {
   const user = res.user;
+
+  // ⛔ V21.5: THE INACTIVE CHECK HAS TO BE HERE, NOT ONLY ON THE FALLBACK.
+  // v11config has serverLogin:true in production, so _doLoginInner hands off
+  // to the cloud function and RETURNS the moment this function reports
+  // success - which meant the check further down ran only when the function
+  // was unreachable. A coordinator marked inactive signed in exactly as
+  // before. Found in review.
+  //
+  // Placed above the token exchange on purpose: refuse before any real
+  // Firebase session is minted, not after.
+  //
+  // ⛔ THIS IS NOT AIRTIGHT AND MUST NOT BE READ AS IF IT WERE. res.user
+  // comes from the cloud function, which does not yet carry the flag, so in
+  // practice this falls back to the device's own cached user list - and that
+  // list can be offline or up to 30 days stale. The durable fix is the same
+  // check inside exports.login, where the record is read live; that needs a
+  // functions deploy.
+  {
+    let _off = !!(user && user.inactive);
+    if (!_off && user && user.id) {
+      try {
+        const _local = (loadUsers() || []).find(function (x) { return x && x.id === user.id; });
+        if (_local && _local.inactive) _off = true;
+      } catch (_) {}
+    }
+    if (_off) {
+      const _e = document.getElementById('login-err');
+      if (_e) {
+        _e.textContent = 'This account has been marked inactive. Please contact your administrator.';
+        _e.style.display = 'block';
+      }
+      try {
+        auditLog('login_blocked', 'session', user.id, user.username,
+          'Sign-in refused: account marked inactive (server path)', null);
+      } catch (_) {}
+      // true, so the caller stops rather than falling through to the client
+      // path and signing this person in the old way.
+      return true;
+    }
+  }
 
   // Exchange the signed token for a real Firebase session. This is what makes
   // the session genuinely this person's: auth.uid becomes their app user id,
@@ -33415,6 +33840,21 @@ async function _doLoginInner() {
   // Success — clear any rate-limit counter for this username.
   _resetLoginFailures(u);
 
+  // ⛔ V21.5: AN INACTIVE COORDINATOR STOPS HERE, and only here - AFTER the
+  // password was confirmed. Checking earlier would say "this username exists"
+  // to anybody guessing, which is precisely what the generic wording above is
+  // written to avoid. The rate-limit counter is cleared first because the
+  // password WAS right; this is not a failed attempt.
+  if (_v215Inactive(user)) {
+    err.textContent = 'This account has been marked inactive. Please contact your administrator.';
+    err.style.display = 'block';
+    try {
+      auditLog('login_blocked', 'session', user.id, user.username,
+        'Sign-in refused: account marked inactive', null);
+    } catch (_) {}
+    return;
+  }
+
   if (result.legacy) {
     try {
       const upgraded = await _hashPassword(p);
@@ -33838,7 +34278,7 @@ async function doLogout() {
       // was being passed AS the options and the options were dropped, so the
       // coordinator saw neither the line saying the work is safe nor a button
       // that said "Sign out" - a modal titled "Please confirm" with [OK].
-      const ok = await showConfirmModal(
+      const ok = _v215Forcing ? true : await showConfirmModal(
         n + ' item' + (n === 1 ? '' : 's') + ' ' + (n === 1 ? 'is' : 'are')
         + ' still saved on this phone and waiting for the internet.\n'
         + 'They are safe and will be sent automatically the next time you sign in '
@@ -33851,10 +34291,20 @@ async function doLogout() {
   // V397: if writes are still uploading, warn first — logging out clears the
   // session and detaches listeners, so a pending write would be lost.
   const _pend = (typeof FB !== 'undefined' && FB && FB.pendingWrites > 0);
-  const ok = await showConfirmModal(
+  // ⛔ V21.5: A FORCED SIGN-OUT ASKS NOTHING. This modal and the one above
+  // both offer Cancel, and both listen for Escape on the document with
+  // capture - so ONE Escape resolved both to false, and the natural gesture of
+  // dismissing the "your account is inactive" notice cancelled the sign-out
+  // itself. Found in review.
+  const ok = _v215Forcing ? true : await showConfirmModal(
     _pend ? 'Some changes are still uploading. If you sign out now they may be lost.\n\nSign out anyway?' : 'Sign out now?',
     { danger: _pend, okLabel: 'Sign out' });
   if (!ok) return;
+  // Past the point of no return: clear the flag and re-arm, because a shared
+  // handset may sign somebody else in on this very tab without a reload - and
+  // a stuck flag would leave the next person unprotected.
+  _v215Forcing = false;
+  _v215Enforced = false;
   const me = currentUser();
   if (me) auditLog('logout', 'session', me.userId, me.username, 'Signed out', null);
   // V10 [corner case — shared field phones]: doLogout never touched Firebase
