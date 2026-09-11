@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V21.5-LIVE
+  KRSF Beneficiary Impact Tracker  -  V21.6-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,54 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V21.6-LIVE (2026-09-11 - the coordinator table lists everybody, inside the filters).
+
+    + WHAT GURU SAW. Reports, filtered to Sarvangi Vikas Trust: the ten
+      Sarvangi coordinators, then six inactive people from KRSF.Meghraj,
+      KRSF.Khedbrahma and DEMO NGO underneath them at 0-0-0. And the table
+      stopped at 25 people with no next page anywhere, so the 26th could not
+      be reached at all.
+
+    + ⛔ THE LEAK WAS V21.5'S OWN. A coordinator with records gets a row
+      because the records were already narrowed by the top bar - State,
+      Partner and the one-coordinator drill-down all run inside filteredAll().
+      V21.5 kept a 0-0-0 row for every inactive coordinator, and a row with
+      no records has nothing to narrow, so those rows ignored all three
+      filters. Its suite only ever looked at "All partners", where that is
+      exactly right. The zero row now needs the person to belong to the
+      partner chosen, to be the coordinator drilled into, and - a person has
+      no State - their partner to have a family in the State chosen.
+
+    + ⛔ A 0-0-0 ROW MEANS HANDED OVER COMPLETELY. Under a filter somebody
+      can be at zero in view and still hold families outside it: a Bhiloda
+      coordinator whose families are all in Gujarat read 0-0-0 under
+      Rajasthan, exactly like a finished handover. So under any filter the
+      zero row also needs them to hold no family at all. Found in review.
+
+    + ⛔ THE NGO PARTNERS TABLE HAD THE SAME LEAK. The coordinator table a
+      partner admin sees let its inactive zero rows through the State and
+      one-coordinator filters. Same rule, scope built once. Found in review.
+
+    + EVERYBODY IS LISTED. The 25-row cap and its line of small print are
+      gone. The cap was there for speed, so the full list was timed first on
+      the whole export (549 coordinators, 139,324 families): the table
+      itself - its text plus the browser laying it out - went from about
+      15-160 ms to about 260-550 ms. Counting the families takes about two seconds
+      on BOTH builds and always has. No new download; Firebase use is
+      unchanged, and nothing is written anywhere.
+
+    + THE EXPORT IS THE SCREEN. It kept only coordinators with records and
+      never grouped, so the 0-0-0 row confirming a handover was on screen and
+      missing from the file, and somebody who had left could head the sheet
+      while sitting last on screen. Same rows, same order now.
+
+    + Tests: 67 files. v216.js is new - 55 checks on the full export, signed
+      in as the admin AND as a partner admin, through the real Reports,
+      export and NGO Partners screens. V21.5 fails 26 of them, and all
+      thirteen mutants of this build - each breaking one line of the
+      change - were killed. The checks that never went red are fixture
+      guards, the two speed bounds, and V21.5 grouping this must not lose.
+
   V21.5-LIVE (2026-09-09 - a coordinator who has left).
 
     + WHAT IT IS: an Admin can mark a coordinator inactive. Their name then
@@ -4420,7 +4468,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V21.5-LIVE';
+const APP_VERSION = 'V21.6-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -19623,6 +19671,10 @@ function renderNGO() {
     } else {
       ngoUsers = loadUsers().filter(x => x.ngo === u.ngo);
     }
+    // V21.6: built ONCE, not per coordinator - under a State it walks the
+    // records, and doing that 59 times for a 59-person partner is the
+    // quadratic a review would rightly flag.
+    const _v216Scope = _v216RowScope(data);
     rows = ngoUsers
       .map(fc => {
         const r = _computeFcStats(fc.id, fc.fullName || fc.username, data, advAll);
@@ -19637,7 +19689,11 @@ function renderNGO() {
         // not just field staff, so without the role check marking an NGO
         // admin or a team leader inactive invented a phantom coordinator row
         // for them. Found in review.
-        if (_v215Inactive(fc) && fc.role === 'coordinator') {
+        // ⛔ V21.6: AND ONLY INSIDE THE TOP-BAR FILTERS. This is the same
+        // leak Reports had: a zero row has no records for the State or
+        // one-coordinator filter to narrow, so it ignored both. A team
+        // leader still gets every assigned coordinator from the branch below.
+        if (_v215Inactive(fc) && fc.role === 'coordinator' && _v216ZeroRowOk(fc, _v216Scope)) {
           return {
             name: fc.fullName || fc.username, _fcId: fc.id, state: '', _inactive: true,
             livBenef: 0, livEnrPct: null, livProgPct: null, livCompPct: null,
@@ -25612,6 +25668,51 @@ function _rptScopedUsers(u) {
   return all.filter(x => x && x.ngo === s.ngo);
 }
 
+// ⛔ V21.6: WHICH ZERO ROWS BELONG ON THE PAGE. A coordinator with records
+// on screen has a row because those records were already narrowed by the top
+// bar - State, Partner and the one-coordinator drill-down all run inside
+// filteredAll(). V21.5 then kept a 0-0-0 row for every INACTIVE coordinator,
+// and a row with no records has nothing to narrow, so those rows ignored all
+// three filters: pick Sarvangi Vikas Trust and six people from Khedbrahma and
+// DEMO NGO sat underneath it. Guru found it on the live screen.
+// The scope is read from the top bar ONCE, by the caller, and handed to both
+// readers - the leaderboard and its export - so the two cannot drift apart.
+// A person carries no State, so they count as inside one when their partner
+// has any family on screen: pick Nagaland and only partners working there
+// keep their zero rows. The partner set is only built when a State is
+// chosen, so the default view pays nothing for it.
+function _v216RowScope(allB) {
+  const s = { ngo: ngoFilter || '', fc: fcFilter || '', ngos: null, held: null };
+  if (stateFilter) {
+    s.ngos = new Set();
+    for (let i = 0; i < allB.length; i++) { const b = allB[i]; if (b && b.ngo) s.ngos.add(b.ngo); }
+  }
+  // ⛔ A 0-0-0 ROW MEANS "HANDED OVER COMPLETELY" AND NOTHING ELSE. Under a
+  // filter somebody can be at zero IN VIEW while still holding families
+  // outside it - pick Rajasthan and a coordinator whose families are all in
+  // Gujarat reads 0-0-0, exactly like a finished handover. So under any
+  // filter the zero row also needs them to hold no family at all. Found in
+  // review. One pass over the cache, and only when a filter is set.
+  if (s.ngo || s.fc || stateFilter) {
+    s.held = new Set();
+    const all = _readCacheDirect();
+    for (let i = 0; i < all.length; i++) { const b = all[i]; if (b && b.createdBy) s.held.add(b.createdBy); }
+  }
+  return s;
+}
+// Asked ONLY about a row with no records - a row with records already passed
+// every filter on its way in, so both callers write
+// `a.tot > 0 || _v216ZeroRowOk(a.u, scope)`.
+function _v216ZeroRowOk(u, scope) {
+  if (!(u && _v215Inactive(u))) return false;
+  if (!scope) return true;
+  if (scope.fc && u.id !== scope.fc) return false;
+  if (scope.ngo && u.ngo !== scope.ngo) return false;
+  if (scope.ngos && !scope.ngos.has(u.ngo)) return false;
+  if (scope.held && scope.held.has(u.id)) return false;
+  return true;
+}
+
 // V12 Reports sort state.
 // ⚠️ ALL FIVE ARE REGISTERED IN _v357ComputeSig. The Reports view is served from
 // the V357 tab cache, which keys on a signature. Leave one of these out and its
@@ -26412,7 +26513,10 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs, ceilMs) {
 // a harness (_tests/rptrender.js) without a browser, a login, or Firebase.
 // Depends only on globals that genuinely exist at call time: escHtml, _rptTh,
 // _rptSortRows, _rptNgoColor, _rptAgoLabelPlain and the rpt* sort state.
-function _rptRenderFc(A, nowMs) {
+// ⛔ V21.6: rowScope (from _v216RowScope) is REQUIRED on a real screen.
+// Without it the inactive 0-0-0 rows ignore the top-bar filters - the
+// Sarvangi bug. Only test harnesses leave it out, at "All partners".
+function _rptRenderFc(A, nowMs, rowScope) {
   const esc = s => escHtml(String(s == null ? '' : s));
   const now = nowMs || Date.now();
   const { fcList, inactiveFcs, activeFcs, enrolledWinTotal, convDen, convNum } = A;
@@ -26473,18 +26577,20 @@ function _rptRenderFc(A, nowMs) {
   // ⛔ V21.5: AN INACTIVE COORDINATOR KEEPS THEIR ROW HERE TOO, even at zero -
   // this is the coordinator table an Admin actually sees, and a row that
   // vanishes gives no way to confirm the handover happened.
-  const withRecords = fcList.filter(a => a.tot > 0 || (a.u && _v215Inactive(a.u)));
+  // ⛔ V21.6: BUT ONLY INSIDE THE TOP-BAR FILTERS - see _v216ZeroRowOk.
+  const withRecords = fcList.filter(a => a.tot > 0 || _v216ZeroRowOk(a.u, rowScope));
   const sortedFc = _rptSortRows(withRecords, fcKeys[rptFcSort] || fcKeys[1], rptFcDir)
     // ⛔ AND THEY GO LAST, whatever column is chosen. Sorted by enrolments,
     // somebody who left last month holding 846 families would otherwise take
     // the #1 row and its green winner's highlight, and push an active person
-    // off the 25-row cap entirely. Found in review.
+    // further down the list. Found in review.
     .sort((x, y) => _v215GroupCmp(!!(x.u && _v215Inactive(x.u)), !!(y.u && _v215Inactive(y.u))));
-  // Still capped: re-rendering ~470 rows on every header click would make the
-  // page feel slow, and "who is the best" is answered by the head of the list.
-  // Filtering to one NGO drops almost everyone under the cap anyway.
-  const RPT_FC_CAP = 25;
-  const board = sortedFc.slice(0, RPT_FC_CAP);
+  // ⛔ V21.6: EVERYBODY, NO CAP. This stopped at 25 with a line of small print
+  // underneath and no next page anywhere, so the 26th coordinator could not be
+  // reached at all - Guru asked for the whole list. The cap existed for
+  // speed, so the full list was timed on all 549 coordinators and 139,324
+  // families before it went: see the V21.6 changelog.
+  const board = sortedFc;
   // The #1 marker follows the SORTED column, so it moves as the admin re-ranks.
   // It is meaningless when sorting by name, so it is suppressed there.
   const bestFc = rptFcSort === 0 ? null : board[0];
@@ -26576,7 +26682,6 @@ function _rptRenderFc(A, nowMs) {
           <tbody>${(rows + officeTr) || `<tr><td colspan="${RPT_FC_COLS.length}" class="rpt-empty">No FC activity found for the current filters.</td></tr>`}</tbody>
         </table>
       </div>
-      ${withRecords.length > RPT_FC_CAP ? `<div class="rpt-note" style="padding:0 18px 14px">Showing the top ${RPT_FC_CAP} of ${withRecords.length} coordinators with records, for the column you sorted by.</div>` : ''}
     </div>`
   + `<div class="rpt-card">
       <div class="rpt-card-h">
@@ -26742,7 +26847,11 @@ window.rptExportFc = function () {
   // NGO admin the whole fleet in a file.
   if (!_rptCanView()) return;
   const _w212 = _v212Win();   // V21.2: month or day-window, decided in one place
-  const A = _rptAggregate(filteredAll(), loadAdv(), _rptScopedUsers(), _w212.now, _w212.win, _w212.ceil);
+  // V21.6: read once, so the row scope is built from exactly the records the
+  // aggregate counted.
+  const _v216B = filteredAll();
+  const A = _rptAggregate(_v216B, loadAdv(), _rptScopedUsers(), _w212.now, _w212.win, _w212.ceil);
+  const _v216Scope = _v216RowScope(_v216B);
   // V12.6: these MUST be the windowed keys, matching _rptRenderFc exactly. They
   // were the all-time ones, so exporting while sorted by Applied produced a
   // different row order than the screen it was exported from.
@@ -26752,7 +26861,13 @@ window.rptExportFc = function () {
     a => (a.tot ? ((a.phone / a.tot + a.gps / a.tot + a.photo / a.tot) / 3) * 100 : 0),
     a => a.last || 0
   ];
-  const sorted = _rptSortRows(A.fcList.filter(a => a.tot > 0), keyFns[rptFcSort] || keyFns[1], rptFcDir);
+  // ⛔ V21.6: THE SAME ROWS AS THE SCREEN, IN THE SAME ORDER. The export kept
+  // only coordinators with records, so the 0-0-0 row that confirms a handover
+  // was on the screen and missing from the file; and it never grouped, so a
+  // departed coordinator could head the sheet while sitting last on screen.
+  const sorted = _rptSortRows(A.fcList.filter(a => a.tot > 0 || _v216ZeroRowOk(a.u, _v216Scope)),
+                              keyFns[rptFcSort] || keyFns[1], rptFcDir)
+    .sort((x, y) => _v215GroupCmp(!!(x.u && _v215Inactive(x.u)), !!(y.u && _v215Inactive(y.u))));
   // V12.3: the file carries BOTH the window figure and the all-time total for
   // each measure. The table can only show one; a spreadsheet has no such limit,
   // and someone opening it later should not have to know which the screen was
@@ -27169,7 +27284,7 @@ function renderReports() {
   const _v207Here = fleet ? 'ngo' : 'fc';
   const _v207Card = (rptTab === _v207Here) ? _v207TodayByNgo({ margin: '0 0 16px' }) : '';
 
-  if (rptTab === 'fc') { body = _v207Card + _rptRenderFc(_A, now); }
+  if (rptTab === 'fc') { body = _v207Card + _rptRenderFc(_A, now, _v216RowScope(allB)); }
 
   // ══ TAB 2 : NGO COMPARISON (V12) ═════════════════════════════════════════
   if (rptTab === 'ngo') { body = _v207Card + _rptRenderNgo(_A); }
