@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V21.7-LIVE
+  KRSF Beneficiary Impact Tracker  -  V21.8-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,28 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V21.8-LIVE (2026-09-17 - offline numbers for every state ticked on the partner).
+
+    + WHAT GURU ASKED. "If I have ticked three states, then?" A phone set
+      numbers aside for ONE state only, so a coordinator of a two- or
+      three-state partner could enrol offline in just one of them.
+
+    + ⛔ AND NOT EVEN THE FIRST ONE TICKED. The partner's comma-joined state
+      was handed to _v196CodeForState, which returns the first name in
+      ALL_STATE_NAMES it finds - and that list puts Maharashtra before
+      Gujarat. Ticking Maharashtra on a Gujarat partner quietly swapped a new
+      phone's stock from Gujarat to Maharashtra.
+
+    + NOW every ticked state, in the order the partner form saves them
+      (alphabetical), up to the existing cap of three. Each costs one tiny
+      counter read and one write when its stock runs low. 566 of 569
+      coordinators belong to a one-state partner and see no change at all.
+
+    + Tests: 69 files. v218.js is new - 19 checks: a partner with four states
+      ticked, signed in as its coordinator; the first three stocked at
+      sign-in, offline enrolments in two of them saved and sent, the fourth
+      refused. V21.7 fails 6 of them; 4/4 mutants killed.
+
   V21.7-LIVE (2026-09-17 - a phone that signs in and leaves signal is carrying numbers).
 
     + WHAT GURU SAW. Signed in as a KRSF.Vadali coordinator, switched mobile
@@ -4399,7 +4421,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V21.7-LIVE';
+const APP_VERSION = 'V21.8-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -5038,12 +5060,26 @@ function _v214WantedCodes(cheapOnly) {
     if (!c || !/^[A-Z]{2}$/.test(c)) return;
     if (wanted.indexOf(c) < 0 && wanted.length < _V214_MAX_CODES) wanted.push(c);
   };
-  // 1. THE PARTNER'S OWN STATE, FIRST. 493 of the 498 coordinators who have
-  // enrolled anybody work in exactly one state, so this alone answers the
-  // question this release exists for, and it cannot go stale.
+  // 1. THE PARTNER'S OWN STATES, FIRST - ALL OF THEM. 493 of the 498
+  // coordinators who have enrolled anybody work in exactly one state, so for
+  // nearly everyone this is one code and it cannot go stale.
+  // ⛔ V21.8: EVERY TICKED STATE, NOT THE FIRST MATCH. A partner may hold
+  // several states (V8.9 stores them as `states`, with `state` a comma-joined
+  // mirror), and this used to hand that joined string to _v196CodeForState,
+  // which returns the first name in ALL_STATE_NAMES it finds inside it. That
+  // list is not alphabetical - Maharashtra sits before Gujarat - so ticking
+  // Maharashtra on a Gujarat partner quietly swapped a new phone's stock from
+  // Gujarat to Maharashtra, and a two- or three-state partner could only ever
+  // enrol offline in one of them. Guru asked for all of them.
+  // Order: the coordinator's own state (if their session carries one), then
+  // the partner's states as saved - the partner form saves them
+  // alphabetically - and the existing cap of three decides where it stops.
   try {
     const p = (loadPartners() || []).find(function (x) { return x && u && x.name === u.ngo; });
-    add(_v196CodeForState((u && u.state) || (p && p.state) || ''));
+    if (u && u.state) add(_v196CodeForState(u.state));
+    const names = (p && Array.isArray(p.states) && p.states.length) ? p.states
+                : (p && p.state) ? String(p.state).split(',') : [];
+    names.forEach(function (s) { add(_v196CodeForState(String(s || '').trim())); });
   } catch (_) {}
   // 2. the form in front of them - but ⛔ ONLY WHILE THE ENROLMENT SCREEN IS
   // ACTUALLY OPEN. f-state lives in the static markup, exists on every screen,
