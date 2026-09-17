@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V21.6-LIVE
+  KRSF Beneficiary Impact Tracker  -  V21.7-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,37 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V21.7-LIVE (2026-09-17 - a phone that signs in and leaves signal is carrying numbers).
+
+    + WHAT GURU SAW. Signed in as a KRSF.Vadali coordinator, switched mobile
+      data off, filled in an enrolment: "This phone needs the internet once
+      before it can save without a signal." The live export taken sixteen
+      minutes after that sign-in shows the Gujarat counter never moved.
+
+    + ⛔ THE STOCK REQUEST GAVE UP BEFORE IT ASKED. Firebase runs a
+      transaction's function first with the value the phone already holds -
+      null unless something keeps that path in memory - and asks the server
+      only if that first call returns a value. The top-up returned nothing on
+      null, which aborts for good. So a phone set numbers aside only in the
+      moments after an online enrolment had fetched the counter: in the
+      export, about thirty coordinator phones took a block of 25, nearly every
+      one in the same second as an online enrolment by the same person.
+
+    + THE FIX. Read the counter first (a few bytes, only when the stock is
+      low). If it exists, the transaction offers a value built on it, the
+      server refuses because the phone's copy was empty, and Firebase runs it
+      again with the server's own number. A missing counter is still refused
+      (V20.2), and a read that never answers burns nothing and pauses a minute.
+
+    + ⛔ WHY NO TEST SAW IT. The sandbox handed the server value to the first
+      call, which the real SDK never does. It now behaves like the SDK. v214
+      had even been reloading whenever the stock request "raced the sandbox"
+      - that race was this bug.
+
+    + Tests: 68 files. v217.js is new - 32 checks, signed in as a coordinator,
+      enrolling offline through the real form. V21.6 fails 14 of them; 6/6
+      mutants of this build killed.
+
   V21.6-LIVE (2026-09-11 - the coordinator table lists everybody, inside the filters).
 
     + WHAT GURU SAW. Reports, filtered to Sarvangi Vikas Trust: the ten
@@ -544,109 +575,9 @@
       actually moved - which is the whole point of the release.
 
     + Tests: v210stamp.js is new.
-  V20.9-LIVE (2026-09-06 - three ways a breakdown could stop adding up).
+  V20 - V20.9: moved to CHANGELOG.md on 2026-09-17 (V21.7), to keep this
+  comment small - every phone downloads it.
 
-    + ⛔ THE LIVELIHOOD COLUMN COUNTED MORE THAN THE CARD DID. The card
-      counts three named stages; the per-partner column counted every record
-      the loop reached. A stage outside those three would make the rows
-      total MORE than the card. Nothing writes such a stage today - the form,
-      the import validator and the map filter all restrict it - so this was
-      an invariant held up by data hygiene rather than by code. The column
-      now increments inside the same three branches the card uses, so the
-      two cannot drift whatever the data says.
-      malformed-month case. ⛔ Both were seen failing on V20.8 first - the
-      point of injecting is that waiting for the data to produce these
-      states is waiting for the bug to reach Guru.
-
-      Full entry in CHANGELOG.md.
-  ============================================================================
-  V20.8-LIVE (2026-09-06 - the dashboard chart was counting everybody
-
-    + ⛔ DELIBERATELY NOT CACHED. A cache has to be invalidated, and an
-      invalidation that is a shade too narrow shows a stale chart - which is
-      worse than a slow one. This is still computed fresh on every render;
-      it simply stops doing the same work twenty-four times.
-    + ⛔ THE OUTPUT MUST NOT MOVE. v208bands.js lifts the OLD function out of
-      index-V20.7-LIVE.html and the new one out of this build, runs both over
-      the real 139,324 records, and fails unless the HTML they produce is
-      character-for-character identical. A faster chart that draws something
-      different is not a fix.
-
-      Full entry in CHANGELOG.md.
-  ============================================================================
-  V20.7-LIVE (2026-09-06 - today's work, partner by partner).
-
-    + ⛔ THE ROWS MUST SUM TO THE CARD. A breakdown that does not add up to
-      the figure above it is worse than no breakdown. Applied and Benefits
-      count PEOPLE, not applications, exactly as the card has since V403, so
-      the per-partner counts are de-duplicated per person before they are
-      summed. A person belongs to one partner, so the rows add up by
-      construction - and the test asserts it rather than trusting that.
-    + ⛔ SCOPED BY THE FARMER, NOT BY THE ADVOCACY RECORD. An advocacy row
-      carries its own stale copy of the partner name, which goes wrong the
-      moment somebody is moved between partners (V18.9). The partner comes
-      from the beneficiary, the same rule V19.9 set for the card.
-    + ⛔ LIVELIHOOD SAYS WHAT IT CAN HONESTLY SAY. The app has never stored
-      the day a livelihood stage changed, so that column is headed "records
-      touched" and carries a note. Enrolments, applications and benefits all
-      have real dates and are exact.
-
-      Full entry in CHANGELOG.md.
-  ============================================================================
-  V20.6-LIVE (2026-09-04 - three places V20.5 left saying the old number).
-
-      Full entry in CHANGELOG.md.
-  ============================================================================
-  V20.5-LIVE (2026-09-04 - the coordinator page was 14 benefits short of every
-
-      and 28 Guru reported. ⛔ A regex inside the CDP survey needs its
-      backslashes doubled - the survey is a template literal, so \s became s
-      and the check passed against text it had quietly mangled.
-
-      Full entry in CHANGELOG.md.
-  ============================================================================
-  V20.4-LIVE (2026-09-04 - the cleanup screen comes back out, and the sidebar
-
-      Full entry in CHANGELOG.md.
-  ============================================================================
-  V20.3-LIVE (2026-09-04 - the scheme sheets whose farmer is gone).
-
-    + ⛔ THE SAFETY RULES IN IT ARE THE POINT, not the screen. It never
-      calls saveAdv() or saveData() - a whole-collection write is the shape
-      behind every mass-delete this app has suffered, so each sheet goes on
-      its own path. A cache miss is never proof: the beneficiary is read
-      live immediately before each removal and the sheet is kept if that
-      read finds them. It refuses to start before the beneficiary replay has
-      finished, and refuses outright if the candidates exceed 2% of the
-      collection, because a half-loaded copy looks exactly like a mass
-      orphaning. Cache and last-map are dropped together, since a surplus
-      lastAdv key becomes a REAL delete on the next whole-array save. Every
-      removal writes a tombstone stamped with SERVER time, so a device that
-      was offline during the run cannot push the sheet back. The download
-      must happen before the remove buttons unlock.
-
-      Full entry in CHANGELOG.md.
-  ============================================================================
-  V20.2-LIVE (2026-09-04 - what four independent reviews of V19.6-V20.1 found).
-   + ⛔ A PERSON THE SERVER ALREADY HAD COULD BE DELETED. A queued
-   + ⛔ THE PHOTO STEP REVERTED OFFICE EDITS. Once the person had landed
-   + ⛔ AN ONLINE SAVE NEVER CANCELLED THE QUEUED ONE. A change queued
-   + ⛔ AN OFFLINE DELETE AFTER AN OFFLINE EDIT WAS THROWN AWAY by a merge
-   + ⛔ ONE RENDER REBUILT THE ADVOCACY ROW SET TWICE once the filter bar
-   + ⛔ STATED LIMITS, LEFT AS THEY ARE. Advocacy -> Rejected offers a
-      Full entry in CHANGELOG.md.
-
-  V20.1-LIVE (2026-09-03 - the enrol button answers, and one row of filters).
-   + ⛔ NEVER ON A TIMER. The reference design for this was a fixed 1.5s
-   + ⛔ NOTHING THAT WORKED BEFORE WAS TAKEN AWAY. "Baseline 1 Aug to 31
-   + ⛔ AND TWO STATUSES HONESTLY HAVE NO DATE. "Need to apply" is the
-   + ⛔ FILED IS NOT THE SAME AS APPLIED. The filing stamp sits on every
-      Full entry in CHANGELOG.md.
-
-  V20-LIVE (2026-09-03 - find the people who received a benefit between two dates).
-   + ⛔ THE LIMIT, SAID ONCE AND SHOWN ON SCREEN. The app only began
-      Full entry in CHANGELOG.md.
-
   V19.9-LIVE (2026-09-03 - four screens that were saying the wrong thing).
    counted anywhere, so all six surfaces agree. ⛔ The record is still in
       Full entry in CHANGELOG.md.
@@ -4468,7 +4399,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V21.6-LIVE';
+const APP_VERSION = 'V21.7-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -5194,13 +5125,46 @@ async function _v196TopUpBlock(code) {
   _v196TopUpBusy = true;
   try {
     const floor = _v196LocalMax(code);
+    // ⛔ V21.7: ASK THE SERVER WHETHER THE COUNTER EXISTS, THEN TRUST THE
+    // TRANSACTION TO FETCH IT. Firebase runs a transaction's function FIRST
+    // with the value this phone already holds - null, unless something keeps
+    // that path in memory - and only calls it again with the server's value
+    // after the server refuses the first attempt. The line below used to abort
+    // on that first null, and an abort is final: nothing was ever asked. So a
+    // coordinator's phone could only stock numbers in the few moments after an
+    // online enrolment had fetched the counter, and a phone that signed in and
+    // went straight out of signal carried nothing. Guru found it on 17 Sep:
+    // signed in as a Vadali coordinator, data off, refused - and the export
+    // showed the counter never moved in the 16 minutes after that sign-in.
+    // The test sandbox handed the server value over on the first call, which
+    // is why every suite passed. It no longer does.
+    // This read is a few bytes, and it only happens when the stock is low.
+    const rd = await _v196Guard(fbRef('id_counters/' + code).once('value'), _v196WaitMs());
+    if (rd.timedOut) {
+      // a read that never answered reserved nothing and burned nothing, so a
+      // short per-code pause is enough - the long one is for transactions.
+      _v214HoldUntil[code] = Date.now() + 60 * 1000;
+      return false;
+    }
+    const known = (rd.value && typeof rd.value.val === 'function') ? rd.value.val() : null;
+    // ⛔ V20.2, UNCHANGED: AN ABSENT COUNTER IS NOT A COUNTER AT ZERO. genId
+    // seeds a missing counter by scanning the real records first (V353); this
+    // background job cannot, and a coordinator's local floor is only their own
+    // slice - so it could reserve 25 numbers that already belong to other
+    // people. Stand back; the first online enrolment seeds it.
+    if (typeof known !== 'number' || !(known > 0)) {
+      _v214HoldUntil[code] = Date.now() + 5 * 60 * 1000;
+      return false;
+    }
     const g = await _v196Guard(
       fbRef('id_counters/' + code).transaction(function (cur) {
-        // ⛔ V20.2: AN ABSENT COUNTER IS NOT A COUNTER AT ZERO. genId seeds a
-        // missing counter by scanning the real records first (V353); this
-        // background job cannot, and a coordinator's local floor is only
-        // their own slice - so it could reserve 25 numbers that already
-        // belong to other people. Abort; the first online enrolment seeds it.
+        // this phone holds no copy: offer a value built on what the server
+        // just said. The server refuses it (its value is not null) and the
+        // SDK runs this again with the real counter, so the answer below is
+        // always computed from the server's own number. It can only ever be
+        // written as-is if the counter vanished in the last moment, and even
+        // then it sits above every number that existed when it was read.
+        if (cur === null) return Math.max(known, floor) + _V196_BLOCK_SIZE;
         if (typeof cur !== 'number' || !(cur > 0)) return;
         return Math.max(cur, floor) + _V196_BLOCK_SIZE;
       }), _v196WaitMs());
@@ -5247,12 +5211,27 @@ async function _v196TopUpBlock(code) {
     for (let n = top - _V196_BLOCK_SIZE + 1; n <= top; n++) free.push(n);
     // never let it grow without bound if a device tops up far more than it uses
     while (free.length > 200) free.shift();
-    _v196BlockWrite(code, { code: code, free: free, at: Date.now() });
+    // ⛔ V21.7: A BLOCK THE PHONE COULD NOT SAVE MUST STOP THE SWEEP. The
+    // counter has already moved past these 25 numbers; if storage refused them
+    // (full, or blocked by the browser) the block still reads low, and with no
+    // pause the forty-second timer would reserve - and lose - another 25 every
+    // time: some 2,250 numbers an hour per tab. V21.6 almost never reached this
+    // line, because its first call aborted; V21.7 reaches it every time. Found
+    // in review.
+    if (!_v196BlockWrite(code, { code: code, free: free, at: Date.now() })) {
+      _v214HoldUntil[code] = Date.now() + 10 * 60 * 1000;
+      console.error('[V21.7] reserved ' + _V196_BLOCK_SIZE + ' offline id(s) for ' + code
+        + ' but this phone could not save them - not asking again for ten minutes');
+      return false;
+    }
     console.log('[V19.6] reserved ' + _V196_BLOCK_SIZE + ' offline id(s) for ' + code
       + ' up to ' + top + ' (now holding ' + _v196BlockLeft(code) + ')');
     return true;
   } catch (e) {
     console.warn('[V19.6] id block top-up failed:', e && e.message);
+    // V21.7: a refused read (a session without its claim yet, permission
+    // denied) would otherwise be retried on every forty-second tick.
+    try { _v214HoldUntil[code] = Date.now() + 60 * 1000; } catch (_) {}
     return false;
   } finally { _v196TopUpBusy = false; }
 }
