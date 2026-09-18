@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V22.1-LIVE
+  KRSF Beneficiary Impact Tracker  -  V22.2-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,46 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V22.2-LIVE (2026-09-19 - the scheme records that stayed behind, and a
+  template that says what to type).
+
+    + ⛔ 885 SCHEME RECORDS ARE FILED UNDER A PARTNER THEIR PEOPLE HAVE LEFT.
+      A scheme record carries its own partner name; when people were moved the
+      beneficiaries were rewritten and these were not - 838 of them one Vadali
+      → Idar migration carrying Rs 1.28 crore. That is why three partners’
+      weekly bars disagree with their own totals, and why nine partner
+      summaries added together do not equal counting those nine partners’
+      records. Partner Management → Scheme records by partner scans, shows
+      exactly what moves with the money attached, and writes only after you
+      say so: 885 records in 76 ms, six writes, 0.115 MB.
+
+    + ⛔ THE WAY BACK GOES IN THE AUDIT ENTRY. The review caught it: the
+      database rules deny every child not on their allowlist, and the new node
+      this first wrote was not on it - so the undo record would have been
+      refused AFTER the 885 records had changed, leaving no way back at all.
+      ⛔ And the change map is re-seated: an admin reads advocacy over REST
+      with no listener, so a stale map would have let the next whole-list save
+      rewrite all 885 from the copy that session started with, reverting any
+      field edit made since.
+
+    + Moving a coordinator no longer starts the drift again - both move tools
+      already re-tag scheme records, and there is now a check that drives a
+      real move and counts what is left behind.
+
+    + THE IMPORT TEMPLATE now carries three worked examples - a coordinator, a
+      team leader, a scoped viewer - on their own sheet, which the import never
+      reads, plus a hover note on every column heading. Guru: "there is no
+      tooltip in excel. So we dont know what to write." ⛔ And the reader no
+      longer falls back to whatever sheet comes first, which would have made
+      those examples importable by renaming one sheet.
+
+    + Tests: 74 files. v222.js is new - 23 checks on the real export, including
+      a real coordinator move, a half-synced device, a coordinator trying to
+      run it, and a record that moves again mid-run. 7 mutants. ⛔ The suite
+      caught my own bug first: the tool read the whole database once per
+      record - ten minutes for 885 - the same trap V22.1 took out of the
+      importer.
+
   V22.1-LIVE (2026-09-18 - an import that finishes, and a screen that opens).
 
     + ⛔ THE BULK IMPORT WALKED THE WHOLE DATABASE TWICE PER ROW. saveData()
@@ -3212,6 +3252,10 @@ body[data-shell="coord"] #_v352-install-btn {
     <!-- V22.0: reached from User Management, not the sidebar - the same rule
          as Move Records Between Partners above. The button stays in the markup
          so nav() can mark it active while the page is open. -->
+    <button data-admin-only data-sidebar-hidden="true" class="nav-btn" data-v="admin_partner_stamps" onclick="nav('admin_partner_stamps')" style="display:none">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 5h8M7 2l3 3-3 3"/><path d="M14 11H6M9 8l-3 3 3 3"/></svg>
+      Scheme records by partner
+    </button>
     <button data-admin-only data-sidebar-hidden="true" class="nav-btn" data-v="admin_user_import" onclick="nav('admin_user_import')" style="display:none">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8M5 7l3 3 3-3"/><path d="M3 13h10"/></svg>
       Import Users
@@ -4292,7 +4336,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V22.1-LIVE';
+const APP_VERSION = 'V22.2-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -27592,7 +27636,7 @@ function renderReports() {
 }
 
 // ── Nav ───────────────────────────────────────────────────────────────────
-const _navRoutes_v32={reports:renderReports,dashboard:renderDashboard,beneficiaries:renderAllBeneficiaries,list:renderLivelihood,ngo:renderNGO,alerts:renderAlerts,map:renderMap,integrated:renderIntegrated,advocacy:renderAdvocacy,admin_partners:renderAdminPartners,admin_users:renderAdminUsers,admin_livelihoods:renderAdminLivelihoods,admin_schemes:renderAdminSchemes,admin_audit:renderAdminAuditLog,admin_import:renderAdminImport,admin_photo_migration:renderAdminPhotoMigration,admin_advocacy_backfill:renderAdminAdvocacyBackfill,admin_dedup_ids:renderAdminDedupIds,admin_delete_dupes:renderAdminDeleteDupes,admin_scheme_rename:renderAdminSchemeRename,admin_user_import:renderAdminUserImport,admin_partner_move:renderAdminPartnerMove,admin_bandwidth:renderAdminBandwidth};
+const _navRoutes_v32={reports:renderReports,dashboard:renderDashboard,beneficiaries:renderAllBeneficiaries,list:renderLivelihood,ngo:renderNGO,alerts:renderAlerts,map:renderMap,integrated:renderIntegrated,advocacy:renderAdvocacy,admin_partners:renderAdminPartners,admin_users:renderAdminUsers,admin_livelihoods:renderAdminLivelihoods,admin_schemes:renderAdminSchemes,admin_audit:renderAdminAuditLog,admin_import:renderAdminImport,admin_photo_migration:renderAdminPhotoMigration,admin_advocacy_backfill:renderAdminAdvocacyBackfill,admin_dedup_ids:renderAdminDedupIds,admin_delete_dupes:renderAdminDeleteDupes,admin_scheme_rename:renderAdminSchemeRename,admin_user_import:renderAdminUserImport,admin_partner_stamps:renderAdminStampFix,admin_partner_move:renderAdminPartnerMove,admin_bandwidth:renderAdminBandwidth};
 
 // ── V357: tab-render cache (admin Lite Mode) ──────────────────────────────
 // Memoises each _navRoutes_v32 renderer's output keyed on
@@ -28087,7 +28131,7 @@ function renderAdminPartners() {
     <div class="card">
       <div class="card-head">
         <div class="card-title">Partner Organizations <span style="font-size:12px;font-weight:400;color:var(--gray2)">${partners.length} total</span></div>
-        <button class="btn btn-primary btn-sm" onclick="adminNewPartner()">+ Add Partner</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-sm" onclick="nav('admin_partner_stamps')" title="Find scheme records still filed under a partner their beneficiary has left">⇄ Scheme records by partner</button><button class="btn btn-primary btn-sm" onclick="adminNewPartner()">+ Add Partner</button></div>
       </div>
       ${partners.length===0?'<div class="empty">No partners.</div>':`<table class="tbl"><thead><tr><th style="width:52px;text-align:center">Sr. No.</th><th>Partner</th><th style="text-align:center">NGO Login</th><th style="text-align:center">Field Coordinators</th><th style="text-align:center">Beneficiaries</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table>`}
       <div style="padding:10px 16px;font-size:11px;color:var(--gray2);border-top:1px solid var(--gray3);line-height:1.5">
@@ -40738,9 +40782,13 @@ async function _v220File(input) {
     const buf = await f.arrayBuffer();
     const wb = XLSX.read(new Uint8Array(buf), { type: 'array' });
     // the template has three sheets; the people are on the one called Users
-    const name = wb.SheetNames.find(n => String(n).toLowerCase() === 'users') || wb.SheetNames[0];
-    const sheet = wb.Sheets[name];
-    if (!sheet) { toast('That workbook has no sheets.', 'error'); return; }
+    // ⛔ NEVER FALL BACK ONTO THE EXAMPLES. Renaming or deleting the Users
+    // sheet would otherwise make the worked examples the import - three
+    // signable accounts with published passwords, in a real partner.
+    const name = wb.SheetNames.find(n => String(n).toLowerCase() === 'users')
+      || wb.SheetNames.find(n => !/^(examples|partners|how it works)$/i.test(String(n).trim()));
+    const sheet = name ? wb.Sheets[name] : null;
+    if (!sheet) { toast('That file has no Users sheet - it is the one the import reads.', 'error', 7000); return; }
     let rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
     // the template carries a grey row of notes under the headers, and four
     // example rows - drop anything that is plainly not a person
@@ -40916,14 +40964,16 @@ function _v220Template() {
     const partners = (typeof loadPartners === 'function') ? loadPartners() : [];
     const names = partners.map(p => p && p.name).filter(Boolean).sort();
     const first = names[0] || 'Partner name';
-    // ⛔ NO EXAMPLE PEOPLE. They are not filtered on the way back in, so an
-    // admin who typed their staff underneath imported the examples too - two
-    // signable accounts in a real partner, passwords published in a template.
+    // ⛔ NO EXAMPLE PEOPLE AMONG THE ROWS TO FILL IN. They are not filtered on
+    // the way back in, so an admin who typed their staff underneath imported the
+    // examples too - signable accounts in a real partner, with passwords
+    // published in a template. V22.2: the examples live on their own sheet
+    // instead, which the import never reads, so there is nothing to remember to
+    // delete.
     const rows = [
       _V220_COLS,
       ['', '', '', '', '', '', ''],
     ];
-    void first;
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.aoa_to_sheet(rows);
     ws['!cols'] = [{ wch: 26 }, { wch: 16 }, { wch: 14 }, { wch: 16 }, { wch: 32 }, { wch: 30 }, { wch: 30 }];
@@ -40936,7 +40986,39 @@ function _v220Template() {
         ws[k].z = '@';
       });
     }
+    // V22.2: a hover note on every heading - this is the tooltip Guru was
+    // missing. SheetJS writes these as real Excel cell comments.
+    const NOTES = [
+      'The person\u2019s full name, as it should appear in the app. Required.',
+      'What they type to sign in - usually their 10-digit phone number. Lowercase letters, numbers and underscore only. Required.',
+      'At least 4 characters. Required. Anyone who knows the pattern can guess it, so avoid it for admin accounts.',
+      'Coordinator, Team Leader, Viewer or Scoped Viewer. Required.',
+      'The partner they belong to - copy it exactly from the Partners sheet. Required for Coordinator and Team Leader.',
+      'Viewer and Scoped Viewer only: the partners they may see, separated by a semicolon. At least one.',
+      'Team Leader only: the usernames of the coordinators they oversee, separated by a semicolon. They must be in the same partner.',
+    ];
+    'ABCDEFG'.split('').forEach(function (c, i) {
+      const cell = ws[c + '1'];
+      if (cell && NOTES[i]) cell.c = [{ a: 'KRSF', t: NOTES[i] }];
+    });
     XLSX.utils.book_append_sheet(wb, ws, 'Users');
+
+    // ⛔ THE EXAMPLES, ON A SHEET THE IMPORT NEVER READS. One of each kind,
+    // with the two columns that only apply to some roles filled in where they
+    // do. Nothing here can be created by accident.
+    const ex = XLSX.utils.aoa_to_sheet([
+      _V220_COLS,
+      ['Ramesh Patel', '9876543210', 'AAA3210', 'Coordinator', first, '', ''],
+      ['Mahesh Joshi', '9876543212', 'AAA3212', 'Team Leader', first, '',
+       '9876543210; 9876543211'],
+      ['Anita Desai', '9876543213', 'AAA3213', 'Scoped Viewer', '',
+       first + (names[1] ? '; ' + names[1] : ''), ''],
+      [],
+      ['These are examples only. The import reads the Users sheet and never this one.'],
+      ['Copy the shape, not the people: type your own staff into the Users sheet.'],
+    ]);
+    ex['!cols'] = [{ wch: 26 }, { wch: 16 }, { wch: 14 }, { wch: 16 }, { wch: 32 }, { wch: 30 }, { wch: 30 }];
+    XLSX.utils.book_append_sheet(wb, ex, 'Examples');
     const ref = XLSX.utils.aoa_to_sheet([['Partner', 'State']].concat(
       partners.filter(p => p && p.name).sort((a, b) => a.name.localeCompare(b.name))
         .map(p => [p.name, Array.isArray(p.states) ? p.states.join(', ') : (p.state || '')])));
@@ -40952,6 +41034,267 @@ function _v220Reset() {
   _v220State = { fileName: null, rows: null, checked: null, running: false, result: null };
   renderAdminUserImport();
 }
+
+// =============================================================================
+// V22.2 — THE SCHEME RECORDS THAT STAYED BEHIND
+// =============================================================================
+// A scheme record carries its own partner name. When a coordinator's people are
+// moved to another partner the beneficiaries are rewritten, and until now the
+// scheme records were not - so the same work is filed under two different
+// partners depending on which collection you count.
+//
+// Measured on the 17 Sep data: 885 records disagree with the person they belong
+// to, 838 of them one Vadali -> Idar migration carrying Rs 1.28 crore. That is
+// why three partners' weekly bars disagree with their own totals, and why nine
+// partner summaries added together do not equal counting those nine partners'
+// records.
+//
+// ⛔ NOTHING IS GUESSED. The right answer is whatever partner the beneficiary is
+// in NOW - the same rule the rest of the app already follows.
+// ⛔ AND NOTHING IS WRITTEN BLIND: every record is read back from the database
+// immediately before it is changed, only its ngo field is written, and the old
+// value is kept so the whole batch can be put back.
+let _v222Scan = null;
+let _v222Busy = false;
+const _V222_CHUNK = 250;
+
+function _v222ScanStamps() {
+  const recs = (typeof _loadDataRaw === 'function') ? _loadDataRaw() : loadData();
+  const adv = (typeof _loadAdvRaw === 'function') ? _loadAdvRaw() : loadAdv();
+  const partnerOf = new Map();
+  recs.forEach(function (b) { if (b && b.id) partnerOf.set(b.id, b.ngo || null); });
+  const moves = [], pairs = {};
+  let orphans = 0, unstamped = 0;
+  adv.forEach(function (a) {
+    if (!a || !a.bid) return;
+    const key = a.__fbk || a.id;
+    if (!key) return;
+    const now = partnerOf.get(a.bid);
+    if (now === undefined) { orphans++; return; }      // the person is gone - left alone
+    // ⛔ AND A PERSON WITH NO PARTNER AT ALL IS NOT AN ANSWER. It was being
+    // listed as moving to "null", money and all, then silently skipped by the
+    // run - so the preview and what happened disagreed.
+    if (!now) { orphans++; return; }
+    if (!a.ngo) { unstamped++; return; }               // never stamped - left alone
+    if (a.ngo === now) return;
+    const rows = (a.schemeRows || []).filter(function (r) { return r && !r._deleted; });
+    const amt = rows.reduce(function (s, r) {
+      return s + ((typeof _v18RowBenefit === 'function') ? (_v18RowBenefit(r) || 0) : (Number(r.benefitAmt) || 0)); }, 0);
+    moves.push({ key: key, bid: a.bid, from: a.ngo, to: now, rows: rows.length, amt: amt });
+    const pk = a.ngo + ' \u2192 ' + now;
+    pairs[pk] = pairs[pk] || { records: 0, rows: 0, amt: 0 };
+    pairs[pk].records++; pairs[pk].rows += rows.length; pairs[pk].amt += amt;
+  });
+  _v222Scan = { at: Date.now(), moves: moves, pairs: pairs, orphans: orphans, unstamped: unstamped,
+                looked: adv.length };
+  return _v222Scan;
+}
+
+async function _v222RunStampFix() {
+  if (_v222Busy) return;
+  if (!isAdmin()) { toast('Admin only.', 'error'); return; }
+  if (!_v222Scan || !_v222Scan.moves.length) { toast('Nothing to correct — scan first.', 'error'); return; }
+  // ⛔ NOT BEFORE THE RECORDS HAVE ARRIVED. On a half-synced device the scan
+  // sees a fraction of the database and would "correct" records against a
+  // beneficiary list that is not all there.
+  if (!(FB && FB.benefReplayComplete && FB.advReplayComplete)) {
+    toast('Still loading the records. Wait until the app has finished syncing.', 'warn', 8000);
+    return;
+  }
+  const n = _v222Scan.moves.length;
+  const ok = await showConfirmModal(
+    'Move ' + n + ' scheme record' + (n === 1 ? '' : 's') + ' to the partner their beneficiary is in now?\n\n'
+    + 'Partner totals will change: the work follows the people. Nothing else is touched, '
+    + 'and this batch can be put back.',
+    { okLabel: 'Correct them', title: 'Scheme records' });
+  if (!ok) return;
+  _v222Busy = true;
+  renderAdminStampFix();
+  const batchId = 'sf-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const done = [], skipped = [];
+  // ⛔ THE PARTNER OF EVERY PERSON, WORKED OUT ONCE. getData() inside the loop
+  // is a deep clone of 146,000 records for every record corrected - the same
+  // trap V22.1 took out of the importer. The test caught it here: 885 records
+  // took ten minutes.
+  const _partnerNow = new Map();
+  ((typeof _loadDataRaw === 'function') ? _loadDataRaw() : loadData())
+    .forEach(function (b) { if (b && b.id) _partnerNow.set(b.id, b.ngo || null); });
+  try {
+    for (let i = 0; i < _v222Scan.moves.length; i += _V222_CHUNK) {
+      const slice = _v222Scan.moves.slice(i, i + _V222_CHUNK);
+      const updates = {};
+      for (const m of slice) {
+        // read it back first: somebody may have moved this person again, or
+        // the record may be gone
+        const snap = await fbRef('advocacy/' + m.key).once('value');
+        const fresh = snap.val();
+        if (!fresh) { skipped.push({ key: m.key, why: 'no longer there' }); continue; }
+        const should = _partnerNow.has(fresh.bid) ? _partnerNow.get(fresh.bid) : null;
+        if (!should) { skipped.push({ key: m.key, why: 'beneficiary not found' }); continue; }
+        if (fresh.ngo === should) { skipped.push({ key: m.key, why: 'already correct' }); continue; }
+        updates[FB_NAMESPACE + '/advocacy/' + m.key + '/ngo'] = should;
+        done.push({ key: m.key, from: fresh.ngo, to: should });
+      }
+      if (Object.keys(updates).length) await FB.db.ref().update(updates);
+      _v222Scan.progress = { done: Math.min(i + _V222_CHUNK, _v222Scan.moves.length), total: _v222Scan.moves.length };
+      renderAdminStampFix();
+    }
+    // ⛔ THE WAY BACK GOES IN THE AUDIT ENTRY, NOT A NEW NODE. The database
+    // rules deny anything not on the allowlist, and a new _stampFix node is not
+    // on it - the write would be refused AFTER these 885 records had already
+    // changed, leaving no way back. auditLog carries a changes object and audit
+    // is allowlisted, so the previous values travel with the entry that
+    // describes them.
+    // the local copies must agree with what was just written
+    try {
+      for (const d of done) {
+        const rec = RecordCache.adv.get(d.key);
+        if (rec) rec.ngo = d.to;
+      }
+      // ⛔ WITHOUT THIS the next whole-array save rewrites all of them from a
+      // copy taken at login - see _v185ReseatLastMap's own header.
+      if (typeof _v185ReseatLastMap === 'function') _v185ReseatLastMap('adv');
+      if (typeof _v362QueueSummaryWrite === 'function') _v362QueueSummaryWrite();
+      if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache();
+      if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache();
+    } catch (_) {}
+    auditLog('update', 'advocacy', batchId, 'scheme partner correction',
+      'Moved ' + done.length + ' scheme record(s) to the partner their beneficiary is in now'
+      + (skipped.length ? ' (' + skipped.length + ' skipped)' : ''),
+      { stampFix: done });
+    toast(done.length + ' scheme record' + (done.length === 1 ? '' : 's') + ' corrected'
+      + (skipped.length ? ', ' + skipped.length + ' skipped' : ''), 'success', 7000);
+  } catch (e) {
+    toast('Stopped after ' + done.length + ': ' + ((e && e.message) || e), 'error', 9000);
+  }
+  _v222Busy = false;
+  _v222Scan = null;
+  renderAdminStampFix();
+}
+
+async function _v222UndoStampFix(batchId) {
+  if (_v222Busy) return;
+  if (!isAdmin()) { toast('Admin only.', 'error'); return; }
+  const batch = _v222FindBatch(batchId);
+  if (!batch || !Array.isArray(batch.moves) || !batch.moves.length) { toast('Nothing recorded for that batch.', 'error'); return; }
+  if (!await showConfirmModal('Put ' + batch.moves.length + ' scheme record'
+      + (batch.moves.length === 1 ? '' : 's') + ' back to the partner they had before?',
+      { danger: true, okLabel: 'Put them back', title: 'Undo correction' })) return;
+  _v222Busy = true;
+  renderAdminStampFix();
+  let back = 0;
+  try {
+    for (let i = 0; i < batch.moves.length; i += _V222_CHUNK) {
+      const updates = {};
+      batch.moves.slice(i, i + _V222_CHUNK).forEach(function (m) {
+        if (m && m.key && m.from) { updates[FB_NAMESPACE + '/advocacy/' + m.key + '/ngo'] = m.from; back++; }
+      });
+      if (Object.keys(updates).length) await FB.db.ref().update(updates);
+    }
+    try {
+      batch.moves.forEach(function (m) { const rec = RecordCache.adv.get(m.key); if (rec) rec.ngo = m.from; });
+      if (typeof _v185ReseatLastMap === 'function') _v185ReseatLastMap('adv');
+      if (typeof _v362QueueSummaryWrite === 'function') _v362QueueSummaryWrite();
+      if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache();
+      if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache();
+    } catch (_) {}
+    auditLog('update', 'advocacy', batchId, 'scheme partner correction undone',
+      'Put ' + back + ' scheme record(s) back to their previous partner', null);
+    toast(back + ' put back.', 'success', 6000);
+  } catch (e) {
+    toast('Stopped after ' + back + ': ' + ((e && e.message) || e), 'error', 9000);
+  }
+  _v222Busy = false;
+  renderAdminStampFix();
+}
+
+// The corrections this session knows about, newest first: the audit entry
+// carries what each record used to say, so a batch can be put back from it.
+function _v222Batches() {
+  const rows = [];
+  try {
+    (loadAudit() || []).forEach(function (a) {
+      if (!a || !a.changes || !a.changes.stampFix) return;
+      rows.push({ id: a.recordId || a.id, at: a.at || a.ts || 0,
+        by: a.userName || a.user || '', moves: a.changes.stampFix.length });
+    });
+  } catch (_) {}
+  return rows.sort(function (x, y) { return (y.at || 0) - (x.at || 0); }).slice(0, 5);
+}
+function _v222FindBatch(batchId) {
+  try {
+    const hit = (loadAudit() || []).find(function (a) {
+      return a && a.changes && a.changes.stampFix && (a.recordId === batchId || a.id === batchId); });
+    return hit ? { moves: hit.changes.stampFix } : null;
+  } catch (_) { return null; }
+}
+function renderAdminStampFix() {
+  const el = document.getElementById('content');
+  if (!el) return;
+  if (!isAdmin()) { el.innerHTML = '<div class="empty">Admin only.</div>'; return; }
+  const S = _v222Scan;
+  const back = '<button class="btn btn-sm" onclick="nav(\'admin_partners\')">&larr; Partner Management</button>';
+  const money = function (n) { return '\u20b9' + (Number(n) || 0).toLocaleString('en-IN'); };
+  // ⛔ THE WAY BACK, ON SCREEN. The previous values travel in the audit entry
+  // (a new node would be refused by the database rules), and until now the only
+  // way to use them was the console - which is not a way back at all.
+  const recent = (typeof _v222Batches === 'function') ? _v222Batches() : [];
+  const recentHtml = recent.length ? ('<div style="margin-top:16px;border-top:1px solid var(--gray3);padding-top:12px">'
+    + '<div style="font-size:13px;font-weight:600;margin-bottom:8px">Corrections made in this session</div>'
+    + recent.map(function (b) {
+        return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:13px;padding:4px 0">'
+          + '<span>' + escHtml(new Date(b.at).toLocaleString('en-IN')) + ' \u2014 ' + b.moves + ' record'
+          + (b.moves === 1 ? '' : 's') + '</span>'
+          + '<button class="btn btn-sm" onclick="_v222UndoStampFix(\'' + b.id + '\')" '
+          + (_v222Busy ? 'disabled' : '') + '>Put them back</button></div>';
+      }).join('')
+    + '<div style="font-size:12px;color:var(--gray2);margin-top:6px">A correction can be put back while you are '
+    + 'signed in \u2014 the previous values travel in its audit entry.</div></div>') : '';
+  let body = '';
+  if (!S) {
+    body = '<p style="color:var(--gray2);font-size:13px;margin:0 0 14px">'
+      + 'A scheme record carries the partner it was logged under. When people move to another partner '
+      + 'their scheme records should move with them. This finds the ones that did not, and shows you '
+      + 'exactly what would change before anything is written.</p>'
+      + '<button class="btn btn-primary btn-sm" onclick="_v222ScanStamps(); renderAdminStampFix();">Scan</button>';
+  } else if (!S.moves.length) {
+    body = '<div style="font-size:15px">Nothing to correct \u2014 every scheme record already sits with '
+      + 'the partner its beneficiary is in.</div>'
+      + '<div style="color:var(--gray2);font-size:13px;margin-top:8px">Looked at ' + S.looked.toLocaleString('en-IN')
+      + ' records. ' + S.orphans + ' belong to a beneficiary that no longer exists, or to somebody with no '
+      + 'partner at all, and were left alone.</div>';
+  } else {
+    const pairs = Object.entries(S.pairs).sort(function (a, b) { return b[1].records - a[1].records; });
+    body = '<div style="font-size:15px;margin-bottom:6px"><b>' + S.moves.length.toLocaleString('en-IN')
+      + '</b> scheme records are filed under a partner their beneficiary has left.</div>'
+      + '<div style="color:var(--gray2);font-size:13px;margin-bottom:14px">Looked at '
+      + S.looked.toLocaleString('en-IN') + ' records. ' + S.orphans
+      + ' belong to a beneficiary that no longer exists, or to somebody with no partner, and are left alone; '
+      + S.unstamped + ' carry no partner at all.</div>'
+      + '<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Moving from \u2192 to</th>'
+      + '<th style="text-align:center">Records</th><th style="text-align:center">Scheme rows</th>'
+      + '<th style="text-align:right">Benefit money</th></tr></thead><tbody>'
+      + pairs.map(function (p) {
+          return '<tr><td>' + escHtml(p[0]) + '</td><td style="text-align:center">' + p[1].records
+            + '</td><td style="text-align:center">' + p[1].rows + '</td><td style="text-align:right">'
+            + money(p[1].amt) + '</td></tr>'; }).join('')
+      + '</tbody></table></div>'
+      + '<div style="background:#FFFBEB;border:1px solid #F59E0B;border-radius:8px;padding:10px 12px;'
+      + 'color:#78350F;font-size:13px;margin:14px 0">Partner totals will change: the work follows the people. '
+      + 'Fleet totals do not change.</div>'
+      + (S.progress ? '<div style="color:var(--gray2);font-size:13px;margin-bottom:8px">Correcting '
+          + S.progress.done + ' of ' + S.progress.total + '\u2026</div>' : '')
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+      + '<button class="btn btn-primary btn-sm" onclick="_v222RunStampFix()" ' + (_v222Busy ? 'disabled' : '')
+      + '>Correct ' + S.moves.length + ' record' + (S.moves.length === 1 ? '' : 's') + '</button>'
+      + '<button class="btn btn-sm" onclick="_v222Scan = null; renderAdminStampFix();">Cancel</button></div>';
+  }
+  el.innerHTML = '<div style="max-width:900px;margin:0 auto">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">'
+    + '<h1 style="font-size:22px;margin:0">Scheme records by partner</h1>' + back + '</div>'
+    + '<div class="card"><div class="card-body" style="padding:16px">' + body + recentHtml + '</div></div></div>';
+}
+// ── end V22.2 stamp correction ─────────────────────────────────────────────
 
 function renderAdminUserImport() {
   _ensureBulkImportLibs().catch(function () {});
