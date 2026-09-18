@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V21.8-LIVE
+  KRSF Beneficiary Impact Tracker  -  V21.9-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,50 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V21.9-LIVE (2026-09-18 - a scheme status changed on the card with no signal).
+
+    + WHAT GURU HIT. Enrolled somebody offline (that worked), then tapped the
+      scheme on their card to change its status: "No internet connection."
+      The card path went straight to the server - the scheme FORM has queued
+      since V19.7, this never did. Worse, the new status was already painted,
+      so the card showed a change saved nowhere; it vanished on reload.
+
+    + NOW the card queues exactly as the form does: only the rows that
+      changed travel, merged into the server’s own copy when sent, and an
+      online save still cancels anything waiting for that person. ⛔ If the
+      phone cannot store the change, the card goes BACK to the old status
+      rather than showing one that is saved nowhere.
+
+    + ⛔ AND THE PHONE NOW SAYS WHAT HAS NOT GONE. Guru: "I as an FC cannot
+      know that this beneficiary is still offline." A "Waiting to send" label
+      on the card, a line above the list, and a line on the coordinator’s
+      Reports saying its figures include work still on this phone. All three
+      read one in-memory set - no read, no write - and clear themselves when
+      the sender empties the queue.
+
+    + ⛔ AND THE REVIEW FOUND A LOSS OLDER THAN THIS RELEASE. Every save drops
+      a benefit date this app cannot vouch for - anything filed before the
+      stamping floor, which is every imported row and 94.6% of the data. The
+      queue compared dates, so those untouched rows read as CHANGED, travelled,
+      and were written over whatever the office had recorded meanwhile. On the
+      real export: Rs 77,000 the office entered came back as nothing, on a row
+      the coordinator never opened. A dropped date nobody can vouch for is no
+      longer a change, so the row stays at home. Live since V19.7 through the
+      scheme form; the card would have opened a second door to it.
+
+    + COLOURS. "Saved on phone" was dark brown on amber, on both the button
+      and the message. Both are indigo now, matching the label; other warnings
+      are dark amber text on pale amber instead of near-black on brown.
+
+    + Tests: 70 files. v219.js is new - 36 checks driven through the real card,
+      the real status sheet and the real enrolment form as a COORDINATOR, with
+      a true reload while offline and the office editing the same person in
+      between, and a second person whose history the office edits while the
+      phone is away. V21.8 fails 21 of them; 9 mutants of this build, all killed.
+      ⛔ Four of my own false starts first: a wrong ready gate, an unanswered
+      native confirm, 139,422 scheme records served to a phone that holds 40,
+      and a card sitting on page two of ten.
+
   V21.8-LIVE (2026-09-17 - offline numbers for every state ticked on the partner).
 
     + WHAT GURU ASKED. "If I have ticked three states, then?" A phone set
@@ -853,8 +897,8 @@ html,body{height:100%;font-family:var(--font);background:#EEF2F7;color:var(--tex
 #enroll-submit-btn[data-state="saving"]::before{content:'';display:inline-block;width:12px;height:12px;margin-right:8px;vertical-align:-1px;border-radius:50%;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;animation:krsfSpin .7s linear infinite}
 #enroll-submit-btn[data-state="saved"]{background:var(--green);border-color:var(--green);color:#fff}
 #enroll-submit-btn[data-state="saved"]::before{content:'';display:inline-block;width:11px;height:7px;margin-right:8px;vertical-align:1px;border-left:2px solid #fff;border-bottom:2px solid #fff;transform:rotate(-45deg) scale(0);animation:krsfTick .25s ease-out .05s forwards}
-#enroll-submit-btn[data-state="phone"]{background:var(--amber2);border-color:var(--amber);color:var(--amber)}
-#enroll-submit-btn[data-state="phone"]::before{content:'';display:inline-block;width:9px;height:13px;margin-right:8px;vertical-align:-2px;border:2px solid var(--amber);border-radius:2px;transform:scale(0);animation:krsfPop .25s ease-out .05s forwards}
+#enroll-submit-btn[data-state="phone"]{background:#EEF2FF;border-color:#4F46E5;color:#3730A3}
+#enroll-submit-btn[data-state="phone"]::before{content:'';display:inline-block;width:9px;height:13px;margin-right:8px;vertical-align:-2px;border:2px solid #4F46E5;border-radius:2px;transform:scale(0);animation:krsfPop .25s ease-out .05s forwards}
 @keyframes krsfSpin{to{transform:rotate(1turn)}}
 @keyframes krsfTick{to{transform:rotate(-45deg) scale(1)}}
 @keyframes krsfPop{to{transform:scale(1)}}
@@ -1106,7 +1150,12 @@ html,body{height:100%;font-family:var(--font);background:#EEF2F7;color:var(--tex
 .toast.show{transform:translateY(0);opacity:1}
 .toast.success{background:var(--green)}
 .toast.error{background:var(--red)}
-.toast.warn{background:var(--amber);color:#1a1a1a;font-weight:600}
+/* V21.9: warnings were near-black text on dark amber-brown (#92400E) - barely
+   readable, and Guru called the colour out. Pale amber, dark amber text. */
+.toast.warn{background:#FFFBEB;color:#78350F;border:1px solid #F59E0B;font-weight:600}
+/* V21.9: "saved on this phone" is not a warning - the work is safe. Its own calm
+   indigo, matching the Waiting to send label on the cards. */
+.toast.pending{background:#1E3A8A;color:#fff}
 .toast::before{content:'';display:inline-block;width:0}
 /* V16: Firebase connection/sync status indicator — fixed top-right pill */
 #sync-pill{position:fixed;top:14px;right:18px;z-index:998;display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:20px;font-size:12px;font-weight:600;background:#fff;border:1px solid var(--gray3);box-shadow:0 2px 8px rgba(0,0,0,.06);cursor:default;font-family:var(--font);user-select:none;transition:all .2s ease}
@@ -4421,7 +4470,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V21.8-LIVE';
+const APP_VERSION = 'V21.9-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -5775,6 +5824,11 @@ async function _v196Pump() {
     // made the app repaint the screen the coordinator was reading every
     // forty seconds, for the life of the device.
     if (_v196SentThisRun > 0) { try { renderCurrentView(); } catch (_) {} }
+    // V21.9: and the Reports tab, whose waiting note would otherwise go on
+    // counting work that has already been sent until the tab is reopened.
+    if (_v196SentThisRun > 0 && typeof _coordActiveTab !== 'undefined' && _coordActiveTab === 'reports') {
+      try { _renderCoordReports(); } catch (_) {}
+    }
     // V19.6: a save that hung earlier may have landed since and overwritten
     // the local copy with what it had captured. A delta sync costs a few
     // bytes and puts back anything that went missing.
@@ -5972,6 +6026,36 @@ function _v197RowDiffers(a, b) {
 
 // Which rows actually differ from what this device last knew? Only those
 // travel, so the queue never carries an opinion about rows nobody touched.
+// ⛔ V21.9: A DATE THIS APP CANNOT VOUCH FOR IS NOT A CHANGE.
+//
+// _rptStampRowDates DROPS _aAt/_bAt from any row whose stored date is older
+// than the stamping floor - which is every imported benefit, and 94.6% of the
+// real data carries no verifiable date at all. That drop happens on every save,
+// to every row in the record, including the ones nobody touched. The comparison
+// below then read those rows as changed, so they rode the queue carrying the
+// PHONE'S copy, and the merge wrote them over whatever the office had recorded
+// while the phone was away. Measured on the real export: Rs 77,000 recorded by
+// the office came back as nothing, on a row the coordinator never opened.
+//
+// The same door the V19.7 comment above describes, by a second route: there the
+// whole array travelled, here a single untouched row does. A row whose ONLY
+// difference is that an unverifiable date was dropped stays at home.
+function _v219OnlyLostOldStamp(next, prev) {
+  if (!next || !prev) return false;
+  const a = Object.assign({}, next), b = Object.assign({}, prev);
+  delete a._aAt; delete a._bAt; delete b._aAt; delete b._bAt;
+  if (_v197RowDiffers(b, a)) return false;      // something real changed too
+  let dropped = false;
+  for (const f of ['_aAt', '_bAt']) {
+    const p = (prev[f] != null) ? String(prev[f]) : '';
+    const n = (next[f] != null) ? String(next[f]) : '';
+    if (p === n) continue;
+    // gone, and what went was a date the stamper could not vouch for
+    if (!n && p && !_rptStampOk(p)) { dropped = true; continue; }
+    return false;                                // a real date change travels
+  }
+  return dropped;
+}
 function _v197ChangedRows(nextRows, prevRows) {
   // ⛔ matched by OCCURRENCE, not just by scheme+remarks - otherwise one of
   // every duplicate pair always looked changed and travelled when nobody had
@@ -5984,7 +6068,8 @@ function _v197ChangedRows(nextRows, prevRows) {
   (nextRows || []).forEach(function (r, i) {
     if (!r) return;
     const p = prev[nextKeys[i]];
-    if (!p || _v197RowDiffers(p, r)) out.push(Object.assign({}, r, { _v197k: nextKeys[i] }));
+    if (!p || (_v197RowDiffers(p, r) && !_v219OnlyLostOldStamp(r, p)))
+      out.push(Object.assign({}, r, { _v197k: nextKeys[i] }));
   });
   // a row the coordinator removed is a change too - it travels as _deleted
   (prevRows || []).forEach(function (p) {
@@ -6081,6 +6166,47 @@ async function _v197CancelQueued(bid) {
   if (enrol && enrol.adv) { enrol.adv = null; await _idbSet(_v196ItemKey(u.userId, bid), enrol); }
   if (existing || (enrol && enrol.adv === null)) { try { fbUpdatePill(); } catch (_) {} }
 }
+// ── V21.9: WHAT IS STILL WAITING ON THIS PHONE ──────────────────────────────
+// Guru, from the field: a person enrolled with no signal looked exactly like
+// one already on the server, so a coordinator could not tell what had gone and
+// what had not. _v196PendingIds already knows - an enrolment is keyed by the
+// person's id, a scheme change by 'advrows:' + id - so every label and note
+// below is read from that one in-memory set. No read, no write, no scan.
+function _v219WaitingBids() {
+  const s = new Set();
+  try {
+    _v196PendingIds.forEach(function (iid) {
+      const k = String(iid);
+      s.add(k.indexOf('advrows:') === 0 ? k.slice(8) : k);
+    });
+  } catch (_) {}
+  return s;
+}
+function _v219WaitingCounts() {
+  let people = 0, changes = 0;
+  try {
+    _v196PendingIds.forEach(function (iid) {
+      if (String(iid).indexOf('advrows:') === 0) changes++; else people++;
+    });
+  } catch (_) {}
+  return { people: people, changes: changes };
+}
+function _v219WaitingText(c) {
+  const bits = [];
+  if (c.people) bits.push(c.people + (c.people === 1 ? ' person' : ' people'));
+  if (c.changes) bits.push(c.changes + (c.changes === 1 ? ' change' : ' changes'));
+  return bits.join(' and ');
+}
+function _v219WaitingNoteHtml() {
+  const c = _v219WaitingCounts();
+  if (!c.people && !c.changes) return '';
+  return '<div class="v219-waiting-note" role="status" style="background:#EEF2FF;border:1px solid #C7D2FE;'
+    + 'border-radius:10px;padding:10px 12px;margin:12px 14px 4px;font-size:13px;color:#3730A3;line-height:1.4">'
+    + escHtml(_v219WaitingText(c)) + ' waiting to send. '
+    + (c.people + c.changes === 1 ? 'It will' : 'They will') + ' go automatically when the internet returns.</div>';
+}
+const _V219_WAITING_PILL = '<span class="coord-card-pill v219-waiting" style="background:#EEF2FF;color:#3730A3;'
+  + 'border:1px dashed #6366F1" title="Saved on this phone, not yet sent">Waiting to send</span>';
 
 // Send one queued scheme change: read what the server holds NOW, merge in
 // only the rows this device changed, write the record back.
@@ -7474,7 +7600,7 @@ function _coordRenderSummaryV341() {
   const count = (typeof FB.fcCount === 'number') ? FB.fcCount : null;
   const countTxt = (count === null) ? '—' : count.toLocaleString('en-IN');
   const label = (count === 1) ? 'beneficiary enrolled by you' : 'beneficiaries enrolled by you';
-  listEl.innerHTML =
+  listEl.innerHTML = _v219WaitingNoteHtml() +   // V21.9
     '<div style="background:var(--navy4,#F3F6FB);border:1px solid var(--navy3,#D5DEEC);' +
     'border-radius:10px;padding:24px 16px;margin:16px;text-align:center;">' +
       '<div style="font-size:36px;font-weight:700;color:var(--navy,#0B1441);line-height:1.1;">' + countTxt + '</div>' +
@@ -12133,7 +12259,7 @@ async function _v410EnrollPhotoPick(inputEl) {
           if (busy2) busy2.style.display = 'none';
           if (prev2) prev2.style.display = 'flex';
           toast('No internet - the photo is saved on this phone and will be sent '
-            + 'with this enrolment.', 'warn', 9000);
+            + 'with this enrolment.', 'pending', 9000);
           return;
         }
       } catch (_) {}
@@ -13735,7 +13861,7 @@ function toast(msg, type='', ms) {
   // V388: null guard — toast may fire before page shell renders (very-early errors).
   if (!t) return;
   const now = Date.now();
-  const important = (type === 'warn' || type === 'error');
+  const important = (type === 'warn' || type === 'error' || type === 'pending');   // V21.9
   if (!important && now < _v198ToastUntil) {
     // ⛔ V20.2: DEFERRED, NOT DROPPED. Holding the warning was right; throwing
     // the next message away was not. On the enrol path the "scheme plan is
@@ -14425,10 +14551,66 @@ async function _advApplyStatus(bid, scheme, remarks, next) {
   // saveAdv will also call _hydrateAdvCache after the write (idempotent).
   _hydrateAdvCache(adv.map(fbStampAdvKey));
   renderCurrent();
-  if (!await _trySave(() => saveAdv(adv), 'advocacy status update')) return;
+  // ⛔ V21.9: THE CARD'S STATUS CHANGE HAD NO OFFLINE PATH. Tapping a scheme on
+  // a coordinator's card lands here, and this went straight to saveAdv - so with
+  // no signal it failed with "No internet connection" AFTER the new status had
+  // already been painted above. The card kept showing a change that was neither
+  // saved nor queued, and it vanished on the next reload. Guru hit it in the
+  // field on 17 Sep. The scheme FORM has queued since V19.7; this is the same
+  // rule: nothing goes out when nothing can, only the changed rows wait, and
+  // they are merged into the server's own copy when sent.
+  let _v219Queued = false;
+  try {
+    if (!_v196CanReachServer()) {
+      _v219Queued = true;
+    } else {
+      const _g = await _v196Guard(saveAdv(adv), _v196WaitMs());
+      if (_g.timedOut) { _v219Queued = true; window._v196StaleSaveArmed = true; }
+    }
+  } catch (e) {
+    if (typeof _v196IsNetworkError === 'function' && _v196IsNetworkError(e)) {
+      _v219Queued = true;
+    } else {
+      toast((e instanceof SaveError) ? e.message : 'Save failed. Please try again.', 'error', 8000);
+      return;
+    }
+  }
+  if (!_v219Queued) {
+    // V20.2's rule: an online save is the newer truth for this person.
+    try { await _v197CancelQueued(bid); } catch (_) {}
+    auditLog('status_change', 'advocacy', bid, scheme,
+      `Advocacy: ${scheme} ${prevDisplay} → ${next}`, null);
+    toast(`${scheme}: ${next}`, 'success');
+    return;
+  }
+  const _b219 = getData().find(x => x.id === bid) || loadData().find(x => x.id === bid) || null;
+  const _chg219 = _v197ChangedRows(parentRec.schemeRows || [], _v210Before);
+  const _q219 = await _v197QueueRows(bid, (_b219 && _b219.name) || parentRec.bname || bid,
+    (_b219 && _b219.ngo) || parentRec.ngo || (currentUser() || {}).ngo || null, _chg219, '');
+  // nothing to send is not a failure to store - the form has said so since
+  // V19.7, and with the rule above a row can now legitimately stay at home.
+  if (_q219 === 'nothing-changed') { toast('No scheme changes to send.', '', 4000); return; }
+  if (_q219 !== true) {
+    // ⛔ NEVER LEAVE A CHANGE ON SCREEN THAT IS NOT SAVED ANYWHERE. Put the
+    // card back the way it was, then say why.
+    parentRec.schemeRows = _v210Before;
+    _hydrateAdvCache(adv.map(fbStampAdvKey));
+    renderCurrent();
+    toast('This phone could not store the change. Please try again.', 'error', 8000);
+    return;
+  }
+  try {
+    // V20.2's rule, as the form does it: the phone's copy matches the last-map,
+    // so a later whole-array save cannot push it up without the merge.
+    const _st219 = fbStampAdvKey(parentRec);
+    if (_st219 && _st219.__fbk && FB && FB.lastAdv) FB.lastAdv[_st219.__fbk] = fbHash(_st219);
+    _v361InvalidateAggCache();
+    if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache();
+  } catch (_) {}
+  renderCurrent();   // the Waiting to send label appears
   auditLog('status_change', 'advocacy', bid, scheme,
-    `Advocacy: ${scheme} ${prevDisplay} → ${next}`, null);
-  toast(`${scheme}: ${next}`, 'success');
+    `Advocacy: ${scheme} ${prevDisplay} → ${next} (saved on the phone, sent when online)`, null);
+  toast(`${scheme}: ${next}. Saved on this phone - it will be sent when the internet returns.`, 'pending', 9000);
   // renderCurrent() already called above — no second call needed
 }
 
@@ -17933,7 +18115,7 @@ async function _submitEnrollInner() {
           if (typeof toast === 'function') {
             toast(_saved
               ? 'The scheme plan is saved on this phone and will be sent automatically.'
-              : ('Initial scheme plan did not sync: ' + msg), 'warn', 9000);
+              : ('Initial scheme plan did not sync: ' + msg), _saved ? 'pending' : 'warn', 9000);
           }
         }
       }
@@ -17953,7 +18135,7 @@ async function _submitEnrollInner() {
       _v201SetEnrollBtn('phone', 'Saved on phone');
       if (typeof toast === 'function') {
         toast('Saved on this phone. ' + _waiting + ' item' + (_waiting === 1 ? '' : 's')
-          + ' waiting to send. They will go automatically when the internet returns.', 'warn', 9000);
+          + ' waiting to send. They will go automatically when the internet returns.', 'pending', 9000);
       }
     } else {
       _v201SetEnrollBtn('saved', 'Saved');
@@ -22248,7 +22430,7 @@ async function _saveAdvocacyInner() {
     if (typeof toast === 'function' && _qok === true) {   // V20.2: not on top of "nothing to send"
       toast('Saved on this phone. ' + _changed.length + ' scheme change'
         + (_changed.length === 1 ? '' : 's') + ' waiting to send - they will go'
-        + ' automatically when the internet returns.', 'warn', 9000);
+        + ' automatically when the internet returns.', 'pending', 9000);
     }
   }
 
@@ -37169,6 +37351,29 @@ function _renderCoordReports() {
     }).join('');
   }
 
+  // V21.9: these figures already include work saved on this phone - say so,
+  // so a number that has not reached the office yet is never mistaken for
+  // one that has.
+  try {
+    const _panel = document.getElementById('coord-panel-reports');
+    let _note = document.getElementById('coord-reports-waiting');
+    const _c = _v219WaitingCounts();
+    if (_panel && !_note) {
+      _note = document.createElement('div');
+      _note.id = 'coord-reports-waiting';
+      _note.setAttribute('role', 'status');
+      _note.style.cssText = 'background:#EEF2FF;border:1px solid #C7D2FE;border-radius:10px;padding:10px 12px;'
+        + 'margin:10px 14px 0;font-size:13px;color:#3730A3;line-height:1.4';
+      const _wrap = _panel.querySelector('.coord-carousel-wrap');
+      if (_wrap && _wrap.nextSibling) _panel.insertBefore(_note, _wrap.nextSibling); else _panel.appendChild(_note);
+    }
+    if (_note) {
+      const _any = _c.people + _c.changes > 0;
+      _note.style.display = _any ? '' : 'none';
+      _note.textContent = _any ? ('Includes ' + _v219WaitingText(_c) + ' waiting to send from this phone.') : '';
+    }
+  } catch (_) {}
+
   _coordWireReportsCarousel();
 }
 
@@ -37857,14 +38062,16 @@ function coordRenderList() {
     }
   } catch(_){}
   if (list.length === 0) {
+    // V21.9: unsent work does not stop mattering because the search found
+    // nothing - the note stays above whichever empty screen is shown.
     if (all.length === 0) {
-      listEl.innerHTML = `<div class="coord-empty">
+      listEl.innerHTML = _v219WaitingNoteHtml() + `<div class="coord-empty">
         <div class="coord-empty-icon">📋</div>
         <div class="coord-empty-title">No beneficiaries yet</div>
         <div class="coord-empty-sub">Tap <strong>+ Enroll</strong> below to add your first one.</div>
       </div>`;
     } else {
-      listEl.innerHTML = `<div class="coord-empty">
+      listEl.innerHTML = _v219WaitingNoteHtml() + `<div class="coord-empty">
         <div class="coord-empty-icon">🔍</div>
         <div class="coord-empty-title">No matches</div>
         <div class="coord-empty-sub">Try a different search or filter.</div>
@@ -37884,7 +38091,7 @@ function coordRenderList() {
   // classifier (a beneficiary with logged advocacy rows should show the
   // Advocacy tag even if the 'Advocacy (Govt. Schemes)' intervention flag
   // isn't set on their interventions array).
-  listEl.innerHTML = _pageList.map(b => coordCardHtml(b, advByBid)).join('');
+  listEl.innerHTML = _v219WaitingNoteHtml() + _pageList.map(b => coordCardHtml(b, advByBid)).join('');   // V21.9
 
   // V332-FC-SCHEMES: update pagination controls + count bar text.
   const _pagEl = document.getElementById('coord-pagination');
@@ -37948,6 +38155,9 @@ function coordCardHtml(b, advByBid) {
   // _ADV_POP_COLORS above, a real pre-existing colour collision).
   if (hasLiv) progPills.push(`<span class="coord-card-pill" style="background:#FCE7F3;color:#9D174D">Livelihood</span>`);
   if (hasAdv) progPills.push(`<span class="coord-card-pill" style="background:#EDE9FE;color:#6D28D9">Advocacy</span>`);
+  // V21.9: saved on this phone and not yet on the server - the person, or a
+  // scheme change made to them. Gone the moment it is sent.
+  try { if (_v219WaitingBids().has(b.id)) progPills.push(_V219_WAITING_PILL); } catch (_) {}
   // Safe HTML escape
   const esc = s => String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   // V6.8.1: village text built once so it can move up next to the ID.
