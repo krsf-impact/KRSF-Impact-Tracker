@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V21.9-LIVE
+  KRSF Beneficiary Impact Tracker  -  V22.1-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,82 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V22.1-LIVE (2026-09-18 - an import that finishes, and a screen that opens).
+
+    + ⛔ THE BULK IMPORT WALKED THE WHOLE DATABASE TWICE PER ROW. saveData()
+      at the top of each iteration, which during an import rebuilds the
+      146,000-entry cache and rewrites the pantry to publish ONE record; and
+      genId() cloning all 146,000 records to read their ids. Measured: 1,424 ms
+      a row, 2.8 GB, and Guru’s 3,553-row Navchetana file would have taken 85
+      minutes with the tab locked. Now the new record goes straight into the
+      cache and genId reads it there: 137 ms a row, the whole file in 4m17s,
+      ids unique, undo still removes every one. Nothing about what is written
+      changed - the same records, the same single write at the end.
+
+    + ALERTS & FLAGS HUNG THE TAB. Guru sent Chrome’s own "Page Unresponsive"
+      box: 105,669 alerts, and 100,981 of them were ONE rule - a scheme nobody
+      has applied for yet, which is most of the database. That rule is now
+      counted and said once under the heading instead of listed 100,981 times,
+      the 4,688 real flags stay (4,449 of them benefits marked received with no
+      amount), the answer is remembered until the data changes, and the screen
+      draws 200 at a time. ⛔ THE BADGE was the worse half: it computed the
+      whole thing on every render of several screens - 1.9 s each - and now
+      costs a millisecond.
+
+    + Tests: 73 files. v221.js is new - 31 checks on the real 146,395-record
+      export: the per-row database walks are COUNTED, not timed, so a loaded
+      machine cannot turn it red. V22.0 fails 15 of them; 8 mutants, all
+      killed. ⛔ One lived at first: removing the cache insert did not produce
+      duplicate ids, because the id reservation already stops that - so the
+      check now watches genId see each record as it is made.
+
+  V22.0-LIVE (2026-09-18 - a hundred staff accounts from one file).
+
+    + GURU: "I have to manually add 100s of users in the user management."
+      Import Users now sits beside Add User. One row per person - name,
+      username (a phone number for 499 of the 626 people already in the app),
+      password, role, partner - and for a Team Leader, the usernames of the
+      coordinators they oversee.
+
+    + NOTHING IS CREATED UNTIL THE CHECK HAS BEEN READ. Per row: create, skip
+      because that username already exists, or refused with the reason on the
+      row. ⛔ A TEAM LEADER’S ROW SHOWS THE NAMES IT RESOLVED, not the numbers
+      typed - a number that belongs to the wrong person is the one mistake no
+      check can catch, so it is put where an eye can catch it.
+
+    + ⛔ AN EXISTING ACCOUNT IS NEVER TOUCHED. A repeated import skips it
+      rather than resetting a working coordinator’s password, and the names are
+      read again at the moment of writing - somebody adding a user by hand
+      while the file is open no longer ends in two accounts on one username,
+      which the server login would resolve by picking one of them.
+
+    + One write per person, to that person alone. Undo removes exactly what
+      the import created and KEEPS anyone who has since enrolled somebody or
+      logged a scheme, and refuses to run at all before the records have
+      finished arriving - on a half-synced device every ownership count reads
+      zero. 98 accounts: 99 writes, no reads, about a tenth of a second.
+
+    + ⛔ THE REVIEW FOUND SEVEN, TWO OF THEM SERIOUS. The admin tab cache -
+      on for admins only, which is everyone who can reach this screen - would
+      have replayed the preview after a trip to another tab, with its Create
+      button live: every account a second time, under a second batch id.
+      And the template the app itself handed out carried example people that
+      nothing filtered on the way back in, so an admin who typed their staff
+      underneath imported two signable accounts with published passwords.
+      Also: a stale user list, undo cloning 139,000 records to count
+      ownership, undo blind to advocacy, a Team Leader created without a
+      coordinator whose write had failed, and a Viewer row with an empty
+      partner column silently seeing all 146,000 records.
+
+    + Tests: 72 files. v220users.js and v412state.js are new - 49 checks and
+      23, the first driven as an admin through the real screen with a 100-row
+      file, every password verified by the app’s own login check, the second
+      pinning down the per-state scheme filter nothing had ever tested.
+      V21.9 has no import at all; 18 mutants of this build, all killed.
+      ⛔ My own bug, found by the test’s arithmetic
+      rather than by me: the result screen counted the preview after clearing
+      it, so it said "0 skipped, 0 refused" whatever the file held.
+
   V21.9-LIVE (2026-09-18 - a scheme status changed on the card with no signal).
 
     + WHAT GURU HIT. Enrolled somebody offline (that worked), then tapped the
@@ -445,268 +521,7 @@
     + Tests: 64 files. v213.js is new - 60 checks, every one seen RED on V21.2
       first, and eleven mutants confirm it bites.
   ============================================================================
-  V21.2-LIVE (2026-09-08 - an imported benefit carries its date, Reports can
-  be asked for a calendar month, and the endline sheet stops showing the
-  figure it is not asking for).
-
-    + ⛔ THE IMPORTER WAS THE FOURTH SAVE PATH, AND THE ONLY ONE LEFT. V21.0
-      fixed the drawer, the quick button and Bulk Update. The importer built
-      its scheme rows itself and wrote them straight to the database, so
-      every benefit that ever came in through a spreadsheet was born with no
-      date - and could never gain one, because _rptStampRowDates stamps on an
-      OBSERVED transition and an imported row arrives already reading
-      "Benefits Received". There is no transition, on that save or any later
-      one. Those rows counted in every all-time total while being invisible
-      to every date filter: the exact split Guru reported from the field,
-      fifteen benefits in Recent Activity against three under the filter.
-      _v212StampImportedRows now passes an EMPTY stored set to the same
-      function, which makes every row new - which it is - and applies the
-      identical rule a coordinator's own first save gets. Reused rather than
-      repeated on purpose: two copies of this rule would drift, and the last
-      time one rule lived in several places it cost a whole release to put
-      right.
-
-    + THE SHEET CAN NOW SAY WHEN. The schemes cell takes an optional fourth
-      part - Scheme:Status:Amount:Date - so a partner can load a backlog with
-      the days it actually happened. Safe to split on ':' because no scheme
-      in the catalogue contains one. Blank means the day of import.
-
-    + ⛔ AND A DATE THE APP CANNOT READ IS REFUSED, NOT QUIETLY REPLACED.
-      _rptStampOk discards anything on or before 2026-07-29, so an older date
-      would be written, billed on every read of that row for ever, and still
-      show nothing. The first build of this release fell back to TODAY in
-      that case - which would have filed a March benefit into today's TODAY
-      card and into September's figure. Caught by its own test. The row is
-      now left honestly undated, with a warning in the preview that says why.
-
-    + THIS MONTH AND LAST MONTH ON REPORTS, SHIPPED SWITCHED OFF. Guru turns
-      them on himself once October is a complete month, because benefits are
-      only fully dated from 7 September 2026 and any month before that reads
-      low. The switch is an admin-only link beside the buttons; the flag
-      lives in config/flags, inside the node the app already downloads whole
-      at boot, so it costs no extra Firebase. Absent means off, so a device
-      that has never seen it behaves exactly as V21.1 did.
-
-    + ⛔ A CALENDAR MONTH IS NOT A ROLLING WINDOW, so inWin gained a CEILING.
-      "Last 30 days" is a floor with an open end, which is fine when nothing
-      is dated ahead of now. August needs both ends: without the ceiling,
-      asking for August would also count September and the button would be a
-      rolling window wearing a month's name. Verified safe for every figure
-      that exists: all 142,060 records and 250,786 scheme rows in the live
-      export carry no future date, so the five day-windows are unchanged.
-      rptMonth is deliberately NOT another value of rptRange - that variable
-      is a COUNT OF DAYS and half this file multiplies it by 86400000.
-
-    + THE ENDLINE SHEET SHOWED THE GAIN WHILE ASKING FOR THE TOTAL. The
-      reference column summed the income-log entries, which are the
-      ADDITIONAL income on top of the baseline, and sat directly beside
-      newEndIncome, which is the household's whole income. Read 25,000, type
-      30,000, and a family who started on 40,000 is recorded as having lost
-      income - the very mistake the Suspicious Endlines report exists to
-      catch. It is now baseline + everything logged since, named
-      currentTotalIncome, built by _v212EndlineRow so a test can see it.
-
-    + AND THE INSTRUCTIONS STOPPED PROMISING A BUTTON THAT WAS REMOVED.
-      Unmatched ids are skipped and counted in the closing message; the sheet
-      now says so, and says the figure wanted is the full annual household
-      income, not the increase.
-
-    + ⛔ FIVE INDEPENDENT REVIEWS, AND THE WORST FINDING WAS MINE. The first
-      build of this release put an UNCONDITIONAL ceiling on the window -
-      `t <= nowMs`. Stored dates are bare 'YYYY-MM-DD' IST calendar days;
-      new Date() reads them as UTC midnight = 05:30 IST; nowMs is a real
-      instant. So between midnight and half past five every morning,
-      everything recorded that day sat in the 'future' and vanished from
-      all five day-windows. _rptActiveAt carries the V20.2 note describing
-      this exact fault NINETY LINES ABOVE the line I changed. Two reviewers
-      found it independently. The ceiling is now an argument only a month
-      supplies, so the day-windows are identical to V21.1 by construction.
-
-    + AND FOUR MORE, ALL FIXED. A month-filtered CSV went out named
-      'alltime' with every column headed '(all-time)'. Picking August made
-      a coordinator who worked in September read 'never' and drop into the
-      inactive table - 'Last active' is not a windowed figure and its own
-      tooltip says so, but it was measured against the window's end. The
-      Trends tab divided a month's total by 365 under the heading 'Enrolled
-      (all time)', so month buttons are not offered there. And a
-      spreadsheet cell reached the import preview as unescaped HTML.
-
-    + ⛔ 'Approved' IN A SHEET NOW SETS benefitRecd:'Yes'. All 29,061
-      Approved rows the app itself writes carry the flag, and
-      _advNormStatus reads the flag and never the word - so an imported
-      Approved row was classifying as merely Applied and would never have
-      been counted as a benefit anywhere.
-
-    + ⛔ AND THE SUITE ITSELF WAS LYING. A reviewer built mutants: a window
-      helper returning an infinite window - every day-chip silently showing
-      all-time numbers - PASSED all 113 checks, because the probe
-      re-implemented the very expression this release deleted. Breaking the
-      boot path so the switch never reaches a device PASSED too, because
-      the test set localStorage itself instead of driving that path. Both
-      now go red. _v212AdoptFlags exists so both boot reads share one rule
-      a test can call. Source greps strip comments first - 'config/flags'
-      appears in this changelog, so deleting every line of flag code used
-      to satisfy that check.
-
-    + TESTS: _tests/v212.js - 122 checks, every one seen RED on V21.1 first,
-      and the baseline it compares against is committed beside it as
-      _tests/v211-baseline.json rather than left in a temporary folder.
-      Three mutants confirm it bites: a window helper that returns an
-      infinite window, a boot read of the wrong config key, and the
-      unconditional ceiling described above. The first two passed an
-      earlier draft of this suite and are why it was rewritten.
-    + Tests: 63 files at the time of that release.
-  ============================================================================
-  V21.1-LIVE (2026-09-06 - the Find bar moves to the two pages it means
-  something on).
-
-    + WHAT GURU ASKED FOR, in his words: "remove the filter from the
-      dashboard. Just keep the filter for the livelihood page and advocacy
-      page. We don't need the selection of livelihood or advocacy by
-      default. For advocacy, it becomes advocacy, and for livelihood, it
-      becomes livelihood."
-
-    + WHY IT WAS WRONG WHERE IT WAS. On the dashboard the bar narrowed every
-      tile, and a status picks PEOPLE, not scheme rows - so choosing "Need to
-      apply" left Scheme Benefits reading 13 crore, which is what those same
-      people received on their OTHER schemes. The figure was right and the
-      screen did not say so. It was also the slowest thing on the page:
-      measured at 7.6 to 9.3 seconds per change on 139,324 records, and
-      NARROWING made it slower, not faster - 9.3 s for the 22,252-record
-      view, because the cost is deciding who matches, not drawing them.
-
-    + WHERE IT IS NOW. Livelihood and Advocacy only. The category is the page
-      you are on, so that dropdown is gone: Livelihood offers Enrolled,
-      Intervention in progress and Completed; Advocacy offers Need to apply,
-      Applied, Rejected and Benefits received.
-
-    + ⛔ AND IT CLEARS ITSELF ON THE WAY OUT. A filter left set while the bar
-      is hidden would silently narrow the dashboard with no visible control -
-      worse than the problem being fixed. Leaving either page resets the
-      category, the status and every date, so the dashboard is always whole.
-
-    + ⛔ THE DISABLED DATE BUTTON NOW LOOKS DISABLED. "Need to apply" and
-      "Intervention in progress" are states the app records no date for, so
-      the button is correctly dead - but it still looked like a button, and
-      Guru reported it as broken. It is greyed, shows a not-allowed cursor,
-      and says why on hover.
-
-    + ⛔ WHAT THIS COSTS: All Beneficiaries loses the bar, exactly as asked.
-      The same search now lives on Advocacy, which is where a scheme status
-      belongs. If that turns out to be wrong it is one line to put back.
-
-    + Tests: 62 files at the time of that release.
-  V21.0-LIVE (2026-09-06 - two of the three ways to mark a benefit never
-  wrote down the day).
-
-    + WHAT GURU SAW. Recent Updates listed fifteen scheme rows moved to
-      "Benefits Received" fourteen minutes earlier, all at KRSF.Meghraj. The
-      beneficiary list, filtered to Benefits received on the same date,
-      returned three people - different people, at a different partner.
-
-    + ⛔ THE FILTER WAS RIGHT. THE DATE WAS NEVER WRITTEN. A benefit can be
-      marked received three ways, and only one of them stamped the day:
-        the advocacy drawer      -> _saveAdvocacyInner  -> STAMPED
-        the quick status button  -> _advApplyStatus     -> not stamped
-        Bulk Update Status       -> applyBulkStatusUpdate -> not stamped
-      The quick button is the fast, obvious way to work, so most of the
-      day's benefits carried no date and were invisible to every surface
-      that asks WHEN: the date filter, the TODAY card, the today-by-partner
-      table and the Reports benefits timeline. The three the filter found
-      were the three saved through the drawer.
-
-    + HOW LONG IT HAS BEEN TRUE. Measured on the 31 Aug export: 25,574 of
-      27,034 rows marked Benefits Received - 94.6% - carry no date at all.
-      Some of that is genuinely historical, from before stamping existed on
-      30 Jul 2026. The rest is this.
-
-    + THE FIX. Both paths now call _rptStampRowDates, the same pure function
-      the drawer has used since V12.4, with the rows as they were before the
-      edit. It stamps only on an observed transition, never re-dates a row
-      that was already in that state, and never invents a date for a
-      historical row whose real date is unknown.
-
-    + AND UNDO NOW CLEARS THE DATE TOO. Undoing a bulk update restored the
-      status but left the benefit date behind, so a row could read "not
-      received" while still carrying the day it arrived. Running the same
-      stamper on the restored rows removes it, because the stamper drops
-      _bAt from any row that is no longer at Benefits Received.
-
-    + ⛔ WHAT THIS DOES NOT DO. It cannot recover the 25,574 rows already
-      saved without a date. Their day is not in the record. The audit log may
-      hold it for some of them; that is a separate decision.
-
-    + FIREBASE. No new read, and no new write: these paths already saved the
-      record they changed. The record grows by about twenty bytes per row
-      actually moved - which is the whole point of the release.
-
-    + Tests: v210stamp.js is new.
-  V20 - V20.9: moved to CHANGELOG.md on 2026-09-17 (V21.7), to keep this
-  comment small - every phone downloads it.
-
-  V19.9-LIVE (2026-09-03 - four screens that were saying the wrong thing).
-   counted anywhere, so all six surfaces agree. ⛔ The record is still in
-      Full entry in CHANGELOG.md.
-
-  V19.8-LIVE (2026-09-03 - what five rounds of review found).
-   + ⛔ THE REPAIR WAS WORSE THAN THE FAULT. A stale-copy repair added in
-   + ⛔ THE WAITING LINE MUST NOT BE A SHARED OBJECT. It kept an index
-   + ⛔ SCHEME + REMARKS IS NOT A UNIQUE KEY. 288 real records hold two
-   + ⛔ A BOUNDED WAIT DOES NOT CANCEL THE WRITE. The SDK still delivers
-   + ⛔ COMPARE FIELDS, NOT TEXT. Rows were compared with JSON.stringify;
-   + ⛔ AND THE TESTS LIED TWICE. A check that asserts against the test's
-      Full entry in CHANGELOG.md.
-
-  V19.7 (2026-09-01 - change a scheme's status with no signal). Shipped
-
-    + ⛔ BUT IT IS NOT SENT THE SAME WAY. An enrolment is a new record
-      nobody else can touch; a scheme change EDITS one that exists, and
-      saveAdvocacy writes the WHOLE row set - any row not in the form is
-      marked deleted. Replaying that from a stale copy would mark somebody
-      else's rows deleted. So the queue carries ONLY THE ROWS THAT CHANGED
-      and merges them into the server's own copy at send time. Measured on
-      the real export: 139,226 of 139,422 scheme records are one
-      coordinator's from start to finish and only 45 have ever been
-      touched by more than one person - but the merge costs nothing and
-      protects those 45.
-    + ⛔ A QUEUED ROW MUST CARRY status AND benefitRecd. 'Benefits
-      Received' is not stored as a status - it is worked out from
-      benefitRecd === 'Yes'. A row carrying only the status arrives
-      reading 'Applied'. That mistake has shipped in this app twice, so
-      there is now a check that fails if the flag stops travelling.
-
-      Full entry in CHANGELOG.md.
-  ============================================================================
-  V19.6 (2026-09-01 - enrol with no signal). Shipped inside V19.8-LIVE.
-
-    + ⛔ THE APP COULD NOT SUBMIT WITHOUT SIGNAL. Guru switched mobile data
-      off, submitted an enrolment and the form sat on "Saving..." until
-      the signal came back. A Firebase write promise NEVER settles when
-      there is no route out - not resolved, not rejected - and the phone's
-      own copy is written only AFTER the server confirms, so closing the
-      app in between lost the enrolment entirely.
-    + ⛔ navigator.onLine IS NOT AN OFFLINE TEST. With data switched off the
-      phone still reports online. Every wait is now bounded - 8 seconds
-      with signal, 2 without - and giving up is the only honest test.
-    + ⛔ REPLAYED ONE RECORD AT A TIME through fbWriteChangedRecords. The
-      offline queue removed in V310-S2 replayed WHOLE-ARRAY saves, which
-      could resurrect records deleted on another device. This one cannot
-      touch a record it was not handed. It also reads the target id first
-      and REFUSES to send if that id already belongs to somebody else.
-    + ⛔ FOUND BY THE FIELD TEST: the sender's re-entry guard was claimed
-      AFTER an await, so the 40-second timer and the reconnect handler
-      could both pass the check and send the same six people twice. The
-      flag is now claimed synchronously.
-
-      Full entry in CHANGELOG.md.
-  ============================================================================
-  V19.5-LIVE (2026-08-31 - what four independent reviews found in V19.4):
-   + ⛔ A REFUSED SESSION COULD STILL SAVE, AND THE SAVE WAS DESTRUCTIVE.
-   + ⛔ ONE CLOCK-FAST TOMBSTONE PINNED THE WATERMARK FOR EVERY DEVICE.
-   + ⛔ A LIVE RECORD WRITTEN BY A CLOCK-FAST PHONE VANISHED FROM EVERY
-   + ⛔ A DELETED PERSON CAME BACK, ON THE SERVER, FOR EVERYONE. The two
-   + ⛔ THE SUMMARY AN ADMIN WRITES WAS Rs 5.65 CRORE BELOW THE SAME NODE
-      Full entry in CHANGELOG.md.
+  Everything before this point lives in CHANGELOG.md, beside this file.
 -->
 <html lang="en">
 <head>
@@ -3394,6 +3209,13 @@ body[data-shell="coord"] #_v352-install-btn {
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 5h8M7 2l3 3-3 3"/><path d="M14 11H6M9 8l-3 3 3 3"/></svg>
       Move Records Between Partners
     </button>
+    <!-- V22.0: reached from User Management, not the sidebar - the same rule
+         as Move Records Between Partners above. The button stays in the markup
+         so nav() can mark it active while the page is open. -->
+    <button data-admin-only data-sidebar-hidden="true" class="nav-btn" data-v="admin_user_import" onclick="nav('admin_user_import')" style="display:none">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8M5 7l3 3 3-3"/><path d="M3 13h10"/></svg>
+      Import Users
+    </button>
     <button data-admin-only data-sidebar-hidden="true" class="nav-btn" data-v="admin_scheme_rename" onclick="nav('admin_scheme_rename')" style="display:none">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 8h9M8 5l3 3-3 3"/><path d="M13 3v10"/></svg>
       Scheme Rename Backfill
@@ -4470,7 +4292,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V21.9-LIVE';
+const APP_VERSION = 'V22.1-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -13401,7 +13223,11 @@ async function _genIdCore(district) {
   // Local seed floor — computed from the cache only (no network). Used inside
   // the transaction handler if the counter has not yet been seeded for this
   // state, so we never mint an ID lower than something we already know exists.
-  const localIds = loadData().map(b => b.id);
+  // ⛔ V22.1: _readCacheDirect, NOT loadData. loadData hands back a DEEP CLONE
+  // of every beneficiary - 146,000 of them - and this line wants nothing but
+  // their ids. Inside a bulk import genId runs once per row, so that clone was
+  // being made thousands of times. Nothing here mutates what it reads.
+  const localIds = _readCacheDirect().map(b => b.id);
   let localMaxN = 0;
   for (const id of localIds) {
     if (typeof id === 'string' && id.startsWith(prefix)) {
@@ -20143,7 +19969,31 @@ function renderNGO() {
 
 
 // ── Alerts ────────────────────────────────────────────────────────────────
+// V22.1: what the noisy rule now reports as one line instead of 100,981.
+let _v221Stuck = { people: 0, rows: 0 };
+// ⛔ AND THE ANSWER IS REMEMBERED. getAlerts() walks every beneficiary and
+// every advocacy record - 2 to 3.4 seconds on the real data - and the badge
+// called it on EVERY render of several screens. The result only changes when
+// the data changes, and _v357DataVersion already counts exactly that.
+let _v221AlertCache = null;
 function getAlerts() {
+  // the answer depends on the version, on how many records are loaded (a cold
+  // boot fills the caches without always bumping the version), and on the day
+  // itself - every rule counts days since something happened.
+  const _ver = ((typeof _v357DataVersion !== 'undefined') ? _v357DataVersion : -1)
+    + '|' + ((typeof RecordCache === 'object' && RecordCache.benef) ? RecordCache.benef.size : -1)
+    + '|' + ((typeof RecordCache === 'object' && RecordCache.adv) ? RecordCache.adv.size : -1)
+    + '|' + new Date().toISOString().slice(0, 10);
+  if (_v221AlertCache && _v221AlertCache.ver === _ver) {
+    _v221Stuck = _v221AlertCache.stuck;
+    return _v221AlertCache.alerts;
+  }
+  const _out = _getAlertsInner();
+  _v221AlertCache = { ver: _ver, alerts: _out, stuck: _v221Stuck };
+  return _out;
+}
+function _getAlertsInner() {
+  _v221Stuck = { people: 0, rows: 0 };
   // v32.4: rewritten for the 3-stage pipeline (Enrolled → In Progress → Completed).
   // Removed the legacy "training done but no input" rule — training and input
   // distribution are no longer separate gates. Added 5 new rules that match
@@ -20308,7 +20158,13 @@ function getAlerts() {
           anchor = b.enrollDate || null;
         }
         const d = daysSince(anchor);
-        if (d !== null && d > STALE_DAYS) {
+        // ⛔ V22.1: THIS RULE IS NOT AN ALERT, IT IS THE DATABASE. It fired for
+        // 100,981 of the 105,669 alerts on the real data - every person holding a
+        // scheme nobody has applied for yet, which is most of them - and burying
+        // 4,688 real problems under it is what made Guru stop opening the screen.
+        // Counted instead, and reported once at the top of the page.
+        _v221Stuck.people++; _v221Stuck.rows += needToApplyRows.length;
+        if (false && d !== null && d > STALE_DAYS) {
           alerts.push({type:'amber',msg:`<strong>${_eid} — ${_en}</strong> (${_eng}) — ${needToApplyRows.length} scheme${needToApplyRows.length===1?'':'s'} stuck at Need to Apply for ${d} days. Update status via Advocacy → Log.`,id:b.id});
         }
       }
@@ -20385,6 +20241,25 @@ function updateAlertBadge() {
   }
   updateMobAlertBadge(count);
 }
+// ⛔ V22.1: A PAGE OF ALERTS, NOT ALL OF THEM. Putting 105,669 rows into the
+// document is what made the tab hang - Guru sent the screenshot of Chrome's
+// own "Page Unresponsive" box. 200 at a time, with the count kept honest.
+const _V221_PAGE = 200;
+function _v221Page(alerts) {
+  // ⛔ THE WORST FIRST. The list is built in beneficiary order and the two
+  // green summaries are pushed last, so a plain slice showed neither the
+  // urgent ones nor the green lines - and a red alert at position 3,000 could
+  // not be reached at all. Stable sort: red, then amber, then green.
+  const rank = { red: 0, amber: 1, green: 2 };
+  const sorted = alerts.map((a, i) => [a, i]).sort((x, y) => {
+    const d = (rank[x[0].type] == null ? 3 : rank[x[0].type]) - (rank[y[0].type] == null ? 3 : rank[y[0].type]);
+    return d !== 0 ? d : x[1] - y[1];
+  }).map(p => p[0]);
+  const shown = sorted.slice(0, _V221_PAGE);
+  const more = sorted.length - shown.length;
+  return shown.map(a => `<div class="alert alert-${a.type}" ${a.id?`onclick="openDrawer('${a.id}')" style="cursor:pointer"`:''}><div class="alert-icon">${a.type==='green'?'✓':'!'}</div><div>${a.msg}</div></div>`).join('')
+    + (more > 0 ? `<div style="padding:12px 14px;color:var(--gray2);font-size:13px">Showing the ${_V221_PAGE} most urgent of ${alerts.length}.</div>` : '');
+}
 function renderAlerts() {
   // V325: coordinators use the coord shell — render into coord-list instead
   // of #content, and show a back button
@@ -20403,6 +20278,8 @@ function renderAlerts() {
     <div class="card" style="padding:16px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
         <div class="card-title" style="margin:0">Active Flags (${activeCount})</div>
+        <!-- V22.1: the counted rule, said once instead of 100,981 times -->
+        ${_v221Stuck.people ? `<div style="font-size:12px;color:var(--gray2);margin-top:2px">and ${_v221Stuck.rows.toLocaleString('en-IN')} scheme${_v221Stuck.rows === 1 ? '' : 's'} across ${_v221Stuck.people.toLocaleString('en-IN')} people still waiting to be applied for</div>` : ''}
         <div style="display:flex;gap:12px;font-size:12px">
           ${redCount   ? `<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--red);margin-right:5px;vertical-align:middle"></span>${redCount} urgent</span>` : ''}
           ${amberCount ? `<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--amber);margin-right:5px;vertical-align:middle"></span>${amberCount} to review</span>` : ''}
@@ -20410,7 +20287,7 @@ function renderAlerts() {
         </div>
       </div>
       ${alerts.length === 0 ? '<div class="empty">No active alerts. All beneficiaries are on track.</div>' :
-        alerts.map(a => `<div class="alert alert-${a.type}" ${a.id?`onclick="openDrawer('${a.id}')" style="cursor:pointer"`:''}><div class="alert-icon">${a.type==='green'?'✓':'!'}</div><div>${a.msg}</div></div>`).join('')
+        _v221Page(alerts)
       }
       <details style="margin-top:14px;padding:10px 14px;background:#FAFAFA;border-radius:6px;font-size:12px;color:var(--gray2)">
         <summary style="cursor:pointer;font-weight:500;color:var(--gray);user-select:none">Flag criteria</summary>
@@ -24811,6 +24688,12 @@ function _v361CacheEnabled() {
 }
 
 function _v361InvalidateAggCache() {
+  // ⛔ V22.1: THE ALERTS MEMO DIES HERE TOO. Every path that knows the
+  // aggregates are stale knows the alerts are stale; some of them bump
+  // _v357DataVersion and some only call this, and the ones that only call
+  // this are exactly where a boot computes alerts against an empty advocacy
+  // cache and then remembers the answer.
+  _v221AlertCache = null;
   _v361AdvAgg = null;
   _v361BenefAgg = null;
   _v361DashAgg = null;
@@ -27709,7 +27592,7 @@ function renderReports() {
 }
 
 // ── Nav ───────────────────────────────────────────────────────────────────
-const _navRoutes_v32={reports:renderReports,dashboard:renderDashboard,beneficiaries:renderAllBeneficiaries,list:renderLivelihood,ngo:renderNGO,alerts:renderAlerts,map:renderMap,integrated:renderIntegrated,advocacy:renderAdvocacy,admin_partners:renderAdminPartners,admin_users:renderAdminUsers,admin_livelihoods:renderAdminLivelihoods,admin_schemes:renderAdminSchemes,admin_audit:renderAdminAuditLog,admin_import:renderAdminImport,admin_photo_migration:renderAdminPhotoMigration,admin_advocacy_backfill:renderAdminAdvocacyBackfill,admin_dedup_ids:renderAdminDedupIds,admin_delete_dupes:renderAdminDeleteDupes,admin_scheme_rename:renderAdminSchemeRename,admin_partner_move:renderAdminPartnerMove,admin_bandwidth:renderAdminBandwidth};
+const _navRoutes_v32={reports:renderReports,dashboard:renderDashboard,beneficiaries:renderAllBeneficiaries,list:renderLivelihood,ngo:renderNGO,alerts:renderAlerts,map:renderMap,integrated:renderIntegrated,advocacy:renderAdvocacy,admin_partners:renderAdminPartners,admin_users:renderAdminUsers,admin_livelihoods:renderAdminLivelihoods,admin_schemes:renderAdminSchemes,admin_audit:renderAdminAuditLog,admin_import:renderAdminImport,admin_photo_migration:renderAdminPhotoMigration,admin_advocacy_backfill:renderAdminAdvocacyBackfill,admin_dedup_ids:renderAdminDedupIds,admin_delete_dupes:renderAdminDeleteDupes,admin_scheme_rename:renderAdminSchemeRename,admin_user_import:renderAdminUserImport,admin_partner_move:renderAdminPartnerMove,admin_bandwidth:renderAdminBandwidth};
 
 // ── V357: tab-render cache (admin Lite Mode) ──────────────────────────────
 // Memoises each _navRoutes_v32 renderer's output keyed on
@@ -27897,7 +27780,11 @@ function _v361LoadingSkeleton(viewName) {
 // Admin-only, because _v357CacheEnabled() is admin-only — which is why this was
 // invisible to all 559 coordinators and only ever hit the one person who could
 // open the map most often.
-const _v357NeverCache = new Set(['map']);
+// ⛔ V22.0: THE IMPORT SCREEN MUST NEVER BE REPLAYED FROM THE CACHE. Its
+// HTML is a decision about a file that is no longer loaded - a replayed
+// preview would offer to create accounts that already exist. The cache is
+// enabled for admins only, which is exactly who reaches this screen.
+const _v357NeverCache = new Set(['map', 'admin_user_import']);
 
 function _v357WrapRoute(view, originalFn) {
   const wrapped = function() {
@@ -28822,6 +28709,7 @@ function renderAdminUsers() {
           ${_v11IsAdmin?`<button class="btn btn-sm" onclick="adminRefreshUsers()" title="Fetch the staff list from the server again. Use this if somebody added a user on another device and you cannot see them here.">↻ Refresh users${_rptTip("Fetches the staff list from the server again. Use it when somebody added or changed a user on another device and you cannot see them here. It only reads - nothing is written and nobody is affected.")}</button>`:''}
           ${_v11IsAdmin?`<button class="btn btn-sm" onclick="adminRequirePinChange()" title="Ask the people currently listed below to choose their own PIN next time they open the app. Filter by NGO first to do one NGO at a time. Does not change anyone's password and cannot lock anyone out.">🔑 Require PIN change${_v11PendingCount?` <span style="color:var(--gray2);font-weight:400">(${_v11PendingCount} asked)</span>`:''}${_rptTip("Asks the people currently listed below to choose their own PIN the next time they open the app. Their present password keeps working until they do, so nobody is locked out and no password is changed. Filter by partner first if you want to do one partner at a time; it tells you how many will be asked and does nothing until you confirm.")}</button>`:''}
           ${_v11IsAdmin?`<button class="btn btn-sm" onclick="_v11ShowAdoption()" title="How many people have signed in through the new server login. This is the number that decides when the database rules can safely be tightened.">🔐 Login adoption${_rptTip("Shows how many people have signed in through the server login rather than the old way. It only reads and changes nothing. This is the number that decides when the database can safely be locked down further.")}</button>`:''}
+          <button class="btn btn-sm" onclick="nav('admin_user_import')" title="Create many accounts at once from a spreadsheet">📥 Import Users${_rptTip("Creates many staff accounts in one go from a spreadsheet - name, username, password, role and partner, one row each. It checks every row and shows you what will happen before anything is created, skips anyone whose username already exists rather than touching their account, and gives you one Undo afterwards. Nothing changes until you confirm.")}</button>
           <button class="btn btn-primary btn-sm" onclick="adminNewUser()">+ Add User</button>
         </div>
       </div>
@@ -36786,7 +36674,20 @@ function _renderCoordAlerts() {
     return;
   }
 
-  coordList.innerHTML = alerts.map(a => `
+  // ⛔ V22.1: THE COORDINATOR SCREEN PAGES TOO, and says what it counted.
+  // It was rendering every alert it had; a coordinator with a long list meets
+  // exactly the frozen tab Guru met on the desktop.
+  const _rank = { red: 0, amber: 1, green: 2 };
+  const _sorted = alerts.map((a, i) => [a, i]).sort((x, y) => {
+    const d = (_rank[x[0].type] == null ? 3 : _rank[x[0].type]) - (_rank[y[0].type] == null ? 3 : _rank[y[0].type]);
+    return d !== 0 ? d : x[1] - y[1];
+  }).map(p => p[0]);
+  const _more = _sorted.length - Math.min(_sorted.length, _V221_PAGE);
+  coordList.innerHTML = (_v221Stuck.people ? `<div style="padding:8px 14px;color:var(--gray2);font-size:12px">` +
+      `${_v221Stuck.rows} scheme${_v221Stuck.rows === 1 ? '' : 's'} across ${_v221Stuck.people} ` +
+      `${_v221Stuck.people === 1 ? 'person' : 'people'} still waiting to be applied for</div>` : '')
+    + (_more > 0 ? `<div style="padding:8px 14px;color:var(--gray2);font-size:12px">Showing the ${_V221_PAGE} most urgent of ${_sorted.length}.</div>` : '')
+    + _sorted.slice(0, _V221_PAGE).map(a => `
     <div class="alert alert-${a.type}" ${a.id ? `onclick="openDrawer('${a.id}')" style="cursor:pointer"` : ''}
       style="margin-bottom:8px;border-radius:8px;padding:10px 14px;display:flex;align-items:flex-start;gap:10px;
              background:${a.type==='red'?'#FEF2F2':a.type==='amber'?'#FFFBEB':'#F0FDF4'};
@@ -39692,11 +39593,17 @@ async function confirmBulkImport() {
     const p = v.parsed;
     // Build district string in the app's stored format: "District, State"
     const fullDistrict = p.district + ', ' + p.state;
-    // V16.0.3 FIX: persist running data BEFORE genId so its internal loadData()
-    // call sees IDs assigned earlier in this same batch. Without this, every
-    // row in the same state collides on the same KRSF-XX-0001 id, and only
-    // the last same-state row survives the Firebase key-merged update.
-    saveData(data);
+    // V16.0.3: genId must see the ids assigned earlier in this same batch, or
+    // every row in one state collides on KRSF-XX-0001 and only the last
+    // survives the key-merged update. That was done by calling saveData(data)
+    // here, which during an import means _hydrateBenefCache: clear and rebuild
+    // a 146,000-entry cache, bump every cache version and rewrite the whole
+    // pantry - ONCE PER ROW, to publish one new record.
+    //
+    // ⛔ V22.1: THE NEW RECORD IS PUT STRAIGHT INTO THE CACHE INSTEAD, at the
+    // bottom of the previous iteration. Same guarantee for genId, none of the
+    // rebuilding: 1.4 seconds a row became milliseconds. The out-of-loop
+    // saveData(data) below still performs the real write, unchanged.
     // V308.1 (Bug 5/6 fix): genId now throws on bad state input. Skip the
     // row rather than crashing the entire batch — _validateImportRows should
     // have caught this upstream, so reaching here means a validation hole.
@@ -39802,6 +39709,9 @@ async function confirmBulkImport() {
       record.relation = 'Family member';
     }
     data.push(record);
+    // V22.1: what saveData(data) used to publish, without rebuilding anything.
+    // genId's next call reads the cache directly, so it sees this id.
+    try { RecordCache.benef.set(record.id, record); RecordCache.primed = true; } catch (_) {}
     importedIds.push(id);
     // V308.1 (Bug 7 fix): release the in-flight ID claim now that the record
     // is in the running data array (which is saveData()'d at the top of the
@@ -40655,6 +40565,509 @@ function _renderPhotoCleanupSection() {
 
 
 function _setImportTab(t) { _importActiveTab = t; renderAdminImport(); }
+// =============================================================================
+// V22.0 — IMPORTING PEOPLE INSTEAD OF TYPING THEM IN
+// =============================================================================
+// Guru: "I have to manually add 100s of users in the user management."
+// One row per person: name, username (a phone number for 499 of the 626 people
+// already in the app), password, role, partner.
+//
+// ⛔ NOTHING IS CREATED UNTIL THE PREVIEW HAS BEEN READ. Every row is checked
+// first and the screen says, per row, what will happen: create, skip because
+// that username already exists, or refuse with the reason on the row itself.
+//
+// ⛔ ONE WRITE PER PERSON, never the whole users node. saveOneUser touches
+// /users/<id> alone - the June 2026 clobber that wiped two accounts came from
+// writing the collection from a stale copy, and 100 rows is exactly the size
+// where that would hurt most.
+//
+// ⛔ AN EXISTING ACCOUNT IS NEVER TOUCHED. A repeated import skips what is
+// already there rather than resetting a working coordinator's password.
+const _V220_ROLES = {
+  'coordinator': 'coordinator', 'field coordinator': 'coordinator', 'fc': 'coordinator',
+  'team leader': 'scopedViewerByFc', 'tl': 'scopedViewerByFc',
+  'viewer': 'viewer',
+  'scoped viewer': 'scopedViewer', 'scopedviewer': 'scopedViewer',
+};
+const _V220_ROLE_LABEL = {
+  coordinator: 'Coordinator', scopedViewerByFc: 'Team Leader',
+  viewer: 'Viewer', scopedViewer: 'Scoped Viewer',
+};
+const _V220_COLS = ['Full Name', 'Username', 'Password', 'Role', 'Partner', 'Assigned Partners', 'Coordinators'];
+let _v220State = { fileName: null, rows: null, checked: null, running: false, result: null };
+let _v220Busy = false;
+
+function _v220Cell(row, name) {
+  // headers arrive however Excel felt about them - case and stray spaces
+  const want = String(name).toLowerCase().replace(/\s+/g, '');
+  for (const k of Object.keys(row || {})) {
+    if (String(k).toLowerCase().replace(/\s+/g, '') === want) {
+      const v = row[k];
+      return (v == null) ? '' : String(v).replace(new RegExp('[\u200B-\u200D\u2060\uFEFF\u00A0]', 'g'), '').trim();
+    }
+  }
+  return '';
+}
+function _v220SplitList(text) {
+  return String(text || '').split(/[;,]/).map(s => s.trim()).filter(Boolean);
+}
+// ⛔ A PHONE NUMBER THAT WENT THROUGH A NUMBER CELL. Excel hands back
+// 9.87654E+09 for a 10-digit number, and 9876543210.0 through some exports.
+// Creating that account would mean a person who can never sign in, so the row
+// is refused with the spelling that arrived.
+function _v220NormUser(raw) {
+  let t = String(raw || '').trim().toLowerCase();
+  if (/e\+/.test(t)) return { bad: 'excel', text: t };
+  if (/^\d+\.0+$/.test(t)) t = t.replace(/\.0+$/, '');
+  return { text: t };
+}
+
+function _v220Validate() {
+  const rows = _v220State.rows || [];
+  const users = (typeof loadUsers === 'function') ? loadUsers() : [];
+  const byName = new Map();
+  users.forEach(u => { if (u && u.username) byName.set(String(u.username).toLowerCase(), u); });
+  const partners = (typeof loadPartners === 'function') ? loadPartners() : [];
+  const pByLower = new Map();
+  partners.forEach(p => { if (p && p.name) pByLower.set(p.name.toLowerCase(), p.name); });
+  const seen = new Map();
+  const out = [];
+  rows.forEach((raw, i) => {
+    const r = { n: i + 2, errors: [], status: 'create' };   // n = the row number in the sheet
+    r.fullName = _v220Cell(raw, 'Full Name');
+    const un = _v220NormUser(_v220Cell(raw, 'Username'));
+    r.username = un.text;
+    r.password = String(_v220Cell(raw, 'Password') || '');
+    const roleRaw = _v220Cell(raw, 'Role');
+    r.roleLabel = roleRaw;
+    r.role = _V220_ROLES[roleRaw.toLowerCase().replace(/\s+/g, ' ')] || null;
+    r.partnerRaw = _v220Cell(raw, 'Partner');
+    r.partner = pByLower.get(r.partnerRaw.toLowerCase()) || null;
+    r.assignedRaw = _v220SplitList(_v220Cell(raw, 'Assigned Partners'));
+    r.coordsRaw = _v220SplitList(_v220Cell(raw, 'Coordinators')).map(x => _v220NormUser(x).text);
+    const blank = !r.fullName && !r.username && !r.password && !roleRaw && !r.partnerRaw;
+    if (blank) { r.status = 'blank'; out.push(r); return; }
+
+    if (!r.fullName) r.errors.push('Full Name is empty');
+    if (!r.username) r.errors.push('Username is empty');
+    else if (un.bad === 'excel') r.errors.push('the username arrived from Excel as "' + un.text + '" - format that column as text and type the number again');
+    else if (!/^[a-z0-9_]+$/.test(r.username)) r.errors.push('the username "' + r.username + '" can only hold lowercase letters, numbers and underscores');
+    if (!r.password) r.errors.push('Password is empty');
+    else if (r.password.length < 4) r.errors.push('the password is shorter than 4 characters');
+    if (!roleRaw) r.errors.push('Role is empty');
+    else if (!r.role) r.errors.push('"' + roleRaw + '" is not a role - use Coordinator, Team Leader, Viewer or Scoped Viewer');
+
+    const needsPartner = (r.role === 'coordinator' || r.role === 'scopedViewerByFc');
+    if (needsPartner) {
+      if (!r.partnerRaw) r.errors.push('Partner is required for a ' + _V220_ROLE_LABEL[r.role]);
+      else if (!r.partner) r.errors.push('"' + r.partnerRaw + '" is not one of the partners in the app');
+    }
+    if (r.role === 'scopedViewer' || r.role === 'viewer') {
+      // ⛔ AN EMPTY COLUMN IS NOT AN INSTRUCTION TO SHOW EVERYTHING. A plain
+      // Viewer with no partners sees every record in the app; that is a
+      // deliberate choice and it stays with the Add User form.
+      if (!r.assignedRaw.length) r.errors.push('a ' + _V220_ROLE_LABEL[r.role] + ' needs at least one partner in Assigned Partners');
+    }
+    r.assigned = [];
+    r.assignedRaw.forEach(a => {
+      const hit = pByLower.get(a.toLowerCase());
+      if (hit) r.assigned.push(hit);
+      else r.errors.push('"' + a + '" in Assigned Partners is not one of the partners in the app');
+    });
+    if (r.role === 'scopedViewerByFc' && !r.coordsRaw.length) {
+      r.errors.push('a Team Leader needs the usernames of the coordinators they oversee');
+    }
+    if (r.username) {
+      if (seen.has(r.username)) r.errors.push('this username is also on row ' + seen.get(r.username) + ' of this file');
+      else seen.set(r.username, r.n);
+    }
+    if (r.errors.length) r.status = 'error';
+    else if (r.username && byName.has(r.username)) {
+      r.status = 'skip';
+      const ex = byName.get(r.username);
+      r.skipWhy = (ex.fullName || ex.username) + ' already uses this username'
+        + (ex.ngo ? ' in ' + ex.ngo : '') + ' - that account is left exactly as it is';
+    }
+    out.push(r);
+  });
+
+  // ── Team Leaders, resolved against the app AND against this file ──
+  // ⛔ A NAME THAT MATCHES NOBODY MUST NOT PASS, and a name that matches a
+  // coordinator in ANOTHER partner must not either - the Add User form only
+  // ever offers the leader's own partner (V376), and this is the same rule.
+  // The preview then shows the NAMES it resolved, not the numbers typed, so a
+  // number that belongs to the wrong person can still be spotted by eye.
+  const willCreate = new Map();
+  out.forEach(r => { if (r.status === 'create' && r.role === 'coordinator') willCreate.set(r.username, r); });
+  out.forEach(r => {
+    if (r.role !== 'scopedViewerByFc' || r.status === 'blank') return;
+    r.fcNames = []; r.fcExisting = []; r.fcFromFile = [];
+    r.coordsRaw.forEach(cu => {
+      const ex = byName.get(cu);
+      const mine = willCreate.get(cu);
+      if (ex) {
+        if (ex.role !== 'coordinator') r.errors.push('"' + cu + '" is not a coordinator');
+        else if (r.partner && ex.ngo !== r.partner) r.errors.push('"' + cu + '" (' + (ex.fullName || cu) + ') is in ' + (ex.ngo || 'another partner') + ', not ' + r.partner);
+        else { r.fcExisting.push(ex.id); r.fcNames.push(ex.fullName || cu); }
+      } else if (mine) {
+        if (r.partner && mine.partner !== r.partner) r.errors.push('"' + cu + '" is being created in ' + (mine.partner || 'another partner') + ', not ' + r.partner);
+        else { r.fcFromFile.push(cu); r.fcNames.push(mine.fullName + ' (new, row ' + mine.n + ')'); }
+      } else {
+        r.errors.push('"' + cu + '" is not a coordinator in the app and is not in this file either');
+      }
+    });
+    if (r.errors.length && r.status !== 'skip') r.status = 'error';
+  });
+
+  _v220State.checked = out.filter(r => r.status !== 'blank');
+  return _v220State.checked;
+}
+
+async function _v220File(input) {
+  const f = input && input.files && input.files[0];
+  if (!f) return;
+  _v220State = { fileName: f.name, rows: null, checked: null, running: false, result: null };
+  renderAdminUserImport();
+  try {
+    await _ensureBulkImportLibs();
+  } catch (e) {
+    toast('Could not load the spreadsheet reader: ' + (e && e.message || e), 'error', 8000);
+    return;
+  }
+  try {
+    const buf = await f.arrayBuffer();
+    const wb = XLSX.read(new Uint8Array(buf), { type: 'array' });
+    // the template has three sheets; the people are on the one called Users
+    const name = wb.SheetNames.find(n => String(n).toLowerCase() === 'users') || wb.SheetNames[0];
+    const sheet = wb.Sheets[name];
+    if (!sheet) { toast('That workbook has no sheets.', 'error'); return; }
+    let rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+    // the template carries a grey row of notes under the headers, and four
+    // example rows - drop anything that is plainly not a person
+    rows = rows.filter(r => {
+      const u = _v220Cell(r, 'Username');
+      const n = _v220Cell(r, 'Full Name');
+      if (!u && !n) return false;
+      if (/^required\b|^at least|^lowercase|^what they type|^the ngo|^scoped viewer only|^team leader only|^as it should/i.test(n)) return false;
+      return true;
+    });
+    _v220State.rows = rows;
+    _v220Validate();
+  } catch (e) {
+    toast('Could not read that file: ' + (e && e.message || e), 'error', 8000);
+  }
+  try { input.value = ''; } catch (_) {}
+  renderAdminUserImport();
+}
+
+async function _v220Confirm() {
+  if (_v220Busy) return;
+  if (!isAdmin()) { toast('Admin only.', 'error'); return; }
+  if (_v220State.result) { toast('This file has already been imported. Choose the file again to import another.', 'warn', 7000); return; }
+  const list = (_v220State.checked || []).filter(r => r.status === 'create');
+  if (!list.length) { toast('There is nothing to create.', 'error'); return; }
+  const ok = await showConfirmModal(
+    'Create ' + list.length + ' account' + (list.length === 1 ? '' : 's') + ' now?\n\n'
+    + 'Existing accounts are not touched. You can undo this batch afterwards.',
+    { okLabel: 'Create accounts', title: 'Import users' });
+  if (!ok) return;
+  _v220Busy = true;
+  _v220State.running = true;
+  renderAdminUserImport();
+  const batchId = 'ub-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const madeBy = (currentUser() || {}).username || 'admin';
+  const created = [], failed = [], skippedLate = [];
+  const idByUsername = new Map();
+  // ⛔ READ THE NAMES AGAIN, NOW. The check ran when the file was opened;
+  // anything could have been added since, by another admin or by hand.
+  const takenNow = new Set(loadUsers().map(u => u && String(u.username || '').toLowerCase()).filter(Boolean));
+  // coordinators and viewers first, so a Team Leader in the same file can
+  // point at the accounts it needs
+  const order = list.slice().sort((a, b) => (a.role === 'scopedViewerByFc' ? 1 : 0) - (b.role === 'scopedViewerByFc' ? 1 : 0));
+  for (let i = 0; i < order.length; i++) {
+    const r = order[i];
+    _v220State.progress = { done: i, total: order.length, name: r.fullName };
+    if (i % 5 === 0) renderAdminUserImport();
+    if (takenNow.has(r.username)) { skippedLate.push(r.username); continue; }
+    try {
+      const rec = {
+        id: 'u-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        username: r.username,
+        fullName: r.fullName,
+        passwordHash: await _hashPassword(r.password),
+        role: r.role,
+        ngo: (r.role === 'coordinator' || r.role === 'scopedViewerByFc') ? r.partner : null,
+        assignedNgos: (r.role === 'viewer' || r.role === 'scopedViewer') ? r.assigned : null,
+        assignedFcIds: (r.role === 'scopedViewerByFc')
+          ? (r.fcExisting || []).concat((r.fcFromFile || []).map(u => idByUsername.get(u)).filter(Boolean))
+          : null,
+        _userBatchId: batchId,
+        _importedAt: Date.now(),
+        _importedBy: madeBy,
+      };
+      if (r.role === 'scopedViewerByFc') {
+        const missing = (r.fcFromFile || []).filter(u => !idByUsername.get(u));
+        if (missing.length) throw new Error('these coordinators from the same file were not created: ' + missing.join(', '));
+        if (!rec.assignedFcIds || !rec.assignedFcIds.length) throw new Error('none of this Team Leader\'s coordinators could be found');
+      }
+      await saveOneUser(rec);
+      idByUsername.set(r.username, rec.id);
+      takenNow.add(r.username);
+      created.push({ username: r.username, fullName: r.fullName, id: rec.id });
+    } catch (e) {
+      failed.push({ username: r.username, fullName: r.fullName, why: (e && e.message) || String(e) });
+    }
+  }
+  _v220State.progress = null;
+  _v220State.running = false;
+  _v220Busy = false;
+  // ⛔ COUNT BEFORE CLEARING. The result screen read these off the preview
+  // AFTER it had been cleared, so it said "0 skipped, 0 refused" however many
+  // rows the file actually had - the one number an admin needs to trust.
+  const _c220 = _v220State.checked || [];
+  _v220State.result = { batchId: batchId, created: created, failed: failed, skippedLate: skippedLate,
+    skipped: _c220.filter(r => r.status === 'skip').length,
+    refused: _c220.filter(r => r.status === 'error').length };
+  // the preview describes a file that has now been used - it may not be
+  // confirmed a second time
+  _v220State.checked = null;
+  try {
+    auditLog('create', 'user', batchId, _v220State.fileName || 'user import',
+      'Imported ' + created.length + ' user account(s) from ' + (_v220State.fileName || 'a file')
+      + (failed.length ? ' (' + failed.length + ' failed)' : ''), null);
+  } catch (_) {}
+  // the staff list on the other screen is now out of date - the tab cache
+  // would otherwise serve the list from before these people existed
+  try { if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache(); } catch (_) {}
+  if (failed.length) toast(created.length + ' created, ' + failed.length + ' could not be created.', 'warn', 9000);
+  else toast(created.length + ' account' + (created.length === 1 ? '' : 's') + ' created.', 'success', 6000);
+  renderAdminUserImport();
+}
+
+function _v220Batches() {
+  const users = (typeof loadUsers === 'function') ? loadUsers() : [];
+  const map = new Map();
+  users.forEach(u => {
+    if (!u || !u._userBatchId) return;
+    if (!map.has(u._userBatchId)) map.set(u._userBatchId, { id: u._userBatchId, at: u._importedAt || 0, by: u._importedBy || '', users: [] });
+    const b = map.get(u._userBatchId);
+    b.users.push(u);
+    if (u._importedAt && u._importedAt < b.at) b.at = u._importedAt;
+  });
+  return [...map.values()].sort((a, b) => b.at - a.at).slice(0, 6);
+}
+
+// ⛔ UNDO REMOVES ONLY WHAT THE IMPORT MADE, and never somebody who has since
+// done work. An account that already owns beneficiaries is left alone and
+// named on screen - deleting it would strand those records' owner.
+async function _v220Undo(batchId) {
+  if (_v220Busy) return;
+  if (!isAdmin()) { toast('Admin only.', 'error'); return; }
+  const users = loadUsers().filter(u => u && u._userBatchId === batchId);
+  if (!users.length) { toast('Nothing left from that import.', 'error'); return; }
+  // ⛔ AND NOT BEFORE THE RECORDS HAVE ARRIVED. On a device that has not
+  // finished syncing, every count below reads zero and undo would delete
+  // coordinators who have enrolled families.
+  if (!(FB && FB.benefReplayComplete && FB.advReplayComplete)) {
+    toast('Still loading the records. Wait until the app has finished syncing, then undo.', 'warn', 8000);
+    return;
+  }
+  // ⛔ _loadDataRaw, NOT loadData: the clone of 139,000 records costs about
+  // a second and a hundred megabytes, and nothing here writes to them.
+  const all = (typeof _loadDataRaw === 'function') ? _loadDataRaw() : loadData();
+  const owns = new Map();
+  all.forEach(b => { if (b && b.createdBy) owns.set(b.createdBy, (owns.get(b.createdBy) || 0) + 1); });
+  // advocacy counts too - a coordinator can have logged schemes for people
+  // somebody else enrolled, and deleting them orphans those records
+  try {
+    for (const a of RecordCache.adv.values()) {
+      if (a && a.createdBy) owns.set(a.createdBy, (owns.get(a.createdBy) || 0) + 1);
+    }
+  } catch (_) {}
+  const keep = users.filter(u => owns.get(u.id));
+  const go = users.filter(u => !owns.get(u.id));
+  const msg = 'Remove ' + go.length + ' account' + (go.length === 1 ? '' : 's') + ' created by this import?'
+    + (keep.length ? '\n\n' + keep.length + ' of them have already enrolled people or logged schemes, and will be KEPT: '
+        + keep.map(u => (u.fullName || u.username)).slice(0, 5).join(', ')
+        + (keep.length > 5 ? ' and ' + (keep.length - 5) + ' more' : '') : '');
+  if (!await showConfirmModal(msg, { danger: true, okLabel: 'Remove accounts', title: 'Undo user import' })) return;
+  _v220Busy = true;
+  renderAdminUserImport();
+  let done = 0; const failed = [];
+  for (const u of go) {
+    try { await deleteOneUser(u.id); done++; }
+    catch (e) { failed.push((u.fullName || u.username) + ': ' + ((e && e.message) || e)); }
+  }
+  _v220Busy = false;
+  try {
+    auditLog('delete', 'user', batchId, 'user import undo',
+      'Undid user import ' + batchId + ': removed ' + done + ' account(s)'
+      + (keep.length ? ', kept ' + keep.length + ' who had already enrolled people' : ''), null);
+  } catch (_) {}
+  try { if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache(); } catch (_) {}
+  toast(done + ' account' + (done === 1 ? '' : 's') + ' removed'
+    + (keep.length ? ', ' + keep.length + ' kept' : '') + (failed.length ? ', ' + failed.length + ' failed' : ''),
+    failed.length ? 'warn' : 'success', 8000);
+  renderAdminUserImport();
+}
+
+function _v220Template() {
+  _ensureBulkImportLibs().then(function () {
+    const partners = (typeof loadPartners === 'function') ? loadPartners() : [];
+    const names = partners.map(p => p && p.name).filter(Boolean).sort();
+    const first = names[0] || 'Partner name';
+    // ⛔ NO EXAMPLE PEOPLE. They are not filtered on the way back in, so an
+    // admin who typed their staff underneath imported the examples too - two
+    // signable accounts in a real partner, passwords published in a template.
+    const rows = [
+      _V220_COLS,
+      ['', '', '', '', '', '', ''],
+    ];
+    void first;
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{ wch: 26 }, { wch: 16 }, { wch: 14 }, { wch: 16 }, { wch: 32 }, { wch: 30 }, { wch: 30 }];
+    // ⛔ the username and password columns are TEXT, or a 10-digit phone comes
+    // back as 9.87654E+09 and a password of 0456 loses its zero.
+    for (let r = 2; r <= 500; r++) {
+      ['B', 'C', 'G'].forEach(function (c) {
+        const k = c + r;
+        if (!ws[k]) ws[k] = { t: 's', v: '' };
+        ws[k].z = '@';
+      });
+    }
+    XLSX.utils.book_append_sheet(wb, ws, 'Users');
+    const ref = XLSX.utils.aoa_to_sheet([['Partner', 'State']].concat(
+      partners.filter(p => p && p.name).sort((a, b) => a.name.localeCompare(b.name))
+        .map(p => [p.name, Array.isArray(p.states) ? p.states.join(', ') : (p.state || '')])));
+    ref['!cols'] = [{ wch: 40 }, { wch: 18 }];
+    XLSX.utils.book_append_sheet(wb, ref, 'Partners');
+    XLSX.writeFile(wb, 'KRSF user import template.xlsx');
+  }).catch(function (e) {
+    toast('Could not build the template: ' + (e && e.message || e), 'error', 8000);
+  });
+}
+
+function _v220Reset() {
+  _v220State = { fileName: null, rows: null, checked: null, running: false, result: null };
+  renderAdminUserImport();
+}
+
+function renderAdminUserImport() {
+  _ensureBulkImportLibs().catch(function () {});
+  const el = document.getElementById('content');
+  if (!el) return;
+  if (!isAdmin()) { el.innerHTML = '<div class="empty">Admin only.</div>'; return; }
+  const S = _v220State;
+  const back = '<button class="btn btn-sm" onclick="nav(\'admin_users\')">&larr; User Management</button>';
+
+  if (S.result) {
+    const R = S.result;
+    el.innerHTML = `
+      <div style="max-width:900px;margin:0 auto">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+          <h1 style="font-size:22px;margin:0">Users imported</h1>${back}
+        </div>
+        <div class="card"><div class="card-body" style="padding:16px">
+          <div style="font-size:15px;margin-bottom:10px"><b>${R.created.length}</b> account${R.created.length === 1 ? '' : 's'} created${R.skipped ? `, <b>${R.skipped}</b> skipped (already existed)` : ''}${R.refused ? `, <b>${R.refused}</b> refused` : ''}.</div>
+          ${(R.skippedLate && R.skippedLate.length) ? `<div style="background:#EEF2FF;border:1px solid #C7D2FE;border-radius:8px;padding:10px 12px;color:#3730A3;font-size:13px;margin-bottom:10px"><b>${R.skippedLate.length}</b> username${R.skippedLate.length === 1 ? ' was' : 's were'} taken while this file was open and ${R.skippedLate.length === 1 ? 'was' : 'were'} left alone: ${escHtml(R.skippedLate.join(', '))}</div>` : ''}
+          ${R.failed.length ? `<div style="background:#FFFBEB;border:1px solid #F59E0B;border-radius:8px;padding:10px 12px;color:#78350F;font-size:13px;margin-bottom:10px">
+            <b>${R.failed.length} could not be created:</b><br>${R.failed.map(f => escHtml((f.fullName || f.username) + ' — ' + f.why)).join('<br>')}</div>` : ''}
+          <div style="color:var(--gray2);font-size:13px;margin-bottom:12px">
+            Everyone created can sign in now with the password from the file.
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-primary btn-sm" onclick="nav('admin_users')">See the user list</button>
+            <button class="btn btn-sm" onclick="_v220Undo('${R.batchId}')" ${_v220Busy ? 'disabled' : ''}>Undo this import</button>
+            <button class="btn btn-sm" onclick="_v220Reset()">Import another file</button>
+          </div>
+        </div></div>
+      </div>`;
+    return;
+  }
+
+  if (S.checked) {
+    const C = S.checked;
+    const mk = C.filter(r => r.status === 'create').length;
+    const sk = C.filter(r => r.status === 'skip').length;
+    const er = C.filter(r => r.status === 'error').length;
+    const pill = (txt, bg, fg) => `<span style="background:${bg};color:${fg};border-radius:999px;padding:2px 10px;font-size:12px;font-weight:600">${txt}</span>`;
+    const rowsHtml = C.map(r => {
+      const badge = r.status === 'create' ? pill('Create', '#ECFDF5', '#065F46')
+        : r.status === 'skip' ? pill('Skip', '#EEF2FF', '#3730A3')
+        : pill('Refused', '#FEF2F2', '#991B1B');
+      const why = r.status === 'error' ? `<div style="color:#991B1B;font-size:12px;margin-top:3px">${r.errors.map(escHtml).join('<br>')}</div>`
+        : r.status === 'skip' ? `<div style="color:var(--gray2);font-size:12px;margin-top:3px">${escHtml(r.skipWhy || '')}</div>`
+        : (r.role === 'scopedViewerByFc' && r.fcNames && r.fcNames.length)
+          ? `<div style="color:var(--gray2);font-size:12px;margin-top:3px">will oversee: ${r.fcNames.map(escHtml).join(', ')}</div>` : '';
+      return `<tr>
+        <td style="text-align:center;color:var(--gray2)">${r.n}</td>
+        <td><b>${escHtml(r.fullName || '—')}</b><div style="color:var(--gray2);font-size:12px">${escHtml(r.username || '—')}</div>${why}</td>
+        <td>${escHtml(_V220_ROLE_LABEL[r.role] || r.roleLabel || '—')}</td>
+        <td>${escHtml(r.partner || (r.assigned && r.assigned.join(', ')) || '—')}</td>
+        <td style="text-align:center">${badge}</td>
+      </tr>`;
+    }).join('');
+    el.innerHTML = `
+      <div style="max-width:1000px;margin:0 auto">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+          <h1 style="font-size:22px;margin:0">Check before importing</h1>${back}
+        </div>
+        <div class="card"><div class="card-body" style="padding:16px">
+          <div style="font-size:14px;margin-bottom:6px">${escHtml(S.fileName || '')} — ${C.length} row${C.length === 1 ? '' : 's'}</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+            ${pill(mk + ' to create', '#ECFDF5', '#065F46')}
+            ${sk ? pill(sk + ' already exist', '#EEF2FF', '#3730A3') : ''}
+            ${er ? pill(er + ' refused', '#FEF2F2', '#991B1B') : ''}
+          </div>
+          ${er ? `<div style="background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:10px 12px;color:#991B1B;font-size:13px;margin-bottom:12px">
+            ${er} row${er === 1 ? '' : 's'} will not be imported. Fix them in the file and upload it again — the rows below that say Create are unaffected.</div>` : ''}
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+            <button class="btn btn-primary btn-sm" onclick="_v220Confirm()" ${(!mk || S.running || _v220Busy) ? 'disabled style="opacity:.5;cursor:not-allowed"' : ''}>
+              ${S.running ? 'Creating…' : 'Create ' + mk + ' account' + (mk === 1 ? '' : 's')}</button>
+            <button class="btn btn-sm" onclick="_v220Reset()" ${S.running ? 'disabled' : ''}>Choose a different file</button>
+          </div>
+          ${S.progress ? `<div style="color:var(--gray2);font-size:13px;margin-bottom:10px">Creating ${S.progress.done + 1} of ${S.progress.total}: ${escHtml(S.progress.name || '')}</div>` : ''}
+          <div style="overflow-x:auto"><table class="tbl">
+            <thead><tr><th style="width:56px;text-align:center">Row</th><th>Person</th><th style="width:130px">Role</th><th>Partner</th><th style="width:110px;text-align:center">What happens</th></tr></thead>
+            <tbody>${rowsHtml}</tbody></table></div>
+        </div></div>
+      </div>`;
+    return;
+  }
+
+  const batches = _v220Batches();
+  el.innerHTML = `
+    <div style="max-width:900px;margin:0 auto">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <h1 style="font-size:22px;margin:0">Import Users</h1>${back}
+      </div>
+      <div class="card"><div class="card-body" style="padding:16px">
+        <p style="color:var(--gray2);font-size:13px;margin:0 0 14px">
+          One row per person: full name, username, password, role and partner. Nothing is created
+          until you have read the check. An account that already exists is never touched.
+        </p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <label class="btn btn-primary btn-sm" style="margin:0">
+            Choose file<input type="file" accept=".xlsx,.xls" onchange="_v220File(this)" style="display:none">
+          </label>
+          <button class="btn btn-sm" onclick="_v220Template()">Download template</button>
+        </div>
+        ${S.fileName && !S.checked ? `<div style="color:var(--gray2);font-size:13px;margin-top:12px">Reading ${escHtml(S.fileName)}…</div>` : ''}
+      </div></div>
+      ${batches.length ? `<div class="card" style="margin-top:14px"><div class="card-head"><div class="card-title">Recent imports</div></div>
+        <table class="tbl"><thead><tr><th>When</th><th>By</th><th style="text-align:center">Accounts still here</th><th></th></tr></thead><tbody>
+        ${batches.map(b => `<tr>
+          <td>${escHtml(new Date(b.at || Date.now()).toLocaleString('en-IN'))}</td>
+          <td>${escHtml(b.by || '—')}</td>
+          <td style="text-align:center">${b.users.length}</td>
+          <td><button class="btn btn-sm" onclick="_v220Undo('${b.id}')" ${_v220Busy ? 'disabled' : ''}>Undo</button></td>
+        </tr>`).join('')}
+        </tbody></table></div>` : ''}
+    </div>`;
+}
+// ── end V22.0 ───────────────────────────────────────────────────────────────
+
 function renderAdminImport() {
   // V17.6: warm the import libraries while the admin reads this screen.
   // The .catch() is required, not decoration: this returns a promise, so a
