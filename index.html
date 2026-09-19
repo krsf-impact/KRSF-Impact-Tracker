@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V22.2-LIVE
+  KRSF Beneficiary Impact Tracker  -  V22.4-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,80 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V22.4-LIVE (2026-09-19 - the sessions that download nothing).
+
+    + A DONOR LOGIN COST 140.9 MB AT EVERY COLD SIGN-IN AND A PARTNER LOGIN
+      36.9 MB, TO PRINT FIGURES THAT WERE ALREADY COUNTED AND STORED. They
+      now read the stored figures: a donor sign-in is 214 KB, a partner
+      sign-in 150 KB. The records are not gone, only postponed - open a list,
+      the map, the alerts or the enrolment form and the app fetches your
+      scope exactly as before. A session that only looks at figures never
+      pays for them at all.
+
+    + ⛔ AND NOTHING ON SCREEN CHANGES. The counting moved out of the
+      dashboard into three shared functions, so the screen and the summary
+      writer are the same arithmetic on the same records rather than two
+      implementations that drift. The suite draws the dashboard both ways in
+      one session and fails if they differ by a character: 26,367 characters,
+      identical.
+
+    + ⛔ FOUR DEFECTS THE TESTS FOUND, NOT THE READING. The one-scope
+      summary writer de-duplicated scheme rows INSIDE a partner instead of
+      across the database, putting Idar’s stored figure Rs 1.28 crore above
+      the tile on the same data. A daily auto-refresh ran before sign-in had
+      decided anything and downloaded the whole partner a second later. A
+      partner login has its own partner locked into the filter bar, and the
+      rule "a filter means fetch the records" fired on the session’s own
+      scope. And the advocacy saved copy had no partial-cache guard at all -
+      the beneficiary side has had one since V8.6 - so a partner login saving
+      one scheme record before opening a list would have replaced their whole
+      saved copy with it, for thirty days.
+
+    + ⛔ TWO SAFETY BELTS. Stored figures older than a day are not used at
+      all; the records are fetched instead, because stale figures look
+      exactly like fresh ones and nothing on the screen says how old they
+      are. And a session whose records only half arrived will not publish
+      figures - that is the V19.5 disaster with fewer records.
+
+    + A TEAM LEADER STOPS DOWNLOADING THE WHOLE PARTNER (the V22.3 work,
+      shipped here). They oversee a few coordinators and the app has always
+      shown them only those coordinators’ households, but it downloaded the
+      partner first and threw the rest away - 42.7 MB to look at 8.0 MB. All
+      thirty of them, one session each: 550 MB before, 132 MB after.
+      ⛔ A scheme record is not always typed by whoever enrolled the
+      household: 2.8% of what a team leader must see was written by somebody
+      from another partner, and one would have lost 1,195 of his 5,308 with
+      nothing on screen to say so. The stragglers are fetched household by
+      household. ⛔ And the saved copy must not outlive the team, or a
+      coordinator added to one would be invisible to their leader for a month.
+
+    + ⛔ MOVE FC REFUSES TO RUN BEFORE THE SCHEME RECORDS HAVE ARRIVED. It
+      re-tags only the scheme records the session can see and skipped the step
+      entirely when it could see none - moving the people, leaving every
+      scheme record behind, reporting that it had moved 0 of them. That is the
+      shape of the 838 records V22.2 had to correct.
+
+    + The correction screen says what it just did instead of going blank, and
+      every admin screen has a title rather than its route name. Guru: "i
+      clicked nothing happened". It had happened - 885 records.
+
+    + ⛔ AND THE INDEPENDENT REVIEW FOUND TWENTY-TWO MORE, one of them a
+      release blocker: a partner login logging a scheme before the records
+      arrived would have found no existing record, built a new one holding
+      only the rows just typed, and written it to the key the household’s
+      real record already occupied - a whole-node replace, destroying every
+      status, benefit amount and tombstone it held, silently. Also: signing
+      out left the figures on screen for the next person on a shared laptop;
+      a fetch that failed declared itself finished and locked the person out
+      of enrolling for the rest of the session; one failed coordinator query
+      was written into the thirty-day saved copy as though it were the whole
+      set; and the tool named Move Records Between Partners had no arrival
+      guard at all. Every one has a check.
+
+    + Tests: 77 files. v223.js (44 checks) and v224.js (43) are new, and
+      fakepage.js checks the harness database pages the way the real one does
+      - the fake has been kinder than Firebase before. 22 mutants.
+
   V22.2-LIVE (2026-09-19 - the scheme records that stayed behind, and a
   template that says what to type).
 
@@ -4336,7 +4410,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V22.2-LIVE';
+const APP_VERSION = 'V22.4-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -4421,6 +4495,7 @@ const FB = {
   // demand. In that state loadData() is a SUBSET of the FC's real records, so
   // the pantry must never be REPLACED from it — see _hydrateBenefCache.
   benefCachePartial: false,
+  advCachePartial: false,
   _benefReplayQuietTimer: null,
   _advReplayQuietTimer: null
 };
@@ -4692,6 +4767,20 @@ async function _pantryWrite(userId, records, lastSyncTs) {
 // _pantryWrite would silently destroy the rest of their local copy.
 // Deliberately ignores `stale`: a stale record is still infinitely better
 // than a missing one, and the FC's own refresh replaces the lot.
+// V22.4: the advocacy twin of _pantryMerge, keyed on __fbk - which is what
+// both the advocacy cache and its saved copy are keyed on.
+async function _advPantryMerge(userId, records) {
+  if (!userId || !Array.isArray(records) || records.length === 0) return;
+  const byKey = new Map();
+  try {
+    const existing = await _advPantryRead(userId);
+    if (existing && Array.isArray(existing.records)) {
+      for (const r of existing.records) if (r && r.__fbk) byKey.set(r.__fbk, r);
+    }
+  } catch (_) {}
+  for (const r of records) if (r && r.__fbk) byKey.set(r.__fbk, r);
+  await _advPantryWrite(userId, Array.from(byKey.values()));
+}
 async function _pantryMerge(userId, records) {
   if (!userId || !Array.isArray(records) || records.length === 0) return;
   const byId = new Map();
@@ -7591,9 +7680,19 @@ function _hydrateAdvCache(arr) {
   }
   RecordCache.primed = true;
   // V347: write-through to advocacy pantry (fire-and-forget async).
+  // ⛔ V22.4: MERGE WHEN THE CACHE IS ONLY PART OF WHAT THEY OWN. The
+  // beneficiary side has done this since V8.6; this side always replaced,
+  // which was survivable only while the advocacy cache was either empty or
+  // complete. A partner login saving one scheme record before opening a list
+  // would otherwise replace their whole saved copy with that one record - and
+  // a one-record copy does not read as stale, so it would be served as fresh
+  // for thirty days.
   try {
     const u = (typeof currentUser === 'function') ? currentUser() : null;
-    if (u && u.userId) _advPantryWrite(u.userId, Array.from(RecordCache.adv.values()));
+    if (u && u.userId) {
+      if (FB.advCachePartial) _advPantryMerge(u.userId, Array.from(RecordCache.adv.values()));
+      else _advPantryWrite(u.userId, Array.from(RecordCache.adv.values()));
+    }
   } catch (e) {}
   // V8.2: advocacy has just landed — repaint the coordinator tab the FC is
   // actually looking at. This is the single choke point every advocacy arrival
@@ -8429,6 +8528,8 @@ function fbAttachListeners() {
 // listeners (audit, partners, config) stay attached — they aren't
 // role-scoped and carry no PII for the next user.
 function fbBenefDetachOnLogout() {
+  try { if (typeof _v224ForgetSession === 'function') _v224ForgetSession(); } catch (_) {}
+  try { FB.advCachePartial = false; } catch (_) {}
   if (typeof fbBenefDetachListeners === 'function') fbBenefDetachListeners();
   _benefListenersAttached = false;
   // V314: also detach advocacy listener so it re-attaches scoped to next user
@@ -8976,7 +9077,14 @@ function _benefScopedQuery() {
   // _hydrateBenefCache (no listener needed); to see records added on other
   // devices they reload the page.
   if (u.role === 'ngo' && u.ngo) {
-    _v337BenefOneShotFetch(fbRef('beneficiaries').orderByChild('ngo').equalTo(u.ngo));
+    // V22.4: the figures are stored; the records wait until a screen needs
+    // them. Today's card gets its own small fetch so it stays exact.
+    _v224Deferred = true;
+    FB.benefCachePartial = true;
+    FB.benefReplayComplete = true;
+    fbUpdatePill();
+    _v224FetchToday(u.ngo).then(function () { try { renderCurrentView(); } catch (_) {} });
+    _v224LoadSummary(false).then(function () { try { renderCurrentView(); } catch (_) {} });
     return null;
   }
   if (u.role === 'coordinator' && u.userId) {
@@ -9002,14 +9110,30 @@ function _benefScopedQuery() {
       console.warn('[V375] scopedViewer has no assignedNgos — no data will load.');
       return null;
     }
-    _v375ScopedBenefMultiFetch(assigned);
+    // V22.4: the figures are already counted and stored. ⛔ The cache is left
+    // EMPTY and marked partial, which is what keeps a later write - there is
+    // none for this role, but the machinery is shared - from replacing a full
+    // saved copy with one record. See V8.6.
+    _v224Deferred = true;
+    FB.benefCachePartial = true;
+    FB.benefReplayComplete = true;
+    fbUpdatePill();
+    _v224LoadSummary(false).then(function () { try { renderCurrentView(); } catch (_) {} });
     return null;
   }
-  // V376-TL: scopedViewerByFc uses NGO one-shot fetch (TL is anchored to
-  // a single NGO). The client-side filter in getData/filteredAll narrows
-  // to assignedFcIds. Egress = single NGO admin login.
+  // V22.3: a TL asks for their own coordinators' records, not the partner's.
+  // A TL with no coordinators assigned sees nothing - never the partner.
   if (u.role === 'scopedViewerByFc' && u.ngo) {
-    _v337BenefOneShotFetch(fbRef('beneficiaries').orderByChild('ngo').equalTo(u.ngo));
+    // each coordinator once - a name typed twice in the import sheet would
+    // otherwise cost a duplicate whole query on both nodes, every cold boot
+    const fcIds = Array.from(new Set(Array.isArray(u.assignedFcIds) ? u.assignedFcIds : []));
+    if (!fcIds.length) {
+      FB.benefReplayComplete = true;
+      fbUpdatePill();
+      console.warn('[V22.3] team leader has no coordinators assigned - no data will load.');
+      return null;
+    }
+    _v375ScopedBenefMultiFetch(fcIds, { field: 'createdBy', force: _v223TlForce(u) });
     return null;
   }
   // V19.2: ⛔ NEVER THE WHOLE DATABASE FOR A NON-ADMIN. This used to fall
@@ -9281,22 +9405,21 @@ function fbAdvHandleChild(eventType) {
     }
     q = fbRef('advocacy');
   } else if (u.role === 'ngo' && u.ngo) {
-    // V337: NGO advocacy switched to one-shot fetch — no live listener.
-    if (eventType === 'child_added') _v337AdvOneShotFetch(fbRef('advocacy').orderByChild('ngo').equalTo(u.ngo));
+    // V22.4: no scheme records either until a screen asks for them.
+    FB.advCachePartial = true;
+    FB.advReplayComplete = true;
+    fbUpdatePill();
     return;
   } else if (u.role === 'coordinator' && u.userId) {
     // V337: coordinator advocacy switched to one-shot fetch.
     if (eventType === 'child_added') _v337AdvOneShotFetch(fbRef('advocacy').orderByChild('createdBy').equalTo(u.userId));
     return;
   } else if (u.role === 'scopedViewer') {
-    // V375: scopedViewer advocacy via multi-NGO one-shot wrapper.
-    const assigned = Array.isArray(u.assignedNgos) ? u.assignedNgos : [];
-    if (assigned.length === 0) {
-      FB.advReplayComplete = true;
-      fbUpdatePill();
-      return;
-    }
-    if (eventType === 'child_added') _v375ScopedAdvMultiFetch(assigned);
+    // V22.4: no scheme records either - the figures are stored. Marked partial
+    // for the same reason as the beneficiary side.
+    FB.advCachePartial = true;
+    FB.advReplayComplete = true;
+    fbUpdatePill();
     return;
   } else if (u.role === 'viewer') {
     // V19.4: ⛔ the donor 'viewer' role reads STORED SUMMARIES only - it has
@@ -9308,15 +9431,18 @@ function fbAdvHandleChild(eventType) {
     fbUpdatePill();
     return;
   } else if (u.role === 'scopedViewerByFc') {
-    // V376-TL: TL advocacy via NGO one-shot (TL is anchored to one NGO,
-    // same as NGO admin). Client-side filter in filteredAll() narrows to
-    // assignedFcIds. Egress matches a single NGO admin login.
-    if (!u.ngo) {
+    // V22.3: by coordinator, then the stragglers by household - see the
+    // top-up note inside _v375ScopedAdvMultiFetch.
+    const fcIds = Array.from(new Set(Array.isArray(u.assignedFcIds) ? u.assignedFcIds : []));
+    if (!u.ngo || !fcIds.length) {
       FB.advReplayComplete = true;
       fbUpdatePill();
       return;
     }
-    if (eventType === 'child_added') _v337AdvOneShotFetch(fbRef('advocacy').orderByChild('ngo').equalTo(u.ngo));
+    if (eventType === 'child_added') {
+      _v375ScopedAdvMultiFetch(fcIds, { field: 'createdBy', topUp: true,
+                                        force: _v223TlForce(u) });
+    }
     return;
   } else {
     // V19.4: ⛔ THE OTHER HALF OF THE V19.2 FALL-THROUGH. The beneficiary
@@ -9458,6 +9584,10 @@ async function _v375ScopedBenefMultiFetch(ngos, opts) {
   opts = opts || {};
   if (_v375ScopedBenefMultiFetch._inFlight) return;
   _v375ScopedBenefMultiFetch._inFlight = true;
+  // V22.3: the advocacy top-up needs to know which households are in scope,
+  // and the two fetches are started side by side.
+  let _benefDone; _v223BenefLoaded = new Promise(function (r) { _benefDone = r; });
+  _v224BenefFetchDone = false; _v224BenefFetchOk = false;
   try {
     const u = (typeof currentUser === 'function') ? currentUser() : null;
     // Pantry-first: try cached records before touching Firebase.
@@ -9471,6 +9601,8 @@ async function _v375ScopedBenefMultiFetch(ngos, opts) {
         }
         FB.benefReplayComplete = true;
         fbUpdatePill();
+        // V22.4: the Bandwidth screen counts these, and this path did not.
+        try { window._v192Counters.pantryHit += 1; } catch (_) {}
         console.log('[V375 scoped] benef from pantry:', RecordCache.benef.size, 'records');
         try { if (typeof _v357DataVersion !== 'undefined') _v357DataVersion = (_v357DataVersion || 0) + 1; } catch(_){}
         try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
@@ -9482,19 +9614,30 @@ async function _v375ScopedBenefMultiFetch(ngos, opts) {
     RecordCache.benef.clear();
     FB.lastBenef = {};
     FB.benefReplayComplete = false;
+    try { window._v192Counters.pantryMiss += 1; } catch (_) {}
 
     // Parallel fetches across assigned NGOs. Promise.all means total wall
     // time = slowest single NGO fetch (not sum of all). Firebase RTDB's
     // orderByChild query is indexed (./indexOn includes 'ngo') so each
     // .equalTo is a cheap server-side lookup.
     let total = 0;
+    // V22.3: the same fan-out, keyed on whichever field IS the scope. A donor
+    // is scoped by partner; a team leader is scoped by coordinator, and asking
+    // for the partner meant downloading five people's work to show one's.
+    const _field = opts.field || 'ngo';
     const results = await Promise.all(
-      ngos.map(ngo => fbRef('beneficiaries').orderByChild('ngo').equalTo(ngo).once('value')
+      ngos.map(ngo => fbRef('beneficiaries').orderByChild(_field).equalTo(ngo).once('value')
         .then(snap => ({ ngo, snap }))
         .catch(e => ({ ngo, err: e })))
     );
+    // ⛔ ONE FAILED QUERY IS NOT A SMALL LOSS ANY MORE. Asking per coordinator
+    // means a transient failure drops exactly that coordinator's households -
+    // and they would then be written into the thirty-day saved copy and shown
+    // as a row of zeros, which reads as somebody who has not started.
+    let _failed = 0;
     for (const r of results) {
       if (r.err) {
+        _failed++;
         console.warn('[V375] benef fetch failed for ngo=' + r.ngo + ':', r.err && r.err.message);
         continue;
       }
@@ -9509,14 +9652,23 @@ async function _v375ScopedBenefMultiFetch(ngos, opts) {
     }
 
     FB.benefReplayComplete = true;
+    _v224BenefFetchOk = (_failed === 0);
     fbUpdatePill();
-    console.log('[V375 scoped] benef multi-fetch complete:', total, 'records across', ngos.length, 'NGOs');
+    console.log('[V375 scoped] benef multi-fetch complete:', total, 'records across', ngos.length,
+      'scopes' + (_failed ? ' (' + _failed + ' FAILED)' : ''));
     try { if (typeof _v357DataVersion !== 'undefined') _v357DataVersion = (_v357DataVersion || 0) + 1; } catch(_){}
     try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
 
-    if (u && u.userId) {
+    // ⛔ A PARTIAL SET MUST NOT BECOME THE SAVED COPY. It would be served as
+    // fresh for thirty days, and a short copy does not read as stale.
+    if (u && u.userId && _failed === 0) {
       await _v192VerifiedPantryWrite('benef', u.userId,
         function () { return _pantryWrite(u.userId, Array.from(RecordCache.benef.values())); });
+    } else if (_failed) {
+      FB.benefCachePartial = true;
+      if (typeof toast === 'function') {
+        toast('Some records could not be loaded. Reload before relying on the figures.', 'warn', 9000);
+      }
     }
     try { renderCurrentView(); } catch(_){}
   } catch (e) {
@@ -9525,9 +9677,320 @@ async function _v375ScopedBenefMultiFetch(ngos, opts) {
     fbUpdatePill();
   } finally {
     _v375ScopedBenefMultiFetch._inFlight = false;
+    _v224BenefFetchDone = true;
+    try { _benefDone(); } catch (_) {}
   }
 }
 
+// ── V22.4: a session that holds no records ──────────────────────────
+// A donor is shown figures for whole partners - 139,000 households for the
+// largest of them, 140.9 MB at every cold sign-in, to print numbers that are
+// already stored. From here the figures arrive counted and the records arrive
+// only if a screen actually needs them.
+const _V224_MAX_AGE_MS = 24 * 60 * 60 * 1000;   // older than this and the records are fetched
+const _V224_TODAY_CAP = 2000;                   // newest records read for today's card
+let _v224Deferred = false;      // this session has not fetched records
+// ⛔ THE ROLE, NOT A FLAG. Whether a session works from stored figures is a
+// property of who is signed in, true from the first line. A flag set during
+// sign-in is still false when the daily refresh reads it, and that refresh
+// then downloads the very records the sign-in had just decided to skip.
+function _v224IsDeferredRole(u) {
+  return !!(u && (u.role === 'scopedViewer' || u.role === 'ngo'));
+}
+function _v224WorkingFromFigures() {
+  try {
+    const u = (typeof currentUser === 'function') ? currentUser() : null;
+    return _v224IsDeferredRole(u) && !_v224HasRecords();
+  } catch (_) { return false; }
+}
+let _v224Summary = null;        // the stored figures, once read
+let _v224EnsurePromise = null;  // the on-demand fetch, once started
+let _v224MergeGaveUp = false;   // two scopes could not honestly be added up
+function _v224SummaryDash() { return (_v224Summary && _v224Summary.dash) || null; }
+// ⛔ AND SIGNING OUT MUST TAKE THEM WITH IT. Nothing here was cleared on
+// logout, and the app does not reload, so the next person on a shared laptop
+// was shown the previous partner's households, money, partner name and the
+// names of their beneficiaries in Recent Updates.
+function _v224ForgetSession() {
+  _v224Deferred = false;
+  _v224Summary = null;
+  _v224TodayRecs = null;
+  _v224EnsurePromise = null;
+  _v224BenefFetchDone = false;
+  _v224BenefFetchOk = false;
+  try { _v224FetchToday._inFlight = null; } catch (_) {}
+  try { _v375ScopedBenefMultiFetch._inFlight = false; } catch (_) {}
+  try { _v375ScopedAdvMultiFetch._inFlight = false; } catch (_) {}
+  _v223TlForceMemoReset();
+}
+try { window._v224ForgetSession = _v224ForgetSession; } catch (_) {}
+function _v224HasRecords() {
+  try { return !!(RecordCache && RecordCache.benef && RecordCache.benef.size); } catch (_) { return false; }
+}
+// Records touched today or yesterday, held APART from the main cache. Today's
+// card reads nothing else, and putting them in the cache would make the
+// session think it holds the partner's records.
+let _v224TodayRecs = null;
+async function _v224FetchToday(ngo) {
+  // ⛔ THE PARTNER, NOT THE FLEET, AND ONCE. Ordered by _lastEditedAt alone
+  // this read every record edited anywhere in the last two days - and the
+  // sign-in path calls the fetcher once per event type, so three times over.
+  // On a busy day that was 16 MB three times, against the 37 MB the release
+  // exists to save. Scoped by partner it is that partner's day, once.
+  if (!ngo) { _v224TodayRecs = []; return; }
+  if (_v224FetchToday._inFlight) return _v224FetchToday._inFlight;
+  _v224FetchToday._inFlight = (async function () {
+    try {
+      const p = new Date(Date.now() + ((5 * 60 + 30) * 60 * 1000)).toISOString().slice(0, 10).split('-');
+      const since = Date.UTC(+p[0], +p[1] - 1, +p[2]) - ((5 * 60 + 30) * 60 * 1000) - 86400000;
+      // ⛔ BOUNDED. There is no index on partner and edit-time together, so a
+      // partner-scoped query reads the whole partner - 19.6 MB, worse than what
+      // it replaced. The newest 2,000 records edited since yesterday is about
+      // 1.2 MB whatever kind of day the fleet is having, and today's card only
+      // ever looks at today and yesterday.
+      const snap = await fbRef('beneficiaries').orderByChild('_lastEditedAt')
+        .startAt(since).limitToLast(_V224_TODAY_CAP).once('value');
+      const val = snap.val() || {};
+      const out = [];
+      for (const k in val) {
+        const r = val[k];
+        if (!r || !r.id) continue;
+        if (r.ngo !== ngo) continue;
+        const t = (typeof r._lastEditedAt === 'number') ? r._lastEditedAt : 0;
+        if (t >= since) out.push(r);
+      }
+      _v224TodayRecs = out;
+      // ⛔ AND THE CARD'S OWN CACHE MUST BE TOLD. It is keyed on the data
+      // version and the day, so the zeros computed before these arrived would
+      // be handed back for the rest of the session.
+      try { _v401TodayCache = null; } catch (_) {}
+      try { if (typeof _v357DataVersion !== 'undefined') _v357DataVersion = (_v357DataVersion || 0) + 1; } catch (_) {}
+      console.log('[V22.4] today/yesterday records for ' + ngo + ':', out.length);
+    } catch (e) {
+      console.warn('[V22.4] today fetch failed:', e && e.message);
+      _v224TodayRecs = null;
+    } finally {
+      _v224FetchToday._inFlight = null;
+    }
+  })();
+  return _v224FetchToday._inFlight;
+}
+
+// ⛔ EACH FIGURE COMBINES THE WAY THAT FIGURE COMBINES. A donor sees several
+// partners at once. Totals add; names unite (two partners in one district is
+// one district, not two); the twelve-month series add point by point, and only
+// when the two payloads cover the SAME twelve months - otherwise the bars
+// would be labelled one month and counted another.
+function _v224MergeDash(a, b) {
+  if (!a) return b || null;
+  if (!b) return a;
+  const addMap = function (x, y) {
+    const o = Object.assign({}, x || {});
+    for (const k in (y || {})) o[k] = (o[k] || 0) + y[k];
+    return o;
+  };
+  const uni = function (x, y) { return Array.from(new Set((x || []).concat(y || []))).sort(); };
+  const addSeries = function (x, y) {
+    if (!x) return y; if (!y) return x;
+    if (x.length !== y.length) return x;
+    return x.map(function (v, i) { return v + y[i]; });
+  };
+  const sameMonths = !!(a.trend && b.trend
+    && JSON.stringify((a.trend.months || []).map(function (m) { return m.key; }))
+     === JSON.stringify((b.trend.months || []).map(function (m) { return m.key; })));
+  const out = {
+    total: (a.total || 0) + (b.total || 0),
+    stateNames: uni(a.stateNames, b.stateNames),
+    districtNames: uni(a.districtNames, b.districtNames),
+    byState: addMap(a.byState, b.byState),
+    byIntervention: addMap(a.byIntervention, b.byIntervention),
+    endlineCount: (a.endlineCount || 0) + (b.endlineCount || 0),
+    totalAdded: (a.totalAdded || 0) + (b.totalAdded || 0),
+    schemeBenefits: (a.schemeBenefits || 0) + (b.schemeBenefits || 0),
+    totalImpact: (a.totalImpact || 0) + (b.totalImpact || 0),
+    topNgos: (a.topNgos || []).concat(b.topNgos || [])
+      .sort(function (x, y) { return y.total - x.total || y.count - x.count; }),
+    recent: { recs: Object.assign({}, (a.recent || {}).recs, (b.recent || {}).recs),
+              adv: Object.assign({}, (a.recent || {}).adv, (b.recent || {}).adv) },
+  };
+  if (sameMonths) {
+    out.trend = {
+      months: a.trend.months,
+      cumCounts: addSeries(a.trend.cumCounts, b.trend.cumCounts),
+      newPerMonth: addSeries(a.trend.newPerMonth, b.trend.newPerMonth),
+      impactCum: addSeries(a.trend.impactCum, b.trend.impactCum),
+      impactNewPerMonth: addSeries(a.trend.impactNewPerMonth, b.trend.impactNewPerMonth),
+    };
+  } else {
+    // ⛔ TWO SUMMARIES WRITTEN EITHER SIDE OF MIDNIGHT ON THE 1st CARRY
+    // DIFFERENT TWELVE-MONTH WINDOWS. Keeping the first and dropping the rest
+    // left a donor's growth chart showing one partner beside a total covering
+    // nine, silently. There is no honest way to add series that cover
+    // different months, so the whole stored answer is refused and the records
+    // are fetched instead.
+    _v224MergeGaveUp = true;
+    out.trend = a.trend || b.trend || null;
+  }
+  return out;
+}
+
+// The stored figures for everything this session may see.
+async function _v224LoadSummary(force) {
+  const u = (typeof currentUser === 'function') ? currentUser() : null;
+  if (!u) return null;
+  // ⛔ AND THEY MUST BELONG TO THIS USER. The cached object was returned
+  // without ever comparing the scopes it was built for against the scopes the
+  // person signed in now is allowed to see.
+  const _want = ((Array.isArray(u.assignedNgos) && u.assignedNgos.length)
+    ? u.assignedNgos.slice() : (u.ngo ? [u.ngo] : [])).slice().sort().join('|');
+  if (_v224Summary && !force
+      && (_v224Summary.scopes || []).slice().sort().join('|') === _want) {
+    return _v224Summary;
+  }
+  // ⛔ EACH PARTNER ONCE. A rename that merges two partners leaves a donor
+  // assigned the same name twice, and reading the node twice doubled every
+  // figure while the state and district lists stayed right.
+  const scopes = Array.from(new Set((Array.isArray(u.assignedNgos) && u.assignedNgos.length)
+    ? u.assignedNgos : (u.ngo ? [u.ngo] : [])));
+  let merged = null, oldest = Infinity, missing = 0;
+  _v224MergeGaveUp = false;
+  for (const ngo of scopes) {
+    try {
+      const snap = await fbRef('_summary/ngo/' + _v363SafeKey(ngo)).once('value');
+      const val = snap.val();
+      if (val && val.dash) {
+        merged = _v224MergeDash(merged, val.dash);
+        const at = (val.meta && val.meta.computedAt) || val.dash.builtAt || 0;
+        if (at < oldest) oldest = at;
+      } else { missing++; }
+    } catch (e) { missing++; console.warn('[V22.4] summary read failed for ' + ngo + ':', e && e.message); }
+  }
+  // ⛔ STALE FIGURES LOOK EXACTLY LIKE FRESH ONES. Nothing on the screen says
+  // how old they are, so anything over a day old is not used at all - the
+  // records are fetched instead. That is the old cost, but only on the rare
+  // day nobody with records has signed in, and it can never be wrong.
+  const tooOld = (oldest === Infinity) || (Date.now() - oldest > _V224_MAX_AGE_MS);
+  // ⛔ A PARTNER WITH NO STORED FIGURES IS NOT A ZERO, IT IS AN UNKNOWN. This
+  // was counted and then ignored, so a donor with four of five partners
+  // missing was shown the fifth as their whole portfolio, with every
+  // appearance of being complete.
+  if (!merged || tooOld || missing > 0 || _v224MergeGaveUp) {
+    console.warn('[V22.4] stored figures ' + (merged ? 'are stale' : 'are missing')
+      + (missing ? ' (' + missing + ' partner(s) had none)' : '') + ' - fetching the records');
+    _v224Summary = null;
+    try { _v224EnsureRecords(); } catch (_) {}
+    return null;
+  }
+  _v224Summary = { dash: merged, scopes: scopes, computedAt: oldest };
+  return _v224Summary;
+}
+
+// ⛔ EVERY OTHER SCREEN STILL NEEDS THE RECORDS. The dashboard is figures; a
+// list is people. Opening one fetches the scope exactly as before - once, and
+// never twice, however fast the person clicks.
+async function _v224EnsureRecords() {
+  if (!_v224Deferred || _v224HasRecords()) return;
+  // ⛔ NEVER FOR A TEAM LEADER. Their scope is a set of coordinators, not a
+  // partner; falling through here would fetch the whole partner on both nodes
+  // and write it into their saved copy - the exact download V22.3 removes.
+  {
+    const _u = (typeof currentUser === 'function') ? currentUser() : null;
+    if (_u && _u.role === 'scopedViewerByFc') return;
+  }
+  if (_v224EnsurePromise) return _v224EnsurePromise;
+  const u = (typeof currentUser === 'function') ? currentUser() : null;
+  if (!u) return;
+  const assigned = Array.isArray(u.assignedNgos) && u.assignedNgos.length
+    ? u.assignedNgos : (u.ngo ? [u.ngo] : []);
+  if (!assigned.length) return;
+  if (typeof toast === 'function') toast('Loading the records\u2026', 'info', 4000);
+  _v224EnsurePromise = (async function () {
+    try {
+      FB.benefReplayComplete = false; FB.advReplayComplete = false;
+      await _v375ScopedBenefMultiFetch(assigned, { force: true });
+      // ⛔ WITH THE STRAGGLERS. A scheme record carries the partner of whoever
+      // typed it, so fetching by partner name misses the ones typed elsewhere -
+      // and the stored figures count them, because they count by household. The
+      // same tile would read differently before and after the records loaded.
+      await _v375ScopedAdvMultiFetch(assigned, { force: true, topUp: true });
+      // ⛔ BOTH FETCHES SWALLOW THEIR OWN ERRORS AND RETURN NORMALLY, so
+      // reaching this line proves nothing. A dropped signal used to leave the
+      // session claiming to hold the records while holding none: enrolment
+      // blocked for good, the dashboard at zero, and the saved copy's
+      // destructive write re-armed. The flags move only if records arrived.
+      FB.benefReplayComplete = true; FB.advReplayComplete = true;
+      if (_v224HasRecords()) {
+        _v224Deferred = false;
+        FB.benefCachePartial = false;
+        FB.advCachePartial = false;
+      } else {
+        console.warn('[V22.4] the records did not arrive - staying on the stored figures');
+        if (typeof toast === 'function') {
+          toast('Could not load the records. Check your connection and try again.', 'error', 8000);
+        }
+      }
+      try { renderCurrentView(); } catch (_) {}
+    } catch (e) {
+      console.warn('[V22.4] on-demand fetch failed:', e && e.message);
+      FB.benefReplayComplete = true; FB.advReplayComplete = true;
+    } finally {
+      _v224EnsurePromise = null;
+    }
+  })();
+  return _v224EnsurePromise;
+}
+try { window._v224EnsureRecords = _v224EnsureRecords; } catch (_) {}
+// ── V22.3: a team leader fetches their own coordinators' work ────────────
+// getData() has always narrowed a TL to `createdBy in assignedFcIds`; the fetch
+// asked for the whole partner and discarded the rest. Both nodes are indexed on
+// createdBy. All 30 team leaders, one session each, on the 17 Sep export:
+// 550 MB before, 132 MB after.
+let _V223_TOPUP_MAX = 1500;       // beyond this, one whole-partner read is cheaper
+let _V223_TOPUP_CONC = 12;        // lookups in flight at once
+// No team leader on the 17 Sep export is missing more than 1,195 scheme
+// records, so the whole-partner fallback would never run under test and would
+// ship unproven. This lets the suite lower the bar; nothing in the app calls it.
+try { window._v223SetTopUp = function (max, conc) {
+  if (typeof max === 'number') _V223_TOPUP_MAX = max;
+  if (typeof conc === 'number') _V223_TOPUP_CONC = conc;
+}; } catch (_) {}
+let _v223BenefLoaded = null;
+let _v224BenefFetchOk = false;   // did every household query actually answer?
+let _v224BenefFetchDone = false; // has the household fetch returned at all?
+function _v223TlScopeSig(u) {
+  const ids = Array.isArray(u && u.assignedFcIds) ? u.assignedFcIds.slice().sort() : [];
+  return (u && u.ngo ? u.ngo : '') + '|' + ids.join(',');
+}
+// ⛔ THE PANTRY MUST NOT OUTLIVE THE SCOPE. It keeps records for 30 days. While
+// it held the whole partner, a changed coordinator list still had everything to
+// filter from. Scoped, a stale pantry is simply the WRONG SET - a coordinator
+// added to a team would be invisible to their leader for a month. So the scope
+// is stored beside it, and a change forces a fresh fetch.
+let _v223TlForceMemo = null;
+function _v223TlForceMemoReset() { _v223TlForceMemo = null; }
+try { window._v223TlForceMemoReset = _v223TlForceMemoReset; } catch (_) {}
+function _v223TlForce(u) {
+  // decided ONCE per boot: the beneficiary and advocacy fetches start side by
+  // side and both must obey the same answer. Reading it twice would report
+  // 'unchanged' the second time, because the first read stores the new value.
+  if (_v223TlForceMemo === null) _v223TlForceMemo = _v223TlScopeChanged(u);
+  return _v223TlForceMemo;
+}
+function _v223TlScopeChanged(u) {
+  try {
+    const k = 'krsf_v223_tlscope_' + ((u && u.userId) || '');
+    return localStorage.getItem(k) !== _v223TlScopeSig(u);
+  } catch (_) { return true; }   // cannot tell - fetch rather than guess
+}
+// ⛔ AND THE MARKER MOVES ONLY WHEN THERE ARE RECORDS BEHIND IT. Written at
+// the moment the change was noticed, a fetch that then failed left the marker
+// saying 'up to date' over a pantry still holding the old team - and the
+// newly added coordinator stayed invisible for thirty days.
+function _v223TlScopeSettled(u) {
+  try {
+    localStorage.setItem('krsf_v223_tlscope_' + ((u && u.userId) || ''), _v223TlScopeSig(u));
+  } catch (_) {}
+}
 // V375: advocacy multi-NGO fetch — symmetric to the beneficiary version.
 async function _v375ScopedAdvMultiFetch(ngos, opts) {
   opts = opts || {};
@@ -9558,14 +10021,16 @@ async function _v375ScopedAdvMultiFetch(ngos, opts) {
     FB.lastAdv = {};
     FB.advReplayComplete = false;
 
-    let total = 0;
+    let total = 0, _advFailed = 0;
+    const _field = opts.field || 'ngo';
     const results = await Promise.all(
-      ngos.map(ngo => fbRef('advocacy').orderByChild('ngo').equalTo(ngo).once('value')
+      ngos.map(ngo => fbRef('advocacy').orderByChild(_field).equalTo(ngo).once('value')
         .then(snap => ({ ngo, snap }))
         .catch(e => ({ ngo, err: e })))
     );
     for (const r of results) {
       if (r.err) {
+        _advFailed++;
         console.warn('[V375] adv fetch failed for ngo=' + r.ngo + ':', r.err && r.err.message);
         continue;
       }
@@ -9584,13 +10049,102 @@ async function _v375ScopedAdvMultiFetch(ngos, opts) {
       total += count;
     }
 
+
+    // ⛔ A SCHEME RECORD IS NOT ALWAYS WRITTEN BY WHOEVER ENROLLED THE
+    // HOUSEHOLD. Measured on the 17 Sep export: 2.8% of the scheme records a
+    // team leader must see were typed by somebody from another partner, and one
+    // TL would have lost 1,195 of his 5,308. Asking by coordinator alone would
+    // have quietly cut his figures by a fifth. Every household has exactly one
+    // scheme record and `bid` is indexed, so the stragglers are fetched by
+    // household - and if there are too many to be worth it, the old
+    // whole-partner fetch runs instead so this is never the slower path.
+    if (opts.topUp) {
+      // ⛔ WAIT FOR THE HOUSEHOLDS, WHICHEVER STARTED FIRST. Waiting on a
+      // promise the beneficiary fetch creates when it starts loses the race when
+      // advocacy gets here first: the list of households is empty, nothing looks
+      // missing, and the 2.8% this exists to recover is silently dropped.
+      try { if (_v223BenefLoaded) await _v223BenefLoaded; } catch (_) {}
+      // ⛔ NOT FB.benefReplayComplete - a quiet timer flips that true 500 ms
+      // after the listener attaches, whether or not the fetch has returned, so
+      // the poll could pass instantly over an empty household list and the
+      // top-up would find nothing missing and skip in silence.
+      for (let _w = 0; _w < 600 && !_v224BenefFetchDone; _w++) {
+        await new Promise(function (r) { setTimeout(r, 100); });
+      }
+      if (!_v224BenefFetchDone) {
+        console.warn('[V22.3] households never finished loading - skipping the scheme-record top-up');
+      } else {
+      const _have = new Set();
+      RecordCache.adv.forEach(function (r) { if (r && r.bid) _have.add(r.bid); });
+      // ⛔ A HOUSEHOLD WITH NO SCHEME PLAN IS NOT MISSING ONE. Counting those
+      // as stragglers pushed the number past the fallback threshold, and the
+      // fallback cannot return what the top-up exists for - those records carry
+      // another partner's stamp by definition. Only households actually tagged
+      // for advocacy are expected to have a record.
+      const _ADV_TAG = 'Advocacy (Govt. Schemes)';
+      const _missing = [];
+      RecordCache.benef.forEach(function (b) {
+        if (!b || !b.id || _have.has(b.id)) return;
+        if (!(b.interventions || []).some(function (i) { return i === _ADV_TAG; })) return;
+        _missing.push(b.id);
+      });
+      const _absorb = function (val) {
+        let n = 0;
+        for (const fbKey in (val || {})) {
+          const raw = val[fbKey];
+          if (!raw) continue;
+          const record = fbStampAdvKey({ ...raw });
+          const key = record.__fbk || fbKey;
+          if (RecordCache.adv.has(key)) continue;
+          RecordCache.adv.set(key, record);
+          FB.lastAdv[key] = fbHash(record);
+          n++;
+        }
+        return n;
+      };
+      if (_missing.length > _V223_TOPUP_MAX && u && u.ngo && ngos.length > 1) {
+        console.warn('[V22.3] ' + _missing.length + ' households need a scheme-record lookup - '
+          + 'asking for the whole partner instead');
+        try {
+          const _snap = await fbRef('advocacy').orderByChild('ngo').equalTo(u.ngo).once('value');
+          total += _absorb(_snap.val());
+        } catch (e) { console.warn('[V22.3] whole-partner top-up failed:', e && e.message); }
+      } else if (_missing.length) {
+        let _at = 0, _got = 0;
+        const _worker = async function () {
+          while (_at < _missing.length) {
+            const bid = _missing[_at++];
+            try {
+              const s = await fbRef('advocacy').orderByChild('bid').equalTo(bid).once('value');
+              _got += _absorb(s.val());
+            } catch (e) { console.warn('[V22.3] top-up failed for ' + bid + ':', e && e.message); }
+          }
+        };
+        const _lanes = [];
+        for (let i = 0; i < Math.min(_V223_TOPUP_CONC, _missing.length); i++) _lanes.push(_worker());
+        await Promise.all(_lanes);
+        total += _got;
+        console.log('[V22.3] scheme-record top-up: recovered a record for', _got,
+          'of', _missing.length, 'households that were expecting one');
+      }
+      }
+    }
     FB.advReplayComplete = true;
     fbUpdatePill();
     console.log('[V375 scoped] adv multi-fetch complete:', total, 'records across', ngos.length, 'NGOs');
 
-    if (u && u.userId) {
+    if (u && u.userId && _advFailed === 0) {
       await _v192VerifiedPantryWrite('adv', u.userId,
         function () { return _advPantryWrite(u.userId, Array.from(RecordCache.adv.values())); });
+      // ⛔ T2: AND ONLY NOW DOES THE SCOPE MARKER MOVE. Written when the
+      // households merely reached memory, it sealed a saved copy that the
+      // scheme records had not yet joined - so a tab closed mid-fetch left the
+      // next boot saying 'unchanged' over the old team's records for a month.
+      if (opts.field === 'createdBy' && _v224BenefFetchOk) {
+        try { _v223TlScopeSettled(u); } catch (_) {}
+      }
+    } else if (_advFailed) {
+      FB.advCachePartial = true;
     }
     try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
     try { renderCurrentView(); } catch(_){}
@@ -10491,6 +11045,17 @@ async function saveData(arr) {
   // Skip the gate during bulk import: bulk import explicitly takes
   // responsibility for cache state via _hydrateBenefCache and the
   // _bulkImportInProgress flag below.
+  // ⛔ V22.4: AND NOT WHILE THE RECORDS ARE STILL DEFERRED. A save from a
+  // session holding none is safe by argument - the change map is empty, so no
+  // deletes are issued - but an argument is not a guard, and the argument stops
+  // holding the moment anything else changes. The records are fetched first.
+  if (typeof _v224WorkingFromFigures === 'function' && _v224WorkingFromFigures()
+      && !_bulkImportInProgress) {
+    try { _v224EnsureRecords(); } catch (_) {}
+    const m2 = 'Loading your records first \u2014 try again in a moment.';
+    if (typeof toast === 'function') toast(m2, 'warn', 6000);
+    throw new SaveError('not-ready', new Error('records deferred'));
+  }
   if (!FB.benefReplayComplete && !_bulkImportInProgress) {
     const msg = 'Still syncing with the server, please wait a few seconds and try again.';
     if (typeof toast === 'function') toast(msg, 'warn', 5000);
@@ -14737,7 +15302,11 @@ function _cascadeFamilySync(data, recordId, before, after) {
   return { touchedCount: _touched.size, blockedIds: _blockedIds };
 }
 
+// V22.4: the enrol form is reached by a button, not only by nav(), so it asks
+// for the records itself - a partner login's first act of the day should be a
+// form, not a message telling them to wait.
 function openEnroll() {
+  try { if (typeof _v224EnsureRecords === 'function') _v224EnsureRecords(); } catch (_) {}
   editingId = null;
   // Always reset family-member mode at the start. openEnrollAsFamilyMember()
   // calls this first, then re-applies family-member mode below the reset.
@@ -21472,6 +22041,20 @@ async function saveAdv(arr) {
       throw new SaveError('read-only', new Error('scopedViewerByFc cannot save advocacy'));
     }
   }
+  // ⛔ V22.4: NOT FROM A SESSION THAT IS HOLDING NO SCHEME RECORDS. With the
+  // cache empty this path finds no existing record for the household, builds a
+  // new one containing only the rows just typed, and stamps it <bid>__unknown -
+  // exactly the key the household's real record already occupies. The write is
+  // a whole-node replace, so every status, benefit amount and tombstone it held
+  // is destroyed, with no error and nothing on screen to say so.
+  if (typeof _v224WorkingFromFigures === 'function' && _v224WorkingFromFigures()
+      && !_bulkImportInProgress) {
+    try { _v224EnsureRecords(); } catch (_) {}
+    if (typeof toast === 'function') {
+      toast('Loading the scheme records first \u2014 try again in a moment.', 'warn', 6000);
+    }
+    throw new SaveError('not-ready', new Error('advocacy records deferred'));
+  }
   // V310-S2: Firebase-only writes. Cache after Firebase confirms.
   // V317: replay-complete gate. See V317 review Bug 1 for the listener/diff
   // race scenario. Skip during bulk import (same rationale as saveData).
@@ -22031,7 +22614,10 @@ function _advLatestRowsForBeneficiary(bid) {
   return _advLatestRowsAll(loadAdv()).filter(r => r.__bid === bid);
 }
 
+// V22.4: like openEnroll, this is reached by a button rather than nav(), so it
+// asks for the scheme records itself.
 function openAdvModal(bid) {
+  try { if (typeof _v224EnsureRecords === 'function') _v224EnsureRecords(); } catch (_) {}
   _advRowCount = 0;
   document.getElementById('adv-bid').value = bid||'';
   document.getElementById('adv-err').classList.remove('show');
@@ -23504,7 +24090,8 @@ function _cumulativeSummaryStats(cumArr, minBaselineForPct) {
 // Render both month-on-month charts as a side-by-side grid.
 // Takes the currently-filtered list of beneficiaries and the flattened
 // advocacy rows (latest per scheme, from _advLatestRowsAll).
-function _renderDashboardTrendBands(list, advLatest) {
+// V22.4: counting only - see _renderDashboardTrendBands below for the drawing.
+function _v224TrendAgg(list, advLatest) {
   const months = _monthsWindow(12);
   const bidSet = new Set(list.map(b => b.id));
   const fmtInt = v => String(Math.round(v));
@@ -23612,6 +24199,25 @@ function _renderDashboardTrendBands(list, advLatest) {
   let impactRunning = 0;
   const impactCum = impactNewPerMonth.map(v => (impactRunning += v));
 
+  return { months: months, cumCounts: cumCounts, newPerMonth: newPerMonth,
+           impactCum: impactCum, impactNewPerMonth: impactNewPerMonth };
+}
+
+// V22.4: drawing. Takes the numbers, wherever they were counted - or the
+// records themselves, in which case it counts them first. ⛔ The second form
+// is not a convenience: this function's old signature is called from outside
+// this file, and a signature change that only fixes the callers you happen to
+// know about is how twelve checks broke at once.
+function _renderDashboardTrendBands(T, advLatest) {
+  if (Array.isArray(T)) T = _v224TrendAgg(T, advLatest || []);
+  if (!T) return '';
+  const months = T.months, cumCounts = T.cumCounts, newPerMonth = T.newPerMonth;
+  const impactCum = T.impactCum, impactNewPerMonth = T.impactNewPerMonth;
+  const fmtInt = function (v) { return String(Math.round(v)); };
+  const fmtRs = function (v) {
+    return v >= 100000 ? '\u20b9' + (v / 100000).toFixed(v >= 1000000 ? 0 : 1) + 'L'
+                       : '\u20b9' + Math.round(v / 1000) + 'K';
+  };
   const cumSvg = _renderCumulativeBarChart(months, cumCounts, newPerMonth, fmtInt, 'beneficiaries');
   const impactSvg = _renderCumulativeBarChart(months, impactCum, impactNewPerMonth, fmtRs, 'impact');
 
@@ -23653,8 +24259,9 @@ function _renderDashboardTrendBands(list, advLatest) {
 // All NGO partners ranked by total impact (income delta + scheme benefits).
 // Previously limited to Top 5; per PM request expanded to all partners so
 // silent/zero-impact NGOs remain visible (that absence is itself a signal).
-function _renderDashboardTopNGOs(list, advLatest) {
-  if (list.length === 0) return '';
+// V22.4: counting only - the drawing is _renderDashboardTopNGOs below.
+function _v224TopNgoAgg(list, advLatest) {
+  if (list.length === 0) return [];
   const advBenByBid = {};
   advLatest.forEach(r => {
     if (r.benefitRecd === 'Yes') {
@@ -23678,11 +24285,19 @@ function _renderDashboardTopNGOs(list, advLatest) {
     byNgo[k].income += _v193Delta(b);   // V19.3: the one rule
     byNgo[k].schemes += (advBenByBid[b.id] || 0);
   });
-  const rows = Object.values(byNgo)
+  return Object.values(byNgo)
     .map(o => ({...o, total: o.income + o.schemes}))
     .sort((a, b) => b.total - a.total || b.count - a.count);
+}
 
-  if (rows.length === 0) return '';
+// V22.4: drawing - or counting first, when handed the records. See the note
+// on _renderDashboardTrendBands: the old signature is part of the contract.
+// A counted row has a `name`; a household has an `id`.
+function _renderDashboardTopNGOs(rows, advLatest) {
+  if (Array.isArray(rows) && rows.length && rows[0] && rows[0].name === undefined) {
+    rows = _v224TopNgoAgg(rows, advLatest || []);
+  }
+  if (!rows || rows.length === 0) return '';
 
   const fmt = v => v >= 100000 ? '₹' + (v/100000).toFixed(1) + 'L' : '₹' + v.toLocaleString('en-IN');
   // V5: compact beneficiary-count abbreviation for the mobile single-line
@@ -23802,7 +24417,12 @@ function _v401TodayStats() {
               _v207ByNgo.set(k, g); }
     return g;
   };
-  for (const b of RecordCache.benef.values()) {
+  // V22.4: a session working from stored figures holds no records, so today's
+  // card reads the small set fetched for exactly this purpose.
+  const _v224Src = (typeof _v224Deferred !== 'undefined' && _v224Deferred
+                    && Array.isArray(_v224TodayRecs))
+    ? _v224TodayRecs : RecordCache.benef.values();
+  for (const b of _v224Src) {
     if (!b) continue;
     if (_filtered && !_inScope(b)) continue;   // V19.9
     if (b.enrollDate) {
@@ -24066,6 +24686,51 @@ function _v401TodayStrip() {
   </div>`;
 }
 
+// ── V22.4: the dashboard's arithmetic, in one place ─────────────────────
+// Every figure the dashboard prints is counted here, and ONLY here. The screen
+// calls it with the records it holds; the summary writer calls it with the same
+// records to store the answers for the sessions that will hold none. One
+// implementation means the stored figure and the tile above it cannot drift -
+// which they did before, because 'how many districts' was written twice and the
+// two versions split "Anand, Gujarat" differently.
+function _v224DashAgg(list, advLatest) {
+  const listIds = new Set(list.map(function (b) { return b.id; }));
+  const states = new Set(), districts = new Set();
+  const byState = {}, byIntervention = {};
+  for (const b of list) {
+    const parts = (b.district || '').split(',');
+    if (parts.length >= 2) {
+      states.add(parts[parts.length - 1].trim());
+      districts.add(parts.slice(0, -1).join(',').trim());
+    } else if (b.district) {
+      districts.add(b.district.trim());
+    }
+    const st = parts.length >= 2 ? parts[parts.length - 1].trim() : (b.district || '').trim();
+    if (st) byState[st] = (byState[st] || 0) + 1;
+    const seen = new Set();
+    (b.interventions || []).forEach(function (i) {
+      if (!i || seen.has(i)) return;
+      seen.add(i);
+      byIntervention[i] = (byIntervention[i] || 0) + 1;
+    });
+  }
+  const withEnd = list.filter(_v19HasEndline);
+  const totalAdded = withEnd.reduce(function (s, b) { return s + _v193Delta(b); }, 0);
+  const schemeBenefits = (advLatest || [])
+    .filter(function (r) { return listIds.has(r.__bid) && r.benefitRecd === 'Yes'; })
+    .reduce(function (s, r) { return s + _v18RowBenefit(r); }, 0);
+  return {
+    total: list.length,
+    stateNames: Array.from(states).sort(),
+    districtNames: Array.from(districts).sort(),
+    byState: byState,
+    byIntervention: byIntervention,
+    endlineCount: withEnd.length,
+    totalAdded: totalAdded,
+    schemeBenefits: schemeBenefits,
+    totalImpact: totalAdded + schemeBenefits,
+  };
+}
 function renderDashboard() {
   const allB   = filteredAll();
   // Livelihood beneficiaries = anyone with a non-Advocacy intervention.
@@ -24097,48 +24762,62 @@ function renderDashboard() {
   // getLivelihoodData() uses, kept in one shared function now so the two
   // screens cannot drift apart again. This is the V18.7 lesson applied to a
   // second pair of counters.
-  const withEnd    = list.filter(_v19HasEndline);
-  const totalAdded = withEnd.reduce((s,b)=>s+_v193Delta(b),0);   // V19.3: the one rule
+  // V22.4: counted by _v224DashAgg, which the summary writer also calls - or,
+  // for a session that holds no records, read off the stored copy those same
+  // functions produced.
+  const advLatest = _advLatestRowsAll(_v177AdvRead());
+  // ⛔ THEIR OWN PARTNER IS NOT A FILTER. A partner login has the partner
+  // dropdown locked to itself from the first paint, so treating that as a
+  // narrowing filter made every partner login download the partner - the one
+  // thing this release exists to stop.
+  const _me224 = (typeof currentUser === 'function') ? currentUser() : null;
+  const _ngoIsOwnScope = !!(_me224 && _me224.role === 'ngo' && _me224.ngo
+    && typeof ngoFilter !== 'undefined' && ngoFilter === _me224.ngo);
+  const _anyFilter = !!((typeof stateFilter !== 'undefined' && stateFilter)
+    || (typeof ngoFilter !== 'undefined' && ngoFilter && !_ngoIsOwnScope)
+    || (typeof fcFilter !== 'undefined' && fcFilter)
+    || (typeof progFilter !== 'undefined' && progFilter));
+  const _stored = (typeof _v224Deferred !== 'undefined' && _v224Deferred
+                   && !_v224HasRecords() && !_anyFilter) ? _v224SummaryDash() : null;
+  // ⛔ A FILTER MEANS THE RECORDS ARE NEEDED. A stored total is the whole
+  // scope; printing it under a filter chip is a wrong answer that looks right.
+  if (typeof _v224Deferred !== 'undefined' && _v224Deferred && !_v224HasRecords() && _anyFilter) {
+    try { _v224EnsureRecords(); } catch (_) {}
+    document.getElementById('content').innerHTML =
+      '<div class="empty" style="padding:48px 0">Loading the records so the filter can be applied…</div>';
+    return;
+  }
+  if (typeof _v224Deferred !== 'undefined' && _v224Deferred && !_v224HasRecords() && !_stored) {
+    document.getElementById('content').innerHTML =
+      '<div class="empty" style="padding:48px 0">Loading your figures…</div>';
+    return;
+  }
+  let A;
+  if (_stored) { A = _stored; }
+  else {
+    A = _v224DashAgg(list, advLatest);
+    A.trend = _v224TrendAgg(list, advLatest);
+    A.topNgos = _v224TopNgoAgg(list, advLatest);
+  }
+  const withEnd    = { length: A.endlineCount };
+  const totalAdded = A.totalAdded;
   // Unique beneficiaries per intervention — use a Set per record to guard
   // against duplicate entries in the interventions array (possible from old
   // seed data). Counts match Livelihood tab semantics: one beneficiary per
   // intervention type they participate in.
-  const ic = {};
-  list.forEach(b => {
-    const seen = new Set();
-    (b.interventions||[]).forEach(i => {
-      if (!i || seen.has(i)) return;
-      seen.add(i);
-      ic[i] = (ic[i]||0) + 1;
-    });
-  });
-  const total    = list.length;
+  const ic = A.byIntervention;
+  const total    = A.total;
 
   // ── 6 KPI tiles ──
   // Coverage metrics (row 1): unique beneficiaries, states, districts
   // Financial impact (row 2): additional income, scheme benefits, total impact
-  const listIds = new Set(list.map(b => b.id));
-  // Distinct state names — parse from stored "District, State" composite
-  const distinctStates = new Set();
-  list.forEach(b => {
-    const parts = (b.district||'').split(',');
-    if (parts.length >= 2) distinctStates.add(parts[parts.length-1].trim());
-  });
-  // Distinct districts — the first part of the composite (or full string if no comma)
-  const distinctDistricts = new Set();
-  list.forEach(b => {
-    const parts = (b.district||'').split(',');
-    if (parts.length >= 2) distinctDistricts.add(parts.slice(0,-1).join(',').trim());
-    else if (b.district) distinctDistricts.add(b.district.trim());
-  });
+  const distinctStates = { size: A.stateNames.length };
+  const distinctDistricts = { size: A.districtNames.length };
   // Scheme benefits — only advocacy-driven (benefitRecd='Yes'), for beneficiaries
   // in the current filter. This is the additional impact from KRSF's advocacy
   // work, not baseline government coverage.
-  const advLatest = _advLatestRowsAll(_v177AdvRead());
-  const schemeBenefits = advLatest
-    .filter(r => listIds.has(r.__bid) && r.benefitRecd === 'Yes')
-    .reduce((s, r) => s + _v18RowBenefit(r), 0);
-  const totalImpact = totalAdded + schemeBenefits;
+  const schemeBenefits = A.schemeBenefits;
+  const totalImpact = A.totalImpact;
 
   updateAlertBadge();
 
@@ -24166,7 +24845,7 @@ function renderDashboard() {
   document.getElementById('content').innerHTML = `
     <div class="stats stats-6" style="margin-bottom:18px">
       ${tile('Total Beneficiaries', total, filterBadges || 'Livelihood & Advocacy', 's-blue')}
-      ${tile('States Covered', distinctStates.size, distinctStates.size ? [...distinctStates].sort().join(', ') : '—', 's-purple')}
+      ${tile('States Covered', distinctStates.size, A.stateNames.length ? A.stateNames.join(', ') : '—', 's-purple')}
       ${tile('Districts Covered', distinctDistricts.size, distinctDistricts.size===1 ? '1 district' : distinctDistricts.size+' districts', 's-amber')}
       ${tile('Total Additional Income', totalAdded>0 ? '₹'+totalAdded.toLocaleString('en-IN') : '—', withEnd.length ? `From ${withEnd.length} endline${withEnd.length===1?'':'s'}` : 'No endlines yet', 's-green', totalAdded>0?'var(--green)':'')}
       ${tile('Scheme Benefits', schemeBenefits>0 ? '₹'+schemeBenefits.toLocaleString('en-IN') : '—', 'Advocacy benefits received', 's-purple', schemeBenefits>0?'var(--purple)':'')}
@@ -24178,8 +24857,8 @@ function renderDashboard() {
       <span style="font-size:12px;color:var(--gray2)">Filters:</span>${filterBadges}
       <button onclick="stateFilter='';ngoFilter='';fcFilter='';progFilter='';document.getElementById('state-filter').value='';document.getElementById('ngo-filter').value='';var mp=document.getElementById('prog-filter');if(mp)mp.value='';renderCurrent()" style="font-size:11px;color:var(--red);background:none;border:none;cursor:pointer;padding:0;font-family:var(--font)">✕ Clear all</button>
     </div>`:''}
-    ${_renderDashboardTrendBands(list, advLatest)}
-    ${_renderDashboardTopNGOs(list, advLatest)}
+    ${_renderDashboardTrendBands(A.trend)}
+    ${_renderDashboardTopNGOs(A.topNgos)}
     <div class="chart2">
       <div class="card"><div class="card-head"><div class="card-title">No. of Beneficiaries by Intervention</div></div>
         <div style="padding:12px 16px">${total===0?'<div class="empty">No beneficiaries enrolled yet</div>':Object.entries(ic).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="brow"><div class="blbl">${escHtml(k)}</div><div class="btrack"><div class="bfill" style="width:${Math.round(v/total*100)}%;background:${IC[k]||'var(--navy2)'}"></div></div><div class="bval">${v}</div></div>`).join('')}</div>
@@ -24201,13 +24880,7 @@ function renderDashboard() {
               'Jharkhand':'#059669', 'Rajasthan':'#DB2777', 'Madhya Pradesh':'#0891B2'
             };
             const FALLBACK = '#6B7280'; // gray for any state not in the palette
-            const countsByState = {};
-            list.forEach(b => {
-              const parts = (b.district||'').split(',');
-              const state = parts.length >= 2 ? parts[parts.length-1].trim() : (b.district||'').trim();
-              if (!state) return;
-              countsByState[state] = (countsByState[state] || 0) + 1;
-            });
+            const countsByState = A.byState;
             const stateData = Object.entries(countsByState)
               .map(([state, count]) => ({state, count, color: STATE_COLORS[state] || FALLBACK}))
               .sort((a, b) => b.count - a.count);  // biggest first
@@ -24237,7 +24910,18 @@ function renderDashboard() {
 // beneficiaries currently visible to the user, shows the 15 most recent.
 // Each row: who did what to which beneficiary, and when (relative time).
 function _renderDashboardRecentUpdates(list) {
-  const visibleIds = new Set(list.map(b => b.id));
+  // V22.4: a donor's session holds no records. The card then works from the
+  // small lookup that travelled with the stored summary - the same fifty-odd
+  // households the audit entries name - so every rule below about which id
+  // means what is unchanged.
+  // ⛔ THE TEST IS WHETHER THIS SESSION HOLDS RECORDS, not whether the list
+  // happens to be empty. Gated on the latter, a filter that matched nothing
+  // brought back rows the filter had just excluded.
+  const _v224L = (typeof _v224WorkingFromFigures === 'function' && _v224WorkingFromFigures()
+                  && typeof _v224SummaryDash === 'function')
+    ? ((_v224SummaryDash() || {}).recent || null) : null;
+  const visibleIds = _v224L ? new Set(Object.keys(_v224L.recs))
+                            : new Set(list.map(b => b.id));
   // Partner (NGO) lookup by beneficiary id — used to render the new Partner
   // column. Scoped to the currently-visible list so this matches what the
   // user would see anyway via role filters.
@@ -24257,6 +24941,7 @@ function _renderDashboardRecentUpdates(list) {
   // Map with O(1) get - so look up only the handful of ids actually needed.
   // Same answers, no allocation.
   const _v19Rec = id => {
+    if (_v224L) return (id && _v224L.recs[id]) ? _v224L.recs[id] : null;
     try { return (id && RecordCache && RecordCache.benef) ? (RecordCache.benef.get(id) || null) : null; }
     catch (_) { return null; }
   };
@@ -24276,7 +24961,8 @@ function _renderDashboardRecentUpdates(list) {
   // the advocacy store's bid field is authoritative (dashboard audit: bug B).
   const advBidByAdvId = {};
   try {
-    _v177AdvRead().forEach(rec => { if (rec && rec.id) advBidByAdvId[rec.id] = rec.bid; });
+    if (_v224L) Object.assign(advBidByAdvId, _v224L.adv);
+    else _v177AdvRead().forEach(rec => { if (rec && rec.id) advBidByAdvId[rec.id] = rec.bid; });
   } catch(e) {}
 
   // User fullName lookup by userId — so the "By" column shows a human name
@@ -27933,6 +28619,11 @@ window.nav=function(v){
     if (!allowed.has(v)) v = 'dashboard';
   }
   currentView=v;
+  // V22.4: the dashboard is figures; everything else is people. Asking for a
+  // list, the map or the alerts is the moment the records are worth fetching.
+  if (typeof _v224Deferred !== 'undefined' && _v224Deferred && v !== 'dashboard') {
+    try { _v224EnsureRecords(); } catch (_) {}
+  }
   // V21.1: the Find bar follows the page, and clears itself on the way out.
   try { _v211ApplyFilterScope(); } catch (_) {}
   // V324: reset pagination and memoization cache on every nav so that
@@ -27957,7 +28648,7 @@ window.nav=function(v){
   const mobKey=mobMap[v];
   document.querySelectorAll('.mob-nav-item').forEach(b=>b.classList.remove('active'));
   if (mobKey) { const mb=document.getElementById('mob-nav-'+mobKey); if(mb)mb.classList.add('active'); }
-  const titles={dashboard:'Dashboard',beneficiaries:'All Beneficiaries',list:'Livelihood',ngo:'NGO Partners',alerts:'Alerts & Flags',map:'Field Map',integrated:'Integrated View',advocacy:'Advocacy',admin_partners:'Partner Management',admin_users:'User Management',admin_livelihoods:'Livelihood Management',admin_schemes:'Advocacy Management',admin_audit:'Audit Log',admin_partner_move:'Move Records Between Partners',admin_bandwidth:'Bandwidth Usage'};
+  const titles={dashboard:'Dashboard',beneficiaries:'All Beneficiaries',list:'Livelihood',ngo:'NGO Partners',alerts:'Alerts & Flags',map:'Field Map',integrated:'Integrated View',advocacy:'Advocacy',admin_partners:'Partner Management',admin_users:'User Management',admin_livelihoods:'Livelihood Management',admin_schemes:'Advocacy Management',admin_audit:'Audit Log',admin_partner_move:'Move Records Between Partners',admin_bandwidth:'Bandwidth Usage',reports:'Reports',admin_import:'Import Data',admin_photo_migration:'Photo Migration',admin_advocacy_backfill:'Advocacy Backfill',admin_dedup_ids:'Duplicate IDs',admin_delete_dupes:'Delete Duplicates',admin_scheme_rename:'Rename a Scheme',admin_user_import:'Import Users',admin_partner_stamps:'Scheme Records by Partner'};
   // For NGO logins the "ngo" page shows their team (FCs), not partners — retitle.
   const _navUser = (typeof currentUser === 'function') ? currentUser() : null;
   if (v === 'ngo' && _navUser && (_navUser.role === 'ngo' || _navUser.role === 'scopedViewerByFc')) titles.ngo = 'Team Report';
@@ -32174,6 +32865,15 @@ async function applyMoveFc() {
   const src = users.find(x => x.id === srcId);
   if (!src) return showErr('Field Coordinator not found.');
   if (src.ngo === dstName) return showErr('That FC is already with this NGO.');
+  // ⛔ NOT BEFORE THE SCHEME RECORDS HAVE ARRIVED. Step 2 re-tags only the
+  // advocacy this session can see, and skips the save entirely when it can see
+  // none - so a move run mid-sync moved the people, silently left every scheme
+  // record behind, and said it had moved 0 of them. That is how 838 records
+  // ended up filed under Vadali after their households had gone to Idar.
+  if (!(FB && FB.benefReplayComplete && FB.advReplayComplete)) {
+    return showErr('Still loading the records \u2014 wait until the app has finished syncing, '
+      + 'then try again. Moving now would leave the scheme records behind.');
+  }
   const srcName = src.fullName || src.username;
   const oldNgo = src.ngo;
 
@@ -32194,6 +32894,13 @@ async function applyMoveFc() {
   // changed in between - a delete arriving from another device - was
   // written straight back from this stale copy. V18.9's move tool
   // already reads in this order; this one did not.
+  // ⛔ AND AGAIN HERE. The check above happened before a confirmation dialog
+  // that waits for a person; a re-fetch starting in that gap sets the flags
+  // back to false, and the read below would then see a partial database.
+  if (!(FB && FB.benefReplayComplete && FB.advReplayComplete)) {
+    showErr('The records changed while that dialog was open \u2014 try again.');
+    return;
+  }
   const data = loadData();
   const movedBenef = data.filter(b => b && b.createdBy === srcId);
   const benefIds = new Set(movedBenef.map(b => b.id));
@@ -34707,6 +35414,13 @@ async function _v359ReadFleetFlag() {
 //   { result: 'refreshed', count: N }  — fetched fresh records, pantry updated
 //   { result: 'error',   err: '...' }  — Firebase or auth failure
 async function _v359SmartCheckAndRefresh(reason) {
+  // ⛔ V22.4: NOT WHILE THE RECORDS ARE DELIBERATELY NOT HERE. This brings a
+  // saved copy up to date, and a session working from stored figures has no
+  // saved copy to bring up to date - it would simply download the partner,
+  // one second after the sign-in decided not to.
+  if (typeof _v224WorkingFromFigures === 'function' && _v224WorkingFromFigures()) {
+    return { result: 'deferred' };
+  }
   const u = (typeof currentUser === 'function') ? currentUser() : null;
   if (!u || !u.userId) return { result: 'error', err: 'no user' };
   let _benefOut = null;
@@ -34760,6 +35474,9 @@ async function _v359SmartCheckAndRefresh(reason) {
 }
 
 async function _v359SmartCheckAndRefreshBenef(u, reason) {
+  if (typeof _v224WorkingFromFigures === 'function' && _v224WorkingFromFigures()) {
+    return { result: 'deferred' };
+  }
   // Read both the FC's own meta and the fleet flag in parallel.
   let meta = null, fleetTs = 0;
   try {
@@ -34983,6 +35700,51 @@ function renderAfterLogin() {
 
 // ---------- Summary computation (called by admin's data load + saveData) ----------
 
+// ── V22.4: the dashboard payload that travels in the summary ────────────
+// A donor's session holds no records, so the figures have to arrive already
+// counted. They are counted by the same three functions the screen itself
+// calls - not a second implementation, which is how the stored district count
+// and the tile above it came to disagree.
+// V22.4: the handful of households the newest audit entries mention, so the
+// Recent Updates card can name them without the records being present. Built
+// from the same audit log every session reads, narrowed to this scope.
+function _v224RecentLookup(list, advRecords) {
+  const out = { recs: {}, adv: {} };
+  try {
+    const audit = (typeof loadAudit === 'function') ? loadAudit() : [];
+    if (!audit.length) return out;
+    const byId = new Map();
+    for (const b of list) if (b && b.id) byId.set(b.id, b);
+    const advByBid = new Map();
+    for (const a of (advRecords || [])) if (a && a.id) advByBid.set(a.id, a.bid);
+    const recent = audit.slice(-120);
+    const want = new Set();
+    for (const e of recent) {
+      if (!e || !e.recordId) continue;
+      want.add(e.recordId);
+      const via = advByBid.get(e.recordId);
+      if (via) { out.adv[e.recordId] = via; want.add(via); }
+    }
+    for (const id of want) {
+      const b = byId.get(id);
+      if (b) out.recs[id] = { name: b.name || '', ngo: b.ngo || '' };
+    }
+  } catch (e) { console.warn('[V22.4] recent lookup failed:', e && e.message); }
+  return out;
+}
+function _v224BuildDashPayload(list, advLatest) {
+  try {
+    const A = _v224DashAgg(list, advLatest);
+    A.trend = _v224TrendAgg(list, advLatest);
+    A.topNgos = _v224TopNgoAgg(list, advLatest);
+    A.recent = _v224RecentLookup(list, (typeof _loadAdvRaw === 'function') ? _loadAdvRaw() : []);
+    A.builtAt = Date.now();
+    return A;
+  } catch (e) {
+    console.warn('[V22.4] dashboard payload failed:', e && e.message);
+    return null;
+  }
+}
 function _v362ComputeOneSummary(records, advRecords, ngoScope, prefiltered) {
   // Compute the 4-tab summary + date-wise progress for a given scope.
   // ngoScope: a specific NGO name to filter by, or null for global.
@@ -35141,6 +35903,13 @@ function _v362ComputeOneSummary(records, advRecords, ngoScope, prefiltered) {
   const ngoBreakdown = Object.values(ngoMap).sort((a, b) => b.total - a.total);
 
   return {
+    // V22.4: the dashboard, counted by the screen's own functions.
+    // ⛔ EVERY scheme row, not this partner's slice. The screen de-duplicates
+    // once over the whole database and then narrows by household; narrowing
+    // first keeps a different surviving row and put Idar's stored figure
+    // Rs 1.28 crore above the tile on the same data.
+    dash: _v224BuildDashPayload(recs,
+      (typeof _advLatestRowsAll === 'function') ? _advLatestRowsAll(advRecords) : []),
     meta: { computedAt: Date.now(), scope: ngoScope || 'global', recordsInScope: recs.length },
     dashboard: {
       total: recs.length,
@@ -35406,6 +36175,18 @@ async function _v400ComputeAllSummaries(records, advRecords) {
   // screen applies, so it counted scheme rows whose beneficiary no longer
   // exists and sat above the dashboard tile on the same data. Same rule
   // now, everywhere.
+  // V22.4: a partner with no work yet gets a stored ZERO, not nothing. A donor
+  // now refuses figures when a partner is missing from them - which is right,
+  // because a missing partner is an unknown rather than a zero - and without
+  // this that donor would pay the full download every day until the partner
+  // enrolled somebody.
+  try {
+    const _known = (typeof loadPartners === 'function') ? loadPartners() : [];
+    for (const p of _known) {
+      const nm = p && p.name;
+      if (nm && !byNgo[nm]) byNgo[nm] = newCtx(nm);
+    }
+  } catch (e) { console.warn('[V22.4] could not add empty partners:', e && e.message); }
   global._rowCounts = await countRows(gRows, global.recIds);
   await _v400Yield();
   for (const n in byNgo) {
@@ -35418,6 +36199,16 @@ async function _v400ComputeAllSummaries(records, advRecords) {
     const allUsers = (typeof loadUsers === 'function') ? loadUsers() : [];
     for (const u of allUsers) userMap[u.id] = u.fullName || u.username || u.id;
   } catch(_) {}
+  // V22.4: the records this pass has already bucketed, kept as references so
+  // the screen's own counters can run over each partner in turn. References,
+  // not copies - the streaming pass exists to avoid a second walk, not to
+  // avoid pointing at the same objects twice.
+  const _v224Recs = { __global__: records };
+  for (const n in byNgo) _v224Recs[n] = [];
+  for (const b of records) {
+    if (b && b.ngo && _v224Recs[b.ngo]) _v224Recs[b.ngo].push(b);
+  }
+  const _v224AdvLatest = _v187Shared;
   function assemble(c) {
     const rc = c._rowCounts;
     const allWeeks = Object.values(c.weeks).sort(function(a, b){ return a.week < b.week ? -1 : 1; });
@@ -35425,8 +36216,11 @@ async function _v400ComputeAllSummaries(records, advRecords) {
     const fcEntries = Object.entries(c.byFc).sort(function(a, b){ return b[1] - a[1]; }).slice(0, 5);
     const topFCs = fcEntries.map(function(e){ return { name: userMap[e[0]] || e[0], count: e[1] }; });
     const ngoBreakdown = Object.values(c.ngoMap).sort(function(a, b){ return b.total - a.total; });
+    const _scopeName = c.scope || 'global';
+    const _list = (_scopeName === 'global') ? _v224Recs.__global__ : (_v224Recs[_scopeName] || []);
     return {
-      meta: { computedAt: Date.now(), scope: c.scope || 'global', recordsInScope: c.n },
+      dash: _v224BuildDashPayload(_list, _v224AdvLatest),
+      meta: { computedAt: Date.now(), scope: _scopeName, recordsInScope: c.n },
       dashboard: { total: c.n, states: c.states.size, districts: c.dists.size,
         totalIncomeAdded: c.totalIncome, totalSchemeBenefits: rc.totalAmt,
         totalImpact: c.totalIncome + rc.totalAmt, livelihoodCount: c.liv,
@@ -35688,6 +36482,18 @@ async function _v362WriteAllSummaries() {
     // -------- NGO: write just their NGO's summary --------
     if (u.role === 'ngo' && u.ngo) {
       if (!Array.isArray(records) || records.length === 0) return;
+      // ⛔ AND NOT FROM A HALF-LOADED ONE. An empty cache is refused above -
+      // that is the ordinary V22.4 case - but a fetch that failed part way
+      // leaves a PARTIAL cache, and publishing a fraction of a partner's work
+      // to the node donors read is the V19.5 disaster with fewer records.
+      // ⛔ AND NOT WHEN THE SCHEME RECORDS ARE MISSING. Beneficiaries can load
+      // while advocacy fails; the figures would then be published with the
+      // partner's scheme benefits at zero, to the node every donor reads.
+      if (FB.benefCachePartial || FB.advCachePartial
+          || !Array.isArray(adv) || (adv.length === 0 && records.length > 0)) {
+        console.warn('[V22.4] not publishing figures from a partial set of records');
+        return;
+      }
       try {
         const summary = _v362ComputeOneSummary(records, adv, u.ngo);
         await fbRef('_summary/ngo/' + _v363SafeKey(u.ngo)).set(summary);
@@ -41056,6 +41862,11 @@ function _v220Reset() {
 // value is kept so the whole batch can be put back.
 let _v222Scan = null;
 let _v222Busy = false;
+// ⛔ WHAT IT JUST DID, ON THE SCREEN. The run clears the scan and redraws,
+// which landed you back on the page you started from with only a toast - long
+// gone by the time you look up - to say 885 records had been corrected. Guru:
+// "i clicked nothing happened". It had happened.
+let _v222LastRun = null;
 const _V222_CHUNK = 250;
 
 function _v222ScanStamps() {
@@ -41162,9 +41973,12 @@ async function _v222RunStampFix() {
       'Moved ' + done.length + ' scheme record(s) to the partner their beneficiary is in now'
       + (skipped.length ? ' (' + skipped.length + ' skipped)' : ''),
       { stampFix: done });
+    _v222LastRun = { kind: 'run', at: Date.now(), n: done.length, skipped: skipped.length };
     toast(done.length + ' scheme record' + (done.length === 1 ? '' : 's') + ' corrected'
       + (skipped.length ? ', ' + skipped.length + ' skipped' : ''), 'success', 7000);
   } catch (e) {
+    _v222LastRun = { kind: 'stopped', at: Date.now(), n: done.length,
+                     why: (e && e.message) || String(e) };
     toast('Stopped after ' + done.length + ': ' + ((e && e.message) || e), 'error', 9000);
   }
   _v222Busy = false;
@@ -41200,6 +42014,7 @@ async function _v222UndoStampFix(batchId) {
     } catch (_) {}
     auditLog('update', 'advocacy', batchId, 'scheme partner correction undone',
       'Put ' + back + ' scheme record(s) back to their previous partner', null);
+    _v222LastRun = { kind: 'undo', at: Date.now(), n: back, skipped: 0 };
     toast(back + ' put back.', 'success', 6000);
   } catch (e) {
     toast('Stopped after ' + back + ': ' + ((e && e.message) || e), 'error', 9000);
@@ -41250,13 +42065,36 @@ function renderAdminStampFix() {
       }).join('')
     + '<div style="font-size:12px;color:var(--gray2);margin-top:6px">A correction can be put back while you are '
     + 'signed in \u2014 the previous values travel in its audit entry.</div></div>') : '';
+  // what the last run did - stays until the next scan replaces it
+  let doneHtml = '';
+  if (_v222LastRun && !_v222Busy) {
+    const L = _v222LastRun;
+    const good = L.kind !== 'stopped';
+    const line = (L.kind === 'undo')
+      ? (L.n.toLocaleString('en-IN') + ' scheme record' + (L.n === 1 ? '' : 's')
+         + ' put back with the partner they had before.')
+      : (L.kind === 'stopped')
+        ? ('Stopped after ' + L.n.toLocaleString('en-IN') + '. ' + escHtml(L.why || ''))
+        : (L.n.toLocaleString('en-IN') + ' scheme record' + (L.n === 1 ? '' : 's')
+           + ' moved to the partner their beneficiary is in now.'
+           + (L.skipped ? ' ' + L.skipped + ' skipped - already correct, or the record had gone.' : ''));
+    doneHtml = '<div style="background:' + (good ? '#ECFDF5' : '#FEF2F2') + ';border:1px solid '
+      + (good ? '#10B981' : '#EF4444') + ';border-radius:8px;padding:12px 14px;margin-bottom:16px">'
+      + '<div style="font-weight:600;font-size:14px;color:' + (good ? '#065F46' : '#7F1D1D') + '">'
+      + (good ? '\u2713 Done' : 'Stopped') + '</div>'
+      + '<div style="font-size:13px;color:' + (good ? '#065F46' : '#7F1D1D') + ';margin-top:4px">'
+      + line + '</div>'
+      + (good && L.kind !== 'undo' ? '<div style="font-size:12px;color:#065F46;margin-top:6px">'
+          + 'Scan again to confirm nothing is left. Partner totals have changed; fleet totals have not.'
+          + '</div>' : '') + '</div>';
+  }
   let body = '';
   if (!S) {
     body = '<p style="color:var(--gray2);font-size:13px;margin:0 0 14px">'
       + 'A scheme record carries the partner it was logged under. When people move to another partner '
       + 'their scheme records should move with them. This finds the ones that did not, and shows you '
       + 'exactly what would change before anything is written.</p>'
-      + '<button class="btn btn-primary btn-sm" onclick="_v222ScanStamps(); renderAdminStampFix();">Scan</button>';
+      + '<button class="btn btn-primary btn-sm" onclick="_v222LastRun = null; _v222ScanStamps(); renderAdminStampFix();">Scan</button>';
   } else if (!S.moves.length) {
     body = '<div style="font-size:15px">Nothing to correct \u2014 every scheme record already sits with '
       + 'the partner its beneficiary is in.</div>'
@@ -41292,7 +42130,7 @@ function renderAdminStampFix() {
   el.innerHTML = '<div style="max-width:900px;margin:0 auto">'
     + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">'
     + '<h1 style="font-size:22px;margin:0">Scheme records by partner</h1>' + back + '</div>'
-    + '<div class="card"><div class="card-body" style="padding:16px">' + body + recentHtml + '</div></div></div>';
+    + '<div class="card"><div class="card-body" style="padding:16px">' + doneHtml + body + recentHtml + '</div></div></div>';
 }
 // ── end V22.2 stamp correction ─────────────────────────────────────────────
 
@@ -44655,6 +45493,15 @@ async function applyPartnerMove() {
   if (!u || u.role !== 'admin') return showErr('Only an administrator can move records between partners.');
   if (!_pmove.coordId || !_pmove.fromNgo || !_pmove.toNgo) return showErr('Choose the coordinator, the partner to move out of, and the partner to move into.');
   if (_pmove.fromNgo === _pmove.toNgo) return showErr('Those are the same partner.');
+  // ⛔ NOT BEFORE THE SCHEME RECORDS HAVE ARRIVED. This re-tags only the
+  // scheme records the session can see, and quietly does nothing when it can
+  // see none - moving the households and leaving their scheme records behind,
+  // which is exactly how 838 of them came to be filed under a partner their
+  // people had left.
+  if (!(FB && FB.benefReplayComplete && FB.advReplayComplete)) {
+    return showErr('Still loading the records \u2014 wait until the app has finished '
+      + 'syncing, then try again. Moving now would leave the scheme records behind.');
+  }
 
   const partners = loadPartners().map(p => p.name);
   if (!partners.includes(_pmove.toNgo)) return showErr(`"${_pmove.toNgo}" is not in the partner list. Add it under Admin - Partner Management first.`);
@@ -44677,6 +45524,12 @@ async function applyPartnerMove() {
     { danger: true, okLabel: 'Move ' + scan.set.length, title: 'Confirm partner move' });
   if (!ok) return;
 
+  // ⛔ AND AGAIN, AFTER THE DIALOG. It waits for a person; a re-fetch starting
+  // in that gap sets the flags back to false and the writes below would run
+  // against a partial database.
+  if (!(FB && FB.benefReplayComplete && FB.advReplayComplete)) {
+    return showErr('The records changed while that dialog was open \u2014 try again.');
+  }
   _pmove.running = true; _pmove.result = null;
   if (err) err.style.display = 'none';
   renderAdminPartnerMove();
