@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V22.4-LIVE
+  KRSF Beneficiary Impact Tracker  -  V22.5-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,74 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V22.5-LIVE (2026-09-20 - the release that had never once worked).
+
+    + ⛔ V22.4 SAVED NOTHING FOR DONORS OR PARTNER LOGINS. Not once. Every
+      summary write Firebase received was REJECTED, from the minute it went
+      live, because one intervention is named "Advocacy (Govt. Schemes)" and
+      a dot is among the six characters a Firebase key may not contain. The
+      whole write is thrown away, not the one bad name. So the stored figures
+      stayed frozen, every donor and partner login found nothing to read, and
+      each fell back to downloading its entire scope exactly as before -
+      three bursts of 37, 19 and 37 MB in twenty minutes on the first evening.
+      Counts now travel as lists of pairs rather than as names, so no partner
+      or scheme name can ever break a write again.
+
+    + ⛔ AND THE SAME TRAP SITS IN THE SCHEME SETTINGS, DORMANT. Those are
+      keyed by scheme name too, and one scheme is "Suraksha/Jivan Vima
+      Yojana". It has not fired only because that scheme happens to carry no
+      settings yet - and tagging a scheme for a state is precisely what gives
+      it some, so the Maharashtra rollout is when it would have gone off,
+      taking every other scheme’s settings with it. Names are now escaped
+      reversibly, so nothing stored needs migrating.
+
+    + ⛔ TODAY’S CARD WAS WRONG IN EVERY DEFERRED SESSION, TWICE OVER. It was
+      fed by reading the newest 2,000 records edited anywhere since yesterday
+      and then keeping this partner’s. On a real day the fleet edits 14,270 -
+      Bhiloda alone 5,762 - so a partner saw a fourteenth of their own day: 14
+      enrolments where the truth was 166. And Applied and Benefits received
+      read zero, because a session working from figures holds no scheme
+      records to count. Reading more was no answer; a complete window is 8.63
+      MB. The figures are counted once by the admin, with the card’s own
+      function, and stored - exact, and 1.2 MB cheaper: a partner sign-in went
+      from 1,304 KB to 224 KB.
+
+    + ⛔ THE ARITHMETIC EXISTED TWICE AND ONLY ONE COPY WAS FIXED. A partner
+      login writing its own summary uses one function; the admin, which is
+      what actually fills the database, uses a faster single-pass version of
+      the same sums. Today’s figures went into the first, so nothing reached
+      the database at all and the card read "Nothing recorded yet today" -
+      indistinguishable, on screen, from a genuinely quiet day.
+
+    + A partner login has its own partner locked into the filter bar, and the
+      card counted that as a narrowing filter and so refused the stored
+      figures entirely. The dashboard already knew better; the card did not.
+
+    + THE USAGE COUNTER ONLY EVER RECORDED SESSIONS THAT LASTED FIVE MINUTES.
+      It wrote on a five-minute timer and on page close - and the close write
+      cannot work, because it must read the running total back before adding
+      to it and the page is destroyed mid-read. So short visits recorded
+      nothing, and short visits are the expensive ones: a cold sign-in that
+      pulls a scope and leaves. It now writes a minute after sign-in and
+      whenever the tab is hidden, so a burst has a name against it.
+
+    + The Bandwidth screen says whether each person is on the installed app or
+      an ordinary browser tab. A tab loses its saved records when the phone
+      needs space, so anyone reading "browser" is paying for the same
+      download again and again.
+
+    + ⛔ THE FAKE DATABASE THE TESTS RUN AGAINST WAS KINDER THAN FIREBASE, AND
+      THAT IS HOW ALL OF THIS SHIPPED GREEN. It accepted keys production
+      refuses, so 54 checks passed while every write on live was failing. It
+      now enforces the same rules - including the three reserved keys that DO
+      begin with a dot, which it first got wrong in the other direction and
+      v215 caught within one run.
+
+    + Tests: 77 files, 2,400 checks, and the suites now run against the real
+      19 September export as well as the sample - which is what exposed five
+      of the six faults above. 30 mutants, all 30 caught, including the
+      daily-refresh guard that survived two earlier attempts at a check.
+
   V22.4-LIVE (2026-09-19 - the sessions that download nothing).
 
     + A DONOR LOGIN COST 140.9 MB AT EVERY COLD SIGN-IN AND A PARTNER LOGIN
@@ -4410,7 +4478,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V22.4-LIVE';
+const APP_VERSION = 'V22.5-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -8654,7 +8722,7 @@ function _attachNonBenefListeners() {
   }).then(snap => {
     const v = snap.val();
     if (v && typeof v === 'object' && !Array.isArray(v)) {
-      localStorage.setItem('krsf_schemes_meta_v1', JSON.stringify(v));
+      localStorage.setItem('krsf_schemes_meta_v1', JSON.stringify(_v413MapIn(v)));
       // V18: the advocacy "Benefit Amount" card is computed FROM this node, and
       // both the aggregation AND the rendered HTML are cached above it. On a
       // cold boot those can be built before this fetch lands, so without the
@@ -9083,7 +9151,12 @@ function _benefScopedQuery() {
     FB.benefCachePartial = true;
     FB.benefReplayComplete = true;
     fbUpdatePill();
-    _v224FetchToday(u.ngo).then(function () { try { renderCurrentView(); } catch (_) {} });
+    // ⛔ NOT FETCHED ANY MORE. This asked for the newest 2,000 records edited
+    // anywhere since yesterday and then kept the ones belonging to this
+    // partner. On a real day 14,270 records are edited, so a partner saw a
+    // fraction of their own - 14 enrolments against 166 - and the scheme half
+    // of the card read zero because the session holds no scheme records. The
+    // figures now arrive counted, which is both correct and 1.2 MB cheaper.
     _v224LoadSummary(false).then(function () { try { renderCurrentView(); } catch (_) {} });
     return null;
   }
@@ -9707,6 +9780,24 @@ let _v224Summary = null;        // the stored figures, once read
 let _v224EnsurePromise = null;  // the on-demand fetch, once started
 let _v224MergeGaveUp = false;   // two scopes could not honestly be added up
 function _v224SummaryDash() { return (_v224Summary && _v224Summary.dash) || null; }
+function _v224SummaryToday() { return (_v224Summary && _v224Summary.today) || null; }
+// Scopes never overlap, so adding them is adding people to people.
+function _v224MergeToday(a, b) {
+  if (!a) return b || null;
+  if (!b) return a;
+  const add = function (k) { return (a[k] || 0) + (b[k] || 0); };
+  return {
+    day: a.day,
+    byNgo: (a.byNgo || []).concat(b.byNgo || []).sort(function (x, y) {
+      return (y.enrolled + y.applied + y.benefits + y.liv)
+           - (x.enrolled + x.applied + x.benefits + x.liv);
+    }),
+    enrolledToday: add('enrolledToday'), enrolledYest: add('enrolledYest'),
+    livEnr: add('livEnr'), livProg: add('livProg'), livDone: add('livDone'),
+    benefitsToday: add('benefitsToday'), appliedToday: add('appliedToday'),
+    advUpdatesToday: add('advUpdatesToday'),
+  };
+}
 // ⛔ AND SIGNING OUT MUST TAKE THEM WITH IT. Nothing here was cleared on
 // logout, and the app does not reload, so the next person on a shared laptop
 // was shown the previous partner's households, money, partner name and the
@@ -9852,14 +9943,15 @@ async function _v224LoadSummary(force) {
   // figure while the state and district lists stayed right.
   const scopes = Array.from(new Set((Array.isArray(u.assignedNgos) && u.assignedNgos.length)
     ? u.assignedNgos : (u.ngo ? [u.ngo] : [])));
-  let merged = null, oldest = Infinity, missing = 0;
+  let merged = null, mergedToday = null, oldest = Infinity, missing = 0;
   _v224MergeGaveUp = false;
   for (const ngo of scopes) {
     try {
       const snap = await fbRef('_summary/ngo/' + _v363SafeKey(ngo)).once('value');
       const val = snap.val();
       if (val && val.dash) {
-        merged = _v224MergeDash(merged, val.dash);
+        merged = _v224MergeDash(merged, _v224DecodeDash(val.dash));
+        if (val.today) mergedToday = _v224MergeToday(mergedToday, val.today);
         const at = (val.meta && val.meta.computedAt) || val.dash.builtAt || 0;
         if (at < oldest) oldest = at;
       } else { missing++; }
@@ -9881,7 +9973,7 @@ async function _v224LoadSummary(force) {
     try { _v224EnsureRecords(); } catch (_) {}
     return null;
   }
-  _v224Summary = { dash: merged, scopes: scopes, computedAt: oldest };
+  _v224Summary = { dash: merged, today: mergedToday, scopes: scopes, computedAt: oldest };
   return _v224Summary;
 }
 
@@ -11943,6 +12035,36 @@ async function saveSchemes(arr) {
 // additive: zero impact on the ~3,800 existing advocacy records or their
 // stored benefitAmt values.
 const SCHEMES_META_KEY = 'krsf_schemes_meta_v1';
+// ⛔ A SCHEME NAME CANNOT BE A FIREBASE KEY. Firebase refuses . # $ / [ ]
+// and 'Suraksha/Jivan Vima Yojana' carries a slash. One such name rejects the
+// WHOLE node's write, taking every other scheme's settings with it and saying
+// nothing. The escape is reversible because entries are looked up by name;
+// '%' goes first so decoding cannot be ambiguous, and a name stored before
+// this existed has no '%' in it and so decodes to itself.
+const _V413_ESC = [['%', '%25'], ['.', '%2E'], ['#', '%23'], ['$', '%24'],
+                   ['/', '%2F'], ['[', '%5B'], [']', '%5D']];
+function _v413KeyOut(name) {
+  let s = String(name == null ? '' : name);
+  for (const pair of _V413_ESC) s = s.split(pair[0]).join(pair[1]);
+  return s;
+}
+function _v413KeyIn(key) {
+  let s = String(key == null ? '' : key);
+  for (let i = _V413_ESC.length - 1; i >= 0; i--) {
+    s = s.split(_V413_ESC[i][1]).join(_V413_ESC[i][0]);
+  }
+  return s;
+}
+function _v413MapOut(obj) {
+  const out = {};
+  Object.keys(obj || {}).forEach(function (k) { out[_v413KeyOut(k)] = obj[k]; });
+  return out;
+}
+function _v413MapIn(obj) {
+  const out = {};
+  Object.keys(obj || {}).forEach(function (k) { out[_v413KeyIn(k)] = obj[k]; });
+  return out;
+}
 function getSchemesMeta() {
   try {
     const raw = localStorage.getItem(SCHEMES_META_KEY);
@@ -12002,7 +12124,8 @@ async function saveSchemesMeta(obj) {
   try { if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache();
         else if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
   // V390 [6.3]: return cloud-sync boolean for awaiting callers.
-  return await fbSyncWholeObject('config/schemes_meta', clean);
+  // escaped on the way out only - localStorage above keeps the real names
+  return await fbSyncWholeObject('config/schemes_meta', _v413MapOut(clean));
 }
 // V327-DEV: type helpers for the Documents/Schemes grouping in the
 // enrollment form. Anything without an explicit type defaults to 'Scheme'
@@ -24361,7 +24484,12 @@ function _renderDashboardTopNGOs(rows, advLatest) {
 // Measured cost ≈ tens of ms, once. Zero Firebase reads.
 // ────────────────────────────────────────────────────────────────────────────
 let _v401TodayCache = null;
-function _v401TodayStats() {
+// ⛔ ONE IMPLEMENTATION, TWO CALLERS. With no arguments this counts the
+// session's own records exactly as it always has. The admin passes a scope's
+// records and scheme rows so the stored figures are counted by this very
+// function rather than by a second copy of the arithmetic that can drift.
+function _v401TodayStats(srcB, srcA) {
+  const _override = !!(srcB || srcA);
   const todayIst = _v400IstDayMemo(new Date().toISOString());
   const ver = (typeof _v357DataVersion !== 'undefined') ? _v357DataVersion : 0;
   // V19.9: the two dropdowns at the top of the screen now apply here too.
@@ -24388,9 +24516,32 @@ function _v401TodayStats() {
     if (_stF && String(b.district || '').indexOf(_stF) === -1) return false;
     return true;
   };
-  if (_v401TodayCache && _v401TodayCache.ver === ver && _v401TodayCache.day === todayIst
+  if (!_override && _v401TodayCache && _v401TodayCache.ver === ver
+      && _v401TodayCache.day === todayIst
       && _v401TodayCache.ngoF === _ngoF && _v401TodayCache.stF === _stF) {
     return _v401TodayCache;
+  }
+  // ⛔ A SESSION WORKING FROM STORED FIGURES READS THEM HERE. It holds no
+  // scheme records and only a slice of the households, so counting from what
+  // it has gives a number that is wrong and looks right. A filter is never in
+  // play, because setting one already fetches the records first.
+  // ⛔ Their own partner is not a narrowing filter - same rule the dashboard
+  // uses. Treating it as one made the card refuse the stored figures and count
+  // records the session does not hold, printing an empty day over a busy one.
+  const _ownNgo224 = (function () {
+    try {
+      const m = (typeof currentUser === 'function') ? currentUser() : null;
+      return !!(m && m.role === 'ngo' && m.ngo && _ngoF === m.ngo);
+    } catch (_) { return false; }
+  })();
+  const _narrowed224 = !!(_stF || (_ngoF && !_ownNgo224));
+  if (!_override && !_narrowed224 && typeof _v224Deferred !== 'undefined' && _v224Deferred) {
+    const st = (typeof _v224SummaryToday === 'function') ? _v224SummaryToday() : null;
+    if (st && st.day === todayIst) {
+      _v401TodayCache = Object.assign({}, st,
+        { ver: ver, day: todayIst, ngoF: _ngoF, stF: _stF });
+      return _v401TodayCache;
+    }
   }
   const yestIst = (function () {
     const d = new Date(Date.now() + ((5 * 60 + 30) * 60 * 1000) - 86400000);
@@ -24419,9 +24570,11 @@ function _v401TodayStats() {
   };
   // V22.4: a session working from stored figures holds no records, so today's
   // card reads the small set fetched for exactly this purpose.
-  const _v224Src = (typeof _v224Deferred !== 'undefined' && _v224Deferred
-                    && Array.isArray(_v224TodayRecs))
-    ? _v224TodayRecs : RecordCache.benef.values();
+  const _v224Src = srcB || RecordCache.benef.values();
+  // when a scope is handed in, its own households are the lookup for the
+  // scheme-record half below - RecordCache belongs to whoever is signed in.
+  let _bLook = null;
+  if (srcB) { _bLook = new Map(); for (const _b of srcB) { if (_b && _b.id) _bLook.set(_b.id, _b); } }
   for (const b of _v224Src) {
     if (!b) continue;
     if (_filtered && !_inScope(b)) continue;   // V19.9
@@ -24453,7 +24606,7 @@ function _v401TodayStats() {
   // were already per-person.) Dedup by beneficiary id via Sets.
   const _brBids = new Set(), _apBids = new Set();
   let advUpdatesToday = 0;
-  for (const a of RecordCache.adv.values()) {
+  for (const a of (srcA || RecordCache.adv.values())) {
     if (!a) continue;
     // ⛔ V20.2: THE SAME RULE AS THE OTHER SIX SURFACES. This loop walks the
     // records raw, so the one advocacy record with no beneficiary id still
@@ -24475,7 +24628,7 @@ function _v401TodayStats() {
     // advocacy record's own copy of the partner name - that copy goes stale
     // the moment somebody is moved between partners (V18.9). Same rule V19.9
     // set for the card itself. Only records edited today reach this line.
-    const _pb207 = RecordCache.benef.get(a.bid);
+    const _pb207 = _bLook ? _bLook.get(a.bid) : RecordCache.benef.get(a.bid);
     if (_filtered && !_inScope(_pb207)) continue;
     advUpdatesToday++;
     const _pid = a.bid || a.__fbk;
@@ -24528,11 +24681,13 @@ function _v401TodayStats() {
       return (y.enrolled + y.applied + y.benefits + y.liv)
            - (x.enrolled + x.applied + x.benefits + x.liv);
     });
-  _v401TodayCache = { ver: ver, day: todayIst, ngoF: _ngoF, stF: _stF,
+  const _out = { ver: ver, day: todayIst, ngoF: _ngoF, stF: _stF,
     byNgo: _v207Rows,
     enrolledToday: enrolledToday,
     enrolledYest: enrolledYest, livEnr: livEnr, livProg: livProg, livDone: livDone,
     benefitsToday: _brBids.size, appliedToday: _apBids.size, advUpdatesToday: advUpdatesToday };
+  if (_override) return _out;            // a scope's figures, not this session's
+  _v401TodayCache = _out;
   return _v401TodayCache;
 }
 // V19.9: says what the card is actually showing. With nothing selected it
@@ -31252,6 +31407,21 @@ function _filteredAudit() {
   // A random tag per browser profile, made once and kept. No personal data -
   // it exists solely so 'how many laptops does this account use' has an
   // answer on the Bandwidth screen instead of a guess.
+  // 'installed' when launched from the home screen or as an installed app,
+  // 'browser' when it is an ordinary tab. Read fresh each time: a person can
+  // install the app between one session and the next.
+  function _v224HowRunning() {
+    try {
+      if (window.navigator && window.navigator.standalone === true) return 'installed';
+      if (window.matchMedia) {
+        if (window.matchMedia('(display-mode: standalone)').matches) return 'installed';
+        if (window.matchMedia('(display-mode: fullscreen)').matches) return 'installed';
+        if (window.matchMedia('(display-mode: minimal-ui)').matches) return 'installed';
+      }
+      if (document.referrer && document.referrer.indexOf('android-app://') === 0) return 'installed';
+    } catch (_) {}
+    return 'browser';
+  }
   function _v192MachineTag() {
     try {
       let t = localStorage.getItem('_v192_machine');
@@ -31306,6 +31476,7 @@ function _filteredAudit() {
         fellThrough: (prev.fellThrough || 0) + _v192TakeCounter('fellThrough'),
         persisted: (typeof _v192Persisted === 'string') ? _v192Persisted : '',
         machines: Object.assign({}, prev.machines || {}, _v192MachineTag()),
+        how: _v224HowRunning(),
         lastUpdate: Date.now()
       });
       _bw.lastFlush = _bw.sessionBytes;
@@ -31322,6 +31493,18 @@ function _filteredAudit() {
 
   window._bwFlush = _flush;
   setInterval(function(){ _flush(false); }, 5 * 60 * 1000);
+  // ⛔ A SESSION MUST EXIST IN THE RECORD BEFORE IT CAN VANISH. One write a
+  // minute in, so a visit that ends after two minutes is still accounted for.
+  setTimeout(function(){ _flush(true); }, 60 * 1000);
+  // ⛔ AND ON HIDE, NOT ON CLOSE. beforeunload tears the page down while the
+  // read this write depends on is still in flight, so it almost never lands.
+  // visibilitychange fires while the page is still alive and is what actually
+  // catches someone closing a tab or switching away on a phone.
+  try {
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'hidden') _flush(true);
+    });
+  } catch (_) {}
   window.addEventListener('beforeunload', function(){ _flush(true); });
 })();
 
@@ -31376,6 +31559,7 @@ async function renderAdminBandwidth() {
         + '<td style="padding:8px 10px;font-size:12px;text-align:right">' + (r.pantryHit || 0) + ' / ' + (r.pantryMiss || 0) + '</td>'
         + '<td style="padding:8px 10px;font-size:12px;text-align:right;color:' + (((r.saveFailed||0)+(r.fellThrough||0)) > 0 ? '#7F1D1D;font-weight:600' : '#1F2937') + '">' + ((r.saveFailed || 0) + (r.fellThrough || 0)) + '</td>'
         + '<td style="padding:8px 10px;font-size:12px;text-align:right">' + Object.keys(r.machines || {}).length + '</td>'
+        + '<td style="padding:8px 10px;font-size:12px">' + (r.how === 'installed' ? 'app' : (r.how ? 'browser' : '\u2014')) + '</td>'
         + '</tr>';
     }).join('');
 
@@ -31440,6 +31624,7 @@ async function renderAdminBandwidth() {
     html += '<th style="padding:10px;font-size:11px;font-weight:600;color:var(--gray2);text-align:right" title="Times the saved copy was used / times a full download was needed">Saved copy</th>';
     html += '<th style="padding:10px;font-size:11px;font-weight:600;color:var(--gray2);text-align:right" title="Copy could not be saved, or a login had to be refused the whole-database fallback">Problems</th>';
     html += '<th style="padding:10px;font-size:11px;font-weight:600;color:var(--gray2);text-align:right" title="How many different browsers/laptops this account signed in from">Machines</th>';
+    html += '<th style="padding:10px;font-size:11px;font-weight:600;color:var(--gray2);text-align:left" title="Installed app, or an ordinary browser tab. A tab loses its saved records when the phone needs space, so it pays for the same download again.">Opened as</th>';
     html += '</tr></thead><tbody>';
     html += rows.length === 0 ? '<tr><td colspan="9" style="padding:30px;text-align:center;color:var(--gray2)">No data for this date.</td></tr>' : tableRows;
     html += '</tbody></table></div>';
@@ -35732,6 +35917,41 @@ function _v224RecentLookup(list, advRecords) {
   } catch (e) { console.warn('[V22.4] recent lookup failed:', e && e.message); }
   return out;
 }
+// ⛔ NAMES MAY NOT BE KEYS IN FIREBASE. A key cannot contain . # $ / [ ]
+// and 'Advocacy (Govt. Schemes)' does, as does every partner name with a
+// dot in it. The real SDK throws before sending, so ONE bad name loses the
+// WHOLE write - which is how V22.4 shipped with every summary write failing
+// silently. Stored figures therefore carry these counts as lists of pairs,
+// and only become maps again once they are safely back in the browser.
+function _v224PairsOut(map) {
+  const out = [];
+  Object.keys(map || {}).forEach(function (k) { out.push({ n: k, c: map[k] }); });
+  return out;
+}
+function _v224PairsIn(v) {
+  if (!v) return {};
+  if (!Array.isArray(v)) return v;   // figures written before this fix
+  const out = {};
+  v.forEach(function (p) { if (p && p.n != null) out[p.n] = p.c; });
+  return out;
+}
+// Turns a payload into something Firebase will actually accept.
+function _v224EncodeDash(A) {
+  if (!A) return A;
+  const out = Object.assign({}, A);
+  out.byState = _v224PairsOut(A.byState);
+  out.byIntervention = _v224PairsOut(A.byIntervention);
+  return out;
+}
+// And back, tolerating both shapes so figures stored by an older build
+// keep working rather than reading as empty.
+function _v224DecodeDash(A) {
+  if (!A) return A;
+  const out = Object.assign({}, A);
+  out.byState = _v224PairsIn(A.byState);
+  out.byIntervention = _v224PairsIn(A.byIntervention);
+  return out;
+}
 function _v224BuildDashPayload(list, advLatest) {
   try {
     const A = _v224DashAgg(list, advLatest);
@@ -35739,7 +35959,7 @@ function _v224BuildDashPayload(list, advLatest) {
     A.topNgos = _v224TopNgoAgg(list, advLatest);
     A.recent = _v224RecentLookup(list, (typeof _loadAdvRaw === 'function') ? _loadAdvRaw() : []);
     A.builtAt = Date.now();
-    return A;
+    return _v224EncodeDash(A);
   } catch (e) {
     console.warn('[V22.4] dashboard payload failed:', e && e.message);
     return null;
@@ -35910,6 +36130,13 @@ function _v362ComputeOneSummary(records, advRecords, ngoScope, prefiltered) {
     // Rs 1.28 crore above the tile on the same data.
     dash: _v224BuildDashPayload(recs,
       (typeof _advLatestRowsAll === 'function') ? _advLatestRowsAll(advRecords) : []),
+    // ⛔ COUNTED BY THE CARD'S OWN FUNCTION over this scope's records, so a
+    // session reading these sees precisely what it would have counted itself
+    // had it held every record.
+    today: (function () {
+      try { return _v401TodayStats(recs, advRecords); }
+      catch (e) { console.warn('[V22.4] today payload failed:', e && e.message); return null; }
+    })(),
     meta: { computedAt: Date.now(), scope: ngoScope || 'global', recordsInScope: recs.length },
     dashboard: {
       total: recs.length,
@@ -36209,6 +36436,21 @@ async function _v400ComputeAllSummaries(records, advRecords) {
     if (b && b.ngo && _v224Recs[b.ngo]) _v224Recs[b.ngo].push(b);
   }
   const _v224AdvLatest = _v187Shared;
+  // ⛔ RAW scheme records per scope, not the flattened 'latest rows'. Today's
+  // card reads each record's own edit stamp and its scheme rows, and both are
+  // gone by the time the rows have been reduced to one per household.
+  const _v224Adv = { __global__: advRecords };
+  for (const n in byNgo) _v224Adv[n] = [];
+  {
+    const _own = new Map();
+    for (const b of records) { if (b && b.id) _own.set(b.id, b.ngo); }
+    for (const a of advRecords) {
+      if (!a || !a.bid) continue;
+      // by the HOUSEHOLD's partner, never the record's own stale copy
+      const n = _own.get(a.bid);
+      if (n && _v224Adv[n]) _v224Adv[n].push(a);
+    }
+  }
   function assemble(c) {
     const rc = c._rowCounts;
     const allWeeks = Object.values(c.weeks).sort(function(a, b){ return a.week < b.week ? -1 : 1; });
@@ -36220,6 +36462,18 @@ async function _v400ComputeAllSummaries(records, advRecords) {
     const _list = (_scopeName === 'global') ? _v224Recs.__global__ : (_v224Recs[_scopeName] || []);
     return {
       dash: _v224BuildDashPayload(_list, _v224AdvLatest),
+      // ⛔ COUNTED BY THE CARD'S OWN FUNCTION, over this scope. A session
+      // reading these sees exactly what it would have counted itself had it
+      // held every record - which it deliberately does not.
+      today: (function () {
+        try {
+          return _v401TodayStats(_list,
+            (_scopeName === 'global') ? _v224Adv.__global__ : (_v224Adv[_scopeName] || []));
+        } catch (e) {
+          console.warn('[V22.4] today payload failed:', e && e.message);
+          return null;
+        }
+      })(),
       meta: { computedAt: Date.now(), scope: _scopeName, recordsInScope: c.n },
       dashboard: { total: c.n, states: c.states.size, districts: c.dists.size,
         totalIncomeAdded: c.totalIncome, totalSchemeBenefits: rc.totalAmt,
