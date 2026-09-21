@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V22.5-LIVE
+  KRSF Beneficiary Impact Tracker  -  V22.7-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,94 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V22.7-LIVE (2026-09-21 - the saved copy nobody ever read).
+
+    + ⛔ A DONOR OR PARTNER LOGIN PAID FOR THEIR WHOLE PARTNER EVERY SINGLE
+      TIME THEY OPENED A LIST. The records are kept on the machine for thirty
+      days so the next visit is nearly free - but since V22.4 the on-demand
+      fetch asked for them with force:true, which is the flag that says SKIP
+      that copy and go to Firebase. It was written, kept, and never once read.
+      Measured on live: the same partner login, same browser, six minutes
+      apart - 10.94 MB, then 10.54 MB. From V22.7 the second visit asks for
+      nothing at all.
+
+    + ⛔ AND THE FLAG WAS HIDING A SECOND FAULT, so removing it alone would
+      have shipped one. The saved copy records its AGE but never whose records
+      it holds. A donor’s partners can be changed by an admin; with every
+      visit refetching that never mattered. Read instead, a donor who gained
+      or lost a partner would have gone on seeing the old set for a month -
+      exactly the trap V22.3 hit with team leaders. The scope is now stored
+      beside the copy, modelled line for line on the marker that already
+      proved itself there, including the rule that cost V22.3 a mutant: the
+      marker moves only once the records are genuinely in hand, never at the
+      moment the change is noticed.
+
+    + ⛔ WHY NO TEST CAUGHT IT, WHICH MATTERS MORE THAN THE FIX. Every session
+      in the suite deletes the saved copy as it boots, so that each test
+      begins from a known cold start. The consequence is that nothing in the
+      file could ever exercise that copy, and a flag that skipped it was
+      invisible for three releases. The harness can now be told to keep what
+      is on the machine, and a second visit is checked for what it costs.
+      Same shape as the fake database that accepted keys Firebase refuses.
+
+    + ⛔ A FAILED COUNTER WRITE THREW AWAY THE NUMBERS IT WAS CARRYING (the
+      V22.6 work, never uploaded). The usage counter marked a session as
+      recorded BEFORE writing it, so a write that failed burned that session
+      for good - never counted, while every later write went on adding its
+      bytes. One row on 20 September read 53.77 MB across 0 sessions, which is
+      how it was noticed. The four saved-copy counters were worse: they are
+      zeroed as they are read, so a failed write discarded the hits and misses
+      the Bandwidth screen exists to report. V22.5 made this MORE likely, not
+      less - the write added a minute after sign-in can fire before that
+      session has settled. Everything is now consumed only once the write has
+      landed.
+
+    + The deprecated apple-mobile-web-app-capable console warning. The modern
+      tag is added ⛔ alongside it, not instead: older iOS Safari reads only
+      the apple- form, and dropping it would stop the app opening full-screen
+      for anyone who already installed it.
+
+    + Tests: 78 files, 2,407 checks, and the suites run against the real 21
+      September export as well as the sample. 33 mutants, 32 caught. ⛔ The
+      one survivor is a partner’s own name in the filter bar: the guard is
+      present and correct - three partner logins signed in for 33, 48 and 17
+      KB on live to prove it - but this round’s changes blinded the check that
+      used to catch it. Coverage, not behaviour, and it is recorded here
+      rather than quietly rounded up to 33 of 33.
+
+  V22.6-LIVE (2026-09-20 - the counter that destroyed what it recorded).
+
+    + ⛔ A FAILED COUNTER WRITE THREW AWAY THE NUMBERS IT WAS CARRYING. The
+      usage counter marked a session as recorded BEFORE writing it, so a write
+      that failed burned that session for good - never counted, while every
+      later write went on adding its bytes. One row on 20 September read
+      53.77 MB across 0 sessions, which is how this was noticed. The four
+      saved-copy counters had the same flaw and were worse: they are zeroed as
+      they are read, so a failed write discarded the hits, misses,
+      save-failures and fall-throughs it was carrying - the very numbers the
+      Bandwidth screen exists to report.
+      ⛔ AND V22.5 MADE IT MORE LIKELY, NOT LESS. The write added one minute
+      after sign-in can fire before that session’s sign-in has settled, so the
+      first write of almost every session is the one most likely to fail.
+      Everything is now taken, written, and only consumed once the write has
+      actually landed; a failure leaves it all intact for the next attempt.
+
+    + The deprecated apple-mobile-web-app-capable warning in the browser
+      console. The modern tag is added alongside it - ⛔ alongside, not
+      instead: older iOS Safari reads only the apple- form, and dropping it
+      would stop the app opening full-screen for anyone who already
+      installed it.
+
+    + V22.5 IS CONFIRMED WORKING ON LIVE, which is worth recording because
+      V22.4 was not. Two partner logins signed in on 20 September for 33.4 KB
+      and 48.2 KB, against whole partners of 11.86 MB and 15.86 MB - and the
+      second of those was an ordinary field sign-in, nobody testing anything.
+
+    + Tests: 78 files in _tests (77 suites plus runall.js, the runner, which
+      lived outside the project until now and so could not be found by anyone
+      opening this folder fresh). A CLAUDE.md at the app root now maps the
+      project for a session that has never seen it.
+
   V22.5-LIVE (2026-09-20 - the release that had never once worked).
 
     + ⛔ V22.4 SAVED NOTHING FOR DONORS OR PARTNER LOGINS. Not once. Every
@@ -481,228 +569,7 @@
       grouping always leaves an active coordinator at the top. That second one
       is exactly the fault that made the V21.4 suite worthless for most of its
       life, and this time it was caught before it counted.
-
-  V21.4-LIVE (2026-09-08 - a phone that can actually enrol with no signal).
-
-    + ⛔ THE DEFECT WAS ONE LINE, AND IT WAS AN EARLY RETURN JUDGED OVER THE
-      WRONG SET. _v196TopUpIfLow asked whether every code the phone ALREADY
-      HOLDS was stocked, and stopped if so. Guru's phone held a full block of
-      25 Haryana numbers - from ONE stray past record - so it answered "all
-      stocked" and returned. Gujarat was never weighed and rejected; it was
-      never considered at all, and no amount of waiting or reconnecting would
-      have changed that. He switched data off, filled in an enrolment, and was
-      refused. I had told him offline enrolment works.
-
-    + WHAT A PHONE NEEDS IS NOT ONLY WHERE IT HAS BEEN. _v214WantedCodes asks
-      three things in order of certainty: the state on the enrolment form in
-      front of the coordinator, the partner's own state, and the states they
-      have actually enrolled into before. Capped at three, because each state
-      held costs 25 numbers off a shared counter and V19.6 already learned what
-      happens when that runs away. It never returns nothing - a brand-new
-      coordinator with no records, no partner state and no form open still has
-      to be able to enrol.
-
-    + AND IT STOCKS AT SIGN-IN. The first attempt rode requestIdleCallback with
-      an 8-second timeout and then a 40-second timer. A phone losing signal in
-      those first seconds - walking out of the office, into a village - reached
-      neither and then had nothing to give. _v214StockNow fires at login; the
-      idle call stays as the unhurried follow-up.
-
-    + THE MESSAGE SAYS WHAT TO DO. "No reserved ID numbers left" explained the
-      app's machinery to somebody standing in a village. It now says the phone
-      needs the internet once, and that nothing they typed is lost.
-
-    + ⛔ SHIPPED ALONE, DELIBERATELY. Guru asked for the offline work last and
-      by itself, because three previous rounds of fixes in this area each
-      introduced a new fault. Nothing else moves in this release.
-
-    + TESTS: _tests/v214.js - 63 checks, on a reconstruction of Guru's actual
-      phone: 25 numbers for a state he does not work in, zero for the one he
-      does. The 93-check offline suite is green. ⛔ THIS LINE HAS BEEN WRONG
-      TWICE. It first said 21 checks all seen RED on V21.3; the suite had 27
-      and two were already green there. Read a count here as a count, not as
-      evidence - the mutants below are the evidence.
-
-    + ⛔ AND THE CENTRAL CHECK DID NOT EXIST UNTIL THE VERY END. For most of
-      this release the suite counted numbers in a block and never once enrolled
-      anybody. An audit severed the reserved-number lookup so no offline
-      enrolment could ever obtain an id, and all 21 checks still passed.
-      Section 3c now opens the real form, taps the real chips, calls the real
-      submitEnroll with the network off and reads the id back off the saved
-      record. On that same mutant it dies with five failures and reports the
-      refusal the coordinator would have seen.
-
-    + ⛔ THREE FORM GATES HAD TO BE SATISFIED, NOT ONE, and naming the right
-      element ids was not enough. f-district-sel holds no options at all until
-      onStateChange builds them from DISTRICTS[state], so assigning a district
-      to it is a silent no-op; gender and programme are div.ichip taps wired to
-      selectGender and toggleProgChip, not checkboxes, so a checkbox selector
-      matched nothing and the programme gate would have refused it anyway. A
-      typed phone number also arms the duplicate-mobile banner, which returns
-      without saving. The probe now records the text of #enroll-err, because
-      every one of those gates writes there before returning - a future failure
-      names itself instead of reporting a bare created:false.
-
-    + ⛔ AND ONE CHECK WAS DEAD ON ARRIVAL. The id pattern was written as
-      /^KRSF-[A-Z]{2}-\d{4,}$/ INSIDE the SURVEY template literal, where \d
-      collapses to a bare d before it ever reaches the browser. Nothing could
-      match it, so a perfectly good KRSF-GJ-142373 was called malformed. It is
-      [0-9]{4,} now, which is immune to that class of trap. An audit of all 65
-      test files found no other dead pattern in any browser-bound literal.
-
-    + ⛔ 19 MUTANTS BUILT AND 8 SURVIVED - so the suite went from 27 checks to
-      63 and each of those eight now has one that kills it. Every defence in
-      this release is named by a check that has been seen to fail on a build
-      with that defence removed: the sign-in stock-up (both emptying
-      _v214StockNow AND dropping its cheapOnly argument, which sends it back
-      through the replay gate that made it a no-op in the field to begin with);
-      the _V214_MAX_CODES cap; the cheapOnly guard on the record scan; the
-      hold-off inside _v196TopUpBlock; the /^[A-Z]{2}$/ validation that keeps
-      junk out of a Firebase path; the editingId gate; _v214ClearFormState;
-      and the refusal branch, which is now provoked for real rather than
-      grepped for. Section 0 proves the sign-in stock-up on a SECOND page load
-      with benefReplayComplete still false, touching nothing.
-
-    + ⛔ AND THE SUITE WAS RACY, WITH A FALLBACK THAT HID IT. WANTED read
-      partnerCode || 'GJ', so on the runs where loadPartners had not populated
-      the suite quietly tested Gujarat while its own output claimed otherwise -
-      5 of 12 runs. The fallback is gone; it aborts and says how many partners
-      loaded. A second race was the sandbox itself, serving 155 MB of records
-      and id_counters in one Promise.all: when the counters lost, the app
-      correctly wrote the state off for five minutes and every check then
-      failed for something the harness did. Detected and reloaded past, up to
-      three attempts - and it cannot mask a real fault, because a build that
-      never asks leaves no back-off at all, which is how both sign-in mutants
-      still die. Six consecutive runs, 63 green each.
-
-    + ⛔ TWO CHECKS COULD NOT FAIL AND WERE MADE TO MEAN SOMETHING. One is now
-      read back through the real _v196HeldCodes; the other stubs in an invented
-      Tamil Nadu record, because this coordinator has none of her own and
-      stubbing her records to empty was indistinguishable from not stubbing
-      them at all.
-
-    + Worth knowing: dropping the `return` from the refusal does not merely
-      save a bad record, it FREEZES the renderer. The shipped build has the
-      return - but the branch below it is not survivable, so do not remove it.
-
-    + ⛔ THREE OF THOSE CHECKS WERE TOO WEAK AND WERE REWRITTEN. One passed on a
-      build with the sign-in call DELETED, because "function _v214StockNow()"
-      also matches a grep for "_v214StockNow()". One could not tell the
-      partner's state from the fallback, because this coordinator's partner is
-      in Gujarat and so is the fallback - the test user is now put in
-      Maharashtra, where only one source can answer. And the isolation did not
-      isolate: the enrolment form stays in the DOM after navigating away, so
-      its state field kept answering the question it was meant to be silent for.
-
-    + ⛔ AND THE SOURCE-STRIPPER IN v213/v214 WAS EATING REAL CODE. A /* */
-      regex is unbalanced against this file, so it swallowed a large region and
-      source checks quietly reported things missing that were right there. Only
-      the changelog and whole-line // comments are stripped now, which is all
-      that was ever needed: prose must not satisfy a grep.
-
-    + Tests: 65 files. v214.js is new.
-  ============================================================================
-  V21.3-LIVE (2026-09-08 - income can be recorded without a baseline, a
-  second upload adds instead of erasing, a missing baseline prints a dash,
-  and typing a remark stops destroying a benefit's date).
-
-    + ⛔ EVERY ENDLINE UPLOAD USED TO ERASE THE ONE BEFORE IT. The writer
-      REPLACED the whole income log with a single entry. Record Rs 5,000 in
-      September, upload Rs 10,000 in October, and September was gone - the
-      record read Rs 10,000 where the truth was Rs 15,000, with nothing on
-      screen to say so. Guru's programme pays income in instalments, so that
-      is his normal case, not an edge. A `mode` column now takes "add"; blank
-      still REPLACES, so an admin who changes nothing gets exactly what V21.2
-      did. ⛔ endIncome is a MIRROR of baseline plus everything logged, so
-      after an append it is RECOMPUTED rather than set to the figure just
-      typed - setting it would have thrown away the very instalment the change
-      exists to keep.
-
-    + AN additionalIncome COLUMN, so a household with no recorded baseline can
-      still be measured. 1,330 of the 3,553 rows in the Navchetna spreadsheet
-      Guru is about to import are that shape - that count comes from HIS FILE,
-      not from the database, so it cannot be verified against an export. Of the
-      1,156 livelihood records live today, every one has a baseline. And
-      for a family given a cow the whole milk income is new anyway. It is also
-      the exact figure the dashboard counts. ⛔ Filling BOTH columns is refused
-      rather than guessed at - they mean different things, and picking one
-      would record a number nobody typed. ⛔ AND THE OLD GUARD STAYS for a
-      TOTAL with no baseline, because that is the mistake the Suspicious
-      Endlines report exists to catch.
-
-    + ⛔ TYPING A REMARK DESTROYED THE DATE. _rptStampRowDates keys its rows
-      scheme::remarks. The importer writes no remark and the drawer always
-      writes one, so the first remark typed on an imported benefit changed the
-      key, the row read as brand new, and it was re-stamped with TODAY - a
-      benefit imported as August silently became October. Pre-existing for
-      every row; V21.2 was simply the first release where an imported row had
-      a date to lose. The fallback is deliberately NARROW: only where the
-      scheme appears exactly once on each side. Where somebody holds several
-      applications under one scheme (i-Khedut for a tractor and a rotavator),
-      matching by scheme alone would hand one row the other's date, which is
-      worse than the bug. A tombstoned row still donates nothing.
-
-    + A DASH INSTEAD OF NOUGHT PER CENT. Five screens printed 0% where there
-      was no baseline, sitting beside the rupees the programme created. Nobody
-      measured a change of nothing, and it understated the work in front of
-      whoever was reading. _v213PctText is the one place that decides; a
-      genuine zero on a real baseline still reads +0%.
-
-    + ⛔ TWO INDEPENDENT REVIEWS, AND BOTH BLOCKERS WERE MINE. The preview
-      column and the audit trail printed baseline + typed, while an append
-      actually produces baseline + what was already logged + typed - so every
-      appended row was reported short by exactly the income already there. And
-      a TOTAL combined with mode=add was accepted: "the household now earns
-      Rs 40,000" and "keep what is there and add this" are contradictory
-      instructions, and together they stored a figure nobody typed. The
-      both-columns case was refused while the only logically impossible
-      combination was let through.
-
-    + ⛔ AND THE DATE FALLBACK WAS TOO WIDE. Deleting one claim and adding
-      another under one scheme in a SINGLE save leaves exactly one live row on
-      each side, so the new benefit inherited the deleted one's date and would
-      have charted in the wrong month. The donor must now match on status AND
-      amount, which narrows it to what it is for: a remark typed or corrected
-      on the same application. The residual - a genuinely different application
-      at the identical status and amount - is accepted and stated here rather
-      than hidden. Measured on the live export: 240,747 of 241,983 (person,
-      scheme) pairs hold exactly one row, so the fix reaches nearly everybody,
-      and 1,236 pairs across 848 people hold more than one and are left alone.
-
-    + THE WORKBOOK AND THE SCREEN STILL DESCRIBED V21.2. Both said the upload
-      REPLACES and that previous history will be lost, and pointed the admin at
-      Log Income for anything incremental - the exact opposite of what this
-      release does. Neither new column appeared anywhere. Rewritten.
-
-    + A TOMBSTONE IS NOT AN EVENT. The bulk-status writers pass the whole row
-      set, deleted rows included, so those matched nothing, read as brand new
-      and were stamped with today: fabricated dates on 6,378 rows and the bytes
-      to carry them on every read. No figure moved, because every reader filters
-      deleted rows, but it was never true. Pre-existing since V21.0.
-
-    + ⛔ AND THE SUITE WAS WEAKER THAN ITS COUNT SUGGESTED. A reviewer built
-      mutants: one that silently kept only the two NEWEST instalments passed
-      all 30 checks, because the file only ever appended onto a log holding ONE
-      entry - and at that depth "concat" and "keep the newest two" are the same
-      thing. The third instalment is the first that loses money. Another read
-      additionalIncome as a TOTAL and passed every check in the section that
-      claims to test it, because that section used a record whose baseline had
-      been stripped to zero, and subtracting zero changes nothing. Both now go
-      red, along with six others.
-
-    + ⛔ AND A FOURTH REVIEW, AFTER THE FIXES. The Alerts screen still told the
-      user "no endline income should be entered until the baseline is filled
-      in" - permanently, about exactly the households additionalIncome exists
-      to serve. mode=add on a legacy record (an endIncome and no log, which is
-      what the sheet PRINTS in currentTotalIncome) replaced instead of adding,
-      destroying the amount. Two rows for one person under mode=add counted the
-      money twice AND overwrote the undo snapshot so it could not get back. And
-      the Avg uplift percentage divided a gain by a denominator that household
-      contributed nothing to. All four fixed.
-
-    + Tests: 64 files. v213.js is new - 60 checks, every one seen RED on V21.2
-      first, and eleven mutants confirm it bites.
-  ============================================================================
+  ============================================================================
   Everything before this point lives in CHANGELOG.md, beside this file.
 -->
 <html lang="en">
@@ -720,6 +587,9 @@
 <!-- V352: PWA wiring -->
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0B1441">
+<meta name="mobile-web-app-capable" content="yes">
+<!-- kept as well: older iOS Safari reads only the apple- form, so dropping
+     it would stop the app opening full-screen on phones already installed. -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="KRSF">
@@ -4478,7 +4348,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V22.5-LIVE';
+const APP_VERSION = 'V22.7-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -9779,6 +9649,41 @@ function _v224WorkingFromFigures() {
 let _v224Summary = null;        // the stored figures, once read
 let _v224EnsurePromise = null;  // the on-demand fetch, once started
 let _v224MergeGaveUp = false;   // two scopes could not honestly be added up
+// ⛔ THE SAVED COPY MUST NOT OUTLIVE THE SCOPE. It keeps records for thirty
+// days and records only its age, never whose records they are. A donor's
+// partners can be changed by an admin; with the fetch forced that never
+// mattered, because every visit refetched. Now that the copy is actually
+// read, a donor who gained or lost a partner would see the old set for a
+// month. Same trap V22.3 hit with team leaders, same answer.
+function _v224ScopeSig(u) {
+  const ngos = (Array.isArray(u && u.assignedNgos) && u.assignedNgos.length)
+    ? u.assignedNgos.slice().sort()
+    : ((u && u.ngo) ? [u.ngo] : []);
+  return (u && u.role ? u.role : '') + '|' + ngos.join(',');
+}
+// Decided ONCE per boot: the household and scheme fetches start side by side
+// and both must obey the same answer. Read twice, the second would say
+// 'unchanged' because the first had already stored the new value.
+let _v224ForceMemo = null;
+function _v224ForceMemoReset() { _v224ForceMemo = null; }
+function _v224ScopeChanged(u) {
+  try {
+    const k = 'krsf_v224_scope_' + ((u && u.userId) || '');
+    return localStorage.getItem(k) !== _v224ScopeSig(u);
+  } catch (_) { return true; }   // cannot tell - fetch rather than guess
+}
+function _v224Force(u) {
+  if (_v224ForceMemo === null) _v224ForceMemo = _v224ScopeChanged(u);
+  return _v224ForceMemo;
+}
+// ⛔ AND IT MOVES ONLY WHEN THERE ARE RECORDS BEHIND IT. Written at the moment
+// the change was noticed, a fetch that then failed would leave the marker
+// saying 'up to date' over a saved copy still holding the old scope.
+function _v224ScopeSettled(u) {
+  try {
+    localStorage.setItem('krsf_v224_scope_' + ((u && u.userId) || ''), _v224ScopeSig(u));
+  } catch (_) {}
+}
 function _v224SummaryDash() { return (_v224Summary && _v224Summary.dash) || null; }
 function _v224SummaryToday() { return (_v224Summary && _v224Summary.today) || null; }
 // Scopes never overlap, so adding them is adding people to people.
@@ -9809,6 +9714,7 @@ function _v224ForgetSession() {
   _v224EnsurePromise = null;
   _v224BenefFetchDone = false;
   _v224BenefFetchOk = false;
+  try { _v224ForceMemoReset(); } catch (_) {}
   try { _v224FetchToday._inFlight = null; } catch (_) {}
   try { _v375ScopedBenefMultiFetch._inFlight = false; } catch (_) {}
   try { _v375ScopedAdvMultiFetch._inFlight = false; } catch (_) {}
@@ -9999,12 +9905,12 @@ async function _v224EnsureRecords() {
   _v224EnsurePromise = (async function () {
     try {
       FB.benefReplayComplete = false; FB.advReplayComplete = false;
-      await _v375ScopedBenefMultiFetch(assigned, { force: true });
+      await _v375ScopedBenefMultiFetch(assigned, { force: _v224Force(u) });
       // ⛔ WITH THE STRAGGLERS. A scheme record carries the partner of whoever
       // typed it, so fetching by partner name misses the ones typed elsewhere -
       // and the stored figures count them, because they count by household. The
       // same tile would read differently before and after the records loaded.
-      await _v375ScopedAdvMultiFetch(assigned, { force: true, topUp: true });
+      await _v375ScopedAdvMultiFetch(assigned, { force: _v224Force(u), topUp: true });
       // ⛔ BOTH FETCHES SWALLOW THEIR OWN ERRORS AND RETURN NORMALLY, so
       // reaching this line proves nothing. A dropped signal used to leave the
       // session claiming to hold the records while holding none: enrolment
@@ -10015,6 +9921,7 @@ async function _v224EnsureRecords() {
         _v224Deferred = false;
         FB.benefCachePartial = false;
         FB.advCachePartial = false;
+        try { _v224ScopeSettled(u); } catch (_) {}
       } else {
         console.warn('[V22.4] the records did not arrive - staying on the stored figures');
         if (typeof toast === 'function') {
@@ -31449,13 +31356,27 @@ function _filteredAudit() {
       const snap = await ref.once('value');
       const prev = snap.val() || {};
       const sessionInc = _bw.sessionLogged ? 0 : 1;
-      _bw.sessionLogged = true;
+      // ⛔ NOT MARKED YET. Setting this before the write meant a write that
+      // failed still burned the session: it was never counted, while every
+      // later flush went on adding its bytes. Marked after the write lands.
       // V356: per-channel deltas alongside the existing total `bytes` field.
       // Backwards compatible — existing dashboard reading bytes still works;
       // new bytesFetch / bytesOnce / bytesOn surface which path is bleeding.
       const deltaFetch = _bw.byChannel.fetch - _bw.byChannelLastFlush.fetch;
       const deltaOnce  = _bw.byChannel.once  - _bw.byChannelLastFlush.once;
       const deltaOn    = _bw.byChannel.on    - _bw.byChannelLastFlush.on;
+      // ⛔ READ ONCE, RESTORED IF THE WRITE FAILS. _v192TakeCounter zeroes each
+      // counter as it reads it, so a write that threw used to discard the very
+      // numbers it was carrying - the saved-copy hits and misses the Bandwidth
+      // screen exists to report.
+      const _took = {
+        pantryHit: _v192TakeCounter('pantryHit'),
+        pantryMiss: _v192TakeCounter('pantryMiss'),
+        saveFailed: _v192TakeCounter('saveFailed'),
+        fellThrough: _v192TakeCounter('fellThrough'),
+      };
+      const _tookEnrol = _bw.enrollments;
+      try {
       await ref.update({
         userId: u.userId,
         fullName: u.fullName || u.username || '',
@@ -31470,22 +31391,34 @@ function _filteredAudit() {
         // V19.2: the four counters that say whether the saved-copy machinery
         // worked, and an anonymous per-browser tag so the Machines column can
         // say how many laptops an account really signs in from. A few bytes.
-        pantryHit: (prev.pantryHit || 0) + _v192TakeCounter('pantryHit'),
-        pantryMiss: (prev.pantryMiss || 0) + _v192TakeCounter('pantryMiss'),
-        saveFailed: (prev.saveFailed || 0) + _v192TakeCounter('saveFailed'),
-        fellThrough: (prev.fellThrough || 0) + _v192TakeCounter('fellThrough'),
+        pantryHit: (prev.pantryHit || 0) + _took.pantryHit,
+        pantryMiss: (prev.pantryMiss || 0) + _took.pantryMiss,
+        saveFailed: (prev.saveFailed || 0) + _took.saveFailed,
+        fellThrough: (prev.fellThrough || 0) + _took.fellThrough,
         persisted: (typeof _v192Persisted === 'string') ? _v192Persisted : '',
         machines: Object.assign({}, prev.machines || {}, _v192MachineTag()),
         how: _v224HowRunning(),
         lastUpdate: Date.now()
       });
+      } catch (werr) {
+        // Give everything back so the next attempt still carries it.
+        try {
+          window._v192Counters.pantryHit += _took.pantryHit;
+          window._v192Counters.pantryMiss += _took.pantryMiss;
+          window._v192Counters.saveFailed += _took.saveFailed;
+          window._v192Counters.fellThrough += _took.fellThrough;
+        } catch (_) {}
+        throw werr;
+      }
+      // Only now is any of it safely recorded.
+      _bw.sessionLogged = true;
+      _bw.enrollments -= _tookEnrol;
       _bw.lastFlush = _bw.sessionBytes;
       _bw.byChannelLastFlush = {
         fetch: _bw.byChannel.fetch,
         once:  _bw.byChannel.once,
         on:    _bw.byChannel.on
       };
-      _bw.enrollments = 0;
     } catch (e) {
       console.warn('[V349 bw flush]', e && e.message ? e.message : e);
     }
