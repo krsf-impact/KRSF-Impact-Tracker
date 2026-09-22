@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V22.8-LIVE
+  KRSF Beneficiary Impact Tracker  -  V23.0-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,67 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V23.0-LIVE (2026-09-23 - the usage screen's own counters).
+
+    + ⛔ THE ENROLMENT COLUMN WENT NEGATIVE (-23 on 22 September). The meter
+      COPIED the session's enrolment count, wrote it, and subtracted it after
+      the write. Four things trigger that write - a five-minute timer, a minute
+      after sign-in, the tab being hidden, the page closing - so two of them
+      overlapping carried the same figure and BOTH subtracted it. The tally
+      went below zero and the next write added a negative number to the day's
+      total. The four saved-copy counters beside it were already TAKEN (read
+      and zeroed in one step, and given back if the write fails); enrolments
+      and reconnects now follow the same rule.
+
+    + ⛔ RECONNECTS WERE NEVER CLEARED, so every write re-added the whole
+      session's count. One row read 135 on 22 September during offline
+      testing; the real number is far lower.
+
+    + AND ONLY ONE WRITE AT A TIME. Each one reads the day's record, waits,
+      then writes - so two in flight read the same "before" and each add their
+      own on top. The bytes had the same exposure, not just the counters.
+
+    + Nothing here touches a household, an enrolment or a scheme record. This
+      is the Bandwidth screen's own bookkeeping. Figures already stored stay as
+      they are; the column is trustworthy from this version onwards.
+
+    + Tests: 80 files. v230meter drives the real meter: two writes at the same
+      moment, a second write straight after, more work, and a write that fails.
+      On V22.9 it goes red with the tally at -5 and the reconnects tripled.
+
+  V22.9-LIVE (2026-09-22 - the coordinator's card does the common jobs).
+
+    + A COORDINATOR NO LONGER HAS TO OPEN A HOUSEHOLD TO WORK ON IT. Agreed as
+      demo "V1.3" (_specs/card-shortcuts/). On a livelihood card the stage
+      reads Baseline / Intervention / Endline and is a button; each card has
+      "+ Add income" (livelihood, any stage) and "+ Add scheme". A second
+      filter row, Intervention and Stage, sits under the scheme filter, and
+      each row shows only if the coordinator has that kind of household.
+      ⛔ EVERY BUTTON IS A SHORTCUT, NOT A NEW SAVE. The stage pill calls the
+      profile's own updateStatus; Add income opens the same Log Income form
+      (same ids, same submit functions); Add scheme opens the same Log
+      Advocacy form. v229 saves through each card button AND the matching
+      profile button and demands identical records. The short words live on
+      that one pill: stageLabel() and every other screen are unchanged.
+
+    + ⛔ THE ADD SCHEME SAVE REWRITES THE HOUSEHOLD'S WHOLE SCHEME LIST, so
+      the schemes already logged are still IN the form - hidden, and saved
+      with it exactly as before. Leaving them out would have erased them. The
+      first build hid the wrong rows: the prefill adds one row per logged
+      scheme and NO blank row, so "all but the last" left an old scheme
+      showing where the new one should be. v229 caught it; mutants t1/t2 now
+      guard both halves.
+
+    + No new Firebase read. Measured in v229: the card paths read the same
+      bytes as the profile paths (0 extra), and the filters work on what the
+      phone already holds. The file is ~23 KB larger, mostly styles.
+
+    + Tests: 79 files. The V22.9 regression passed 2,356 checks across 39
+      suites, plus v229's 50. The five suites that went red on the first run
+      all failed one line - this count, which still said 78. v220users does
+      not run on V22.8 either (its import never starts in the harness) and is
+      a separate, pre-existing fault.
+
   V22.8-LIVE (2026-09-21 - the empty thing that came back missing).
 
     + ⛔ A PARTNER LOGIN WITH NO RECENT HOUSEHOLD ACTIVITY SAW "Loading your
@@ -590,7 +651,7 @@
       is exactly the fault that made the V21.4 suite worthless for most of its
       life, and this time it was caught before it counted.
   ============================================================================
-  Everything before this point lives in CHANGELOG.md, beside this file.
+  Everything before this point lives in CHANGELOG.md, beside this file.
 -->
 <html lang="en">
 <head>
@@ -2469,6 +2530,86 @@ body[data-shell="coord"] #_v352-install-btn {
 .coord-scheme-tag:active { transform: scale(0.96); }
 .coord-scheme-tag:hover  { box-shadow: 0 2px 6px rgba(0,0,0,0.10); }
 .coord-scheme-empty { font-size: 11px; color: var(--gray2); font-style: italic; }
+/* ── V22.9: card shortcuts (stage pill, Add income, Add scheme) and the
+   livelihood filter. Display only - every button opens an existing form. */
+.coord-card-top { flex-wrap: wrap; row-gap: 6px; }
+.v229-stage {
+  border: 0; cursor: pointer; font-family: var(--font); white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0;
+  transition: background .35s, border-color .35s, color .35s;
+}
+.v229-stage .v229-icon, .coord-scheme-tag .v229-icon { display: inline-flex; align-items: center; }
+.v229-stage[data-state="loading"], .coord-scheme-tag[data-state="loading"] {
+  background: #EEF3FD !important; color: #5B8DEF !important; pointer-events: none;
+}
+.v229-stage[data-state="loading"] .v229-icon::before, .coord-scheme-tag[data-state="loading"] .v229-icon::before {
+  content: ''; width: 11px; height: 11px; border-radius: 50%; margin-right: 5px;
+  border: 2px solid rgba(91,141,239,0.3); border-top-color: #5B8DEF;
+  animation: v229spin .7s linear infinite;
+}
+.v229-stage[data-state="success"], .coord-scheme-tag[data-state="success"] {
+  background: #4CD08A !important; color: #0E0E10 !important; pointer-events: none;
+}
+.v229-stage[data-state="success"] .v229-icon::before, .coord-scheme-tag[data-state="success"] .v229-icon::before {
+  content: '\2713'; margin-right: 4px; font-weight: 700;
+}
+.coord-scheme-tag { transition: background .35s, border-color .35s, color .35s, transform .08s ease, box-shadow .12s ease; }
+@keyframes v229spin { to { transform: rotate(1turn); } }
+.v229-actions { display: flex; gap: 8px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--gray3); }
+.v229-act {
+  flex: 1; min-width: 0; height: 40px; border-radius: 10px; border: 1px solid var(--gray3);
+  background: #F7F8FB; font-family: var(--font); font-size: 13px; font-weight: 600;
+  color: var(--text); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.v229-act:active { background: #E6EEFB; }
+.coord-scheme-filter { flex-wrap: wrap; }
+.v229-fcap { flex-basis: 100%; font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; margin: -2px 2px -2px; }
+.v229-liv-filter { background: #FDF2F6 !important; border-color: #F2C6D6 !important; }
+.v229-liv-filter select { border-color: #F2C6D6 !important; color: #9D174D !important; }
+.v229-liv-filter select.v229-on { background: #9D174D !important; color: #fff !important; border-color: #9D174D !important; font-weight: 600 !important; }
+/* the compact Log income, opened from a card */
+#logincome-overlay.v229-card .v229-sum {
+  position: relative; display: grid; grid-template-columns: 1fr 1px 1fr; gap: 12px; align-items: center;
+  background: #fff; border: 1px solid var(--gray3); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px;
+}
+#logincome-overlay.v229-card .v229-sum .v229-div { background: var(--gray3); align-self: stretch; }
+#logincome-overlay.v229-card .v229-sk { font-size: 11.5px; color: var(--gray2); }
+#logincome-overlay.v229-card .v229-sv { font-size: 19px; font-weight: 700; margin-top: 2px; }
+#logincome-overlay.v229-card .v229-cnt { position: absolute; top: 8px; right: 10px; font-size: 10.5px; color: var(--gray2); }
+#logincome-overlay.v229-card .v229-hist { background: #fff; border: 1px solid var(--gray3); border-radius: 12px; padding: 2px 14px; margin-bottom: 12px; }
+#logincome-overlay.v229-card .v229-hrow { display: flex; justify-content: space-between; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--gray3); font-size: 13px; }
+#logincome-overlay.v229-card .v229-hrow:last-child { border-bottom: 0; }
+#logincome-overlay.v229-card .v229-form { background: #fff; border: 1px solid var(--gray3); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+#logincome-overlay.v229-card .v229-ft { font-size: 14px; font-weight: 700; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+#logincome-overlay.v229-card .v229-will { font-size: 11px; font-weight: 600; color: #065F46; background: #D1FAE5; padding: 3px 9px; border-radius: 999px; }
+#logincome-overlay.v229-card .v229-fl { font-size: 12.5px; font-weight: 600; color: var(--gray1); margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+#logincome-overlay.v229-card #li-src-chips { display: flex; flex-direction: column; gap: 8px; }
+#logincome-overlay.v229-card .li-src-chip { min-height: 46px; font-size: 14px; padding: 0 12px; border-radius: 10px; }
+#logincome-overlay.v229-card .li-src-chip .ichip-box { width: 20px; height: 20px; font-size: 12px; border-radius: 4px; }
+#logincome-overlay.v229-card .v229-two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+#logincome-overlay.v229-card .v229-two > div { min-width: 0; }
+#logincome-overlay.v229-card .v229-two input { width: 100%; min-width: 0; }
+#logincome-overlay.v229-card .v229-rupee { position: relative; }
+#logincome-overlay.v229-card .v229-rupee span { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--gray2); font-weight: 600; }
+#logincome-overlay.v229-card .v229-rupee input { padding-left: 24px; }
+#logincome-overlay.v229-card .v229-zero { background: none; border: 0; color: var(--gray1); text-decoration: underline; font-size: 13px; padding: 6px 0; align-self: center; cursor: pointer; font-family: var(--font); }
+#logincome-overlay.v229-card .modal-body { padding-bottom: 260px; }
+.v229-tip {
+  position: relative; width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--gray2);
+  background: #fff; color: var(--gray1); font-size: 11px; font-weight: 700; font-style: italic; line-height: 1;
+  padding: 0; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0;
+}
+.v229-tipbox {
+  display: none; position: absolute; top: 24px; left: -8px; width: 240px; max-width: 70vw; z-index: 30;
+  background: #141A33; color: #fff; font-style: normal; font-weight: 400; font-size: 12.5px; line-height: 1.45;
+  padding: 8px 10px; border-radius: 8px; text-align: left;
+}
+.v229-tip.open .v229-tipbox { display: block; }
+/* the Add scheme form, opened from a card: only the new rows show */
+#adv-overlay.v229-card #adv-benef-sec { display: none; }
+#adv-overlay.v229-card .v229-old { display: none !important; }
+#v229-adv-old { display: none; background: #fff; border: 1px solid var(--gray3); border-radius: 10px; padding: 9px 12px; font-size: 12.5px; color: var(--gray1); line-height: 1.5; margin-top: 8px; }
+#adv-overlay.v229-card #v229-adv-old.v229-has { display: block; }
 /* V6.8.1: .coord-date-filter (📅 Enrolled … to … Clear) removed — unused,
    per explicit user decision. The From/To inputs and coordSetDateRange()/
    coordClearDateRange() JS are now dead code left in place; safe (no-ops
@@ -2982,20 +3123,40 @@ body[data-shell="coord"] #_v352-install-btn {
              to "All" on every login (no localStorage persistence).
              V360: wrapped in light lavender container for visual separation.
              V6.8.1: kept exactly as-is, unmoved, per explicit decision. -->
-        <div class="coord-scheme-filter" style="display:flex;gap:8px;padding:10px 12px;margin-bottom:10px;background:#F5F3FF;border:1px solid #C7D2FE;border-radius:10px">
+        <div class="coord-scheme-filter" id="v229-adv-filter" style="display:flex;gap:8px;padding:10px 12px;margin-bottom:10px;background:#F5F3FF;border:1px solid #C7D2FE;border-radius:10px">
+          <span class="v229-fcap" style="color:#3730A3">Advocacy</span>
           <select id="coord-scheme-filter" onchange="coordSetSchemeFilter(this.value)"
                   aria-label="Filter by scheme"
                   style="flex:1;min-width:0;height:40px;font-size:14px;border:1px solid #C7D2FE;border-radius:6px;padding:0 10px;background:#fff;color:#3730A3;font-family:var(--font);font-weight:500">
-            <option value="">🔖 Scheme — All</option>
+            <option value="">Scheme — All</option>
           </select>
           <select id="coord-status-filter" onchange="coordSetStatusFilter(this.value)"
                   aria-label="Filter by status"
                   style="flex:1;min-width:0;height:40px;font-size:14px;border:1px solid #C7D2FE;border-radius:6px;padding:0 10px;background:#fff;color:#3730A3;font-family:var(--font);font-weight:500">
-            <option value="">✓ Status — All</option>
+            <option value="">Status — All</option>
             <option value="Need to Apply">Need to Apply</option>
             <option value="Applied">Applied</option>
             <option value="Benefits Received">Benefits Received</option>
             <option value="Rejected">Rejected</option>
+          </select>
+        </div>
+        <!-- V22.9: the same kind of filter for livelihood. In-memory only, like
+             the row above; shown only when this coordinator has a livelihood
+             household (and the advocacy row only when they have an advocacy one). -->
+        <div class="coord-scheme-filter v229-liv-filter" id="v229-liv-filter" style="display:none;gap:8px;padding:10px 12px;margin-bottom:10px;background:#FDF2F6;border:1px solid #F2C6D6;border-radius:10px">
+          <span class="v229-fcap" style="color:#9D174D">Livelihood</span>
+          <select id="coord-liv-filter" onchange="coordSetLivFilter(this.value)"
+                  aria-label="Filter by intervention"
+                  style="flex:1;min-width:0;height:40px;font-size:14px;border:1px solid #F2C6D6;border-radius:6px;padding:0 10px;background:#fff;color:#9D174D;font-family:var(--font);font-weight:500">
+            <option value="">Intervention — All</option>
+          </select>
+          <select id="coord-stage-filter" onchange="coordSetStageFilter(this.value)"
+                  aria-label="Filter by stage"
+                  style="flex:1;min-width:0;height:40px;font-size:14px;border:1px solid #F2C6D6;border-radius:6px;padding:0 10px;background:#fff;color:#9D174D;font-family:var(--font);font-weight:500">
+            <option value="">Stage — All</option>
+            <option value="Enrolled">Baseline</option>
+            <option value="Intervention In Progress">Intervention</option>
+            <option value="Completed">Endline</option>
           </select>
         </div>
 
@@ -4368,7 +4529,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V22.8-LIVE';
+const APP_VERSION = 'V23.0-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -14777,7 +14938,7 @@ function closeDrawer() {
 // transition path in updateStatus(), which now handles NGO + admin reverts
 // for both Completed→InProgress and InProgress→Enrolled.
 
-async function updateStatus(id, status) {
+async function updateStatus(id, status, opts) {
   // IMPORTANT: Read the FULL dataset (loadData), not the role-scoped one (getData).
   // saveData writes the whole STORE_KEY — if we filtered here, records outside
   // the current user's scope would be destroyed.
@@ -14854,7 +15015,7 @@ async function updateStatus(id, status) {
     }
   }
   // V310-S2: await Firebase write; revert UI on failure.
-  if (!await _trySave(() => saveData(all), 'status update')) return;
+  if (!await _trySave(() => saveData(all), 'status update')) return false;
   auditLog('status_change', 'beneficiary', id, b.name,
     `Status: ${stageLabel(prevStatus)||'—'} → ${stageLabel(status)}${isBackward ? ' (reverted)' : ''}`,
     {status:[prevStatus, status]});
@@ -14862,8 +15023,12 @@ async function updateStatus(id, status) {
     ? 'Reverted to ' + stageLabel(status)
     : 'Progress updated to: ' + stageLabel(status),
     'success');
+  // V22.9: from the card's stage pill the person stays on the list - the
+  // pill shows the result and the list repaints. Same save, same audit.
+  if (opts && opts.fromCard) return true;
   openDrawer(id);
   if (currentView !== 'dashboard') renderCurrent();
+  return true;
 }
 
 // V390 [2.1]: restore endline data that a Completed→In Progress revert archived
@@ -15071,7 +15236,7 @@ async function _advApplyStatus(bid, scheme, remarks, next) {
     auditLog('status_change', 'advocacy', bid, scheme,
       `Advocacy: ${scheme} ${prevDisplay} → ${next}`, null);
     toast(`${scheme}: ${next}`, 'success');
-    return;
+    return 'saved';   // V22.9: tells the card pill it is safe
   }
   const _b219 = getData().find(x => x.id === bid) || loadData().find(x => x.id === bid) || null;
   const _chg219 = _v197ChangedRows(parentRec.schemeRows || [], _v210Before);
@@ -15102,6 +15267,7 @@ async function _advApplyStatus(bid, scheme, remarks, next) {
     `Advocacy: ${scheme} ${prevDisplay} → ${next} (saved on the phone, sent when online)`, null);
   toast(`${scheme}: ${next}. Saved on this phone - it will be sent when the internet returns.`, 'pending', 9000);
   // renderCurrent() already called above — no second call needed
+  return 'queued';   // V22.9: stored on the phone - safe
 }
 
 
@@ -19564,7 +19730,19 @@ async function submitEndline() {
 // On first entry added: status auto-flips Enrolled/InProgress → Completed
 // (mirrors the original single-shot endline behavior).
 
-function openLogIncomeFor(id) {
+// V22.9: set only when a card's button opened it; changes the layout, never the save.
+let _v229LiCard = false;
+document.addEventListener('focusin', function (e) {
+  try {
+    const t = e.target;
+    if (!t || !t.matches || !t.matches('input,select,textarea')) return;
+    if (!t.closest('#logincome-overlay.v229-card, #adv-overlay.v229-card')) return;
+    setTimeout(function () { try { t.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_) {} }, 350);
+  } catch (_) {}
+});
+function openLogIncomeFor(id, opts) {
+  _v229LiCard = !!(opts && opts.card);
+  try { document.getElementById('logincome-overlay').classList.toggle('v229-card', _v229LiCard); } catch (_) {}
   _currentLogIncomeBid = id;
   _editingLogIdx = -1;
   // IMPORTANT: load FULL dataset so we can mutate, not getData() (role-scoped).
@@ -19605,6 +19783,8 @@ function openLogIncomeFor(id) {
 
 function closeLogIncome() {
   document.getElementById('logincome-overlay').classList.remove('open');
+  document.getElementById('logincome-overlay').classList.remove('v229-card');
+  _v229LiCard = false;
   if (!document.querySelector('.overlay.open, .drawer.open')) {
     document.body.classList.remove('modal-open');
   }
@@ -19691,6 +19871,50 @@ function _renderLogIncomeBody(b) {
   // Form is hidden for non-admins when in edit mode (shouldn't be reachable
   // anyway since edit buttons are admin-only, defence-in-depth).
   const formVisible = !editing || isAdmin;
+
+  // V22.9: from a card - the same fields, the same ids, the same two submit
+  // buttons, laid out for a phone. Editing an entry keeps the full form below.
+  if (_v229LiCard && !editing) {
+    const _first = log.length === 0 && b.status !== 'Completed';
+    const _tip = 'Enter ADDITIONAL income only: how much MORE the family earns now because of this intervention. Do NOT enter the total income.<br>Example: earned 35,000 before, 40,000 now, so enter 5,000.';
+    document.getElementById('li-body').innerHTML = `
+    <div class="v229-sum">
+      <div><div class="v229-sk">🔒 Baseline</div><div class="v229-sv">₹${(b.baseIncome||0).toLocaleString('en-IN')}</div></div>
+      <div class="v229-div"></div>
+      <div><div class="v229-sk">New total</div><div class="v229-sv" style="color:${log.length ? (additionalTotal < 0 ? 'var(--red)' : 'var(--green)') : 'var(--gray2)'}">${log.length ? '₹' + grandTotal.toLocaleString('en-IN') : '—'}</div></div>
+      <div class="v229-cnt">${log.length} entr${log.length === 1 ? 'y' : 'ies'}</div>
+    </div>
+    ${log.length ? `<div class="v229-hist">${log.map(e => `<div class="v229-hrow"><div><div style="font-weight:600">${fmtD(e.date)}</div><div style="font-size:12px;color:var(--gray2)">${Array.isArray(e.sources) && e.sources.length ? e.sources.map(escHtml).join(' + ') : '—'}${e.note ? ' · ' + escHtml(e.note) : ''}</div></div><div style="font-weight:700;color:${(parseFloat(e.amount)||0) < 0 ? 'var(--red)' : 'var(--green)'};white-space:nowrap">${(parseFloat(e.amount)||0) >= 0 ? '+' : ''}₹${(parseFloat(e.amount)||0).toLocaleString('en-IN')}</div></div>`).join('')}</div>` : ''}
+    <div class="v229-form">
+      <div class="v229-ft">New entry ${_first ? '<span class="v229-will">Marks endline completed</span>' : ''}</div>
+      <div>
+        <div class="v229-fl">Which intervention is this income from? *</div>
+        <div id="li-src-chips">
+          ${chipPool.map(s => `<div class="ichip li-src-chip" data-src="${escHtml(s)}" onclick="toggleLiSourceChip(this)"><span class="ichip-box"></span><span>${escHtml(s)}</span></div>`).join('')}
+        </div>
+      </div>
+      <div class="v229-two">
+        <div>
+          <label class="v229-fl" for="li-amount">Additional income * <button type="button" class="v229-tip" aria-label="Additional income, not total income" onclick="event.preventDefault();this.classList.toggle('open')">i<span class="v229-tipbox">${_tip}</span></button></label>
+          <div class="v229-rupee"><span>₹</span><input type="number" id="li-amount" min="0" inputmode="numeric" placeholder="3000" value=""></div>
+        </div>
+        <div>
+          <label class="v229-fl" for="li-date">Date *</label>
+          <input type="date" id="li-date" value="${today}" max="${today}">
+        </div>
+      </div>
+      <div>
+        <label class="v229-fl" for="li-note">Note <span style="font-weight:400;color:var(--gray2)">(optional)</span></label>
+        <input type="text" id="li-note" placeholder="Monthly milk sales" value="" maxlength="200">
+      </div>
+      <div class="error-msg" id="li-err"></div>
+      <button class="btn btn-primary" style="width:100%;height:46px;font-size:15px" onclick="_submitNewLogEntry()">Save entry</button>
+      ${_first ? '<button type="button" class="v229-zero" onclick="_submitZeroIncomeEntry()">No additional income &mdash; record ₹0</button>' : ''}
+    </div>`;
+    const _fb = document.getElementById('save-income-btn');
+    if (_fb) _fb.style.display = 'none';
+    return;
+  }
 
   document.getElementById('li-body').innerHTML = `
     <!-- Beneficiary header card -->
@@ -21865,7 +22089,7 @@ function refreshMapMarkers() {
   </div>
   <div class="modal-body">
     <div class="error-msg" id="adv-err"></div>
-    <div class="msec">
+    <div class="msec" id="adv-benef-sec">
       <div class="msec-title">Beneficiary</div>
       <div class="frow">
         <div class="fg"><label>Search Enrolled Beneficiary *</label>
@@ -21889,6 +22113,7 @@ function refreshMapMarkers() {
         </div>
         <div id="adv-scheme-rows"></div>
       </div>
+      <div id="v229-adv-old"></div>
       <div style="margin-top:8px">
         <div class="fg"><label>Notes (overall)</label>
           <textarea id="adv-notes" rows="2" placeholder="Overall notes for this beneficiary's advocacy record..." style="resize:vertical"></textarea>
@@ -22179,7 +22404,18 @@ function advAddSchemeRow(scheme, status, benefitRecd, benefitAmt, remarks) {
   // never let the filter silently swap out what an existing logged row
   // appears to represent (same data-safety rule as the edit-mode fix above).
   if (scheme && !_v412SchemePool.includes(scheme)) _v412SchemePool = [scheme, ..._v412SchemePool];
-  const schemeOpts = _v412SchemePool.map(s => `<option value="${escHtml(s)}" ${s===(scheme||'')?'selected':''}>${escHtml(s)}</option>`).join('');
+  let schemeOpts = _v412SchemePool.map(s => `<option value="${escHtml(s)}" ${s===(scheme||'')?'selected':''}>${escHtml(s)}</option>`).join('');
+  // V22.9: a new row in the card's Add scheme - grouped, and without what
+  // this household already has. Every other row is built exactly as before.
+  if (_v229AdvCard && !scheme) {
+    try {
+      const _have = new Set((_advLatestRowsForBeneficiary(_v412AdvBid) || []).map(r => r && r.scheme).filter(Boolean));
+      const _pool = _v412SchemePool.filter(s => !_have.has(s));
+      const _grp = (label, arr) => arr.length ? `<optgroup label="${label}">` + arr.map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('') + '</optgroup>' : '';
+      schemeOpts = _grp('Documents', _pool.filter(s => getSchemeType(s) === 'Document'))
+                 + _grp('Schemes', _pool.filter(s => getSchemeType(s) !== 'Document'));
+    } catch (_) {}
+  }
   // Determine initial status: prefer explicit status arg, else default to Applied
   const initStatus = status || 'Applied';
   const statusOpts = ADV_STATUSES.map(s => `<option value="${s}" ${s===initStatus?'selected':''}>${s}</option>`).join('');
@@ -22671,7 +22907,20 @@ function _advLatestRowsForBeneficiary(bid) {
 
 // V22.4: like openEnroll, this is reached by a button rather than nav(), so it
 // asks for the scheme records itself.
-function openAdvModal(bid) {
+// V22.9: set only when a card's button opened it. The rows already logged
+// stay in the form and are saved with it exactly as before - the save
+// rewrites the whole list, so leaving them out would erase them. They are
+// only hidden from view.
+let _v229AdvCard = false;
+function openAdvModal(bid, opts) {
+  _v229AdvCard = !!(opts && opts.card && bid);
+  try {
+    document.getElementById('adv-overlay').classList.toggle('v229-card', _v229AdvCard);
+    const _t = document.querySelector('#adv-overlay .modal-title');
+    if (_t) _t.textContent = _v229AdvCard ? 'Add scheme' : 'Log Advocacy — Scheme Linkage';
+    const _o = document.getElementById('v229-adv-old');
+    if (_o) { _o.innerHTML = ''; _o.classList.remove('v229-has'); }
+  } catch (_) {}
   try { if (typeof _v224EnsureRecords === 'function') _v224EnsureRecords(); } catch (_) {}
   _advRowCount = 0;
   document.getElementById('adv-bid').value = bid||'';
@@ -22703,6 +22952,29 @@ function openAdvModal(bid) {
     searchInp.setAttribute('title', 'Logging for this beneficiary. Open Advocacy → + Log to log for a different person.');
     // Pre-populate with any schemes already logged for this beneficiary
     _advPrefillRows(bid);
+    if (_v229AdvCard) {
+      try {
+        const _w = document.getElementById('adv-scheme-rows');
+        const _names = [];
+        // ⛔ The prefill adds ONE ROW PER SCHEME ALREADY LOGGED and no blank
+        // row - a blank one comes only when there is nothing logged. So every
+        // prefilled row is an old one: hide them all (they are still saved
+        // with the form), and add the one new row after them.
+        if ((_advLatestRowsForBeneficiary(bid) || []).length) {
+          Array.from(_w.children).forEach(function (k) {
+            k.classList.add('v229-old');
+            const _sel = k.querySelector('select');
+            if (_sel && _sel.value) _names.push(_sel.value);
+          });
+          advAddSchemeRow();
+        }
+        const _o = document.getElementById('v229-adv-old');
+        if (_o && _names.length) {
+          _o.innerHTML = 'Already logged: ' + _names.map(n => '<b>' + escHtml(n) + '</b>').join(', ') + '. To change a status, tap the scheme on the card.';
+          _o.classList.add('v229-has');
+        }
+      } catch (_) {}
+    }
   } else {
     searchInp.value = '';
     searchInp.readOnly = false;
@@ -22745,6 +23017,8 @@ function _advPrefillRows(bid) {
 
 function closeAdvModal() {
   document.getElementById('adv-overlay').classList.remove('open');
+  document.getElementById('adv-overlay').classList.remove('v229-card');
+  _v229AdvCard = false;
   document.getElementById('adv-search-results').style.display = 'none';
   // Reset row counter so DOM ids (adv-row-N) stay small across open/close
   // cycles within a session. Harmless but untidy without this.
@@ -31367,7 +31641,16 @@ function _filteredAudit() {
     return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
   }
 
+  let _v230Flushing = null;
   async function _flush(force) {
+    // ⛔ V23.0: never two at once. Four things trigger a flush and each
+    // one reads the day's record, waits, then writes - so two in flight
+    // read the same 'before' figures and both add their own on top.
+    if (_v230Flushing) return _v230Flushing;
+    _v230Flushing = (async function () { try { return await _v230FlushOnce(force); } finally { _v230Flushing = null; } })();
+    return _v230Flushing;
+  }
+  async function _v230FlushOnce(force) {
     try {
       if (typeof currentUser !== 'function') return;
       const u = currentUser();
@@ -31400,7 +31683,17 @@ function _filteredAudit() {
         saveFailed: _v192TakeCounter('saveFailed'),
         fellThrough: _v192TakeCounter('fellThrough'),
       };
-      const _tookEnrol = _bw.enrollments;
+      // ⛔ V23.0: TAKEN, not copied. This used to be subtracted AFTER the
+      // write, so two overlapping flushes carried the same figure and both
+      // subtracted it - the tally went below zero and the next flush wrote a
+      // NEGATIVE number into the day's total (-23 enrolments, live, 22 Sep).
+      // Same rule as the four counters above, including giving it back.
+      const _tookEnrol = _bw.enrollments || 0;
+      _bw.enrollments = 0;
+      // ⛔ AND RECONNECTS WERE NEVER CLEARED AT ALL, so every flush re-added
+      // the whole session's count to the day's total. 135 on one row.
+      const _tookRecon = _bw.reconnects || 0;
+      _bw.reconnects = 0;
       try {
       await ref.update({
         userId: u.userId,
@@ -31411,8 +31704,8 @@ function _filteredAudit() {
         bytesOnce:  (prev.bytesOnce  || 0) + deltaOnce,
         bytesOn:    (prev.bytesOn    || 0) + deltaOn,
         sessions: (prev.sessions || 0) + sessionInc,
-        enrollments: (prev.enrollments || 0) + _bw.enrollments,
-        reconnects: (prev.reconnects || 0) + (_bw.reconnects || 0),
+        enrollments: (prev.enrollments || 0) + _tookEnrol,
+        reconnects: (prev.reconnects || 0) + _tookRecon,
         // V19.2: the four counters that say whether the saved-copy machinery
         // worked, and an anonymous per-browser tag so the Machines column can
         // say how many laptops an account really signs in from. A few bytes.
@@ -31433,11 +31726,11 @@ function _filteredAudit() {
           window._v192Counters.saveFailed += _took.saveFailed;
           window._v192Counters.fellThrough += _took.fellThrough;
         } catch (_) {}
+        try { _bw.enrollments += _tookEnrol; _bw.reconnects = (_bw.reconnects || 0) + _tookRecon; } catch (_) {}
         throw werr;
       }
       // Only now is any of it safely recorded.
       _bw.sessionLogged = true;
-      _bw.enrollments -= _tookEnrol;
       _bw.lastFlush = _bw.sessionBytes;
       _bw.byChannelLastFlush = {
         fetch: _bw.byChannel.fetch,
@@ -37666,6 +37959,44 @@ function coordSetStatusFilter(val) {
   _v356StyleFilterSelect('coord-status-filter', !!_coordStatusFilter, _coordStatusFilter);
   coordRenderList();
 }
+// V22.9: the livelihood filter. Same shape as the two above - in-memory only,
+// reset on every login, no Firebase read.
+let _v229LivFilter = '';
+let _v229StageFilter = '';
+let _v229LivSetSig = null;
+function coordSetLivFilter(val) {
+  _v229LivFilter = val || '';
+  const el = document.getElementById('coord-liv-filter');
+  if (el) el.classList.toggle('v229-on', !!_v229LivFilter);
+  _coordPage = 1;
+  coordRenderList();
+}
+function coordSetStageFilter(val) {
+  _v229StageFilter = val || '';
+  const el = document.getElementById('coord-stage-filter');
+  if (el) el.classList.toggle('v229-on', !!_v229StageFilter);
+  _coordPage = 1;
+  coordRenderList();
+}
+// The interventions on this coordinator's OWN livelihood households, the way
+// the scheme list above is built from their own scheme records.
+function _v229PopulateLivFilter(list) {
+  const el = document.getElementById('coord-liv-filter');
+  if (!el) return;
+  const set = new Set();
+  for (const b of (list || [])) {
+    for (const i of (b.interventions || [])) { if (i && i !== 'Advocacy (Govt. Schemes)') set.add(i); }
+  }
+  const ivs = Array.from(set).sort((a, b) => a.localeCompare(b));
+  const sig = ivs.join('|');
+  if (sig === _v229LivSetSig) return;
+  _v229LivSetSig = sig;
+  const prev = el.value;
+  el.innerHTML = '<option value="">Intervention — All</option>' +
+    ivs.map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('');
+  if (prev && ivs.includes(prev)) el.value = prev;
+  else if (prev) { el.value = ''; _v229LivFilter = ''; el.classList.remove('v229-on'); }
+}
 
 // V356: when a filter is active, paint the <select> with the corresponding
 // colour from _ADV_POP_COLORS so status pills in the filter UI match those
@@ -37885,9 +38216,20 @@ function coordCloseStatusSheet() {
 }
 async function coordApplyStatusFromSheet(bid, scheme, remarks, newStatus) {
   coordCloseStatusSheet();
+  let _v229Res;
   if (typeof _advApplyStatus === 'function') {
-    try { await _advApplyStatus(bid, scheme, remarks, newStatus); }
+    try {
+      // V22.9: the save repaints the card before it goes out; mark the
+      // repainted pill as saving, then as saved once the save has resolved.
+      const _p = _advApplyStatus(bid, scheme, remarks, newStatus);
+      _v229TagState(bid, scheme, remarks, 'loading');
+      _v229Res = await _p;
+    }
     catch (e) { console.error('[V332] _advApplyStatus failed:', e); }
+  }
+  if (_v229Res === 'saved' || _v229Res === 'queued') {
+    _v229TagState(bid, scheme, remarks, 'success');
+    await new Promise(function (r) { setTimeout(r, 900); });
   }
   if (typeof coordRenderList === 'function') coordRenderList();
 }
@@ -38902,6 +39244,28 @@ function coordRenderList() {
   const progOf = {};
   list.forEach(b => { progOf[b.id] = _coordClassifyProg(b, advByBid); });
 
+  // V22.9: a filter row shows only if this coordinator has that kind of
+  // household. A hidden row cannot keep filtering, so its choice is cleared.
+  try {
+    const _v229AnyLiv = list.some(b => progOf[b.id] && progOf[b.id].hasLiv);
+    const _v229AnyAdv = list.some(b => progOf[b.id] && progOf[b.id].hasAdv);
+    const _lp = document.getElementById('v229-liv-filter');
+    const _ap = document.getElementById('v229-adv-filter');
+    if (_lp) _lp.style.display = _v229AnyLiv ? 'flex' : 'none';
+    if (_ap) _ap.style.display = _v229AnyAdv ? 'flex' : 'none';
+    if (!_v229AnyLiv && (_v229LivFilter || _v229StageFilter)) {
+      _v229LivFilter = ''; _v229StageFilter = '';
+      ['coord-liv-filter', 'coord-stage-filter'].forEach(id => { const e = document.getElementById(id); if (e) { e.value = ''; e.classList.remove('v229-on'); } });
+    }
+    if (!_v229AnyAdv && (_coordSchemeFilter || _coordStatusFilter)) {
+      _coordSchemeFilter = ''; _coordStatusFilter = '';
+      ['coord-scheme-filter', 'coord-status-filter'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+      _v356StyleFilterSelect('coord-scheme-filter', false, null);
+      _v356StyleFilterSelect('coord-status-filter', false, null);
+    }
+    _v229PopulateLivFilter(list.filter(b => progOf[b.id] && progOf[b.id].hasLiv));
+  } catch (_) {}
+
   // Program filter (the 4 summary cards above the list)
   if (coordProgFilter === 'livOnly') list = list.filter(b => progOf[b.id].hasLiv && !progOf[b.id].hasAdv);
   else if (coordProgFilter === 'dual')    list = list.filter(b => progOf[b.id].hasLiv &&  progOf[b.id].hasAdv);
@@ -38961,6 +39325,16 @@ function coordRenderList() {
           return true;
         });
       } catch(_) { return false; }
+    });
+  }
+  // V22.9: the livelihood filter - the intervention, and the stage (the same
+  // stage reading the profile uses). Both must match when both are set.
+  if (_v229LivFilter || _v229StageFilter) {
+    list = list.filter(b => {
+      if (!(progOf[b.id] && progOf[b.id].hasLiv)) return false;
+      if (_v229LivFilter && !(b.interventions || []).includes(_v229LivFilter)) return false;
+      if (_v229StageFilter && _v174Stage(b) !== _v229StageFilter) return false;
+      return true;
     });
   }
   // V356: keep scheme dropdown in sync with the FC's current advocacy data.
@@ -39129,7 +39503,14 @@ function coordCardHtml(b, advByBid) {
   // the other two stages ('Intervention In Progress'/'Completed') only ever
   // occur on livelihood-tracked records anyway, so they're left untouched.
   const stagePillLabel = (!hasLiv && stage === 'Enrolled') ? 'Enrolled' : stageLabel(stage);
-  const stagePill = `<span class="coord-card-pill" style="background:${sc.bg};color:${sc.fg}">${stagePillLabel}</span>`;
+  // V22.9: on a livelihood card the stage is a button, in short words. The
+  // words are this pill's own - stageLabel() and every other screen keep the
+  // full names. The tap does exactly what the profile's stage button does.
+  const _v229St = hasLiv ? _v174Stage(b) : null;
+  const _v229Short = {'Enrolled': 'Baseline', 'Intervention In Progress': 'Intervention', 'Completed': 'Endline'};
+  const stagePill = (hasLiv && _v229Short[_v229St])
+    ? `<button type="button" class="coord-card-pill v229-stage" data-v229stage="${escHtml(b.id)}" data-state="idle" style="background:${sc.bg};color:${sc.fg}" onclick="event.stopPropagation();_v229StageTap('${String(b.id).replace(/'/g, "\\'")}', this)" aria-label="Stage: ${escHtml(stageLabel(_v229St))}"><span class="v229-icon"></span><span class="v229-lab">${_v229Short[_v229St]}${_v229St !== 'Completed' ? ' &#8250;' : ''}</span></button>`
+    : `<span class="coord-card-pill" style="background:${sc.bg};color:${sc.fg}">${stagePillLabel}</span>`;
   const progPills = [];
   // V6.8.1: Livelihood pill recoloured pink (was {bg:'#FEF3C7',fg:'#B45309'}
   // — the exact same amber pair as a "Need to Apply" scheme tag in
@@ -39146,7 +39527,7 @@ function coordCardHtml(b, advByBid) {
   return `
     <div class="coord-card" onclick="openDrawer('${b.id}')">
       <div class="coord-card-top">
-        <div style="min-width:0;flex:1">
+        <div style="min-width:0;flex:1 1 170px">
           <div class="coord-card-name">${esc(b.name)}</div>
           <!-- V6.8.1: id + village merged onto one row (was .coord-card-id
                on its own line, then a separate .coord-card-row with the pin
@@ -39184,16 +39565,64 @@ function coordCardHtml(b, advByBid) {
             var sId = String(b.id).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
             var sSc = String(r.scheme||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
             var sRk = String(r.remarks||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-            return '<span class="coord-scheme-tag" '
+            return '<span class="coord-scheme-tag" data-v229tag="' + esc(b.id + '|' + (r.scheme||'') + '|' + (r.remarks||'')) + '" data-state="idle" '
               + 'style="background:' + c.bg + ';color:' + c.fg + ';border-color:' + c.fg + '33" '
               + 'onclick="event.stopPropagation();coordOpenStatusSheet(\''+sId+'\',\''+sSc+'\',\''+sRk+'\',\''+status+'\')" '
-              + 'title="Tap to change status">' + esc(r.scheme) + '</span>';
+              + 'title="Tap to change status"><span class="v229-icon"></span>' + esc(r.scheme) + '</span>';
           }).join('');
           return '<div class="coord-card-schemes">' + html + '</div>';
         } catch(_) { return ''; }
       })()}
+      ${(function(){
+        // V22.9: shortcuts to the app's own two forms.
+        const _q = String(b.id).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        return '<div class="v229-actions">'
+          + (hasLiv ? `<button type="button" class="v229-act" onclick="event.stopPropagation();_v229OpenIncome('${_q}')">+ Add income</button>` : '')
+          + `<button type="button" class="v229-act" onclick="event.stopPropagation();_v229OpenAdv('${_q}')">+ Add scheme</button>`
+          + '</div>';
+      })()}
     </div>
   `;
+}
+
+// ── V22.9: what the card buttons do. Each hands over to the existing path. ──
+// The stage pill. At Baseline it makes the same save the profile's
+// "Intervention In Progress" button makes; at Intervention it opens Log
+// Income, as "+ Log Income to Complete" does; at Endline there is nothing to do.
+async function _v229StageTap(id, el) {
+  const b = (getData() || []).find(x => x.id === id);
+  if (!b) return;
+  const st = _v174Stage(b);
+  if (st === 'Intervention In Progress') { _v229OpenIncome(id); return; }
+  if (st !== 'Enrolled') { toast('Lifecycle complete', '', 2500); return; }
+  if (!el || el.dataset.state === 'loading' || el.dataset.state === 'success') return;
+  const lab = el.querySelector('.v229-lab');
+  const was = lab ? lab.innerHTML : '';
+  el.dataset.state = 'loading';
+  if (lab) lab.textContent = 'Updating\u2026';
+  let ok = false;
+  try { ok = await updateStatus(id, 'Intervention In Progress', { fromCard: true }); }
+  catch (e) { console.warn('[V22.9] stage change failed:', e && e.message); ok = false; }
+  if (!ok) {
+    // nothing was saved: the pill goes back to what it said
+    el.dataset.state = 'idle';
+    if (lab) lab.innerHTML = was;
+    return;
+  }
+  el.dataset.state = 'success';
+  if (lab) lab.textContent = 'Intervention';
+  setTimeout(function () { try { coordRenderList(); } catch (_) {} }, 1100);
+}
+function _v229OpenIncome(id) { openLogIncomeFor(id, { card: true }); }
+function _v229OpenAdv(id) { openAdvModal(id, { card: true }); }
+// the scheme pill's loading / saved states, found again after each repaint
+function _v229TagState(bid, scheme, remarks, state) {
+  try {
+    const key = bid + '|' + (scheme || '') + '|' + (remarks || '');
+    document.querySelectorAll('.coord-scheme-tag[data-v229tag]').forEach(function (t) {
+      if (t.getAttribute('data-v229tag') === key) t.dataset.state = state;
+    });
+  } catch (_) {}
 }
 
 function _renderUserPill() {
