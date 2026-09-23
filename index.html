@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V23.1-LIVE
+  KRSF Beneficiary Impact Tracker  -  V23.3-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,33 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V23.3-LIVE (2026-09-23 - a hard swipe no longer throws the Enroll form away).
+
+    + ⛔ ON A PHONE, A FAST SWIPE UP AT THE END OF THE ENROLL FORM SENT THE WHOLE
+      FORM OFF THE TOP OF THE SCREEN, leaving the list dimmed behind it (Guru's
+      screen recording on a coordinator login, 23 Sep). Nothing typed was lost -
+      swiping down brought it back - but it looked like the form had vanished.
+      Cause: the invisible screen-reader line under "Enroll & Generate ID"
+      (added V20.1) was anchored to the dim backdrop instead of the form, which
+      made the backdrop itself 1,489px scrollable. Its row now holds it inside
+      the form; the backdrop no longer scrolls at all. Every other pop-up was
+      checked and had no such overhang. No Firebase change; nothing saved
+      differently.
+    + Includes V23.2 (the rupee sign no longer covers the amount).
+    + Tests: 81 files. v231 now checks the Enroll backdrop cannot scroll and
+      the form still reaches its Enroll button; red on V23.2.
+
+  V23.2-LIVE (2026-09-23 - the rupee sign no longer covers the amount).
+
+    + THE ₹ SAT ON TOP OF THE FIRST DIGIT in the phone Log income (opened from
+      "+ Add income" on a card), so "6000" read as "₹000". The V23.1 rule that
+      made the boxes 48px tall also reset the left padding, and it out-ranked
+      the rule that made room for the ₹. A stronger rule now keeps 34px clear.
+      Only that one box on the phone form changes; the profile Log income, the
+      saved figure and every other screen are untouched. No Firebase change.
+    + Tests: 81 files. v231 now measures the gap between the ₹ and the typed
+      digits, and fails on the V23.1 build.
+
   V23.1-LIVE (2026-09-23 - search at typing speed, and the daily check runs).
 
     + ⛔ SEARCH FROZE FOR 0.6-1.5 SECONDS ON EVERY LETTER for admin and partner
@@ -2643,6 +2670,10 @@ body[data-shell="coord"] .coord-card {
 #logincome-overlay.v229-card .v229-rupee { position: relative; }
 #logincome-overlay.v229-card .v229-rupee span { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--gray2); font-weight: 600; }
 #logincome-overlay.v229-card .v229-rupee input { padding-left: 24px; }
+/* V23.2: the ₹ sat ON the number. The box rule above (.v229-form input[type="number"])
+   out-ranks both rupee rules and set padding-left back to 12px. These out-rank it. */
+#logincome-overlay.v229-card .v229-form .v229-rupee input[type="number"] { padding-left: 34px; }
+#logincome-overlay.v229-card .v229-form .v229-rupee span { left: 14px; font-size: 16px; line-height: 1; pointer-events: none; }
 #logincome-overlay.v229-card .v229-zero { background: none; border: 0; color: var(--gray1); text-decoration: underline; font-size: 13px; padding: 6px 0; align-self: center; cursor: pointer; font-family: var(--font); }
 #logincome-overlay.v229-card .modal-body { padding-bottom: 260px; }
 .v229-tip {
@@ -3976,7 +4007,7 @@ body[data-shell="coord"] .coord-card {
     </div>
   </div>
   <div class="modal-foot" style="flex-direction:column;align-items:stretch;gap:10px">
-    <div style="display:flex;gap:8px;justify-content:flex-end">
+    <div style="display:flex;gap:8px;justify-content:flex-end;position:relative"><!-- V23.3: holds the announce span inside the form -->
       <button class="btn" onclick="closeEnroll()" data-en="Cancel" data-gu="રદ કરો">Cancel</button>
       <button class="btn btn-primary" id="enroll-submit-btn" onclick="submitEnroll()" data-en="Enroll &amp; Generate ID" data-gu="નોંધણી કરો અને ID જનરેટ કરો">Enroll &amp; Generate ID</button>
       <span id="enroll-submit-announce" role="status" aria-live="polite" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap"></span>
@@ -4580,7 +4611,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V23.1-LIVE';
+const APP_VERSION = 'V23.3-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
