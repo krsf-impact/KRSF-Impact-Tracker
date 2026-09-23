@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V23.0-LIVE
+  KRSF Beneficiary Impact Tracker  -  V23.1-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,36 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V23.1-LIVE (2026-09-23 - search at typing speed, and the daily check runs).
+
+    + ⛔ SEARCH FROZE FOR 0.6-1.5 SECONDS ON EVERY LETTER for admin and partner
+      logins. All Beneficiaries and Integrated deep-copied all 1,39,422 scheme
+      records on every keystroke - only to build a cache key - and Advocacy
+      rebuilt its per-household map from ~2.4 lakh rows each time. Measured on
+      the practice copy of the real data: All Beneficiaries 0.7-1.2 s per
+      letter before, under 0.1 s after. Both screens now use the read-only
+      reader the dashboard has used since V17.7; the Advocacy map is kept until
+      the data or the chips change. Nothing is written; no Firebase change.
+
+    + ⛔ THE ONCE-A-DAY COORDINATOR CHECK OFTEN NEVER RAN. It ran only when the
+      app was opened fresh, and it judged "checked today" by the saved copy's
+      time - which moves on every LOCAL save. So a phone left open in the
+      background, or one that had saved anything after 4 AM, kept a household
+      the office had deleted (Guru's own phone, 23 Sep). It now also runs when
+      the app comes back to the screen, and "checked" means the server
+      answered. ~50 bytes per coordinator per day; a full refetch only when
+      that coordinator's records really changed. A phone's first V23.1 check
+      falls back to the old rule, so there is no fleet-wide re-download.
+      ⛔ The check's own comparison was deliberately NOT changed: judged by the
+      server time instead, a coordinator's own saves would have looked like
+      office changes and re-downloaded their list every day.
+
+    + The coordinator card: cards stand apart, "+ Add income / + Add scheme"
+      read as buttons, the phone Log income boxes match every other box, and
+      "No schemes logged yet" drops "open record to add". Approved on the demo.
+
+    + Tests: 81 files.
+
   V23.0-LIVE (2026-09-23 - the usage screen's own counters).
 
     + ⛔ THE ENROLMENT COLUMN WENT NEGATIVE (-23 on 22 September). The meter
@@ -2562,6 +2592,27 @@ body[data-shell="coord"] #_v352-install-btn {
   color: var(--text); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .v229-act:active { background: #E6EEFB; }
+/* V23.1: approved on the demo 23 Sep - cards stand apart, the two buttons read
+   as buttons, and the phone Log income boxes match every other box. */
+body[data-shell="coord"] .coord-card {
+  border-color: #D5DAE6;
+  box-shadow: 0 1px 2px rgba(15,23,42,.06), 0 2px 8px rgba(15,23,42,.05);
+}
+.v229-act { background: #EEF2FB; border-color: #BFCBE6; color: #1B2A5C; box-shadow: 0 1px 1px rgba(15,23,42,.06); }
+.v229-act:active { background: #DCE4F7; }
+#logincome-overlay.v229-card .v229-form input[type="number"],
+#logincome-overlay.v229-card .v229-form input[type="date"],
+#logincome-overlay.v229-card .v229-form input[type="text"] {
+  display: block; width: 100%; height: 48px; box-sizing: border-box;
+  border: 1px solid var(--field-bd, #C9CCD8); border-radius: 10px;
+  padding: 0 12px; font-size: 16px; font-family: var(--font); color: var(--text);
+  background: #fff; -webkit-appearance: none; appearance: none;
+}
+#logincome-overlay.v229-card .v229-form input:focus {
+  outline: 2px solid var(--navy); outline-offset: 1px; border-color: var(--navy);
+}
+#logincome-overlay.v229-card .v229-rupee input { padding-left: 30px; }
+#logincome-overlay.v229-card .v229-rupee span { left: 13px; font-size: 16px; }
 .coord-scheme-filter { flex-wrap: wrap; }
 .v229-fcap { flex-basis: 100%; font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; margin: -2px 2px -2px; }
 .v229-liv-filter { background: #FDF2F6 !important; border-color: #F2C6D6 !important; }
@@ -4529,7 +4580,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V23.0-LIVE';
+const APP_VERSION = 'V23.1-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -25848,6 +25899,7 @@ function _v361GetAdvAgg() {
   return _v361AdvAgg;
 }
 
+let _v231BidsByMemo = null;   // V23.1 - see inside renderAdvocacy
 function renderAdvocacy(sub) {
   if (sub !== undefined) advSubTab = sub;
   // V361: use cached aggregations if available — turns ~250K iterations into
@@ -25878,13 +25930,21 @@ function renderAdvocacy(sub) {
   // which is more actionable for admins. Single pass over allRows; one Set
   // per status holds distinct __bid values, plus one combined Set for
   // "All Applications Submitted" (everything except Need to Apply).
-  const bidsBy = Object.create(null);
-  const submittedBidsSet = new Set();
-  for (const r of allRows) {
-    const s = _advNormStatus(r);
-    if (!bidsBy[s]) bidsBy[s] = new Set();
-    bidsBy[s].add(r.__bid);
-    if (s !== 'Need to Apply') submittedBidsSet.add(r.__bid);
+  // ⛔ V23.1: remembered against allRows - this walked every scheme row on
+  // every letter typed in the search box, which changes none of it.
+  let bidsBy, submittedBidsSet;
+  if (_v231BidsByMemo && _v231BidsByMemo.rows === allRows) {
+    bidsBy = _v231BidsByMemo.bidsBy; submittedBidsSet = _v231BidsByMemo.submitted;
+  } else {
+    bidsBy = Object.create(null);
+    submittedBidsSet = new Set();
+    for (const r of allRows) {
+      const s = _advNormStatus(r);
+      if (!bidsBy[s]) bidsBy[s] = new Set();
+      bidsBy[s].add(r.__bid);
+      if (s !== 'Need to Apply') submittedBidsSet.add(r.__bid);
+    }
+    _v231BidsByMemo = { rows: allRows, bidsBy: bidsBy, submitted: submittedBidsSet };
   }
   const _benSize = s => (bidsBy[s] ? bidsBy[s].size : 0);
   const _benSub = n => n.toLocaleString('en-IN') + ' beneficiar' + (n === 1 ? 'y' : 'ies');
@@ -25975,6 +26035,7 @@ function _advSchemeChips(allAdv, activeStatus) {
   return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${chips.join('')}</div>`;
 }
 
+let _v231AdvMemo = null;   // V23.1 - see inside _advBenTab2
 function _advBenTab2(allAdv, allB) {
   const rowFilter = sr => {
     // Status filter
@@ -25998,13 +26059,23 @@ function _advBenTab2(allAdv, allB) {
 
   // Use latest rows per (bid,scheme) — superseded rows are hidden from the table.
   const latestAll = _advLatestRowsAll(allAdv);
-  const rowsByBid = {};
-  latestAll.forEach(r => { (rowsByBid[r.__bid] = rowsByBid[r.__bid] || []).push(r); });
-
-  const allBids = Object.keys(rowsByBid);
-  const bidsMatch = (advStageF || advSchemeFilter)
-    ? new Set(allBids.filter(bid => (rowsByBid[bid]||[]).some(rowFilter)))
-    : new Set(allBids);
+  // ⛔ V23.1: REMEMBERED, not rebuilt per keystroke. This walked every one of
+  // the ~2.4 lakh scheme rows on each letter typed in the search box, although
+  // the search never changes it - only new data or the two chips do.
+  const _v231Key = [advStageF || '', advSchemeFilter || '',
+                    advSchemeFilter === '__other__' ? getSchemes().join('|') : ''].join('\u0001');
+  let rowsByBid, bidsMatch;
+  if (_v231AdvMemo && _v231AdvMemo.rows === latestAll && _v231AdvMemo.key === _v231Key) {
+    rowsByBid = _v231AdvMemo.rowsByBid; bidsMatch = _v231AdvMemo.bidsMatch;
+  } else {
+    rowsByBid = {};
+    latestAll.forEach(r => { (rowsByBid[r.__bid] = rowsByBid[r.__bid] || []).push(r); });
+    const allBids = Object.keys(rowsByBid);
+    bidsMatch = (advStageF || advSchemeFilter)
+      ? new Set(allBids.filter(bid => (rowsByBid[bid]||[]).some(rowFilter)))
+      : new Set(allBids);
+    _v231AdvMemo = { rows: latestAll, key: _v231Key, rowsByBid: rowsByBid, bidsMatch: bidsMatch };
+  }
   let list = allB.filter(b=>bidsMatch.has(b.id));
   if (advSearch2) { const _aq=advSearch2.toLowerCase(); list=list.filter(b=>(b.name||'').toLowerCase().includes(_aq)||(b.id||'').toLowerCase().includes(_aq)); }
 
@@ -26106,6 +26177,7 @@ function _advBenTab2(allAdv, allB) {
 // any caller that fires during script init. Caught by adversarial audit.
 var intCurrentPage = 1;
 
+let _v231IntMemo = null;   // V23.1 - see inside renderIntegrated
 function renderIntegrated(sub) {
   if (sub !== undefined) {
     intSubTab = sub;
@@ -26113,29 +26185,43 @@ function renderIntegrated(sub) {
     // page 7 of "Advocacy Only" when user just switched from "All".
     intCurrentPage = 1;
   }
-  const allB = filteredAll(), allAdv = loadAdv();
+  const allB = filteredAll(), allAdv = _v177AdvRead();   // V23.1: read-only, was a full copy per keystroke
 
   // Compute latest-row-per-(bid,scheme) so Integrated counts match Advocacy dashboards.
   const latestAll = _advLatestRowsAll(allAdv);
-  const latestByBid = {};
-  latestAll.forEach(r => { (latestByBid[r.__bid] = latestByBid[r.__bid] || []).push(r); });
+  // ⛔ V23.1: REMEMBERED. It rebuilt 1,39,000 enriched copies on every letter
+  // typed in the search box, which changes none of them.
+  let bList, livOnlyBids, dualBids, advOnlyBids, totalInc, totalBen;
+  // filteredAll() hands back a NEW array each call, so the key is a
+  // fingerprint of what is in it: every household's edit stamp, the count and
+  // both ends. Any save, delete, arrival or filter change moves it. ~3 ms.
+  let _v231Sig = allB.length;
+  for (let i = 0; i < allB.length; i++) { const _b = allB[i]; _v231Sig = (_v231Sig * 31 + (((_b && _b._lastEditedAt) || 0) % 1000003)) % 2147483629; }
+  _v231Sig = _v231Sig + '|' + ((allB[0] && allB[0].id) || '') + '|' + ((allB[allB.length - 1] && allB[allB.length - 1].id) || '');
+  if (_v231IntMemo && _v231IntMemo.sig === _v231Sig && _v231IntMemo.rows === latestAll) {
+    ({ bList, livOnlyBids, dualBids, advOnlyBids, totalInc, totalBen } = _v231IntMemo);
+  } else {
+    const latestByBid = {};
+    latestAll.forEach(r => { (latestByBid[r.__bid] = latestByBid[r.__bid] || []).push(r); });
 
-  // Enrich each beneficiary with program membership + impact numbers.
-  const bList = allB.map(b => {
-    const schemeRows = latestByBid[b.id] || [];
-    const hasLiv = (b.interventions||[]).some(i => i !== 'Advocacy (Govt. Schemes)');
-    const hasAdv = schemeRows.length > 0 || (b.interventions||[]).includes('Advocacy (Govt. Schemes)');
-    const incDelta   = _v193Delta(b);   // V19.3: the one rule
-    const benefitAmt = schemeRows.filter(r => r.benefitRecd === 'Yes').reduce((s, r) => s + _v18RowBenefit(r), 0);
-    return { ...b, schemeRows, hasLiv, hasAdv, incDelta, benefitAmt };
-  });
+    // Enrich each beneficiary with program membership + impact numbers.
+    bList = allB.map(b => {
+      const schemeRows = latestByBid[b.id] || [];
+      const hasLiv = (b.interventions||[]).some(i => i !== 'Advocacy (Govt. Schemes)');
+      const hasAdv = schemeRows.length > 0 || (b.interventions||[]).includes('Advocacy (Govt. Schemes)');
+      const incDelta   = _v193Delta(b);   // V19.3: the one rule
+      const benefitAmt = schemeRows.filter(r => r.benefitRecd === 'Yes').reduce((s, r) => s + _v18RowBenefit(r), 0);
+      return { ...b, schemeRows, hasLiv, hasAdv, incDelta, benefitAmt };
+    });
 
-  const livOnlyBids = bList.filter(b => b.hasLiv && !b.hasAdv);
-  const dualBids    = bList.filter(b => b.hasLiv &&  b.hasAdv);
-  const advOnlyBids = bList.filter(b => !b.hasLiv && b.hasAdv);
+    livOnlyBids = bList.filter(b => b.hasLiv && !b.hasAdv);
+    dualBids    = bList.filter(b => b.hasLiv &&  b.hasAdv);
+    advOnlyBids = bList.filter(b => !b.hasLiv && b.hasAdv);
 
-  const totalInc = bList.reduce((s, b) => s + (b.incDelta||0), 0);
-  const totalBen = bList.reduce((s, b) => s + (b.benefitAmt||0), 0);
+    totalInc = bList.reduce((s, b) => s + (b.incDelta||0), 0);
+    totalBen = bList.reduce((s, b) => s + (b.benefitAmt||0), 0);
+    _v231IntMemo = { sig: _v231Sig, rows: latestAll, bList, livOnlyBids, dualBids, advOnlyBids, totalInc, totalBen };
+  }
   const totalImpact = totalInc + totalBen;
 
   // Normalize intSubTab from any legacy values (`all`, `gap`) to new ones.
@@ -26473,7 +26559,12 @@ function _allBCacheKey(allB, advArr) {
 
 function renderAllBeneficiaries() {
   const allB=filteredAll();
-  const advArr = (() => { try { return loadAdv(); } catch(e){ return []; } })();
+  // ⛔ V23.1: THE READ-ONLY READER, NOT A COPY. loadAdv() deep-copies every
+  // scheme record, and this ran on EVERY KEYSTROKE of the search box just to
+  // build the cache key below: 139,422 copies, 0.6-1.2 s frozen per letter,
+  // measured on the practice copy of the real data. advArr is only read here
+  // (a key, a set of ids, the counting rule) - same rule as the dashboard.
+  const advArr = (() => { try { return _v177AdvRead(); } catch(e){ return []; } })();
 
   // V323: Memoize the expensive enrichment pass. Re-compute only when the
   // underlying data has actually changed (different count or boundary IDs).
@@ -35860,8 +35951,13 @@ async function _v359SmartCheckAndRefresh(reason) {
   const u = (typeof currentUser === 'function') ? currentUser() : null;
   if (!u || !u.userId) return { result: 'error', err: 'no user' };
   let _benefOut = null;
+  const _v231Started = Date.now();
   try {
     _benefOut = await _v359SmartCheckAndRefreshBenef(u, reason);
+    // V23.1: only an answer from the server counts as a check
+    if (_benefOut && (_benefOut.result === 'current' || _benefOut.result === 'refreshed')) {
+      _v231MarkChecked(u.userId, _v231Started);
+    }
     return _benefOut;
   } finally {
     // V6.8.1 fix: this function (shared by the manual "↻ Refresh" button and
@@ -35964,12 +36060,32 @@ async function _v359SmartCheckAndRefreshBenef(u, reason) {
 // Layer 2: silent auto-refresh check, runs once per login.
 // If pantry hasn't synced since today's 4 AM IST → smart-check (which is
 // usually a no-op because saveData keeps pantry current).
+// ⛔ V23.1: WHEN THE PHONE LAST ASKED THE SERVER, kept apart from the saved
+// copy's own time. The copy's time moves on every LOCAL save, so a coordinator
+// who saved anything after 4 AM looked "checked today" and this gate skipped -
+// and a household the office had deleted stayed on the phone (Guru, 23 Sep).
+// Only this gate reads it; the check itself is unchanged.
+function _v231CheckedKey(uid) { return 'krsf_v231_checked_' + uid; }
+function _v231CheckedAt(uid) {
+  try { return parseInt(localStorage.getItem(_v231CheckedKey(uid)), 10) || 0; } catch (_) { return 0; }
+}
+function _v231MarkChecked(uid, ts) {
+  try { localStorage.setItem(_v231CheckedKey(uid), String(ts)); } catch (_) {}
+}
+let _v231AutoBusy = false;
+let _v231AutoLastTry = 0;
 async function _v359AutoRefreshIfDue() {
+  if (_v231AutoBusy) return;
+  _v231AutoBusy = true;
+  _v231AutoLastTry = Date.now();
   try {
     const u = currentUser();
     if (!u || u.role !== 'coordinator') return;  // FC role only
     const pantry = await _pantryRead(u.userId);
-    const pantryTs = (pantry && pantry.lastSyncTs) || 0;
+    // A phone that has never recorded a server check (every phone, the first
+    // time V23.1 runs) falls back to the old rule, so this release cannot make
+    // every coordinator re-download at once.
+    const pantryTs = _v231CheckedAt(u.userId) || (pantry && pantry.lastSyncTs) || 0;
     const cutoff = _v359Recent4amIST();
     if (pantryTs >= cutoff) {
       console.log('[V359 auto-4am] pantry is fresh (synced after today\'s 4 AM IST cutoff)');
@@ -35981,8 +36097,24 @@ async function _v359AutoRefreshIfDue() {
     }
   } catch (e) {
     console.warn('[V359 auto-4am] check failed:', e && e.message);
+  } finally {
+    _v231AutoBusy = false;
   }
 }
+// ⛔ V23.1: AND ON COMING BACK TO THE SCREEN, not only on opening. A phone keeps
+// the app alive in the background for hours; brought back the next morning it
+// never re-mounted, so the check never ran. Costs nothing unless the gate above
+// says a day has passed, and then ~50 bytes.
+document.addEventListener('visibilitychange', function () {
+  try {
+    if (document.visibilityState !== 'visible') return;
+    if (Date.now() - _v231AutoLastTry < 60 * 1000) return;
+    const u = (typeof currentUser === 'function') ? currentUser() : null;
+    if (!u || u.role !== 'coordinator') return;
+    if (document.body.getAttribute('data-shell') !== 'coord') return;
+    _v359AutoRefreshIfDue();
+  } catch (_) {}
+});
 
 // Layer 1: FC manual refresh button handler.
 // Capped at 1 tap per IST calendar day (counter in localStorage).
@@ -39556,7 +39688,7 @@ function coordCardHtml(b, advByBid) {
         try {
           var rows = _advLatestRowsForBeneficiary(b.id) || [];
           if (!rows.length) {
-            return '<div class="coord-card-schemes"><span class="coord-scheme-empty">No schemes logged yet — open record to add</span></div>';
+            return '<div class="coord-card-schemes"><span class="coord-scheme-empty">No schemes logged yet</span></div>';   // V23.1: the card has + Add scheme now
           }
           var COL = (typeof _ADV_POP_COLORS !== 'undefined') ? _ADV_POP_COLORS : {};
           var html = rows.map(function(r){
