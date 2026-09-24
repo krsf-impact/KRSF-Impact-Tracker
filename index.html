@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V23.3-LIVE
+  KRSF Beneficiary Impact Tracker  -  V23.4-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,42 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V23.4-LIVE (2026-09-24 - a phone no longer re-sends its whole list).
+
+    + ⛔ A COORDINATOR'S PHONE COULD SEND EVERY ONE OF ITS RECORDS FROM ITS OWN
+      OLD COPY, undoing changes the office had made. On a weak signal the
+      start-up step finishes late, after the coordinator has already opened
+      their saved list; it then forgot which records the phone had already
+      saved, so the next ordinary edit sent all of them. Seen 10-50 times a
+      day since May. On 24 Sep Sanjaykumar Ninama's phone re-sent 1,043
+      households and 1,043 scheme records, putting "MANREGA" back on 172 rows
+      renamed that morning; on 21 Sep Shankarbhai Vanajara's phone put 621
+      scheme records back under KRSF.Vadali after his move to KRSF.Idar.
+      Now the start-up step leaves that memory alone whenever records are
+      already loaded; on a fresh start it behaves exactly as before.
+      No read, write or download is added - fewer are made, because other
+      devices no longer re-download records that were re-sent unchanged.
+    + Advocacy Management: a "Scheme Rename Backfill" button beside "Audit
+      Scheme Names", with a tooltip, and "Audit Scheme Names" gets one too. The screen already existed but could only
+      be opened from the browser console. It now also stamps every record it
+      renames, as the Rename button does - before, the admin's own list and the
+      partner logins kept showing the old name after a successful run.
+    + THE OLD SCHEME LIST CAME BACK ON SCREEN (Guru, 24 Sep - the database
+      was right, 27 schemes). The saved copy of the settings was dated 21 Sep
+      and was never refreshed; it now follows the one fresh read every start
+      already makes. And every scheme-list action in Advocacy Management
+      checks first that the tab is up to date, because each one writes the
+      WHOLE list from the tab's copy - an old tab would have wiped the 7
+      Maharashtra schemes and the renames. If it is out of date, nothing is
+      changed, logged or announced; the screen shows the latest list.
+    + The admin's record sync re-checks the 5 minutes before the newest
+      record it holds, as partner logins have since V18.4: a record that
+      reached the database a little late was skipped for good (21 rows missed
+      the MANREGA rename that way). Records already held unchanged are skipped.
+    + Includes V23.2 and V23.3.
+    + Tests: 82 files. v234 edits one record after the start-up step
+      re-runs and demands exactly one record is sent; red on V23.3.
+
   V23.3-LIVE (2026-09-23 - a hard swipe no longer throws the Enroll form away).
 
     + ⛔ ON A PHONE, A FAST SWIPE UP AT THE END OF THE ENROLL FORM SENT THE WHOLE
@@ -638,75 +674,6 @@
       change - were killed. The checks that never went red are fixture
       guards, the two speed bounds, and V21.5 grouping this must not lose.
 
-  V21.5-LIVE (2026-09-09 - a coordinator who has left).
-
-    + WHAT IT IS: an Admin can mark a coordinator inactive. Their name then
-      shows faded, labelled, and LAST in every list, they cannot sign in, and
-      they stop counting as an active coordinator. Their beneficiaries do NOT
-      move - that is the point. The faded name is what tells the NGO those
-      families are still sitting with somebody who has gone and need handing
-      over, which is done with the Transfer Beneficiaries tool that already
-      exists.
-
-    + ⛔ ONE FIELD ON ONE PERSON. Nothing is written to any beneficiary
-      record, no migration, no backfill. Absent means active, so not one of
-      the 575 users needed a write and not one figure moves on the day this
-      ships - the active-coordinator count falls only as people are actually
-      marked.
-
-    + ⛔ THE SIGN-IN BLOCK HAD TO REACH THE PHONE. The users list is cached
-      for 30 days and fetched once per session, and the sign-in check reads
-      that same cached list - so on its own this would not have stopped
-      anybody for up to a month. Marking somebody now bumps the fleet
-      invalidate flag V10.1 added for password changes; that flag is ALREADY
-      read on every boot, so reading it costs nothing new. ⛔ IT IS NOT FREE
-      THOUGH, and an earlier draft of this note said it was: a device that
-      boots after a bump refetches the whole users list once, about 120 KB.
-      Bounded - any number of markings costs each device ONE refetch, not
-      one per marking - and identical to what a password change already
-      costs. Worst realistic day is well under a rupee.
-
-    + ⛔ AND IT MUST NEVER COST SOMEBODY THEIR WORK. The block is not on the
-      save path. A phone still holding unsent enrolments stays signed in and
-      keeps working; the queue flushes and the sign-out happens on a later
-      boot. A tidy-up of the staff list must not destroy a day in the field.
-
-    + ⛔ THE TRANSFER USED TO DESTROY THE ORIGINAL NAME. It overwrites
-      createdBy, createdByName AND coord, so after a handover nothing on the
-      record said who actually enrolled that family - it survived only in the
-      audit log. The enroller is now stamped once, on the first move, and
-      never touched again, so a family handed on twice still names the person
-      who enrolled them rather than whoever held them in between. Shown in the
-      beneficiary drawer. Only records that actually move are written.
-
-    + ⛔ AN INACTIVE COORDINATOR KEEPS A ROW AT 0-0-0. _computeFcStats
-      returns null at zero beneficiaries and NGO admins hide those rows, so
-      the moment a handover finished the person handed over FROM would have
-      vanished from the table and there would be nothing on screen to confirm
-      it had happened.
-
-    + ⛔ "INACTIVE" WAS ALREADY TAKEN. Reports has computed activeFcs and
-      inactiveFcs for a long time, meaning "did something in the last 30 days"
-      and "did not" - that is DORMANCY, not departure. Only the unambiguous
-      half changed: somebody who has left is not counted as active, whatever
-      they did last week (it is also the divisor for every per-coordinator
-      average). The quiet list is untouched, but now says which of those
-      people have actually left, so nobody chases them.
-
-    + Destination lists offer ACTIVE coordinators only, so families cannot be
-      handed to somebody who cannot sign in. Moving families off an inactive
-      coordinator is the whole point and stays available.
-
-    + Tests: 66 files. v215.js is new - 201 checks, and 43 mutants built on
-      this build, every one of them killed. ⛔ THE COUNT IS NOT THE EVIDENCE,
-      THE MUTANTS ARE: 87 of the checks go red on V21.4 simply because the
-      feature is absent there, which proves only that they are wired to it and
-      not that any one of them watches its own line. Two faults were found that
-      way - a mutant that emptied the page's memory instead of failing, and a
-      check on the winner's highlight that could not fail at all because the
-      grouping always leaves an active coordinator at the top. That second one
-      is exactly the fault that made the V21.4 suite worthless for most of its
-      life, and this time it was caught before it counted.
   ============================================================================
   Everything before this point lives in CHANGELOG.md, beside this file.
 -->
@@ -4611,7 +4578,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V23.3-LIVE';
+const APP_VERSION = 'V23.4-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -6978,15 +6945,24 @@ async function _adminIncrementalSync() {
       if (t > highWater) highWater = t;
     }
     if (highWater === 0) return { ok: false, reason: 'no-watermark' };
-    const snap = await fbRef('beneficiaries').orderByChild('_lastEditedAt').startAt(highWater + 1).once('value');
+    // ⛔ V23.4: the 5 minutes before the newest record held are asked for
+    // again. A record reaching the database a little after its phone stamped
+    // it (weak signal) carries a time the admin had already passed, and was
+    // never fetched - 21 rows missed a scheme rename that way (24 Sep).
+    // Partner logins have had this margin since V18.4.
+    const _v234From = Math.max(1, highWater - _V184_CLOCK_MARGIN_MS);
+    const snap = await fbRef('beneficiaries').orderByChild('_lastEditedAt').startAt(_v234From).once('value');
     const val = snap.val() || {};
     let added = 0;
     for (const id in val) {
       const r = val[id];
       if (!r || !r.id) continue;
+      const _h = fbHash(r);
+      // already held exactly as sent - the overlap must not rewrite the saved copy
+      if (FB.lastBenef && FB.lastBenef[r.id] === _h && RecordCache.benef.has(r.id)) continue;
       RecordCache.benef.set(r.id, r);
       if (!FB.lastBenef) FB.lastBenef = {};
-      FB.lastBenef[r.id] = fbHash(r);
+      FB.lastBenef[r.id] = _h;
       added++;
     }
     // V19 [2]: tombstones keep their OWN watermark, because the record
@@ -7194,7 +7170,9 @@ async function _advAdminIncrementalSync() {
       if (t > highWater) highWater = t;
     }
     if (highWater === 0) return { ok: false, reason: 'no-watermark' };
-    const snap = await fbRef('advocacy').orderByChild('_lastEditedAt').startAt(highWater + 1).once('value');
+    // ⛔ V23.4: same 5-minute overlap as the beneficiary sync - see there.
+    const _v234From = Math.max(1, highWater - _V184_CLOCK_MARGIN_MS);
+    const snap = await fbRef('advocacy').orderByChild('_lastEditedAt').startAt(_v234From).once('value');
     const val = snap.val() || {};
     let added = 0;
     for (const fbKey in val) {
@@ -7202,9 +7180,11 @@ async function _advAdminIncrementalSync() {
       if (!raw) continue;
       const record = fbStampAdvKey({ ...raw });
       const key = record.__fbk || fbKey;
+      const _h = fbHash(record);
+      if (FB.lastAdv && FB.lastAdv[key] === _h && RecordCache.adv.has(key)) continue;
       RecordCache.adv.set(key, record);
       if (!FB.lastAdv) FB.lastAdv = {};
-      FB.lastAdv[key] = fbHash(record);
+      FB.lastAdv[key] = _h;
       added++;
     }
     // V19 [2]: tombstones keep their OWN watermark, because the record
@@ -8500,10 +8480,18 @@ async function fbInitialSync() {
     ]);
     // ─ Beneficiaries ──────────────────────────────────────────────────
     // Hydration deferred to child_added listener (see V311 note above).
-    FB.lastBenef = {};
+    // ⛔ V23.4: ONLY WHEN NOTHING IS LOADED YET. This line runs after the
+    // awaits above, which on a weak signal can take minutes - long enough for
+    // a coordinator to open their saved list and work. Every loader fills
+    // RecordCache and this map together; emptying the map under a full cache
+    // made the next ordinary save send EVERY record from the phone's copy,
+    // undoing office changes (1,043 records re-sent 24 Sep, 621 partner fixes
+    // undone 21 Sep). A retry of this function hit the same line.
+    if (!(RecordCache.benef && RecordCache.benef.size > 0)) FB.lastBenef = {};
     // ─ Advocacy ──────────────────────────────────────────────────────
     // Hydration deferred to child_added listener (see V311 note above).
-    FB.lastAdv = {};
+    // ⛔ V23.4: same rule - see the beneficiary line above.
+    if (!(RecordCache.adv && RecordCache.adv.size > 0)) FB.lastAdv = {};
     // ─ Partners ──────────────────────────────────────────────────────
     const fbPart = Object.values(partSnap.val() || {});
     // V310: hydrate the in-memory cache (cloud-authoritative) instead of LS.
@@ -8837,6 +8825,11 @@ function _attachNonBenefListeners() {
   // held a toggle back for up to a month.
   fbRef('config').once('value').then(snap => {
     const cfgAll = snap.val() || {};
+    // ⛔ V23.4: keep the saved copy in step with this read, which every start
+    // makes anyway. It was written only when missing or 30 days old, so it held
+    // the 21 Sep scheme list and every start opened on it (Guru, 24 Sep). Local
+    // only - nothing is downloaded that was not downloaded already.
+    try { if (snap.exists && snap.exists()) _configPantryWrite(cfgAll).catch(function () {}); } catch (_) {}
     const v = cfgAll.schemes;
     if (Array.isArray(v) && v.length) {
       localStorage.setItem('krsf_schemes_v1', JSON.stringify(v));
@@ -12177,6 +12170,47 @@ function getSchemes() {
   const defaults = ['PM-KISAN','MGNREGA','PM Awas Yojana (PMAY)','Ayushman Bharat','Ration Card (NFSA)','Ujjwala Yojana','Sukanya Samriddhi','Old Age Pension'];
   localStorage.setItem(SCHEMES_KEY, JSON.stringify(defaults));
   return defaults;
+}
+// ⛔ V23.4: an admin tab can be hours old, and every scheme-list action writes
+// the WHOLE list (or the whole settings object) from this tab's copy - so an old
+// tab would put back an old list and the Maharashtra schemes and the renames
+// would be gone. Each action asks first: ~1-3 KB, admin only. If the database
+// does not answer in 8 s the action goes ahead exactly as it did before.
+function _v234Canon(v) {
+  if (v === null || v === undefined) return 'null';
+  if (Array.isArray(v)) return '[' + v.map(_v234Canon).join(',') + ']';
+  if (typeof v === 'object') return '{' + Object.keys(v).sort().map(function (k) { return JSON.stringify(k) + ':' + _v234Canon(v[k]); }).join(',') + '}';
+  return JSON.stringify(v);
+}
+async function _v234SchemesFresh() {
+  let u = null;
+  try { u = (typeof currentUser === 'function') ? currentUser() : null; } catch (_) {}
+  if (!u || u.role !== 'admin' || !FB || !FB.db) return true;
+  let res = null;
+  try {
+    res = await Promise.race([
+      Promise.all([fbRef('config/schemes').once('value'), fbRef('config/schemes_meta').once('value')]),
+      new Promise(function (r) { setTimeout(function () { r(null); }, 8000); })
+    ]);
+  } catch (_) { return true; }
+  if (!res) return true;
+  const rawList = res[0].val();
+  const list = Array.isArray(rawList) ? rawList.filter(function (x) { return x != null; }) : Object.values(rawList || {});
+  if (!list.length) return true;   // nothing stored yet - nothing to protect
+  const rawMeta = res[1].val();
+  const dbMeta = (rawMeta && typeof rawMeta === 'object' && !Array.isArray(rawMeta)) ? _v413MapIn(rawMeta) : {};
+  let localList = [];
+  try { localList = JSON.parse(localStorage.getItem(SCHEMES_KEY) || '[]'); } catch (_) {}
+  if (JSON.stringify(list) === JSON.stringify(localList) && _v234Canon(dbMeta) === _v234Canon(getSchemesMeta())) return true;
+  // out of date: show the latest, change nothing
+  localStorage.setItem(SCHEMES_KEY, JSON.stringify(list));
+  if (rawMeta) localStorage.setItem(SCHEMES_META_KEY, JSON.stringify(dbMeta));
+  else localStorage.removeItem(SCHEMES_META_KEY);
+  try { if (typeof _v18ResetAmtMemo === 'function') _v18ResetAmtMemo(); } catch (_) {}
+  try { if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache(); } catch (_) {}
+  try { renderCurrentView(); } catch (_) {}
+  toast('This screen was showing an out-of-date scheme list. It now shows the latest one, and nothing was saved. Please make your change again.', 'error', 9000);
+  return false;
 }
 async function saveSchemes(arr) {
   // V388: defense in depth — block scopedViewer / scopedViewerByFc console calls.
@@ -30610,7 +30644,8 @@ function renderAdminSchemes() {
       <div class="card-head">
         <div class="card-title">Government Schemes <span style="font-size:12px;font-weight:400;color:var(--gray2)">${schemes.length} total</span></div>
         <div class="filters">
-          <button class="btn btn-sm" onclick="adminAuditSchemeNames()" title="Scan all advocacy records for scheme names that don't match the list below — these are invisible to Used-by counts, default amounts, and monetary totals">🔍 Audit Scheme Names</button>
+          <button class="btn btn-sm" id="v234c-audit-btn" onclick="adminAuditSchemeNames()" title="Scan all advocacy records for scheme names that don't match the list below — these are invisible to Used-by counts, default amounts, and monetary totals">🔍 Audit Scheme Names${_rptTip("Finds scheme names on records that are not in the list below - names typed by hand, other spellings, Gujarati names, old names - and shows how many rows and benefits received each has. Those rows are left out of the per-scheme counts and default amounts. Pick the scheme each one belongs to and press Fix to rename it on those records. Opening it only reads what this screen has already loaded; nothing changes until you press Fix and confirm.")}</button>
+          <button class="btn btn-sm" id="v234b-backfill-btn" onclick="nav('admin_scheme_rename')" title="Rename a scheme in every record in the database">↻ Scheme Rename Backfill${_rptTip("Changes an old scheme name to a new one in every scheme record in the database, including records this screen has not loaded. Use it after renaming a scheme, or to correct a misspelt name. Scan only reads and shows how many rows carry the old name; nothing changes until you press Run Backfill and confirm. Scan downloads all scheme records once (about 80 MB).")}</button>
           <button class="btn btn-sm btn-primary" onclick="openBulkStatusModal()" title="Bulk-update scheme status for many beneficiaries at once">⚡ Bulk Update Status${_rptTip("Changes one scheme status for many people at once. It writes a real scheme update onto every person you select, exactly as if a coordinator had done them one at a time, and those updates then count in every total and every report from that moment on. Nothing changes until you choose the scheme, choose the people and confirm.")}</button>
         </div>
       </div>
@@ -30629,7 +30664,8 @@ function renderAdminSchemes() {
 // Advocacy Management table. Empty / 0 / non-numeric => clear the default.
 // Positive integer => save it. Writes via saveSchemesMeta which mirrors to
 // Firebase (config/schemes_meta).
-function adminSetSchemeDefaultAmount(idx, rawVal) {
+async function adminSetSchemeDefaultAmount(idx, rawVal) {
+  if (!(await _v234SchemesFresh())) return;   // V23.4 - see _v234SchemesFresh
   const schemes = getSchemes();
   const name = schemes[idx];
   if (!name) return;
@@ -30758,7 +30794,8 @@ async function adminUpdateSchemeBenefits(idx) {
   }
 }
 
-function adminSetSchemeType(idx, newType) {
+async function adminSetSchemeType(idx, newType) {
+  if (!(await _v234SchemesFresh())) return;   // V23.4 - see _v234SchemesFresh
   const schemes = getSchemes();
   const name = schemes[idx];
   if (!name) return;
@@ -30791,7 +30828,8 @@ function adminSetSchemeType(idx, newType) {
 // PM-KISAN, scholarships) where FCs need to type the actual amount per
 // beneficiary. Stored as lockBenefitAmt:false in schemes_meta only when
 // explicitly unlocked — keeps storage minimal.
-function adminSetSchemeLockBenefit(idx, choice) {
+async function adminSetSchemeLockBenefit(idx, choice) {
+  if (!(await _v234SchemesFresh())) return;   // V23.4 - see _v234SchemesFresh
   const schemes = getSchemes();
   const name = schemes[idx];
   if (!name) return;
@@ -30837,7 +30875,8 @@ async function adminEditSchemeStates(idx) {
 // adminSetSchemeLockBenefit's shape: read fresh meta, mutate only this
 // scheme's entry, drop the key entirely if it ends up empty (keeps storage
 // minimal, matches the existing convention for lockBenefitAmt/type).
-function adminSetSchemeStates(idx, statesArr) {
+async function adminSetSchemeStates(idx, statesArr) {
+  if (!(await _v234SchemesFresh())) return;   // V23.4 - see _v234SchemesFresh
   const schemes = getSchemes();
   const name = schemes[idx];
   if (!name) return;
@@ -31378,7 +31417,8 @@ function _getBulkStatusSnapshotForBeneficiary(bid) {
   return null;
 }
 
-function adminAddScheme() {
+async function adminAddScheme() {
+  if (!(await _v234SchemesFresh())) return;   // V23.4 - see _v234SchemesFresh
   const inp = document.getElementById('new-scheme');
   const name = inp.value.trim();
   if (!name) return toast('Enter a scheme name first', 'error');
@@ -31398,7 +31438,8 @@ function adminAddScheme() {
 // the + Log Advocacy modal dropdown — so reordering propagates everywhere
 // after the saveSchemes() Firebase sync. No-op if the move would land
 // outside the array bounds.
-function adminMoveScheme(idx, delta) {
+async function adminMoveScheme(idx, delta) {
+  if (!(await _v234SchemesFresh())) return;   // V23.4 - see _v234SchemesFresh
   const schemes = getSchemes();
   const newIdx = idx + delta;
   if (idx < 0 || idx >= schemes.length) return;
@@ -31417,7 +31458,8 @@ function adminMoveScheme(idx, delta) {
 // Quick action: move a scheme straight to position 1. Useful when adding a
 // new scheme that the FC wants at the top — saving them N taps of the up
 // arrow. Just splice to remove + unshift to put at front.
-function adminMoveSchemeToTop(idx) {
+async function adminMoveSchemeToTop(idx) {
+  if (!(await _v234SchemesFresh())) return;   // V23.4 - see _v234SchemesFresh
   const schemes = getSchemes();
   if (idx <= 0 || idx >= schemes.length) return;   // already at top, or invalid
   const [moved] = schemes.splice(idx, 1);
@@ -31430,6 +31472,7 @@ function adminMoveSchemeToTop(idx) {
 }
 
 async function adminRenameScheme(idx) {
+  if (!(await _v234SchemesFresh())) return;   // V23.4 - see _v234SchemesFresh
   const schemes = getSchemes();
   const oldName = schemes[idx];
   if (!oldName) return;
@@ -31488,6 +31531,7 @@ async function adminRenameScheme(idx) {
 }
 
 async function adminDeleteScheme(idx) {
+  if (!(await _v234SchemesFresh())) return;   // V23.4 - see _v234SchemesFresh
   const schemes = getSchemes();
   const name = schemes[idx];
   if (!name) return;
@@ -46078,6 +46122,13 @@ async function _schemeRenameRunBackfill() {
           newRows.forEach(r => { if (r.scheme === OLD) { r.scheme = NEW; touched = true; } });
           if (touched) {
             updates[`${FB_NAMESPACE}/advocacy/${fbKey}/schemeRows`] = newRows;
+            // ⛔ V23.4: stamp it, as every other save does. Screens that sync
+            // by _lastEditedAt (admin, partner logins) never saw a backfilled
+            // row - the admin's own list kept the old name after a clean run.
+            const _v234bStamp = (typeof _v19ServerNow === 'function') ? _v19ServerNow() : Date.now();
+            const _v234bUser = (typeof currentUser === 'function' && currentUser()) || null;
+            updates[`${FB_NAMESPACE}/advocacy/${fbKey}/_lastEditedAt`] = _v234bStamp;
+            updates[`${FB_NAMESPACE}/advocacy/${fbKey}/_lastEditedBy`] = _v234bUser ? (_v234bUser.username || _v234bUser.userId || 'admin') : 'admin';
           }
         } catch (e) {
           conflicts++;
