@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V23.4-LIVE
+  KRSF Beneficiary Impact Tracker  -  V23.5-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,24 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V23.5-LIVE (2026-09-25 - scheme state tags stay; donors see renamed names).
+
+    + ⛔ SETTING A SCHEME'S DEFAULT AMOUNT, OR SWITCHING SCHEME/DOCUMENT, WIPED
+      ITS STATE TAGS (Guru, 25 Sep: "it comes back to default after a few
+      minutes; the second time it works"). Both rebuilt the scheme's settings
+      from the fields they knew and dropped the rest. Each now changes its own
+      field only. Tags already wiped need setting once more.
+    + Donors and team leaders now see renamed livelihood types and schemes.
+      They work from a saved copy for up to 30 days and never sync, so they
+      kept the old names. Each rename now goes on a short list the app already
+      reads at start, and these two read-only roles apply it to their copy,
+      only to records older than the rename. No download or write for them.
+    + "|" is refused in livelihood type and scheme names - the import file
+      separates names with it, so "Poultry | Duckery" could never be imported.
+    + "Recompute summary now" says whether it wrote; a press is no longer
+      skipped by the one-minute rule meant for the automatic refreshes.
+    + Tests: 83 files. v235 is red on V23.4.
+
   V23.4-LIVE (2026-09-24 - a phone no longer re-sends its whole list).
 
     + ⛔ A COORDINATOR'S PHONE COULD SEND EVERY ONE OF ITS RECORDS FROM ITS OWN
@@ -4578,7 +4596,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V23.4-LIVE';
+const APP_VERSION = 'V23.5-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -8830,6 +8848,11 @@ function _attachNonBenefListeners() {
     // the 21 Sep scheme list and every start opened on it (Guru, 24 Sep). Local
     // only - nothing is downloaded that was not downloaded already.
     try { if (snap.exists && snap.exists()) _configPantryWrite(cfgAll).catch(function () {}); } catch (_) {}
+    // V23.5: renames made in the office, for a donor's or team leader's copy.
+    try {
+      _v235AdoptRenames(cfgAll.renames);
+      if (_v235ApplyRenames()) { try { renderCurrentView(); } catch (_) {} }
+    } catch (_) {}
     const v = cfgAll.schemes;
     if (Array.isArray(v) && v.length) {
       localStorage.setItem('krsf_schemes_v1', JSON.stringify(v));
@@ -9803,6 +9826,7 @@ async function _v375ScopedBenefMultiFetch(ngos, opts) {
         // V22.4: the Bandwidth screen counts these, and this path did not.
         try { window._v192Counters.pantryHit += 1; } catch (_) {}
         console.log('[V375 scoped] benef from pantry:', RecordCache.benef.size, 'records');
+        try { _v235ApplyRenames(); } catch (_) {}   // V23.5
         try { if (typeof _v357DataVersion !== 'undefined') _v357DataVersion = (_v357DataVersion || 0) + 1; } catch(_){}
         try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
         try { renderCurrentView(); } catch(_){}
@@ -9855,6 +9879,7 @@ async function _v375ScopedBenefMultiFetch(ngos, opts) {
     fbUpdatePill();
     console.log('[V375 scoped] benef multi-fetch complete:', total, 'records across', ngos.length,
       'scopes' + (_failed ? ' (' + _failed + ' FAILED)' : ''));
+    try { _v235ApplyRenames(); } catch (_) {}   // V23.5
     try { if (typeof _v357DataVersion !== 'undefined') _v357DataVersion = (_v357DataVersion || 0) + 1; } catch(_){}
     try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
 
@@ -10270,6 +10295,7 @@ async function _v375ScopedAdvMultiFetch(ngos, opts) {
         FB.advReplayComplete = true;
         fbUpdatePill();
         console.log('[V375 scoped] adv from pantry:', RecordCache.adv.size, 'records');
+        try { _v235ApplyRenames(); } catch (_) {}   // V23.5
         // V4.11: neither invalidation call existed on this path before.
         try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
         try { renderCurrentView(); } catch(_){}
@@ -10406,6 +10432,7 @@ async function _v375ScopedAdvMultiFetch(ngos, opts) {
     } else if (_advFailed) {
       FB.advCachePartial = true;
     }
+    try { _v235ApplyRenames(); } catch (_) {}   // V23.5
     try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
     try { renderCurrentView(); } catch(_){}
   } catch (e) {
@@ -12141,6 +12168,135 @@ function getLivTypes() {
   localStorage.setItem(LIVTYPES_KEY, JSON.stringify(defaults));
   return defaults;
 }
+// ⛔ V23.5: NO "|" IN A NAME. The bulk import separates several livelihood
+// types, sources and schemes with "|", so "Poultry | Duckery" is read as two
+// names and every row using it is refused. "/" is safe - "Artisan /
+// Craftsmanship" has always had one.
+function _v235BarRefused(name) {
+  if (String(name == null ? '' : name).indexOf('|') < 0) return false;
+  toast('A name cannot contain "|" - the import file uses it to separate names. Please use "/" instead.', 'error', 6000);
+  return true;
+}
+
+// ── V23.5: RENAMES REACH DONORS AND TEAM LEADERS ─────────────────────────────
+// A rename rewrites the records in the database, and admin, partner and
+// coordinator devices pick them up in their normal syncs. A donor
+// (scopedViewer) or team leader (scopedViewerByFc) does not sync: it works from
+// a saved copy for up to 30 days, so after Guru's 25 Sep renames a donor still
+// read the old names. Downloading the copy again would cost up to 140 MB each.
+// Instead the office keeps a short list of renames in config/renames - a few
+// hundred bytes inside the config read every start already makes - and these
+// two read-only roles apply it to the copy they hold. They download and write
+// nothing for it.
+// ⛔ ONLY TO A RECORD OLDER THAN THE RENAME. A record changed after it already
+// holds what the database holds - a new type reusing an old name, or a phone
+// that put the old name back - and is shown exactly as it is.
+const _V235_RENAMES_KEY = 'krsf_renames_v1';
+const _V235_RENAMES_MAX = 100;
+function _v235NormRenames(raw) {
+  const arr = Array.isArray(raw) ? raw : ((raw && typeof raw === 'object') ? Object.values(raw) : []);
+  return arr.filter(function (r) {
+    return r && (r.kind === 'liv' || r.kind === 'scheme')
+      && typeof r.from === 'string' && typeof r.to === 'string'
+      && r.from && r.to && r.from !== r.to && Number(r.at) > 0;
+  }).map(function (r) { return { kind: r.kind, from: r.from, to: r.to, at: Number(r.at) }; })
+    .sort(function (a, b) { return a.at - b.at; });
+}
+function _v235Renames() {
+  try { return _v235NormRenames(JSON.parse(localStorage.getItem(_V235_RENAMES_KEY) || '[]')); }
+  catch (_) { return []; }
+}
+function _v235AdoptRenames(raw) {
+  try { localStorage.setItem(_V235_RENAMES_KEY, JSON.stringify(_v235NormRenames(raw))); } catch (_) {}
+}
+function _v235ApplyRenames() {
+  let u = null;
+  try { u = (typeof currentUser === 'function') ? currentUser() : null; } catch (_) {}
+  // ⛔ THE TWO READ-ONLY ROLES ONLY. Every other role syncs the renamed
+  // records anyway, and a record changed in a role that saves would be sent.
+  if (!u || (u.role !== 'scopedViewer' && u.role !== 'scopedViewerByFc')) return 0;
+  const list = _v235Renames();
+  if (!list.length) return 0;
+  const liv = list.filter(function (r) { return r.kind === 'liv'; });
+  const sch = list.filter(function (r) { return r.kind === 'scheme'; });
+  let changed = 0;
+  if (liv.length && RecordCache.benef && RecordCache.benef.size) {
+    RecordCache.benef.forEach(function (b, id) {
+      if (!b || !Array.isArray(b.interventions) || !b.interventions.length) return;
+      const t = Number(b._lastEditedAt) || 0;
+      let arr = null;
+      for (const r of liv) {
+        if (t >= r.at) continue;
+        const src = arr || b.interventions;
+        const j = src.indexOf(r.from);   // the office rename changes the first one too
+        if (j < 0) continue;
+        if (!arr) arr = src.slice();
+        arr[j] = r.to;
+      }
+      if (!arr) return;
+      const nb = Object.assign({}, b, { interventions: arr });
+      RecordCache.benef.set(id, nb);
+      if (FB.lastBenef) FB.lastBenef[id] = fbHash(nb);
+      changed++;
+    });
+  }
+  if (sch.length && RecordCache.adv && RecordCache.adv.size) {
+    RecordCache.adv.forEach(function (a, key) {
+      if (!a || !Array.isArray(a.schemeRows) || !a.schemeRows.length) return;
+      const t = Number(a._lastEditedAt) || 0;
+      let rows = null;
+      for (const r of sch) {
+        if (t >= r.at) continue;
+        const src = rows || a.schemeRows;
+        for (let i = 0; i < src.length; i++) {
+          const row = src[i];
+          if (row && row.scheme === r.from) {   // the office rename changes every row
+            if (!rows) rows = src.slice();
+            rows[i] = Object.assign({}, row, { scheme: r.to });
+          }
+        }
+      }
+      if (!rows) return;
+      const na = Object.assign({}, a, { schemeRows: rows });
+      RecordCache.adv.set(key, na);
+      if (FB.lastAdv) FB.lastAdv[key] = fbHash(na);
+      changed++;
+    });
+  }
+  if (changed) {
+    try { if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache();
+          else if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch (_) {}
+    console.log('[V23.5] office renames applied to ' + changed + ' saved record(s)');
+  }
+  return changed;
+}
+// The list as it will be with one more rename - read fresh (a few hundred
+// bytes), newest kept, so two admin tabs cannot drop each other's entries.
+async function _v235RenamesWithNew(kind, from, to, at) {
+  const snap = await fbRef('config/renames').once('value');
+  const list = _v235NormRenames(snap.val());
+  list.push({ kind: kind, from: from, to: to, at: at });
+  return list.slice(-_V235_RENAMES_MAX);
+}
+// Called BEFORE the records are rewritten, so every rewritten record is stamped
+// later than the rename and a donor's older copy is the only thing it touches.
+async function _v235RecordRename(kind, from, to) {
+  try {
+    if (!FB || !FB.db) return;
+    const at = (typeof _v19ServerNow === 'function') ? _v19ServerNow() : Date.now();
+    await Promise.race([
+      (async function () {
+        const list = await _v235RenamesWithNew(kind, from, to, at);
+        await fbRef('config/renames').set(list);
+        _v235AdoptRenames(list);
+      })(),
+      new Promise(function (_, rej) { setTimeout(function () { rej(new Error('timed out')); }, 8000); })
+    ]);
+  } catch (e) {
+    console.warn('[V23.5] rename not added to the list for donors/team leaders:', e && e.message);
+  }
+}
+
 async function saveLivTypes(arr) {
   // V375 [Fix #2 — defense in depth]: block scopedViewer console calls.
   {
@@ -30484,6 +30640,7 @@ function adminAddLivType() {
   const inp = document.getElementById('new-livtype');
   const name = inp.value.trim();
   if (!name) return toast('Enter a type name first', 'error');
+  if (_v235BarRefused(name)) return;   // V23.5
   const types = getLivTypes();
   if (types.some(t => t.toLowerCase() === name.toLowerCase())) { return toast('That type already exists', 'error'); }
   // ⛔ V18.6: "Other" is the label of the free-text chip, and the enrolment form
@@ -30512,12 +30669,14 @@ async function adminRenameLivType(idx) {
   if (newName == null) return;
   const trimmed = newName.trim();
   if (!trimmed) return toast('Name cannot be empty', 'error');
+  if (_v235BarRefused(trimmed)) return;   // V23.5
   if (trimmed === oldName) return;
   if (types.some((t, i) => i !== idx && t.toLowerCase() === trimmed.toLowerCase())) {
     return toast('That name is already used', 'error');
   }
   types[idx] = trimmed;
   saveLivTypes(types);
+  await _v235RecordRename('liv', oldName, trimmed);   // V23.5 - before the records
   // V310-S2: Cascade rename — await Firebase. saveLivTypes is config (LS-only).
   const data = loadData();
   let changed = 0;
@@ -30684,24 +30843,17 @@ async function adminSetSchemeDefaultAmount(idx, rawVal) {
     newAmt = Math.round(n);
   }
   if (newAmt === prev) return; // no-op — don't churn Firebase or audit log
-  // V327-DEV: preserve any existing `type` when updating defaultAmount.
-  // Without this, setting/clearing the amount would silently wipe the
-  // Document/Scheme categorization.
-  const existingType = (meta[name] && meta[name].type === 'Document') ? 'Document' : null;
-  // V328: also preserve the explicit-unlock flag across the rebuild.
-  const existingLockOff = !!(meta[name] && meta[name].lockBenefitAmt === false);
-  if (newAmt > 0) {
-    meta[name] = { defaultAmount: newAmt };
-    if (existingType) meta[name].type = existingType;
-    if (existingLockOff) meta[name].lockBenefitAmt = false;
-  } else if (existingType || existingLockOff) {
-    // No amount, but still need to retain type and/or lock state.
-    meta[name] = {};
-    if (existingType) meta[name].type = existingType;
-    if (existingLockOff) meta[name].lockBenefitAmt = false;
-  } else {
-    delete meta[name];
-  }
+  // ⛔ V23.5: THE AMOUNT AND NOTHING ELSE. This used to rebuild the entry from
+  // the amount, type and lock it knew about, so every other setting on the
+  // scheme was dropped - the state tags among them. Guru, 25 Sep: "I tag a
+  // scheme to a state and it comes back to default after a few minutes; the
+  // second time it works" - the tag was saved, then wiped when the amount was
+  // set. Copy the entry and change one field.
+  const cur = Object.assign({}, meta[name] || {});
+  if (newAmt > 0) cur.defaultAmount = newAmt;
+  else delete cur.defaultAmount;
+  if (Object.keys(cur).length > 0) meta[name] = cur;
+  else delete meta[name];
   saveSchemesMeta(meta);
   auditLog('update', 'scheme', name, name,
     prev > 0 && newAmt > 0
@@ -30803,19 +30955,13 @@ async function adminSetSchemeType(idx, newType) {
   const meta = getSchemesMeta();
   const prev = (meta[name] && meta[name].type === 'Document') ? 'Document' : 'Scheme';
   if (prev === newType) return;
-  const existingAmt = (meta[name] && Number(meta[name].defaultAmount) > 0) ? Number(meta[name].defaultAmount) : 0;
-  // V328: also preserve the explicit-unlock flag across the rebuild.
-  const existingLockOff = !!(meta[name] && meta[name].lockBenefitAmt === false);
-  // Build a fresh entry preserving the amount; Scheme is the default so we
-  // only persist `type` when it's 'Document' (keeps storage tidy).
-  if (newType === 'Document' || existingAmt > 0 || existingLockOff) {
-    meta[name] = {};
-    if (existingAmt > 0) meta[name].defaultAmount = existingAmt;
-    if (newType === 'Document') meta[name].type = 'Document';
-    if (existingLockOff) meta[name].lockBenefitAmt = false;
-  } else {
-    delete meta[name];
-  }
+  // ⛔ V23.5: the type and nothing else - see adminSetSchemeDefaultAmount.
+  // Scheme is the default, so only 'Document' is stored, as before.
+  const cur = Object.assign({}, meta[name] || {});
+  if (newType === 'Document') cur.type = 'Document';
+  else delete cur.type;
+  if (Object.keys(cur).length > 0) meta[name] = cur;
+  else delete meta[name];
   saveSchemesMeta(meta);
   auditLog('update', 'scheme', name, name,
     `Changed type for ${name}: ${prev} → ${newType}`,
@@ -31422,6 +31568,7 @@ async function adminAddScheme() {
   const inp = document.getElementById('new-scheme');
   const name = inp.value.trim();
   if (!name) return toast('Enter a scheme name first', 'error');
+  if (_v235BarRefused(name)) return;   // V23.5
   const schemes = getSchemes();
   if (schemes.some(s => s.toLowerCase() === name.toLowerCase())) { return toast('That scheme already exists', 'error'); }
   schemes.push(name);
@@ -31481,6 +31628,7 @@ async function adminRenameScheme(idx) {
   if (newName == null) return;
   const trimmed = newName.trim();
   if (!trimmed) return toast('Name cannot be empty', 'error');
+  if (_v235BarRefused(trimmed)) return;   // V23.5
   if (trimmed === oldName) return;
   if (schemes.some((s, i) => i !== idx && s.toLowerCase() === trimmed.toLowerCase())) {
     return toast('That name is already used', 'error');
@@ -31489,6 +31637,7 @@ async function adminRenameScheme(idx) {
   // V390 [6.3]: await the cloud config result so we don't show a green
   // "Renamed" toast when the cloud write actually failed.
   const _schemesCloudOk = await saveSchemes(schemes);
+  await _v235RecordRename('scheme', oldName, trimmed);   // V23.5 - before the records
   let _metaCloudOk = true;
   // V322: cascade the rename into config/schemes_meta. A rename should
   // preserve the configured default amount under the new name; otherwise
@@ -32020,7 +32169,7 @@ async function renderAdminBandwidth() {
     html += '<b>Recompute viewer summary now</b><br>';
     html += 'Forces an immediate write of /_summary/global and all per-NGO summaries. Use after restoring records or any backend edit.';
     html += '</div>';
-    html += '<button type="button" onclick="_v362WriteAllSummariesNow().then(function(){toast(\'\\u2713 Summary recomputed and written\',\'success\',3500);}).catch(function(e){toast(\'Recompute failed: \'+(e&&e.message||e),\'error\',5000);});" ';
+    html += '<button type="button" onclick="_v235RecomputeNow()" ';
     html += 'style="padding:10px 18px;border:none;border-radius:6px;background:#5B21B6;color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font);white-space:nowrap">';
     html += 'Recompute summary now</button>';
     html += '</div>';
@@ -36975,6 +37124,26 @@ async function _v400ComputeAllSummaries(records, advRecords) {
 // visibility catch-up; the summary freshness window is 15 min, so a 60s
 // debounce is safely inside spec).
 let _v400LastAdminSummaryWrite = 0;
+// ⛔ V23.5: THE BUTTON SAYS WHAT HAPPENED. "Recompute summary now" showed
+// "Summary recomputed and written" whatever the writer did, and the writer
+// quietly skips when it ran in the last minute, while the records are still
+// loading, or while another write is running. A press now always computes (the
+// one-minute skip is for the automatic calls - every 5 minutes, on each save
+// and when the tab comes back), and the message comes from whether it wrote.
+let _v235ForceSummary = false;
+async function _v235RecomputeNow() {
+  const before = _v400LastAdminSummaryWrite || 0;
+  _v235ForceSummary = true;
+  try { await _v362WriteAllSummaries(); }
+  catch (e) { console.warn('[V23.5] recompute failed:', e && e.message); }
+  finally { _v235ForceSummary = false; }
+  const ok = (_v400LastAdminSummaryWrite || 0) !== before;
+  toast(ok ? '✓ Summary recomputed and written'
+           : 'The summary was NOT written - the records may still be loading, or another update was running. Please try again in a minute.',
+        ok ? 'success' : 'error', ok ? 3500 : 8000);
+  return ok;
+}
+window._v235RecomputeNow = _v235RecomputeNow;
 
 // V363: helper — safe-key an NGO name for Firebase paths (no . # $ [ ] /)
 function _v363SafeKey(s) {
@@ -37241,7 +37410,7 @@ async function _v362WriteAllSummaries() {
       // redundant (boot used to double-compute via the V366 visibility
       // catch-up firing right after the initial write; summary freshness
       // spec is 15 min, so 60s is safely inside it).
-      if (_v400LastAdminSummaryWrite && Date.now() - _v400LastAdminSummaryWrite < 60000) {
+      if (!_v235ForceSummary && _v400LastAdminSummaryWrite && Date.now() - _v400LastAdminSummaryWrite < 60000) {
         console.log('[V400] admin summary write skipped — last successful write '
           + Math.round((Date.now() - _v400LastAdminSummaryWrite) / 1000) + 's ago');
         return;
@@ -46060,6 +46229,7 @@ async function _schemeRenameRunBackfill() {
   const { schemes, schemeIdxs, meta, hasMetaKey, affected } = _schemeRename.scanResult;
   const OLD = _schemeRename.OLD;
   const NEW = _schemeRename.NEW;
+  if (_v235BarRefused(NEW)) return;   // V23.5
 
   const totalChanges = schemeIdxs.length + (hasMetaKey ? 1 : 0) + affected.length;
   if (totalChanges === 0) {
@@ -46085,6 +46255,12 @@ async function _schemeRenameRunBackfill() {
 
   try {
     const updates = {};
+    // ⛔ V23.5: the rename for donors' and team leaders' saved copies travels
+    // in the SAME atomic update, dated before any record below is stamped.
+    const _v235At = (typeof _v19ServerNow === 'function') ? _v19ServerNow() : Date.now();
+    let _v235List = null;
+    try { _v235List = await _v235RenamesWithNew('scheme', OLD, NEW, _v235At); } catch (_) {}
+    if (_v235List) updates[`${FB_NAMESPACE}/config/renames`] = _v235List;
 
     if (schemeIdxs.length > 0) {
       const updated = [...schemes];
@@ -46144,6 +46320,7 @@ async function _schemeRenameRunBackfill() {
 
     push(`> Sending atomic multi-path update (${Object.keys(updates).length} path(s))...`, 'info');
     await FB.db.ref().update(updates);
+    if (_v235List) _v235AdoptRenames(_v235List);
 
     push('-- Backfill complete -------------------------------', 'ok');
     push(`OK Done. ${Object.keys(updates).length} Firebase node(s) updated.`, 'ok');
