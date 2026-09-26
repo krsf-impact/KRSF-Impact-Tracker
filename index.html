@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V23.6-LIVE
+  KRSF Beneficiary Impact Tracker  -  V23.8-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,28 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V23.8-LIVE (2026-09-26 - imported households go straight to their coordinator).
+
+    + The household import's coord column now finds the coordinator's
+      account: their login (phone number), or their full name exactly as on
+      the account, in the same partner. The household and its scheme records
+      are saved under that coordinator and reach their phone at the next
+      check. Before, every imported household sat under the admin until Bulk
+      Assign. Anything less certain - no such account, two with that name,
+      another partner's, one who has left - is saved under the admin as
+      before, with a warning. The preview says who gets how many.
+    + Includes V23.7.
+    + Tests: 86 files. v238 is red on V23.7.
+
+  V23.7-LIVE (2026-09-26 - a blank cell no longer erases recorded income).
+
+    + ⛔ ENDLINE BULK UPDATE: A BLANK "mode" CELL ERASED INCOME ALREADY RECORDED
+      (practice site, 26 Sep: Rs 5,000 logged, Rs 15,000 uploaded, Rs 5,000
+      gone). Where income is already recorded a blank row is now refused and
+      asks for "add" or "replace"; "replace" shows in red how much it removes;
+      only "replace" ever removes. The template comes with "add" filled in.
+    + Tests: 85 files. v237 is red on V23.6.
+
   V23.6-LIVE (2026-09-26 - the start-up step no longer puts old lists back).
 
     + ⛔ AFTER A SIGN-IN THE SCREEN COULD SHOW AN OLD LIVELIHOOD AND SCHEME LIST
@@ -657,54 +679,6 @@
     + Tests: 68 files. v217.js is new - 32 checks, signed in as a coordinator,
       enrolling offline through the real form. V21.6 fails 14 of them; 6/6
       mutants of this build killed.
-
-  V21.6-LIVE (2026-09-11 - the coordinator table lists everybody, inside the filters).
-
-    + WHAT GURU SAW. Reports, filtered to Sarvangi Vikas Trust: the ten
-      Sarvangi coordinators, then six inactive people from KRSF.Meghraj,
-      KRSF.Khedbrahma and DEMO NGO underneath them at 0-0-0. And the table
-      stopped at 25 people with no next page anywhere, so the 26th could not
-      be reached at all.
-
-    + ⛔ THE LEAK WAS V21.5'S OWN. A coordinator with records gets a row
-      because the records were already narrowed by the top bar - State,
-      Partner and the one-coordinator drill-down all run inside filteredAll().
-      V21.5 kept a 0-0-0 row for every inactive coordinator, and a row with
-      no records has nothing to narrow, so those rows ignored all three
-      filters. Its suite only ever looked at "All partners", where that is
-      exactly right. The zero row now needs the person to belong to the
-      partner chosen, to be the coordinator drilled into, and - a person has
-      no State - their partner to have a family in the State chosen.
-
-    + ⛔ A 0-0-0 ROW MEANS HANDED OVER COMPLETELY. Under a filter somebody
-      can be at zero in view and still hold families outside it: a Bhiloda
-      coordinator whose families are all in Gujarat read 0-0-0 under
-      Rajasthan, exactly like a finished handover. So under any filter the
-      zero row also needs them to hold no family at all. Found in review.
-
-    + ⛔ THE NGO PARTNERS TABLE HAD THE SAME LEAK. The coordinator table a
-      partner admin sees let its inactive zero rows through the State and
-      one-coordinator filters. Same rule, scope built once. Found in review.
-
-    + EVERYBODY IS LISTED. The 25-row cap and its line of small print are
-      gone. The cap was there for speed, so the full list was timed first on
-      the whole export (549 coordinators, 139,324 families): the table
-      itself - its text plus the browser laying it out - went from about
-      15-160 ms to about 260-550 ms. Counting the families takes about two seconds
-      on BOTH builds and always has. No new download; Firebase use is
-      unchanged, and nothing is written anywhere.
-
-    + THE EXPORT IS THE SCREEN. It kept only coordinators with records and
-      never grouped, so the 0-0-0 row confirming a handover was on screen and
-      missing from the file, and somebody who had left could head the sheet
-      while sitting last on screen. Same rows, same order now.
-
-    + Tests: 67 files. v216.js is new - 55 checks on the full export, signed
-      in as the admin AND as a partner admin, through the real Reports,
-      export and NGO Partners screens. V21.5 fails 26 of them, and all
-      thirteen mutants of this build - each breaking one line of the
-      change - were killed. The checks that never went red are fixture
-      guards, the two speed bounds, and V21.5 grouping this must not lose.
 
   ============================================================================
   Everything before this point lives in CHANGELOG.md, beside this file.
@@ -4610,7 +4584,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V23.6-LIVE';
+const APP_VERSION = 'V23.8-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -40363,6 +40337,50 @@ function downloadImportTemplate() {
 }
 
 // CSV fallback — kept lean, identical to V3.1 behaviour.
+// ── V23.8: THE coord COLUMN FINDS THE COORDINATOR'S ACCOUNT ──────────────────
+// It was a label: every imported household was saved under the admin and
+// reached nobody until Bulk Assign, one coordinator at a time. Now the login
+// (usually the phone number) or the full name exactly as on the account, in
+// the same partner, saves the household under that coordinator. Anything less
+// certain - no account, two with that name, another partner's, an inactive
+// one - is saved under the admin as before, with a warning saying why.
+function _v238Norm(x) { return String(x == null ? '' : x).replace(/\s+/g, ' ').trim().toLowerCase(); }
+function _v238Ten(x) { const d = String(x == null ? '' : x).replace(/\D/g, ''); return d.length >= 10 ? d.slice(-10) : ''; }
+function _v238MatchFc(coord, ngo, coords) {
+  const c = _v238Norm(coord), n = _v238Norm(ngo);
+  if (!c) return { fc: null, why: '' };
+  const ten = _v238Ten(coord);
+  const inPartner = u => _v238Norm(u.ngo) === n;
+  // the login first - unique by construction
+  let hits = coords.filter(u => _v238Norm(u.username) === c
+    || (ten && (_v238Ten(u.username) === ten || _v238Ten(u.phone) === ten)));
+  let how = 'login';
+  if (!hits.length) { hits = coords.filter(u => _v238Norm(u.fullName) === c); how = 'name'; }
+  if (!hits.length) return { fc: null, why: 'no coordinator account called "' + coord + '" in ' + ngo };
+  const mine = hits.filter(inPartner);
+  if (!mine.length) return { fc: null, why: '"' + coord + '" is a coordinator in ' + (hits[0].ngo || 'another partner') + ', not ' + ngo };
+  if (mine.length > 1) return { fc: null, why: mine.length + ' coordinators in ' + ngo + ' are called "' + coord + '" - put their login (phone number) instead' };
+  if (mine[0].inactive) return { fc: null, why: (mine[0].fullName || coord) + ' is marked as having left' };
+  return { fc: mine[0], how: how };
+}
+// For the preview: households per coordinator, and how many stay with admin.
+function _v238FcSummaryHtml(v) {
+  const rows = (v || []).filter(x => x && x.status !== 'error' && x.parsed);
+  if (!rows.length) return '';
+  const per = new Map(); let admin = 0;
+  rows.forEach(x => {
+    if (x.parsed.fcUserId) { const k = x.parsed.fcName + ' (' + x.parsed.ngo + ')'; per.set(k, (per.get(k) || 0) + 1); }
+    else admin++;
+  });
+  const list = Array.from(per.entries()).sort((a, b) => b[1] - a[1])
+    .map(e => escHtml(e[0]) + ' <b>' + e[1] + '</b>').join(' &middot; ');
+  return '<div style="background:#fff;border:1px solid var(--gray3);border-radius:8px;padding:12px;margin-bottom:14px;font-size:12.5px;line-height:1.6">'
+    + '<div style="font-weight:600;margin-bottom:4px">Who gets these households</div>'
+    + (per.size ? '<div>Straight to their coordinator: ' + list + '</div>' : '')
+    + (admin ? '<div style="color:#92400E">To admin (assign later with Bulk Assign): <b>' + admin + '</b> - the coord column did not name one coordinator account in that partner. See the warnings.</div>' : '')
+    + '</div>';
+}
+
 function downloadImportTemplateCsv() {
   const headers = _IMPORT_COLUMNS.join(',');
   const firstPartner = (loadPartners()[0] || {}).name || 'SeSTA';
@@ -40569,7 +40587,7 @@ async function downloadImportTemplateXlsx() {
       ['',               'Custom sources (not in the list) are accepted as typed.'],
       ['baseIncome*',    'Annual household income in rupees, all sources. May be left empty if the survey is not done. Plain number only — no comma, no rupee sign.'],
       ['ngo*',           'Dropdown — NGO partner. Must already exist in Admin Panel.'],
-      ['coord*',         'Field coordinator name. Free text. Required.'],
+      ['coord*',         'The coordinator\'s login (phone number), or their full name exactly as on their account. Matched in the same partner, the household goes straight to them; otherwise it is saved under admin. Required.'],
       ['interventions*', 'Pipe-separated list of livelihood interventions.'],
       ['',               'Copy from Reference Lists → Livelihood Types. Example: Organic Farming|Poultry'],
       ['',               'LEAVE BLANK if the beneficiary is in the Advocacy program only.'],
@@ -40915,6 +40933,7 @@ function _validateImportRows() {
   });
   // ── /family-member detection + inheritance ───────────────────────────────
 
+  const _v238Coords = (loadUsers() || []).filter(u => u && u.role === 'coordinator');   // V23.8
   const validated = _importState.rawRows.map((row, idx) => {
     const errors = [];
     const warnings = [];
@@ -40977,6 +40996,11 @@ function _validateImportRows() {
     if (!district) errors.push('Missing district');
     if (!ngo) errors.push('Missing NGO partner');
     if (!coord) errors.push('Missing field coordinator');
+    // V23.8: whose household this is - see _v238MatchFc
+    const _v238 = (coord && ngo) ? _v238MatchFc(coord, ngo, _v238Coords) : { fc: null, why: '' };
+    if (coord && ngo && !_v238.fc) {
+      warnings.push('Coordinator not linked: ' + _v238.why + '. This household will be saved under admin - assign it later with Bulk Assign.');
+    }
     // Livelihood-required fields. Skipped for family-member rows: those
     // records are advocacy-only and don't carry baseline income, sources,
     // or interventions. Lenient warnings about ignored data are added
@@ -41414,6 +41438,8 @@ function _validateImportRows() {
       headRowIdx,
       parsed: {
       name, gender, village, state, district, ngo, coord,
+      fcUserId: _v238.fc ? _v238.fc.id : null,                                 // V23.8
+      fcName: _v238.fc ? (_v238.fc.fullName || _v238.fc.username) : null,     // V23.8
       baseIncome, hhSize,
       sources,
       interventions, schemeRows,
@@ -41482,7 +41508,12 @@ async function confirmBulkImport() {
     return;
   }
 
-  if (!await showConfirmModal(`Ready to import ${importable.length} beneficiaries. This cannot be undone from the UI. Continue?`, { okLabel: 'Import', title: 'Confirm import' })) return;
+  // V23.8: say where they are going
+  const _v238Linked = importable.filter(x => x.parsed && x.parsed.fcUserId).length;
+  const _v238Where = _v238Linked === importable.length ? ' All go straight to their coordinators.'
+    : _v238Linked === 0 ? ' All will be saved under admin - assign them later with Bulk Assign.'
+    : ' ' + _v238Linked + ' go straight to their coordinators; ' + (importable.length - _v238Linked) + ' will be saved under admin.';
+  if (!await showConfirmModal(`Ready to import ${importable.length} beneficiaries.${_v238Where} This cannot be undone from the UI. Continue?`, { okLabel: 'Import', title: 'Confirm import' })) return;
 
   // V317: bulk imports must wait for listener replay to complete. The import
   // reads loadData() to detect duplicates and to merge new records into the
@@ -41613,7 +41644,7 @@ async function confirmBulkImport() {
       sources: v.isFamilyMember ? [] : p.sources,
       baseIncome: v.isFamilyMember ? 0 : p.baseIncome,
       ngo: p.ngo,
-      coord: p.coord,
+      coord: p.fcUserId ? p.fcName : p.coord,   // V23.8: the account's name, as Bulk Assign writes it
       interventions: p.interventions,
       photo: null, lat: null, lng: null, gpsAccuracy: null,
       status: statusField,
@@ -41640,8 +41671,12 @@ async function confirmBulkImport() {
         addedByName: 'Bulk Import (' + (me.fullName || me.username || 'admin') + ')',
         addedAt: nowIso,
       }] : [],
-      createdBy: me.userId || 'u-admin',
-      createdByName: 'Bulk Import (' + (me.fullName || me.username || 'admin') + ')',
+      // ⛔ V23.8: THE COORDINATOR NAMED IN THE SHEET OWNS IT when coord named
+      // exactly one account - that is what makes it appear on their phone.
+      // Otherwise the admin, as before. The batch id below still marks it as
+      // imported, so Undo finds it either way.
+      createdBy: p.fcUserId || me.userId || 'u-admin',
+      createdByName: p.fcUserId ? p.fcName : 'Bulk Import (' + (me.fullName || me.username || 'admin') + ')',
       // V3.1: Tag with the batch ID so undo can find every record created in
       // this batch, regardless of subsequent edits.
       _batchId: batchId,
@@ -41698,7 +41733,10 @@ async function confirmBulkImport() {
         // advocacy rows in the same sweep.
         _batchId: batchId,
         // V314 (2026-05-13): stamp scoping fields so listener can filter by role.
-        createdBy: (currentUser() && currentUser().userId) || 'u-admin',
+        // ⛔ V23.8: AND THE SAME OWNER AS THE HOUSEHOLD. A coordinator's phone
+        // finds scheme records by owner, so a household of theirs whose scheme
+        // records stayed under admin would show no schemes on their cards.
+        createdBy: p.fcUserId || (currentUser() && currentUser().userId) || 'u-admin',
         ngo: p.ngo || null,
       });
     }
@@ -43516,6 +43554,7 @@ function renderAdminImport() {
           <div style="font-size:11px;color:var(--navy);text-transform:uppercase;letter-spacing:.05em;font-weight:600">Duplicates</div>
         </div>
       </div>
+      ${_v238FcSummaryHtml(v)}
       ${dupeCount > 0 ? `
         <div style="background:#fff;border:1px solid var(--navy3);border-radius:8px;padding:12px;margin-bottom:14px">
           <div style="font-weight:600;margin-bottom:6px">Duplicate handling</div>
@@ -43840,7 +43879,7 @@ function _v212EndlineRow(b) {
     '',  // newEndIncome - the household's TOTAL
     '',  // additionalIncome - OR just what was added
     '',  // entryDate
-    '',  // mode - blank replaces, "add" keeps what is already there
+    'add',  // mode - V23.7: "add" filled in; a row with no income is still skipped
     '',  // note
   ];
 }
@@ -43912,18 +43951,20 @@ async function downloadEndlineTemplateXlsx() {
       ['4. Leave BOTH income columns blank for beneficiaries you do not want to update.'],
       ['5. Optionally set "entryDate" (YYYY-MM-DD format). Blank defaults to upload date.'],
       ['5a. "mode" decides what happens to income already recorded:'],
-      ['      blank   REPLACE - the entry you upload becomes the only one. This is'],
-      ['              what happens if you leave the column alone.'],
-      ['      add     KEEP what is there and add this on top. Use this when income'],
-      ['              arrives in instalments - Rs 5,000 in September and Rs 10,000'],
-      ['              in October should read Rs 15,000, not Rs 10,000.'],
+      ['      add      KEEP what is there and add this on top (filled in for you).'],
+      ['               Use it for income that arrives in instalments - Rs 5,000 in'],
+      ['               September and Rs 10,000 in October read Rs 15,000.'],
+      ['      replace  REMOVE what is recorded; the entry you upload becomes the'],
+      ['               only one. The preview says how much will be removed.'],
+      ['      blank    Only for a household with nothing recorded yet. If income is'],
+      ['               already recorded, a blank row is refused - never guessed at.'],
       ['    Any other word is refused rather than guessed at.'],
       ['6. Optionally add a "note" (free text, e.g. "Q4 income from poultry sales").'],
       ['7. Save the file as .xlsx and upload via the same Bulk Update screen.'],
       [''],
       ['WHAT HAPPENS ON UPLOAD'],
-      ['- With "mode" blank, the row REPLACES that beneficiary\'s income log with a'],
-      ['  single new entry and the previous history is lost for that row.'],
+      ['- With "mode" set to "replace", the row REPLACES that beneficiary\'s income log'],
+      ['  with a single new entry and the previous history is lost for that row.'],
       ['- With "mode" set to "add", nothing already recorded is touched - the new'],
       ['  entry is added alongside, keeping its own date and note.'],
       ['- Uploading the SAME file twice with "add" will count it twice. There is'],
@@ -44083,8 +44124,8 @@ function _validateEndlineRows() {
     }
     if (modeRaw && modeRaw !== 'add' && modeRaw !== 'replace') {
       return { rowNum: idx + 2, id, parsed: null, status: 'error',
-        reason: 'mode "' + escHtml(modeRaw) + '" is not understood. Leave it blank to replace ' +
-                'what is recorded, or write "add" to keep it and add to it.',
+        reason: 'mode "' + escHtml(modeRaw) + '" is not understood. Write "add" to keep what is ' +
+                'recorded and add to it, or "replace" to remove it.',
         beforeIncome: b.endIncome, afterIncome: null };
     }
     // ⛔ ONE PERSON, ONE ROW. Two rows for the same id under mode=add appended
@@ -44131,6 +44172,23 @@ function _validateEndlineRows() {
     const _existingLog = (Array.isArray(b.incomeLog) ? b.incomeLog : [])
       .reduce((s, e) => s + (parseFloat(e && e.amount) || 0), 0);
     const willAppend = modeRaw === 'add' && Array.isArray(b.incomeLog) && b.incomeLog.length > 0;
+    // ⛔ V23.7: A BLANK CELL MUST NOT ERASE MONEY. Blank used to mean REPLACE
+    // (kept in V21.3 so old sheets behaved as before), and a blank cell reads
+    // as "nothing special". Practice site, 26 Sep: Biraja Konwar had Rs 5,000
+    // logged, the sheet said Rs 15,000 with mode blank, and the Rs 5,000 was
+    // gone. Where income is already recorded the sheet must now say which.
+    // Recorded = entries in the log, or an old-style endline total with none.
+    const _v237Log = Array.isArray(b.incomeLog) ? b.incomeLog : [];
+    const _v237Has = _v237Log.length > 0 || (b.endIncome != null && b.endIncome !== '');
+    const _v237Amt = _v237Log.length > 0 ? _existingLog
+      : ((Number(b.endIncome) || 0) - (Number(b.baseIncome) || 0));
+    const _v237Rs = '\u20B9' + Math.round(_v237Amt).toLocaleString('en-IN');
+    if (!modeRaw && _v237Has) {
+      return { rowNum: idx + 2, id, parsed: null, status: 'error',
+        reason: 'This household already has ' + _v237Rs + ' recorded. Write "add" in the mode ' +
+                'column to keep it and add this, or "replace" to remove it.',
+        beforeIncome: b.endIncome, afterIncome: null };
+    }
 
     // Validate date if provided
     let dateClean = '';
@@ -44186,9 +44244,12 @@ function _validateEndlineRows() {
       // purely to word the confirmation dialog, which is a prediction.
       parsed: { newEndIncome: newEnd, addAmount: addAmount, isTotal: isTotal,
                 append: modeRaw === 'add', willAppend: willAppend,
+                replace: modeRaw === 'replace',   // V23.7 - only this ever removes
                 entryDate: dateClean, note },
       status: 'ok',
       reason: '',
+      // V23.7: said in red before anything is saved
+      warn: (modeRaw === 'replace' && _v237Has) ? 'Will REMOVE ' + _v237Rs + ' already recorded' : '',
       beforeIncome: b.endIncome,
       // ⛔ V21.3: THE FIGURE SHOWN MUST BE THE FIGURE WRITTEN. This said newEnd,
       // which is baseline + typed - but an append produces baseline + what was
@@ -44223,10 +44284,15 @@ async function confirmEndlineBulkUpdate() {
 
   if (!confirm(`Ready to apply endline updates to ${okRows.length} beneficiar${okRows.length===1?'y':'ies'}.\n\n${(function(){
     // V21.3: say what it will actually do. It no longer always replaces.
-    const a = okRows.filter(r => r.parsed && r.parsed.willAppend).length, rp = okRows.length - a;
-    return a === 0 ? 'This REPLACES the income already recorded for each of them.'
-         : rp === 0 ? 'This ADDS to the income already recorded, keeping what is there.'
-         : rp + ' will be REPLACED and ' + a + ' will be ADDED to, keeping what is there.';
+    // V23.7: only rows that really remove something are called replaced.
+    const a = okRows.filter(r => r.parsed && r.parsed.willAppend).length;
+    const rm = okRows.filter(r => r.warn).length;
+    const first = okRows.length - a - rm;
+    const parts = [];
+    if (a) parts.push(a + ' will be ADDED to, keeping what is there');
+    if (first) parts.push(first + ' get their first income entry');
+    if (rm) parts.push(rm + ' will have income already recorded REMOVED and replaced');
+    return parts.join('; ') + '.';
   })()} A per-record snapshot is saved so you can undo this batch later from the beneficiary detail (admin only).\n\nContinue?`)) return;
 
   const data = loadData();
@@ -44290,13 +44356,16 @@ async function confirmEndlineBulkUpdate() {
     // the amount, asked to add, and had it replaced. _ensureIncomeLogMigrated
     // only ever ran from the Log Income drawer, never on this path. Carry it in
     // first, so "add" means add to what the sheet showed.
-    if (p.append && !(Array.isArray(b.incomeLog) && b.incomeLog.length) && b.endIncome != null) {
+    if ((p.append || !p.replace) && !(Array.isArray(b.incomeLog) && b.incomeLog.length) && b.endIncome != null) {
       try {
         if (typeof _ensureIncomeLogMigrated === 'function') _ensureIncomeLogMigrated(b);
       } catch (_) { /* a migration failure must never block the update */ }
     }
     const _hasLog213 = Array.isArray(b.incomeLog) && b.incomeLog.length > 0;
-    const _append213 = !!p.append && _hasLog213;
+    // ⛔ V23.7: ONLY "replace" REMOVES. A blank-mode row passed the check
+    // because nothing was recorded then; if a coordinator logged income before
+    // Apply was pressed, that entry is kept and this one added beside it.
+    const _append213 = (!!p.append || !p.replace) && _hasLog213;
     const _entry213 = {
       date: dt,
       amount: _amount213,
@@ -44740,7 +44809,7 @@ function _renderEndlineLandingBlock() {
       <p style="font-size:13px;color:var(--gray1);margin-bottom:12px">
         Update endline income for many existing beneficiaries at once. Download a pre-filled template (one row per beneficiary), fill the <code>newEndIncome</code> column, and re-upload.
         <br>
-        <span style="color:#92400E;font-size:12px">Fill <b>newEndIncome</b> (the household's whole income now) <b>or</b> <b>additionalIncome</b> (just what your work added) — never both. Leave <b>mode</b> blank to replace what is recorded, or write <b>add</b> to keep it and add on top.</span>
+        <span style="color:#92400E;font-size:12px">Fill <b>newEndIncome</b> (the household's whole income now) <b>or</b> <b>additionalIncome</b> (just what your work added) — never both. Keep <b>mode</b> as <b>add</b> to add on top of what is recorded; write <b>replace</b> only to remove it.</span>
       </p>
       <button class="btn btn-primary" onclick="downloadEndlineTemplateXlsx()" style="background:#F59E0B;border-color:#D97706">
         📥 Download Endline Update Template (.xlsx)
@@ -44787,7 +44856,7 @@ function _renderEndlineImportPreview() {
       <td style="padding:6px 8px">${statusBadge}</td>
       <td style="padding:6px 8px;text-align:right;font-size:12px">${before}</td>
       <td style="padding:6px 8px;text-align:right;font-size:12px;font-weight:600">${after}</td>
-      <td style="padding:6px 8px;font-size:12px;color:var(--gray2)">${(r.reason||'').replace(/</g,'&lt;')}</td>
+      <td style="padding:6px 8px;font-size:12px;color:var(--gray2)">${r.warn ? '<b style="color:var(--red)">' + escHtml(r.warn) + '</b>' : (r.reason||'').replace(/</g,'&lt;')}</td>
     </tr>`;
   }).join('');
   const truncMsg = v.length > 200 ? `<div style="padding:8px;color:var(--gray2);font-size:12px;text-align:center;background:var(--gray4);border-top:1px solid var(--gray3)">Showing first 200 of ${v.length} rows. All rows will be processed on confirm.</div>` : '';
