@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V23.5-LIVE
+  KRSF Beneficiary Impact Tracker  -  V23.6-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,20 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V23.6-LIVE (2026-09-26 - the start-up step no longer puts old lists back).
+
+    + ⛔ AFTER A SIGN-IN THE SCREEN COULD SHOW AN OLD LIVELIHOOD AND SCHEME LIST
+      (Guru's admin tab, 25 Sep 23:06: 29 schemes in the database, 20 shown,
+      and the livelihood types from before that evening's renames). The
+      start-up step and the fresh read of the lists run side by side after a
+      sign-in; when the fresh read finished first, the start-up step wrote its
+      older saved copy over it. It now never writes over a fresh read.
+      Coordinators' enrolment forms could show old names the same way.
+    + Livelihood type Add, Rename and Remove check first that the tab is up to
+      date, as the scheme buttons do since V23.4 - each writes the whole list,
+      so an old tab would have put the old types back. ~0.3 KB, admin only.
+    + Tests: 84 files. v236 is red on V23.5.
+
   V23.5-LIVE (2026-09-25 - scheme state tags stay; donors see renamed names).
 
     + ⛔ SETTING A SCHEME'S DEFAULT AMOUNT, OR SWITCHING SCHEME/DOCUMENT, WIPED
@@ -4596,7 +4610,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V23.5-LIVE';
+const APP_VERSION = 'V23.6-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -8347,6 +8361,11 @@ function fbInit() {
 
 function fbRef(path) { return FB.db.ref(`${FB_NAMESPACE}/${path}`); }
 
+// V23.6: which lists this session has already taken from a fresh read. Set
+// once, never cleared: a later re-run of the start-up step carries a copy that
+// is at best as new. Declared ABOVE fbInitialSync so it exists however early
+// the start-up step runs.
+var _v236Fresh = { liv: false, schemes: false, flags: false };
 async function fbInitialSync() {
   if (!FB.db) return;
   // V347 (F1): wait for anonymous auth before any Firebase reads.
@@ -8520,14 +8539,20 @@ async function fbInitialSync() {
     // low-churn, read by other code paths via direct localStorage access,
     // and not part of the read-path conversion scope.
     const cfg = cfgSnap.val() || {};
-    if (Array.isArray(cfg.livtypes) && cfg.livtypes.length) {
+    // ⛔ V23.6: NEVER OVER A FRESHER COPY. This copy is usually the saved one
+    // (up to 30 days old) and is applied after slow awaits. After a sign-in this
+    // step is not awaited and the fresh reads in _attachNonBenefListeners start
+    // beside it; when they land first, writing here put the old lists back on
+    // screen - 25 Sep 23:06, Guru's admin tab: 29 schemes in the database, 20
+    // shown, and the old livelihood types, which an Add would then have saved.
+    if (!_v236Fresh.liv && Array.isArray(cfg.livtypes) && cfg.livtypes.length) {
       localStorage.setItem('krsf_liv_types_v1', JSON.stringify(cfg.livtypes));
     }
-    if (Array.isArray(cfg.schemes) && cfg.schemes.length) {
+    if (!_v236Fresh.schemes && Array.isArray(cfg.schemes) && cfg.schemes.length) {
       localStorage.setItem('krsf_schemes_v1', JSON.stringify(cfg.schemes));
     }
     // V21.2: feature switches ride in the same node, so this costs nothing.
-    try { _v212AdoptFlags(cfg); } catch (_) {}
+    if (!_v236Fresh.flags) { try { _v212AdoptFlags(cfg); } catch (_) {} }
     // ─ Audit log ─────────────────────────────────────────────────────
     // V308.2: audit log is Firebase-only. Hydrate the in-memory cache;
     // do NOT mirror to localStorage (was the cause of QuotaExceededError
@@ -8832,6 +8857,7 @@ function _attachNonBenefListeners() {
   fbRef('config/livtypes').once('value').then(snap => {
     const v = snap.val();
     if (Array.isArray(v) && v.length) {
+      _v236Fresh.liv = true;   // V23.6 - the start-up step must not write over this
       localStorage.setItem('krsf_liv_types_v1', JSON.stringify(v));
       try { renderCurrentView(); } catch(_){}
     }
@@ -8854,7 +8880,9 @@ function _attachNonBenefListeners() {
       if (_v235ApplyRenames()) { try { renderCurrentView(); } catch (_) {} }
     } catch (_) {}
     const v = cfgAll.schemes;
+    if (snap.exists && snap.exists()) _v236Fresh.flags = true;   // V23.6
     if (Array.isArray(v) && v.length) {
+      _v236Fresh.schemes = true;   // V23.6 - the start-up step must not write over this
       localStorage.setItem('krsf_schemes_v1', JSON.stringify(v));
       try { renderCurrentView(); } catch(_){}
     }
@@ -12295,6 +12323,37 @@ async function _v235RecordRename(kind, from, to) {
   } catch (e) {
     console.warn('[V23.5] rename not added to the list for donors/team leaders:', e && e.message);
   }
+}
+
+// ⛔ V23.6: A LIVELIHOOD BUTTON ON AN OUT-OF-DATE TAB PUT THE OLD LIST BACK.
+// Add, Rename and Remove each write the WHOLE list from this tab's copy - the
+// same trap V23.4 closed for schemes. Each asks first: ~0.3 KB, admin only. If
+// the database does not answer in 8 s the action goes ahead as before.
+async function _v236LivFresh() {
+  let u = null;
+  try { u = (typeof currentUser === 'function') ? currentUser() : null; } catch (_) {}
+  if (!u || u.role !== 'admin' || !FB || !FB.db) return true;
+  let snap = null;
+  try {
+    snap = await Promise.race([
+      fbRef('config/livtypes').once('value'),
+      new Promise(function (r) { setTimeout(function () { r(null); }, 8000); })
+    ]);
+  } catch (_) { return true; }
+  if (!snap) return true;
+  const raw = snap.val();
+  const list = Array.isArray(raw) ? raw.filter(function (x) { return x != null; }) : Object.values(raw || {});
+  if (!list.length) return true;   // nothing stored yet - nothing to protect
+  let local = [];
+  try { local = JSON.parse(localStorage.getItem(LIVTYPES_KEY) || '[]'); } catch (_) {}
+  if (JSON.stringify(list) === JSON.stringify(local)) return true;
+  // out of date: show the latest, change nothing
+  localStorage.setItem(LIVTYPES_KEY, JSON.stringify(list));
+  _v236Fresh.liv = true;
+  try { if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache(); } catch (_) {}
+  try { renderCurrentView(); } catch (_) {}
+  toast('This screen was showing an out-of-date livelihood list. It now shows the latest one, and nothing was saved. Please make your change again.', 'error', 9000);
+  return false;
 }
 
 async function saveLivTypes(arr) {
@@ -30636,7 +30695,8 @@ function renderAdminLivelihoods() {
     </div>`;
 }
 
-function adminAddLivType() {
+async function adminAddLivType() {
+  if (!(await _v236LivFresh())) return;   // V23.6 - see _v236LivFresh
   const inp = document.getElementById('new-livtype');
   const name = inp.value.trim();
   if (!name) return toast('Enter a type name first', 'error');
@@ -30661,6 +30721,7 @@ function adminAddLivType() {
 }
 
 async function adminRenameLivType(idx) {
+  if (!(await _v236LivFresh())) return;   // V23.6 - see _v236LivFresh
   const types = getLivTypes();
   const oldName = types[idx];
   if (!oldName) return;
@@ -30696,6 +30757,7 @@ async function adminRenameLivType(idx) {
 }
 
 async function adminDeleteLivType(idx) {
+  if (!(await _v236LivFresh())) return;   // V23.6 - see _v236LivFresh
   const types = getLivTypes();
   const name = types[idx];
   if (!name) return;
