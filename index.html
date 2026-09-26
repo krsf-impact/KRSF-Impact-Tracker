@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V23.8-LIVE
+  KRSF Beneficiary Impact Tracker  -  V24.0-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,19 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V24.0-LIVE (2026-09-26 - scheme records follow their household's coordinator).
+
+    + Transfer, Bulk Assign, Reassign and deleting a user moved the household
+      and left its scheme records with the old owner. A coordinator's phone
+      finds scheme records by owner, so the new coordinator's lists and counts
+      missed them (4,043 in the 26 Sep export). Each tool now moves them too -
+      only the owner (and the partner, if the household changed partner).
+    + "Scheme records by coordinator" in User Management finds the ones left
+      behind, shows who gains how many, corrects them in batches, and can put
+      a batch back. Partner, donor and office figures do not change.
+    + Tests: 87 files. v240 is red on V23.8; it also signs a coordinator in
+      and enrols at once, and demands exactly one household is sent.
+
   V23.8-LIVE (2026-09-26 - imported households go straight to their coordinator).
 
     + The household import's coord column now finds the coordinator's
@@ -3500,6 +3513,7 @@ body[data-shell="coord"] .coord-card {
     <!-- V22.0: reached from User Management, not the sidebar - the same rule
          as Move Records Between Partners above. The button stays in the markup
          so nav() can mark it active while the page is open. -->
+    <button data-admin-only data-sidebar-hidden="true" class="nav-btn" data-v="admin_scheme_owners" onclick="nav('admin_scheme_owners')" style="display:none">Scheme records by coordinator</button><!-- V24.0 -->
     <button data-admin-only data-sidebar-hidden="true" class="nav-btn" data-v="admin_partner_stamps" onclick="nav('admin_partner_stamps')" style="display:none">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 5h8M7 2l3 3-3 3"/><path d="M14 11H6M9 8l-3 3 3 3"/></svg>
       Scheme records by partner
@@ -4584,7 +4598,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V23.8-LIVE';
+const APP_VERSION = 'V24.0-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -29028,7 +29042,7 @@ function renderReports() {
 }
 
 // ── Nav ───────────────────────────────────────────────────────────────────
-const _navRoutes_v32={reports:renderReports,dashboard:renderDashboard,beneficiaries:renderAllBeneficiaries,list:renderLivelihood,ngo:renderNGO,alerts:renderAlerts,map:renderMap,integrated:renderIntegrated,advocacy:renderAdvocacy,admin_partners:renderAdminPartners,admin_users:renderAdminUsers,admin_livelihoods:renderAdminLivelihoods,admin_schemes:renderAdminSchemes,admin_audit:renderAdminAuditLog,admin_import:renderAdminImport,admin_photo_migration:renderAdminPhotoMigration,admin_advocacy_backfill:renderAdminAdvocacyBackfill,admin_dedup_ids:renderAdminDedupIds,admin_delete_dupes:renderAdminDeleteDupes,admin_scheme_rename:renderAdminSchemeRename,admin_user_import:renderAdminUserImport,admin_partner_stamps:renderAdminStampFix,admin_partner_move:renderAdminPartnerMove,admin_bandwidth:renderAdminBandwidth};
+const _navRoutes_v32={reports:renderReports,dashboard:renderDashboard,beneficiaries:renderAllBeneficiaries,list:renderLivelihood,ngo:renderNGO,alerts:renderAlerts,map:renderMap,integrated:renderIntegrated,advocacy:renderAdvocacy,admin_partners:renderAdminPartners,admin_users:renderAdminUsers,admin_livelihoods:renderAdminLivelihoods,admin_schemes:renderAdminSchemes,admin_audit:renderAdminAuditLog,admin_import:renderAdminImport,admin_photo_migration:renderAdminPhotoMigration,admin_advocacy_backfill:renderAdminAdvocacyBackfill,admin_dedup_ids:renderAdminDedupIds,admin_delete_dupes:renderAdminDeleteDupes,admin_scheme_rename:renderAdminSchemeRename,admin_user_import:renderAdminUserImport,admin_partner_stamps:renderAdminStampFix,admin_scheme_owners:renderAdminSchemeOwners,admin_partner_move:renderAdminPartnerMove,admin_bandwidth:renderAdminBandwidth};
 
 // ── V357: tab-render cache (admin Lite Mode) ──────────────────────────────
 // Memoises each _navRoutes_v32 renderer's output keyed on
@@ -29354,7 +29368,7 @@ window.nav=function(v){
   const mobKey=mobMap[v];
   document.querySelectorAll('.mob-nav-item').forEach(b=>b.classList.remove('active'));
   if (mobKey) { const mb=document.getElementById('mob-nav-'+mobKey); if(mb)mb.classList.add('active'); }
-  const titles={dashboard:'Dashboard',beneficiaries:'All Beneficiaries',list:'Livelihood',ngo:'NGO Partners',alerts:'Alerts & Flags',map:'Field Map',integrated:'Integrated View',advocacy:'Advocacy',admin_partners:'Partner Management',admin_users:'User Management',admin_livelihoods:'Livelihood Management',admin_schemes:'Advocacy Management',admin_audit:'Audit Log',admin_partner_move:'Move Records Between Partners',admin_bandwidth:'Bandwidth Usage',reports:'Reports',admin_import:'Import Data',admin_photo_migration:'Photo Migration',admin_advocacy_backfill:'Advocacy Backfill',admin_dedup_ids:'Duplicate IDs',admin_delete_dupes:'Delete Duplicates',admin_scheme_rename:'Rename a Scheme',admin_user_import:'Import Users',admin_partner_stamps:'Scheme Records by Partner'};
+  const titles={dashboard:'Dashboard',beneficiaries:'All Beneficiaries',list:'Livelihood',ngo:'NGO Partners',alerts:'Alerts & Flags',map:'Field Map',integrated:'Integrated View',advocacy:'Advocacy',admin_partners:'Partner Management',admin_users:'User Management',admin_livelihoods:'Livelihood Management',admin_schemes:'Advocacy Management',admin_audit:'Audit Log',admin_partner_move:'Move Records Between Partners',admin_bandwidth:'Bandwidth Usage',reports:'Reports',admin_import:'Import Data',admin_photo_migration:'Photo Migration',admin_advocacy_backfill:'Advocacy Backfill',admin_dedup_ids:'Duplicate IDs',admin_delete_dupes:'Delete Duplicates',admin_scheme_rename:'Rename a Scheme',admin_user_import:'Import Users',admin_partner_stamps:'Scheme Records by Partner',admin_scheme_owners:'Scheme Records by Coordinator'};
   // For NGO logins the "ngo" page shows their team (FCs), not partners — retitle.
   const _navUser = (typeof currentUser === 'function') ? currentUser() : null;
   if (v === 'ngo' && _navUser && (_navUser.role === 'ngo' || _navUser.role === 'scopedViewerByFc')) titles.ngo = 'Team Report';
@@ -30146,6 +30160,7 @@ function renderAdminUsers() {
           <button class="btn btn-sm" onclick="openTransferTool()" title="Move selected beneficiaries from one FC to another (same NGO)">⇄ Transfer Beneficiaries${_rptTip("Moves the people you choose from one coordinator to another inside the SAME partner. It changes who owns those records - they leave one coordinator list and join another - while the people, their schemes and their history stay exactly as they are. It will not move anyone to a different partner; that is what Move FC to NGO is for. Nothing changes until you pick the people and confirm.")}</button>
           <button class="btn btn-sm" onclick="openMoveFcTool()" title="Move an FC + all their beneficiaries + advocacy records to a different NGO">⇄ Move FC to NGO${_rptTip("Moves one coordinator to a different partner and takes all their people and scheme records with them. This rewrites the partner name on every one of those records, so every total counted by partner changes afterwards. Nothing changes until you pick the coordinator and the new partner and confirm.")}</button>
           <button class="btn btn-sm" onclick="nav('admin_partner_move')" title="Move one coordinator's records from one partner to another. Blocks the move if it would split a household.">⇄ Move Records Between Partners${_rptTip("Moves the records one coordinator holds out of one partner and into another. It rewrites the partner name on every record it moves, so partner totals change on both sides afterwards. It refuses outright if the move would separate a family member from their household head. It shows you exactly what will move and changes nothing until you confirm.")}</button>
+          <button class="btn btn-sm" id="v240-owners-btn" onclick="nav('admin_scheme_owners')" title="Give scheme records to the coordinator who owns their household">⇄ Scheme records by coordinator${_rptTip("Finds scheme records still held by someone other than the coordinator who owns their household - left behind by a transfer or assignment - so that coordinator's own lists and counts are missing them. It shows who gains how many before anything changes, changes only the owner, and can put a batch back. Partner, donor and office figures do not change.")}</button>
           <button class="btn btn-sm" onclick="openBulkAssignTool()" title="Assign many beneficiaries (e.g. freshly bulk-imported, still-unassigned) to a Field Coordinator at once">📥 Bulk Assign FC${_rptTip("Hands a coordinator a batch of people in one go, normally straight after a bulk import. It offers only people inside the partner you pick, and by default only those who have no coordinator yet, so it does not quietly take anyone off somebody else. Nothing changes until you confirm.")}</button>
           ${_v11IsAdmin?`<button class="btn btn-sm" onclick="adminRefreshUsers()" title="Fetch the staff list from the server again. Use this if somebody added a user on another device and you cannot see them here.">↻ Refresh users${_rptTip("Fetches the staff list from the server again. Use it when somebody added or changed a user on another device and you cannot see them here. It only reads - nothing is written and nobody is affected.")}</button>`:''}
           ${_v11IsAdmin?`<button class="btn btn-sm" onclick="adminRequirePinChange()" title="Ask the people currently listed below to choose their own PIN next time they open the app. Filter by NGO first to do one NGO at a time. Does not change anyone's password and cannot lock anyone out.">🔑 Require PIN change${_v11PendingCount?` <span style="color:var(--gray2);font-weight:400">(${_v11PendingCount} asked)</span>`:''}${_rptTip("Asks the people currently listed below to choose their own PIN the next time they open the app. Their present password keeps working until they do, so nobody is locked out and no password is changed. Filter by partner first if you want to do one partner at a time; it tells you how many will be asked and does nothing until you confirm.")}</button>`:''}
@@ -30621,10 +30636,12 @@ async function adminDeleteUser(id) {
   // V310-S2: Reassign owned records to admin before deleting. Bail on failure.
   if (owned > 0) {
     const data = loadData();
+    const _v240Ids = data.filter(b => b && b.createdBy === id).map(b => b.id);   // V24.0
     // V21.5: deleting somebody reassigns their records to the admin account,
     // which erases the last trace of who enrolled them. Stamped first.
     data.forEach(b => { if (b.createdBy === id) { _v215StampEnroller(b, u.fullName || u.username, id); b.createdBy = 'u-admin'; b.createdByName = 'System Administrator'; } });
     if (!await _trySave(() => saveData(data), 'reassign records before delete user')) return;
+    await _v240MoveSchemesWith(_v240Ids, data, 'Delete user');   // V24.0: their scheme records too
   }
   // V381: single-record remove — only deletes /users/<id>. The old code
   // passed users.filter(...) to saveUsers, which then diffed against
@@ -33374,6 +33391,8 @@ async function applyTransfer() {
       familyMoved.push({ id: b.id, name: b.name });
     }
     await saveData(data);
+    // V24.0: their scheme records go with them
+    await _v240MoveSchemesWith(moved.map(m => m.id).concat(familyMoved.map(m => m.id)), data, 'Transfer');
     for (const m of moved) {
       auditLog('reassign', 'beneficiary', m.id, m.name,
         `Bulk transfer: ${srcName} → ${dstName} (${dst.ngo || ''})`,
@@ -33559,6 +33578,8 @@ async function applyBulkAssign() {
       familyMoved.push({ id: b.id, name: b.name, oldName });
     }
     await saveData(data);
+    // V24.0: their scheme records go with them
+    await _v240MoveSchemesWith(moved.map(m => m.id).concat(familyMoved.map(m => m.id)), data, 'Bulk assign');
     for (const m of moved) {
       auditLog('reassign', 'beneficiary', m.id, m.name,
         `Bulk assign: → ${dstName} (${ngo})`,
@@ -33848,6 +33869,8 @@ async function saveReassign() {
     err.style.display = 'block';
     return;
   }
+  // V24.0: her scheme records (and her family's) go with her
+  await _v240MoveSchemesWith([b.id].concat(linkedFamily.map(fm => fm.id)), data, 'Reassign');
   auditLog('reassign', 'beneficiary', b.id, b.name,
     `Reassigned: ${oldOwnerName}${oldNgo?' ('+oldNgo+')':''} → ${b.createdByName}${b.ngo?' ('+b.ngo+')':''}`,
     {createdByName:[oldOwnerName, b.createdByName], ngo:[oldNgo, b.ngo]});
@@ -43178,6 +43201,260 @@ function _v222FindBatch(batchId) {
     return hit ? { moves: hit.changes.stampFix } : null;
   } catch (_) { return null; }
 }
+// =============================================================================
+// V24.0 - A HOUSEHOLD'S SCHEME RECORDS FOLLOW IT TO ITS COORDINATOR
+// =============================================================================
+// A coordinator's phone loads scheme records by OWNER (createdBy). Transfer,
+// Bulk Assign, Reassign and deleting a user rewrote the household's owner and
+// left its scheme records with the old one, so the new coordinator's lists and
+// counts missed them - 4,043 records in the 26 Sep export. Partner, donor and
+// office figures count by partner and were never affected.
+// ⛔ ONLY THE FIELD THAT IS WRONG, ONLY THE RECORDS THAT DIFFER. The owner is
+// the household's owner, and the partner is the household's partner - the rule
+// the rest of the app already follows. Nothing is guessed.
+const _V240_CHUNK = 250;
+let _v240Scan = null, _v240Busy = false, _v240LastRun = null;
+
+// What each of these households' scheme records should now carry.
+function _v240SchemeMovesFor(households) {
+  const want = new Map();
+  (households || []).forEach(function (b) { if (b && b.id && b.createdBy) want.set(b.id, b); });
+  const moves = [];
+  if (!want.size || !RecordCache.adv) return moves;
+  RecordCache.adv.forEach(function (a, k) {
+    if (!a || !a.bid || !want.has(a.bid)) return;
+    const b = want.get(a.bid);
+    const key = a.__fbk || k;
+    if (!key) return;
+    const fromNgo = a.ngo || null;
+    const toNgo = (fromNgo && b.ngo && fromNgo !== b.ngo) ? b.ngo : fromNgo;
+    if (a.createdBy === b.createdBy && toNgo === fromNgo) return;
+    moves.push({ key: key, bid: a.bid, fromBy: a.createdBy || null, toBy: b.createdBy, fromNgo: fromNgo, toNgo: toNgo });
+  });
+  return moves;
+}
+// Writes owner (and partner) fields only, in batches, then makes this device's
+// copy agree with what was written.
+async function _v240WriteSchemeMoves(moves, onChunk) {
+  let n = 0;
+  for (let i = 0; i < moves.length; i += _V240_CHUNK) {
+    const slice = moves.slice(i, i + _V240_CHUNK);
+    const updates = {};
+    slice.forEach(function (m) {
+      if (m.fromBy !== m.toBy) updates[FB_NAMESPACE + '/advocacy/' + m.key + '/createdBy'] = m.toBy;
+      if (m.fromNgo !== m.toNgo) updates[FB_NAMESPACE + '/advocacy/' + m.key + '/ngo'] = m.toNgo;
+    });
+    if (Object.keys(updates).length) await FB.db.ref().update(updates);
+    slice.forEach(function (m) {
+      const r = RecordCache.adv.get(m.key);
+      if (r) { r.createdBy = m.toBy; if (m.toNgo) r.ngo = m.toNgo; }
+    });
+    n += slice.length;
+    if (onChunk) { try { onChunk(slice, n); } catch (_) {} }
+  }
+  // ⛔ WITHOUT THIS the next whole-array save rewrites them from an old copy -
+  // see _v185ReseatLastMap's own header.
+  try {
+    if (typeof _v185ReseatLastMap === 'function') _v185ReseatLastMap('adv');
+    if (typeof _v362QueueSummaryWrite === 'function') _v362QueueSummaryWrite();
+    if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache();
+    if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache();
+  } catch (_) {}
+  return n;
+}
+// Called by the four tools right after the households themselves are saved.
+// A failure here never undoes the household move; the screen below finishes it.
+async function _v240MoveSchemesWith(ids, data, label) {
+  try {
+    if (!FB || !FB.db || !FB.online || !RecordCache.adv || RecordCache.adv.size === 0) return 0;
+    const u = (typeof currentUser === 'function') ? currentUser() : null;
+    if (u && u.role === 'admin' && !FB.advReplayComplete) {
+      toast('The households moved. Their scheme records had not finished loading, so they stay where they are - use "Scheme records by coordinator" in User Management once the app has loaded.', 'warn', 10000);
+      return 0;
+    }
+    const set = new Set(ids || []);
+    const moves = _v240SchemeMovesFor((data || []).filter(function (b) { return b && set.has(b.id); }));
+    if (!moves.length) return 0;
+    const n = await _v240WriteSchemeMoves(moves);
+    auditLog('update', 'advocacy', 'owner-' + Date.now().toString(36), 'scheme records followed their household',
+      label + ': ' + n + ' scheme record' + (n === 1 ? '' : 's') + ' moved with their household',
+      { ownerFix: moves.map(function (m) { return [m.key, m.fromBy, m.fromNgo]; }) });
+    return n;
+  } catch (e) {
+    console.warn('[V24.0] scheme records did not follow their household:', e && e.message);
+    toast('The households moved, but their scheme records could not be moved (' + ((e && e.message) || e)
+      + '). Use "Scheme records by coordinator" in User Management to finish.', 'warn', 10000);
+    return 0;
+  }
+}
+
+// ── the correction screen ───────────────────────────────────────────────────
+// Only households owned by a COORDINATOR: theirs is the phone that loads by
+// owner. Admin- and partner-owned households are left exactly as they are.
+function _v240ScanOwners() {
+  const users = new Map();
+  (loadUsers() || []).forEach(function (u) { if (u && u.id) users.set(u.id, u); });
+  const hh = new Map();
+  ((typeof _loadDataRaw === 'function') ? _loadDataRaw() : loadData())
+    .forEach(function (b) { if (b && b.id) hh.set(b.id, b); });
+  const adv = (typeof _loadAdvRaw === 'function') ? _loadAdvRaw() : loadAdv();
+  const moves = [], per = {};
+  let orphans = 0;
+  adv.forEach(function (a) {
+    if (!a || !a.bid) return;
+    const b = hh.get(a.bid);
+    if (!b) { orphans++; return; }
+    const owner = users.get(b.createdBy);
+    if (!owner || owner.role !== 'coordinator') return;
+    if (a.createdBy === b.createdBy) return;
+    const key = a.__fbk || a.id;
+    if (!key) return;
+    moves.push({ key: key, bid: a.bid, fromBy: a.createdBy || null, toBy: b.createdBy, fromNgo: a.ngo || null, toNgo: a.ngo || null });
+    const k = b.createdBy;
+    per[k] = per[k] || { name: owner.fullName || owner.username || k, ngo: owner.ngo || '', n: 0 };
+    per[k].n++;
+  });
+  _v240Scan = { at: Date.now(), moves: moves, per: per, orphans: orphans, looked: adv.length };
+  return _v240Scan;
+}
+async function _v240RunOwnerFix() {
+  if (_v240Busy) return;
+  if (!isAdmin()) { toast('Admin only.', 'error'); return; }
+  // ⛔ NOT BEFORE THE RECORDS HAVE ARRIVED - a half-loaded device sees only part
+  // of the households and would decide against a list that is not all there.
+  if (!(FB && FB.benefReplayComplete && FB.advReplayComplete)) {
+    toast('Still loading the records. Wait until the app has finished syncing.', 'warn', 8000);
+    return;
+  }
+  const S = _v240ScanOwners();   // decided now, not from an old scan
+  if (!S.moves.length) { renderAdminSchemeOwners(); toast('Nothing to correct.', 'info'); return; }
+  const n = S.moves.length;
+  if (!await showConfirmModal('Give ' + n.toLocaleString('en-IN') + ' scheme record' + (n === 1 ? '' : 's')
+      + ' to the coordinator who owns their household?\n\nOnly the owner is changed. Partner, donor and office '
+      + 'figures stay the same; each coordinator\'s own lists and counts gain them. This batch can be put back.',
+      { okLabel: 'Correct them', title: 'Scheme records by coordinator' })) return;
+  _v240Busy = true;
+  renderAdminSchemeOwners();
+  const batchId = 'of-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  let done = 0;
+  try {
+    done = await _v240WriteSchemeMoves(S.moves, function (slice, sofar) {
+      // the way back travels in the audit entry - a new node would be refused
+      auditLog('update', 'advocacy', batchId, 'scheme owner correction',
+        'Gave ' + slice.length + ' scheme record(s) to the coordinator who owns their household',
+        { ownerFix: slice.map(function (m) { return [m.key, m.fromBy, m.fromNgo]; }) });
+      S.progress = { done: sofar, total: n };
+      renderAdminSchemeOwners();
+    });
+    _v240LastRun = { kind: 'run', at: Date.now(), n: done, batchId: batchId };
+    toast(done.toLocaleString('en-IN') + ' scheme records corrected', 'success', 7000);
+  } catch (e) {
+    _v240LastRun = { kind: 'stopped', at: Date.now(), n: done, why: (e && e.message) || String(e), batchId: batchId };
+    toast('Stopped after ' + done + ': ' + ((e && e.message) || e), 'error', 9000);
+  }
+  _v240Busy = false;
+  _v240Scan = null;
+  renderAdminSchemeOwners();
+}
+function _v240BatchMoves(batchId) {
+  const out = [];
+  try {
+    (loadAudit() || []).forEach(function (a) {
+      if (a && a.recordId === batchId && a.changes && Array.isArray(a.changes.ownerFix)) out.push.apply(out, a.changes.ownerFix);
+    });
+  } catch (_) {}
+  return out;
+}
+async function _v240UndoOwnerFix(batchId) {
+  if (_v240Busy) return;
+  if (!isAdmin()) { toast('Admin only.', 'error'); return; }
+  const rows = _v240BatchMoves(batchId);
+  if (!rows.length) { toast('Nothing recorded for that batch.', 'error'); return; }
+  if (!await showConfirmModal('Put ' + rows.length + ' scheme record' + (rows.length === 1 ? '' : 's')
+      + ' back with the owner they had before?', { danger: true, okLabel: 'Put them back', title: 'Undo correction' })) return;
+  _v240Busy = true;
+  renderAdminSchemeOwners();
+  let back = 0;
+  try {
+    const moves = rows.map(function (r) {
+      const cur = RecordCache.adv.get(r[0]) || {};
+      // null puts back a record that had no owner stamped at all
+      return { key: r[0], fromBy: cur.createdBy || null, toBy: r[1] == null ? null : r[1], fromNgo: cur.ngo || null, toNgo: cur.ngo || null };
+    });
+    for (let i = 0; i < moves.length; i += _V240_CHUNK) {
+      const updates = {};
+      moves.slice(i, i + _V240_CHUNK).forEach(function (m) { updates[FB_NAMESPACE + '/advocacy/' + m.key + '/createdBy'] = m.toBy; back++; });
+      await FB.db.ref().update(updates);
+    }
+    moves.forEach(function (m) { const r = RecordCache.adv.get(m.key); if (r) { if (m.toBy == null) delete r.createdBy; else r.createdBy = m.toBy; } });
+    try {
+      if (typeof _v185ReseatLastMap === 'function') _v185ReseatLastMap('adv');
+      if (typeof _v362QueueSummaryWrite === 'function') _v362QueueSummaryWrite();
+      if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache();
+      if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache();
+    } catch (_) {}
+    auditLog('update', 'advocacy', batchId + '-undo', 'scheme owner correction undone',
+      'Put ' + back + ' scheme record(s) back with their previous owner', null);
+    _v240LastRun = { kind: 'undo', at: Date.now(), n: back };
+    toast(back + ' put back.', 'success', 6000);
+  } catch (e) {
+    toast('Stopped after ' + back + ': ' + ((e && e.message) || e), 'error', 9000);
+  }
+  _v240Busy = false;
+  renderAdminSchemeOwners();
+}
+function renderAdminSchemeOwners() {
+  const el = document.getElementById('content');
+  if (!el) return;
+  if (!isAdmin()) { el.innerHTML = '<div class="empty">Admin only.</div>'; return; }
+  const S = _v240Scan;
+  const back = '<button class="btn btn-sm" onclick="nav(\'admin_users\')">&larr; User Management</button>';
+  let body = '';
+  if (_v240Busy && S && S.progress) {
+    body = '<div style="font-size:15px">Correcting&hellip; ' + S.progress.done.toLocaleString('en-IN') + ' of '
+      + S.progress.total.toLocaleString('en-IN') + '</div>';
+  } else if (!S) {
+    body = '<p style="color:var(--gray2);font-size:13px;margin:0 0 14px">A coordinator\'s phone finds scheme '
+      + 'records by who owns them. When a household is transferred or assigned, its scheme records should go '
+      + 'with it. This finds the ones that did not, and shows you exactly what would change before anything is '
+      + 'written. Partner, donor and office figures do not change.</p>'
+      + '<button class="btn btn-primary btn-sm" onclick="_v240LastRun = null; _v240ScanOwners(); renderAdminSchemeOwners();">Scan</button>';
+  } else if (!S.moves.length) {
+    body = '<div style="font-size:15px">Nothing to correct &mdash; every coordinator\'s households carry their own scheme records.</div>'
+      + '<div style="color:var(--gray2);font-size:13px;margin-top:8px">Looked at ' + S.looked.toLocaleString('en-IN')
+      + ' scheme records. ' + S.orphans + ' belong to a household that no longer exists and were left alone.</div>';
+  } else {
+    const per = Object.values(S.per).sort(function (a, b) { return b.n - a.n; });
+    body = '<div style="font-size:15px;margin-bottom:6px"><b>' + S.moves.length.toLocaleString('en-IN')
+      + '</b> scheme records are held by someone other than the coordinator who owns their household.</div>'
+      + '<div style="color:var(--gray2);font-size:13px;margin-bottom:14px">Looked at ' + S.looked.toLocaleString('en-IN')
+      + ' scheme records. ' + S.orphans + ' belong to a household that no longer exists and are left alone.</div>'
+      + '<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Coordinator who gains them</th><th>Partner</th>'
+      + '<th style="text-align:center">Scheme records</th></tr></thead><tbody>'
+      + per.map(function (p) { return '<tr><td>' + escHtml(p.name) + '</td><td>' + escHtml(p.ngo)
+          + '</td><td style="text-align:center">' + p.n + '</td></tr>'; }).join('')
+      + '</tbody></table></div>'
+      + '<div style="background:#FFFBEB;border:1px solid #F59E0B;border-radius:8px;padding:10px 12px;color:#78350F;'
+      + 'font-size:13px;margin:14px 0">Only the owner changes. Each coordinator sees them after their next daily '
+      + 'check or Refresh. Partner, donor and office figures stay the same.</div>'
+      + '<button class="btn btn-primary btn-sm" onclick="_v240RunOwnerFix()">Correct ' + S.moves.length.toLocaleString('en-IN') + '</button>';
+  }
+  let doneHtml = '';
+  if (_v240LastRun && !_v240Busy) {
+    const L = _v240LastRun, good = L.kind !== 'stopped';
+    const line = L.kind === 'undo' ? L.n.toLocaleString('en-IN') + ' scheme records put back with their previous owner.'
+      : L.kind === 'stopped' ? 'Stopped after ' + L.n.toLocaleString('en-IN') + '. ' + escHtml(L.why || '')
+      : L.n.toLocaleString('en-IN') + ' scheme records now belong to the coordinator who owns their household.';
+    doneHtml = '<div style="background:' + (good ? '#ECFDF5' : '#FEF2F2') + ';border:1px solid ' + (good ? '#10B981' : '#EF4444')
+      + ';border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:13px;color:' + (good ? '#065F46' : '#7F1D1D') + '">'
+      + '<b>' + (good ? '\u2713 Done' : 'Stopped') + '</b> &mdash; ' + line
+      + (L.batchId && L.kind !== 'undo' ? ' <button class="btn btn-sm" style="margin-left:8px" onclick="_v240UndoOwnerFix(\'' + L.batchId + '\')">Put them back</button>' : '')
+      + '</div>';
+  }
+  el.innerHTML = _adminSecurityBanner() + '<div class="card"><div class="card-head"><div class="card-title">Scheme records by coordinator</div>'
+    + back + '</div><div style="padding:16px">' + doneHtml + body + '</div></div>';
+}
+
 function renderAdminStampFix() {
   const el = document.getElementById('content');
   if (!el) return;
