@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V24.2-LIVE
+  KRSF Beneficiary Impact Tracker  -  V24.3-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,21 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V24.3-LIVE (2026-09-27 - "which households?" fetches what it lists; check for missing).
+
+    + V24.2's button said "0 fetched, 3 could not be found" for 3 Idar
+      households that ARE in the database: 457 scheme records of households
+      deleted in June, re-sent by a stale phone on 21/24 Sep with fresh save
+      times, took all 50 places at every start. The net now counts a scheme
+      record as recent by its rows (application or benefit dated this week),
+      newest first; a household the database lacks is remembered and not asked
+      again; the button asks for exactly the households it lists and says what
+      happened (fetched / deleted / offline / still loading).
+    + Bandwidth page: "Check for missing households" - manual; the ID lists
+      (~3.2 + 4.5 MB), compared; only the missing fetched (~1 KB each). Finds
+      livelihood-only households too. Never writes the database.
+    + Tests: 90 files. v243 recreates the 460 and is red on V24.2.
+
   V24.2-LIVE (2026-09-27 - every save carries the database's own time).
 
     + A household saved on a weak signal reached the database after the
@@ -4587,7 +4602,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V24.2-LIVE';
+const APP_VERSION = 'V24.3-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -25310,35 +25325,82 @@ window._v207TodayByNgo = _v207TodayByNgo;
 // Normally there are none, and it reads nothing at all.
 const _V242_MAX = 50, _V242_DAYS = 7;
 const _v242Tried = new Set();
+// ⛔ V24.3: "RECENT" MEANS AN APPLICATION OR BENEFIT DATED THIS WEEK, not a
+// fresh save time. 27 Sep: 457 scheme records of households deleted in June had
+// been re-sent by a stale phone on 21 and 24 Sep - fresh save times, rows from
+// May. The net spent all 50 places on them at every start and never reached the
+// 3 real households behind them. None of the 609 such records has a row dated
+// in the last 7 days.
+function _v243RowDay(a) {
+  let d = '';
+  (a && a.schemeRows || []).forEach(function (r) {
+    if (!r) return;
+    if (typeof r._aAt === 'string' && r._aAt > d) d = r._aAt;
+    if (typeof r._bAt === 'string' && r._bAt > d) d = r._bAt;
+  });
+  return d;
+}
 function _v242Missing(onlyToday) {
   const out = [];
   if (!RecordCache || !RecordCache.adv || !RecordCache.benef) return out;
-  const since = Date.now() - _V242_DAYS * 86400000, today = (typeof _istDate === 'function') ? _istDate() : '';
+  const today = _istDate(), since = _istDate(Date.now() - _V242_DAYS * 86400000);
   RecordCache.adv.forEach(function (a) {
     if (!a || !a.bid || RecordCache.benef.has(a.bid)) return;
+    const day = _v243RowDay(a);
     if (onlyToday) {
       if (!(a.schemeRows || []).some(function (r) { return r && (r._aAt === today || r._bAt === today); })) return;
-    } else if (_v19SaneStamp(a._lastEditedAt) < since) return;
-    out.push(a);
+    } else if (!day || day < since) return;
+    out.push({ a: a, day: day, at: _v19SaneStamp(a._lastEditedAt) });
   });
-  return out;
+  // newest first, so a cap never keeps the latest behind older ones
+  out.sort(function (x, y) { return x.day < y.day ? 1 : x.day > y.day ? -1 : y.at - x.at; });
+  return out.map(function (o) { return o.a; });
 }
-async function _v242FetchMissingHouseholds(force) {
+// households the database did not have when asked - never asked by the net again
+function _v243AbsentKey() { const u = (typeof currentUser === 'function') ? currentUser() : null; return 'krsf_v243_absent_' + ((u && u.userId) || ''); }
+function _v243Absent() {
+  try { const m = JSON.parse(localStorage.getItem(_v243AbsentKey()) || '{}'); return (m && typeof m === 'object') ? m : {}; } catch (_) { return {}; }
+}
+function _v243NoteAbsent(none, found) {
+  if (!none.length && !found.length) return;
+  try {
+    const m = _v243Absent();
+    none.forEach(function (id) { m[id] = Date.now(); });
+    found.forEach(function (id) { delete m[id]; });
+    const k = Object.keys(m);
+    if (k.length > 5000) k.sort(function (x, y) { return m[x] - m[y]; }).slice(0, k.length - 5000).forEach(function (x) { delete m[x]; });
+    localStorage.setItem(_v243AbsentKey(), JSON.stringify(m));
+  } catch (_) {}
+}
+async function _v242FetchMissingHouseholds(force, onlyIds) {
   const u = (typeof currentUser === 'function') ? currentUser() : null;
-  if (!u || u.role !== 'admin' || !FB || !FB.db || !FB.online) return { fetched: 0, tried: 0 };
-  if (!FB.benefReplayComplete || !FB.advReplayComplete) return { fetched: 0, tried: 0 };
-  const want = [];
-  _v242Missing(false).forEach(function (a) { if (want.indexOf(a.bid) < 0 && (force || !_v242Tried.has(a.bid))) want.push(a.bid); });
+  const none0 = { fetched: 0, tried: 0, absent: 0, failed: 0, left: 0 };
+  if (!u || u.role !== 'admin') return Object.assign({ refused: 'admin' }, none0);
+  if (!FB || !FB.db || !FB.online) return Object.assign({ refused: 'offline' }, none0);
+  if (!FB.benefReplayComplete || !FB.advReplayComplete) return Object.assign({ refused: 'loading' }, none0);
+  const want = [], seen = new Set();
+  if (Array.isArray(onlyIds)) {
+    // V24.3: the button asks for exactly the households it listed
+    onlyIds.forEach(function (id) { if (id && !seen.has(id) && !RecordCache.benef.has(id)) { seen.add(id); want.push(id); } });
+  } else {
+    const absent = _v243Absent();
+    _v242Missing(false).forEach(function (a) {
+      if (!seen.has(a.bid) && !absent[a.bid] && (force || !_v242Tried.has(a.bid))) { seen.add(a.bid); want.push(a.bid); }
+    });
+  }
   const ids = want.slice(0, _V242_MAX);
-  if (!ids.length) return { fetched: 0, tried: 0 };
-  const got = [];
+  if (!ids.length) return none0;
+  const got = [], none = [];
+  let failed = 0;
   await Promise.all(ids.map(async function (id) {
     _v242Tried.add(id);
     try {
       const v = (await fbRef('beneficiaries/' + id).once('value')).val();
       if (v && typeof v === 'object') { if (!v.id) v.id = id; got.push(v); }
-    } catch (_) {}
+      else none.push(id);
+    } catch (_) { failed++; }
   }));
+  _v243NoteAbsent(none, got.map(function (b) { return b.id; }));
   if (got.length) {
     if (!FB.lastBenef) FB.lastBenef = {};
     got.forEach(function (b) { RecordCache.benef.set(b.id, b); FB.lastBenef[b.id] = fbHash(b); });
@@ -25356,7 +25418,7 @@ async function _v242FetchMissingHouseholds(force) {
     try { renderCurrentView(); } catch (_) {}
     console.log('[V24.2] fetched ' + got.length + ' household(s) this laptop had missed: ' + got.map(function (b) { return b.id; }).join(', '));
   }
-  return { fetched: got.length, tried: ids.length };
+  return { fetched: got.length, tried: ids.length, absent: none.length, failed: failed, left: want.length - ids.length };
 }
 // the dash row: which households, and fetch them
 async function _v242ShowUnplaced() {
@@ -25371,9 +25433,21 @@ async function _v242ShowUnplaced() {
     + '\n\nFetch ' + (list.length === 1 ? 'it' : 'them') + ' now? About 1 KB each; nothing is changed in the database.',
     { okLabel: 'Fetch ' + (list.length === 1 ? 'it' : 'them'), cancelLabel: 'Close', title: 'Records without a partner' });
   if (!go) return;
-  const r = await _v242FetchMissingHouseholds(true);
-  const left = _v242Missing(true).length;
-  toast(r.fetched + ' household' + (r.fetched === 1 ? '' : 's') + ' fetched.' + (left ? ' ' + left + ' could not be found in the database.' : ''), left ? 'warn' : 'success', 7000);
+  const r = await _v242FetchMissingHouseholds(true, list.map(function (a) { return a.bid; }));
+  // ⛔ V24.3: SAY WHAT HAPPENED. V24.2 said "could not be found in the database"
+  // about households it had never asked for.
+  if (r.refused) {
+    toast(r.refused === 'offline' ? 'Nothing fetched - this laptop is offline. Connect to the internet and try again.'
+      : r.refused === 'loading' ? 'Nothing fetched yet - this laptop is still loading its records. Try again in a minute.'
+      : 'Admin only.', 'warn', 8000);
+    return;
+  }
+  const pl = function (n, one, many) { return n + ' ' + (n === 1 ? one : many); };
+  toast(pl(r.fetched, 'household', 'households') + ' fetched.'
+    + (r.absent ? ' ' + pl(r.absent, 'is', 'are') + ' not in the database - the household was deleted; its scheme record is a leftover.' : '')
+    + (r.failed ? ' ' + pl(r.failed, 'could', 'could') + ' not be reached - try again.' : '')
+    + (r.left ? ' ' + r.left + ' more - press "which households?" again.' : ''),
+    (r.absent || r.failed || r.left) ? 'warn' : 'success', 9000);
 }
 function _v401TodayScopeLabel() {
   const n = (typeof ngoFilter !== 'undefined' && ngoFilter) ? String(ngoFilter) : '';
@@ -32309,6 +32383,16 @@ async function renderAdminBandwidth() {
     html += '<button type="button" id="v241-fresh-btn" onclick="_v241FreshCopy()" ';
     html += 'style="padding:10px 18px;border:none;border-radius:6px;background:#047857;color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font);white-space:nowrap">';
     html += 'Download fresh copy</button>';
+    html += '</div>';
+    // V24.3: find what this laptop is missing without downloading everything
+    html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:12px;background:#EFF6FF;border:1px solid #93C5FD;border-radius:8px;flex-wrap:wrap">';
+    html += '<div style="font-size:12px;color:#1E3A8A;flex:1;min-width:200px">';
+    html += '<b>This laptop only: check for missing households</b><br>';
+    html += 'Downloads the list of record IDs only (about 8 MB), compares it with this laptop and fetches just the households and scheme records it is missing - livelihood and schemes alike. Nothing in the database changes.';
+    html += '</div>';
+    html += '<button type="button" id="v243-check-btn" onclick="_v243CheckMissing()" ';
+    html += 'style="padding:10px 18px;border:none;border-radius:6px;background:#1D4ED8;color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font);white-space:nowrap">';
+    html += 'Check for missing households</button>';
     html += '</div>';
     // V359: admin "Push fresh data to all FCs" button. Sets a fleet-wide
     // refresh-signal timestamp. Each FC's app on next login does a smart-check
@@ -43666,6 +43750,108 @@ function renderAdminSchemeOwners() {
 // deletes this laptop's saved records and downloads them all again, once, and
 // only when pressed. Nothing in the database changes.
 function _v241Reload() { location.reload(); }
+// ── V24.3: CHECK FOR MISSING HOUSEHOLDS ──────────────────────────────────
+// The safety net can only see a household that a scheme record points to. A
+// household with livelihood work only has nothing pointing at it, so this
+// laptop cannot know it is missing without asking. This asks once, cheaply:
+// the ID lists alone (shallow - no record contents), then each missing record
+// by its ID. Manual only - it never runs by itself. It only ADDS what the
+// database has; it never removes anything here and never writes the database.
+let _v243Busy = false;
+async function _v243ShallowKeys(coll) {
+  const cu = FB.auth && FB.auth.currentUser;
+  const tok = (cu && typeof cu.getIdToken === 'function') ? await cu.getIdToken() : null;
+  const url = FB_CONFIG.databaseURL + '/' + FB_NAMESPACE + '/' + coll + '.json?shallow=true' + (tok ? '&auth=' + tok : '');
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error('the ' + (coll === 'advocacy' ? 'scheme record' : 'household') + ' list could not be read (' + resp.status + ')');
+  const j = await resp.json();
+  return (j && typeof j === 'object') ? Object.keys(j) : [];
+}
+async function _v243CheckMissing() {
+  if (_v243Busy) return;
+  if (!isAdmin()) { toast('Admin only.', 'error'); return; }
+  const u = (typeof currentUser === 'function') ? currentUser() : null;
+  if (!u || !u.userId) return;
+  if (!FB || !FB.db || !FB.online) { toast('You are offline. Connect to the internet first.', 'warn', 6000); return; }
+  if (!FB.benefReplayComplete || !FB.advReplayComplete) {
+    toast('Still loading the records. Wait until the app has finished syncing, then check.', 'warn', 8000);
+    return;
+  }
+  if (!await showConfirmModal('Check this laptop for missing households and scheme records?\n\n'
+      + 'The app downloads the list of record IDs only - about 8 MB, once - and compares it with this laptop. '
+      + 'Anything missing is then fetched one by one, about 1 KB each. Nothing in the database changes, and no other laptop or phone is affected.',
+      { okLabel: 'Check now', title: 'Missing households' })) return;
+  _v243Busy = true;
+  try {
+    toast('Checking...', 'info', 5000);
+    const both = await Promise.all([_v243ShallowKeys('beneficiaries'), _v243ShallowKeys('advocacy')]);
+    const bk = both[0], ak = both[1];
+    const mb = bk.filter(function (id) { return !RecordCache.benef.has(id); });
+    const ma = ak.filter(function (k) { return !RecordCache.adv.has(k); });
+    const nf = function (n) { return Number(n).toLocaleString('en-IN'); };
+    if (!mb.length && !ma.length) {
+      toast('Nothing missing. This laptop holds every one of the ' + nf(bk.length) + ' households and ' + nf(ak.length) + ' scheme records in the database.', 'success', 10000);
+      return;
+    }
+    if (mb.length + ma.length > 5000) {
+      await showConfirmModal(nf(mb.length) + ' households and ' + nf(ma.length) + ' scheme records are missing from this laptop - too many to fetch one by one. '
+        + 'Use "Download fresh copy" instead.', { okLabel: 'OK', cancelLabel: 'Close', title: 'Missing households' });
+      return;
+    }
+    if (!await showConfirmModal(nf(mb.length) + ' household' + (mb.length === 1 ? '' : 's') + ' and ' + nf(ma.length) + ' scheme record' + (ma.length === 1 ? '' : 's')
+        + ' are in the database but not on this laptop.\n\nFetch them now? About ' + Math.max(1, Math.round((mb.length + ma.length) * 1.1)) + ' KB. Nothing in the database changes.',
+        { okLabel: 'Fetch them', title: 'Missing households' })) return;
+    const read = async function (coll, id) {
+      try { return (await fbRef(coll + '/' + id).once('value')).val(); } catch (_) { return undefined; }
+    };
+    let gotB = 0, gotA = 0, failed = 0;
+    for (let i = 0; i < mb.length; i += 25) {
+      const part = mb.slice(i, i + 25);
+      const vals = await Promise.all(part.map(function (id) { return read('beneficiaries', id); }));
+      vals.forEach(function (r) {
+        if (r === undefined) { failed++; return; }
+        if (!r || !r.id) return;                     // gone meanwhile - the catch-up's own rule
+        // ⛔ the cache and its "last sent" map change together (a surplus last
+        // entry becomes a real delete on the next save)
+        RecordCache.benef.set(r.id, r);
+        if (!FB.lastBenef) FB.lastBenef = {};
+        FB.lastBenef[r.id] = fbHash(r);
+        gotB++;
+      });
+    }
+    for (let i = 0; i < ma.length; i += 25) {
+      const part = ma.slice(i, i + 25);
+      const vals = await Promise.all(part.map(function (k) { return read('advocacy', k); }));
+      vals.forEach(function (raw, j) {
+        if (raw === undefined) { failed++; return; }
+        if (!raw) return;
+        const record = fbStampAdvKey(Object.assign({}, raw));
+        const key = record.__fbk || part[j];
+        RecordCache.adv.set(key, record);
+        if (!FB.lastAdv) FB.lastAdv = {};
+        FB.lastAdv[key] = fbHash(record);
+        gotA++;
+      });
+    }
+    // the whole set, verified - the same saved-copy write the catch-ups make
+    if (gotB) { try { await _v192VerifiedPantryWrite('benef', u.userId, function () { return _pantryWrite(u.userId, Array.from(RecordCache.benef.values())); }); } catch (_) {} }
+    if (gotA) { try { await _v192VerifiedPantryWrite('adv', u.userId, function () { return _advPantryWrite(u.userId, Array.from(RecordCache.adv.values())); }); } catch (_) {} }
+    if (gotB || gotA) {
+      try { if (typeof _v357DataVersion !== 'undefined') _v357DataVersion = (_v357DataVersion || 0) + 1; } catch (_) {}
+      try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch (_) {}
+      try { if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache(); } catch (_) {}
+      try { renderCurrentView(); } catch (_) {}
+    }
+    console.log('[V24.3] check: ' + gotB + ' household(s) and ' + gotA + ' scheme record(s) fetched' + (failed ? ', ' + failed + ' not reached' : ''));
+    toast(nf(gotB) + ' household' + (gotB === 1 ? '' : 's') + ' and ' + nf(gotA) + ' scheme record' + (gotA === 1 ? '' : 's') + ' fetched.'
+      + (failed ? ' ' + nf(failed) + ' could not be reached - check again.' : ''), failed ? 'warn' : 'success', 10000);
+  } catch (e) {
+    toast('Could not check: ' + ((e && e.message) || e), 'error', 9000);
+  } finally {
+    _v243Busy = false;
+  }
+}
+
 async function _v241FreshCopy() {
   if (!isAdmin()) { toast('Admin only.', 'error'); return; }
   const u = (typeof currentUser === 'function') ? currentUser() : null;
