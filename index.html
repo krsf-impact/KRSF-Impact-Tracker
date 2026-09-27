@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V24.0-LIVE
+  KRSF Beneficiary Impact Tracker  -  V24.1-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,32 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V24.1-LIVE (2026-09-27 - owner changes reach every copy; fresh copy; Excel dates).
+
+    + V24.0 wrote a scheme record's new owner with no edit time, so no other
+      laptop or partner login ever fetched it, and this laptop reopened on its
+      old copy (4,043 again; incognito showed 0). A save from such a copy put
+      the old owner back. The owner now travels with an edit time, this
+      laptop's copy is rewritten at once, and each coordinator who gains or
+      loses records gets the marker their daily check reads.
+    + Bandwidth Usage: "Download fresh copy" - this laptop only, once, refuses
+      while anything is waiting to be saved.
+    + The importer read an Excel date (46143) as the year 46143 - all 511
+      SeSTA households. It and the endline sheet now read the day it stands
+      for; "Dates saved as numbers" (Import Data) corrects the saved ones,
+      with a way back.
+    + Bulk Update Scheme Status froze the page on apply (a search of every
+      household for every scheme record, then a copy and re-save of all 1.5
+      lakh scheme records). It now looks households up, copies only the
+      records in scope and saves only the ones it changed; its per-household
+      undo does the same. And it had NEVER saved: its undo note was keyed by
+      each row's remarks, a blank remark is an empty key, and Firebase refuses
+      the whole write (no record in the 26 Sep export carries a note). The
+      note is now a list; an older keyed note still reads.
+    + Tests: 88 files. v241 is red on V24.0 and on 17 broken copies; it runs
+      Guru's case - 243 rows with no remarks to Benefits Received at the
+      scheme's amount - and 9,157 rows on the whole database.
+
   V24.0-LIVE (2026-09-26 - scheme records follow their household's coordinator).
 
     + Transfer, Bulk Assign, Reassign and deleting a user moved the household
@@ -661,37 +687,6 @@
       ticked, signed in as its coordinator; the first three stocked at
       sign-in, offline enrolments in two of them saved and sent, the fourth
       refused. V21.7 fails 6 of them; 4/4 mutants killed.
-
-  V21.7-LIVE (2026-09-17 - a phone that signs in and leaves signal is carrying numbers).
-
-    + WHAT GURU SAW. Signed in as a KRSF.Vadali coordinator, switched mobile
-      data off, filled in an enrolment: "This phone needs the internet once
-      before it can save without a signal." The live export taken sixteen
-      minutes after that sign-in shows the Gujarat counter never moved.
-
-    + ⛔ THE STOCK REQUEST GAVE UP BEFORE IT ASKED. Firebase runs a
-      transaction's function first with the value the phone already holds -
-      null unless something keeps that path in memory - and asks the server
-      only if that first call returns a value. The top-up returned nothing on
-      null, which aborts for good. So a phone set numbers aside only in the
-      moments after an online enrolment had fetched the counter: in the
-      export, about thirty coordinator phones took a block of 25, nearly every
-      one in the same second as an online enrolment by the same person.
-
-    + THE FIX. Read the counter first (a few bytes, only when the stock is
-      low). If it exists, the transaction offers a value built on it, the
-      server refuses because the phone's copy was empty, and Firebase runs it
-      again with the server's own number. A missing counter is still refused
-      (V20.2), and a read that never answers burns nothing and pauses a minute.
-
-    + ⛔ WHY NO TEST SAW IT. The sandbox handed the server value to the first
-      call, which the real SDK never does. It now behaves like the SDK. v214
-      had even been reloading whenever the stock request "raced the sandbox"
-      - that race was this bug.
-
-    + Tests: 68 files. v217.js is new - 32 checks, signed in as a coordinator,
-      enrolling offline through the real form. V21.6 fails 14 of them; 6/6
-      mutants of this build killed.
 
   ============================================================================
   Everything before this point lives in CHANGELOG.md, beside this file.
@@ -3514,6 +3509,7 @@ body[data-shell="coord"] .coord-card {
          as Move Records Between Partners above. The button stays in the markup
          so nav() can mark it active while the page is open. -->
     <button data-admin-only data-sidebar-hidden="true" class="nav-btn" data-v="admin_scheme_owners" onclick="nav('admin_scheme_owners')" style="display:none">Scheme records by coordinator</button><!-- V24.0 -->
+    <button data-admin-only data-sidebar-hidden="true" class="nav-btn" data-v="admin_date_fix" onclick="nav('admin_date_fix')" style="display:none">Dates saved as numbers</button><!-- V24.1 -->
     <button data-admin-only data-sidebar-hidden="true" class="nav-btn" data-v="admin_partner_stamps" onclick="nav('admin_partner_stamps')" style="display:none">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 5h8M7 2l3 3-3 3"/><path d="M14 11H6M9 8l-3 3 3 3"/></svg>
       Scheme records by partner
@@ -4598,7 +4594,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V24.0-LIVE';
+const APP_VERSION = 'V24.1-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -29042,7 +29038,7 @@ function renderReports() {
 }
 
 // ── Nav ───────────────────────────────────────────────────────────────────
-const _navRoutes_v32={reports:renderReports,dashboard:renderDashboard,beneficiaries:renderAllBeneficiaries,list:renderLivelihood,ngo:renderNGO,alerts:renderAlerts,map:renderMap,integrated:renderIntegrated,advocacy:renderAdvocacy,admin_partners:renderAdminPartners,admin_users:renderAdminUsers,admin_livelihoods:renderAdminLivelihoods,admin_schemes:renderAdminSchemes,admin_audit:renderAdminAuditLog,admin_import:renderAdminImport,admin_photo_migration:renderAdminPhotoMigration,admin_advocacy_backfill:renderAdminAdvocacyBackfill,admin_dedup_ids:renderAdminDedupIds,admin_delete_dupes:renderAdminDeleteDupes,admin_scheme_rename:renderAdminSchemeRename,admin_user_import:renderAdminUserImport,admin_partner_stamps:renderAdminStampFix,admin_scheme_owners:renderAdminSchemeOwners,admin_partner_move:renderAdminPartnerMove,admin_bandwidth:renderAdminBandwidth};
+const _navRoutes_v32={reports:renderReports,dashboard:renderDashboard,beneficiaries:renderAllBeneficiaries,list:renderLivelihood,ngo:renderNGO,alerts:renderAlerts,map:renderMap,integrated:renderIntegrated,advocacy:renderAdvocacy,admin_partners:renderAdminPartners,admin_users:renderAdminUsers,admin_livelihoods:renderAdminLivelihoods,admin_schemes:renderAdminSchemes,admin_audit:renderAdminAuditLog,admin_import:renderAdminImport,admin_photo_migration:renderAdminPhotoMigration,admin_advocacy_backfill:renderAdminAdvocacyBackfill,admin_dedup_ids:renderAdminDedupIds,admin_delete_dupes:renderAdminDeleteDupes,admin_scheme_rename:renderAdminSchemeRename,admin_user_import:renderAdminUserImport,admin_partner_stamps:renderAdminStampFix,admin_scheme_owners:renderAdminSchemeOwners,admin_date_fix:renderAdminDateFix,admin_partner_move:renderAdminPartnerMove,admin_bandwidth:renderAdminBandwidth};
 
 // ── V357: tab-render cache (admin Lite Mode) ──────────────────────────────
 // Memoises each _navRoutes_v32 renderer's output keyed on
@@ -29368,7 +29364,7 @@ window.nav=function(v){
   const mobKey=mobMap[v];
   document.querySelectorAll('.mob-nav-item').forEach(b=>b.classList.remove('active'));
   if (mobKey) { const mb=document.getElementById('mob-nav-'+mobKey); if(mb)mb.classList.add('active'); }
-  const titles={dashboard:'Dashboard',beneficiaries:'All Beneficiaries',list:'Livelihood',ngo:'NGO Partners',alerts:'Alerts & Flags',map:'Field Map',integrated:'Integrated View',advocacy:'Advocacy',admin_partners:'Partner Management',admin_users:'User Management',admin_livelihoods:'Livelihood Management',admin_schemes:'Advocacy Management',admin_audit:'Audit Log',admin_partner_move:'Move Records Between Partners',admin_bandwidth:'Bandwidth Usage',reports:'Reports',admin_import:'Import Data',admin_photo_migration:'Photo Migration',admin_advocacy_backfill:'Advocacy Backfill',admin_dedup_ids:'Duplicate IDs',admin_delete_dupes:'Delete Duplicates',admin_scheme_rename:'Rename a Scheme',admin_user_import:'Import Users',admin_partner_stamps:'Scheme Records by Partner',admin_scheme_owners:'Scheme Records by Coordinator'};
+  const titles={dashboard:'Dashboard',beneficiaries:'All Beneficiaries',list:'Livelihood',ngo:'NGO Partners',alerts:'Alerts & Flags',map:'Field Map',integrated:'Integrated View',advocacy:'Advocacy',admin_partners:'Partner Management',admin_users:'User Management',admin_livelihoods:'Livelihood Management',admin_schemes:'Advocacy Management',admin_audit:'Audit Log',admin_partner_move:'Move Records Between Partners',admin_bandwidth:'Bandwidth Usage',reports:'Reports',admin_import:'Import Data',admin_photo_migration:'Photo Migration',admin_advocacy_backfill:'Advocacy Backfill',admin_dedup_ids:'Duplicate IDs',admin_delete_dupes:'Delete Duplicates',admin_scheme_rename:'Rename a Scheme',admin_user_import:'Import Users',admin_partner_stamps:'Scheme Records by Partner',admin_scheme_owners:'Scheme Records by Coordinator',admin_date_fix:'Dates Saved as Numbers'};
   // For NGO logins the "ngo" page shows their team (FCs), not partners — retitle.
   const _navUser = (typeof currentUser === 'function') ? currentUser() : null;
   if (v === 'ngo' && _navUser && (_navUser.role === 'ngo' || _navUser.role === 'scopedViewerByFc')) titles.ngo = 'Team Report';
@@ -31420,16 +31416,21 @@ async function applyBulkStatusUpdate() {
   const batchId = 'BSU-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,7);
 
   // Load fresh, mutate, save once
-  const adv = loadAdv();
+  // (V24.1: only the records in scope are copied - see below)
   const visible = getData();
   const visibleIdSet = new Set(visible.map(b => b.id));
+  // ⛔ V24.1: A LOOKUP, NOT A SEARCH. visible.find() below ran once per scheme
+  // record in the database - 1.5 lakh searches of 1.5 lakh households - and
+  // froze the page for minutes on 243 MMUA rows (26 Sep). Same answer.
+  const _v241ById = new Map();
+  visible.forEach(b => { if (b && b.id && !_v241ById.has(b.id)) _v241ById.set(b.id, b); });
   // Re-apply the exact same scope filter so user-edits between preview and
   // apply don't slip records out of scope. (Belt and braces.)
   const ngoFilter = document.getElementById('bulkstatus-ngo').value;
   const coordFilter = document.getElementById('bulkstatus-coord').value;
   const villageQ = document.getElementById('bulkstatus-village').value.trim().toLowerCase();
   const inScopeBid = bid => {
-    const b = visible.find(x => x.id === bid);
+    const b = _v241ById.get(bid);
     if (!b) return false;
     if (ngoFilter && b.ngo !== ngoFilter) return false;
     if (coordFilter && (b.createdByName || b.coord || '') !== coordFilter) return false;
@@ -31451,18 +31452,24 @@ async function applyBulkStatusUpdate() {
   };
   const storedTarget = mapToStored(target);
 
+  // ⛔ V24.1: COPIES OF ONLY THE RECORDS THIS CAN CHANGE. The full cloning
+  // reader copied all 1.5 lakh scheme records here and the whole list was then
+  // compared and re-saved. Same records, same changes - only the ones in scope
+  // are copied, and only the ones changed are saved.
+  const adv = _v241AdvCopies(r => visibleIdSet.has(r.bid) && inScopeBid(r.bid)
+    && (r.schemeRows || []).some(x => x && !x._deleted && x.scheme === sch && normStatus(x) === sourceStatus));
   let touchedRecords = 0, touchedRows = 0;
   const perBidAudit = [];
   adv.forEach(rec => {
     if (!visibleIdSet.has(rec.bid)) return;
     if (!inScopeBid(rec.bid)) return;
-    const rowsBefore = {};
+    const rowsBefore = [];   // V24.1: a list - see _v241RowBefore
     // ⛔ V21.0: rowsBefore holds only the three fields undo needs, keyed by
     // remarks. The stamper needs the WHOLE rows as they were, so take a
     // shallow copy of each before the loop below mutates them.
     const _v210Before = (rec.schemeRows || []).map(function (r) { return Object.assign({}, r); });
     let changedHere = 0;
-    (rec.schemeRows || []).forEach(r => {
+    (rec.schemeRows || []).forEach((r, _v241i) => {
       if (!r || r._deleted) return;
       if (r.scheme !== sch) return;
       if (normStatus(r) !== sourceStatus) return;
@@ -31470,11 +31477,12 @@ async function applyBulkStatusUpdate() {
       // applications (i-Khedut tractor + rotavator) under the same scheme
       // survive undo without collision.
       const rowKey = (r.remarks || '');
-      rowsBefore[rowKey] = {
+      rowsBefore.push({
+        i: _v241i, k: rowKey,   // V24.1: the row's place and remarks, as values
         status: r.status,
         benefitRecd: r.benefitRecd || 'No',
         benefitAmt: Number(r.benefitAmt) || 0,
-      };
+      });
       // Apply the new status
       r.status = storedTarget.status;
       r.benefitRecd = storedTarget.benefitRecd;
@@ -31526,12 +31534,13 @@ async function applyBulkStatusUpdate() {
     return;
   }
 
-  if (!await _trySave(() => saveAdv(adv), 'bulk status update')) return;
+  // V24.1: only the records this batch changed
+  if (!await _trySave(() => _v241SaveAdvRecords(adv.filter(r => r._preBulkStatusSnapshot && r._preBulkStatusSnapshot.batchId === batchId)), 'bulk status update')) return;
 
   // Per-beneficiary audit entries (so admin can find "what happened to
   // beneficiary X" in the trail later) + one summary entry.
   perBidAudit.forEach(({ bid, n }) => {
-    const b = visible.find(x => x.id === bid);
+    const b = _v241ById.get(bid);
     auditLog('bulk_status_update', 'beneficiary', bid, b ? b.name : bid,
       `Bulk: ${sch} (${n} row${n===1?'':'s'}) ${sourceStatus} → ${target} · batch ${batchId}`,
       { schemeStatus: [sourceStatus, target] });
@@ -31546,6 +31555,15 @@ async function applyBulkStatusUpdate() {
   try { updateAlertBadge(); } catch(_) {}
 }
 
+// V24.1: one row's undo note. A list since V24.1 (the row's place and remarks
+// are values, never keys); an older note keyed by remarks still reads.
+function _v241RowBefore(rb, i, key) {
+  if (Array.isArray(rb)) {
+    return rb.find(x => x && x.i === i && x.k === key) || rb.find(x => x && x.k === key) || null;
+  }
+  return (rb && typeof rb === 'object' && Object.prototype.hasOwnProperty.call(rb, key)) ? rb[key] : null;
+}
+
 // Per-record undo. Called from the banner inside the drawer. Restores the
 // schemeRow values stamped in _preBulkStatusSnapshot.rowsBefore.
 async function _undoBulkStatusForBeneficiary(bid) {
@@ -31553,7 +31571,8 @@ async function _undoBulkStatusForBeneficiary(bid) {
   // things simple and conservative: admin OR the role-class that owns
   // this scope (same boundary as the apply).
   if (!_canBulkStatusUpdate()) { toast('Permission denied.', 'error'); return; }
-  const adv = loadAdv();
+  // V24.1: copies of this household's records only (was every scheme record)
+  const adv = _v241AdvCopies(r => r.bid === bid && r._preBulkStatusSnapshot);
   // There may be multiple advocacy records under one bid (e.g. one per
   // scheme set); only those carrying a snapshot are restorable.
   const targets = adv.filter(r => r.bid === bid && r._preBulkStatusSnapshot);
@@ -31572,11 +31591,11 @@ async function _undoBulkStatusForBeneficiary(bid) {
     // drops _bAt from any row that is no longer at Benefits Received, so
     // running it after the restore takes the date back off.
     const _v210Before = (rec.schemeRows || []).map(function (r) { return Object.assign({}, r); });
-    (rec.schemeRows || []).forEach(r => {
+    (rec.schemeRows || []).forEach((r, _v241i) => {
       if (!r || r._deleted) return;
       if (r.scheme !== s.scheme) return;
       const key = (r.remarks || '');
-      const before = s.rowsBefore[key];
+      const before = _v241RowBefore(s.rowsBefore, _v241i, key);   // V24.1
       if (!before) return; // wasn't part of the batch
       r.status = before.status;
       r.benefitRecd = before.benefitRecd;
@@ -31588,9 +31607,9 @@ async function _undoBulkStatusForBeneficiary(bid) {
     delete rec._preBulkStatusSnapshot;
   });
 
-  if (!await _trySave(() => saveAdv(adv), 'undo bulk status update')) return;
+  if (!await _trySave(() => _v241SaveAdvRecords(targets), 'undo bulk status update')) return;   // V24.1
 
-  const b = (loadData().find(x => x.id === bid)) || {};
+  const b = RecordCache.benef.get(bid) || {};   // V24.1: was a copy of every household
   auditLog('bulk_status_undo', 'beneficiary', bid, b.name || bid,
     `Undo bulk status: batch ${snap.batchId}, scheme ${snap.scheme}, ${snap.toStatus} → ${snap.fromStatus} on ${restored} row${restored===1?'':'s'}.`,
     null);
@@ -32189,6 +32208,16 @@ async function renderAdminBandwidth() {
       html += '<option value="' + d + '"' + (d===selectedDate ? ' selected' : '') + '>' + d + '</option>';
     }
     html += '</select></div>';
+    // V24.1: this laptop only - kept apart from the fleet buttons below
+    html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:12px;background:#ECFDF5;border:1px solid #6EE7B7;border-radius:8px;flex-wrap:wrap">';
+    html += '<div style="font-size:12px;color:#065F46;flex:1;min-width:200px">';
+    html += '<b>This laptop only: download a fresh copy</b><br>';
+    html += 'Deletes this laptop\'s saved records and downloads them all again, once. Use it when this laptop shows something the database does not. No other laptop or phone is affected.';
+    html += '</div>';
+    html += '<button type="button" id="v241-fresh-btn" onclick="_v241FreshCopy()" ';
+    html += 'style="padding:10px 18px;border:none;border-radius:6px;background:#047857;color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font);white-space:nowrap">';
+    html += 'Download fresh copy</button>';
+    html += '</div>';
     // V359: admin "Push fresh data to all FCs" button. Sets a fleet-wide
     // refresh-signal timestamp. Each FC's app on next login does a smart-check
     // (~50 bytes) and only refetches if data actually changed. Use this after
@@ -41291,10 +41320,15 @@ function _validateImportRows() {
       if (!v) return '';
       const s = String(v).trim();
       if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+      // ⛔ V24.1: an Excel date cell arrives as a count of days (46143 is
+      // 1 May 2026). The fallback below read it as the YEAR 46143.
+      const _v241d = _v241SerialDate(v);
+      if (_v241d) return _v241d;
       // Try Date parsing as a fallback
       const d = new Date(s);
       if (!isNaN(d.getTime())) {
         const y = d.getFullYear();
+        if (y < 1970 || y > 2099) return null;   // V24.1: not a year anyone meant
         const m = String(d.getMonth() + 1).padStart(2, '0');
         const dd = String(d.getDate()).padStart(2, '0');
         return `${y}-${m}-${dd}`;
@@ -43235,23 +43269,46 @@ function _v240SchemeMovesFor(households) {
 }
 // Writes owner (and partner) fields only, in batches, then makes this device's
 // copy agree with what was written.
+// ⛔ V24.1: AND WHEN. Every laptop and partner login brings its saved copy up to
+// date by asking "what was edited after X". V24.0 wrote the owner with no edit
+// time, so none of them ever heard about it - Guru's own browser, reopened,
+// still counted 4,043 after the correction and an incognito window counted 0 -
+// and a save from such a copy puts the old owner back, because a record is
+// saved whole. Server time, the same clock every other save uses.
 async function _v240WriteSchemeMoves(moves, onChunk) {
   let n = 0;
+  const who = new Set();
+  const me = (typeof currentUser === 'function') ? currentUser() : null;
+  const by = me ? (me.username || me.userId || 'admin') : 'admin';
+  // ⛔ ONLY RECORDS THIS DEVICE STILL HOLDS. A path written under a record
+  // that has gone would bring back a record holding nothing but these fields.
+  moves = (moves || []).filter(function (m) { return m && m.key && RecordCache.adv.has(m.key); });
   for (let i = 0; i < moves.length; i += _V240_CHUNK) {
     const slice = moves.slice(i, i + _V240_CHUNK);
+    const at = (typeof _v19ServerNow === 'function') ? _v19ServerNow() : Date.now();
     const updates = {};
     slice.forEach(function (m) {
-      if (m.fromBy !== m.toBy) updates[FB_NAMESPACE + '/advocacy/' + m.key + '/createdBy'] = m.toBy;
-      if (m.fromNgo !== m.toNgo) updates[FB_NAMESPACE + '/advocacy/' + m.key + '/ngo'] = m.toNgo;
+      const p = FB_NAMESPACE + '/advocacy/' + m.key + '/';
+      if (m.fromBy !== m.toBy) updates[p + 'createdBy'] = m.toBy;
+      if (m.fromNgo !== m.toNgo) updates[p + 'ngo'] = m.toNgo;
+      updates[p + '_lastEditedAt'] = at;
+      updates[p + '_lastEditedBy'] = by;
+      if (m.fromBy) who.add(m.fromBy);
+      if (m.toBy) who.add(m.toBy);
     });
-    if (Object.keys(updates).length) await FB.db.ref().update(updates);
+    await FB.db.ref().update(updates);
     slice.forEach(function (m) {
       const r = RecordCache.adv.get(m.key);
-      if (r) { r.createdBy = m.toBy; if (m.toNgo) r.ngo = m.toNgo; }
+      if (!r) return;
+      if (m.toBy == null) delete r.createdBy; else r.createdBy = m.toBy;
+      if (m.toNgo) r.ngo = m.toNgo;
+      r._lastEditedAt = at;
+      r._lastEditedBy = by;
     });
     n += slice.length;
     if (onChunk) { try { onChunk(slice, n); } catch (_) {} }
   }
+  if (!n) return 0;
   // ⛔ WITHOUT THIS the next whole-array save rewrites them from an old copy -
   // see _v185ReseatLastMap's own header.
   try {
@@ -43260,7 +43317,67 @@ async function _v240WriteSchemeMoves(moves, onChunk) {
     if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache();
     if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache();
   } catch (_) {}
+  await _v241AfterOwnerWrite(Array.from(who));
   return n;
+}
+// V24.1: the two things an owner change owes everyone else, after the write.
+//  - THIS device's saved copy, now: it is what the next sign-in here starts
+//    from, and the sync after it only asks for what changed since.
+//  - each coordinator who gained or lost records: the ~50-byte marker their
+//    daily check reads, so the phone fetches its own records again once.
+async function _v241AfterOwnerWrite(uids) {
+  await _v241SaveAdvCopy();
+  try {
+    const coords = new Set((loadUsers() || []).filter(function (x) { return x && x.role === 'coordinator'; })
+      .map(function (x) { return x.id; }));
+    const ids = Array.from(new Set(uids || [])).filter(function (id) { return coords.has(id); });
+    if (ids.length && typeof _v359UpdateFcMeta === 'function') await _v359UpdateFcMeta(ids);
+  } catch (e) { console.warn('[V24.1] coordinator markers not written:', e && e.message); }
+}
+// V24.1: this device's saved scheme records, rewritten from what it now holds.
+// A coordinator's phone reopens from this copy and does not ask the database
+// for scheme changes, so anything written without it is gone on that phone.
+async function _v241SaveAdvCopy() {
+  const u = (typeof currentUser === 'function') ? currentUser() : null;
+  if (!u || !u.userId) return;
+  try {
+    const write = function () {
+      const all = Array.from(RecordCache.adv.values());
+      return FB.advCachePartial ? _advPantryMerge(u.userId, all) : _advPantryWrite(u.userId, all);
+    };
+    await _v192VerifiedPantryWrite('adv', u.userId, write);
+  } catch (e) { console.warn('[V24.1] the saved copy was not rewritten:', e && e.message); }
+}
+// V24.1: saves ONLY these scheme records - each whole, with an edit time -
+// the way adminUpdateSchemeBenefits and the scheme-name migration already do.
+// ⛔ Not saveAdv(whole list): that copies and compares every scheme record
+// (the minute Bulk Update Scheme Status froze for on 26 Sep), and a
+// whole-list save is what V320 removed elsewhere because it can bring back a
+// record another device deleted.
+async function _v241SaveAdvRecords(recs) {
+  const stamped = (recs || []).filter(Boolean).map(fbStampAdvKey);
+  if (!stamped.length) return 0;
+  const cacheSet = function (rec) { if (rec && rec.__fbk) RecordCache.adv.set(rec.__fbk, rec); };
+  const n = await fbWriteChangedRecords('advocacy', stamped, '__fbk', 'lastAdv', cacheSet);
+  _advLatestRowsCache = null; _advLatestRowsCacheLen = -1;
+  _v202FullRowsCache = null; _v202FullRowsCacheLen = -1;
+  try {
+    if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache();
+    if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache();
+    if (typeof _v362QueueSummaryWrite === 'function') _v362QueueSummaryWrite();
+  } catch (_) {}
+  await _v241SaveAdvCopy();
+  return n;
+}
+// V24.1: COPIES of the scheme records that pass keep() - the cloning reader,
+// narrowed. The full one copies all 1.5 lakh records to change a few hundred.
+// ⛔ A copy, never the record itself: a mutator that edits the cache in place
+// and then fails to save leaves the screen showing what the database refused.
+function _v241AdvCopies(keep) {
+  if (typeof _ensureCachePrimed === 'function') _ensureCachePrimed();
+  const out = [];
+  for (const r of RecordCache.adv.values()) { if (r && keep(r)) out.push(JSON.parse(JSON.stringify(r))); }
+  return out;
 }
 // Called by the four tools right after the households themselves are saved.
 // A failure here never undoes the household move; the screen below finishes it.
@@ -43381,18 +43498,8 @@ async function _v240UndoOwnerFix(batchId) {
       // null puts back a record that had no owner stamped at all
       return { key: r[0], fromBy: cur.createdBy || null, toBy: r[1] == null ? null : r[1], fromNgo: cur.ngo || null, toNgo: cur.ngo || null };
     });
-    for (let i = 0; i < moves.length; i += _V240_CHUNK) {
-      const updates = {};
-      moves.slice(i, i + _V240_CHUNK).forEach(function (m) { updates[FB_NAMESPACE + '/advocacy/' + m.key + '/createdBy'] = m.toBy; back++; });
-      await FB.db.ref().update(updates);
-    }
-    moves.forEach(function (m) { const r = RecordCache.adv.get(m.key); if (r) { if (m.toBy == null) delete r.createdBy; else r.createdBy = m.toBy; } });
-    try {
-      if (typeof _v185ReseatLastMap === 'function') _v185ReseatLastMap('adv');
-      if (typeof _v362QueueSummaryWrite === 'function') _v362QueueSummaryWrite();
-      if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache();
-      if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache();
-    } catch (_) {}
+    // V24.1: the same write as the correction - edit time, saved copy, markers
+    back = await _v240WriteSchemeMoves(moves);
     auditLog('update', 'advocacy', batchId + '-undo', 'scheme owner correction undone',
       'Put ' + back + ' scheme record(s) back with their previous owner', null);
     _v240LastRun = { kind: 'undo', at: Date.now(), n: back };
@@ -43452,6 +43559,227 @@ function renderAdminSchemeOwners() {
       + '</div>';
   }
   el.innerHTML = _adminSecurityBanner() + '<div class="card"><div class="card-head"><div class="card-title">Scheme records by coordinator</div>'
+    + back + '</div><div style="padding:16px">' + doneHtml + body + '</div></div>';
+}
+
+// =============================================================================
+// V24.1 - THIS LAPTOP'S SAVED COPY, DOWNLOADED AGAIN
+// =============================================================================
+// A laptop brings its saved copy up to date by asking for what changed since
+// the newest edit it holds, less five minutes. A record that reaches the
+// database later than that with an older edit time - a phone that saved
+// offline and sent it hours later - is never asked for, and the copy stays
+// short of it for good: on 26 Sep a household missing from Guru's copy put a
+// dash in Today by partner, and an incognito window did not have it. This
+// deletes this laptop's saved records and downloads them all again, once, and
+// only when pressed. Nothing in the database changes.
+function _v241Reload() { location.reload(); }
+async function _v241FreshCopy() {
+  if (!isAdmin()) { toast('Admin only.', 'error'); return; }
+  const u = (typeof currentUser === 'function') ? currentUser() : null;
+  if (!u || !u.userId) return;
+  if (!FB || !FB.online) { toast('You are offline. Connect to the internet first.', 'warn', 6000); return; }
+  // ⛔ NOT OVER UNSENT WORK. The waiting line lives beside the saved copy; it is
+  // not deleted, but a copy downloaded while it is still sending would not have
+  // it yet. A failed listing counts as waiting.
+  let waiting = FB.pendingWrites || 0;
+  try { const ids = await _v196OutboxIds(u.userId); waiting += (ids === null) ? 1 : ids.length; } catch (_) { waiting++; }
+  if (waiting > 0) {
+    toast('Something on this laptop is still being saved. Wait until everything shows as saved, then try again.', 'warn', 8000);
+    return;
+  }
+  const n = RecordCache.benef.size + RecordCache.adv.size;
+  let bytes = 0, seen = 0, i = 0;
+  const probe = function (r) { if (r && (i++ % 97) === 0) { bytes += JSON.stringify(r).length; seen++; } };
+  RecordCache.benef.forEach(probe); RecordCache.adv.forEach(probe);
+  const mb = Math.max(1, Math.round((seen ? bytes / seen : 560) * n / 1e6));
+  if (!await showConfirmModal('Download a fresh copy of every record to this laptop?\n\n'
+      + 'This laptop\'s saved copy is deleted and the app downloads all ' + n.toLocaleString('en-IN')
+      + ' records again - about ' + mb + ' MB, once. Nothing in the database changes, and no other laptop or phone is affected.\n\n'
+      + 'Use it only when this laptop shows something the database does not.',
+      { okLabel: 'Download fresh copy', title: 'This laptop\'s saved copy' })) return;
+  try {
+    await _pantryClear(u.userId);
+    await _advPantryClear(u.userId);
+  } catch (e) {
+    toast('Could not delete the saved copy: ' + ((e && e.message) || e), 'error', 8000);
+    return;
+  }
+  toast('Downloading a fresh copy...', 'info', 4000);
+  setTimeout(_v241Reload, 300);
+}
+
+// =============================================================================
+// V24.1 - DATES THAT ARRIVED FROM EXCEL AS NUMBERS
+// =============================================================================
+// Excel keeps a date as a count of days (46143 is 1 May 2026). The importer
+// read that number as a YEAR and saved "46143-01-01" - all 511 SeSTA
+// households on 26 Sep. The day it stands for is exact, so it is put back
+// exactly: only these two dates, only where they have that shape.
+function _v241SerialDate(v) {
+  const t = String(v == null ? '' : v).trim();
+  const n = (typeof v === 'number') ? v : (/^\d{5}(\.\d+)?$/.test(t) ? Number(t) : NaN);
+  if (!isFinite(n) || n < 25569 || n > 73050) return null;      // 1 Jan 1970 - 31 Dec 2099
+  return new Date(Date.UTC(1899, 11, 30) + Math.floor(n) * 86400000).toISOString().slice(0, 10);
+}
+const _V241_DATE_FIELDS = { inProgressDate: 'Intervention started', endlineDate: 'Endline' };
+let _v241DateScan = null, _v241DateBusy = false, _v241DateLast = null;
+function _v241ScanDates() {
+  const rows = [];
+  const all = (typeof _loadDataRaw === 'function') ? _loadDataRaw() : loadData();
+  all.forEach(function (b) {
+    if (!b || !b.id) return;
+    Object.keys(_V241_DATE_FIELDS).forEach(function (f) {
+      const v = b[f];
+      const m = (typeof v === 'string') ? /^(\d{5})-01-01$/.exec(v) : null;
+      const to = m ? _v241SerialDate(m[1]) : null;
+      if (to) rows.push({ id: b.id, name: b.name || '', ngo: b.ngo || '', field: f, from: v, to: to });
+    });
+  });
+  _v241DateScan = { at: Date.now(), rows: rows };
+  return _v241DateScan;
+}
+// changes one date per row on a fresh copy of the households, then one save
+async function _v241WriteDates(rows, want) {
+  const byId = new Map();
+  rows.forEach(function (r) { if (!byId.has(r[0])) byId.set(r[0], []); byId.get(r[0]).push(r); });
+  const data = loadData();
+  const done = [];
+  data.forEach(function (b) {
+    const rs = b && byId.get(b.id);
+    if (!rs) return;
+    rs.forEach(function (r) {
+      // ⛔ only a date still exactly as found - never over a later edit
+      if (b[r[1]] !== want(r, 'now')) return;
+      b[r[1]] = want(r, 'new');
+      done.push(r);
+    });
+  });
+  if (!done.length) return { ok: true, done: done };
+  const ok = await _trySave(function () { return saveData(data); }, 'date correction');
+  return { ok: ok, done: ok ? done : [] };
+}
+async function _v241RunDateFix() {
+  if (_v241DateBusy) return;
+  if (!isAdmin()) { toast('Admin only.', 'error'); return; }
+  if (!(FB && FB.benefReplayComplete)) {
+    toast('Still loading the records. Wait until the app has finished syncing.', 'warn', 8000);
+    return;
+  }
+  const S = _v241ScanDates();
+  if (!S.rows.length) { renderAdminDateFix(); toast('Nothing to correct.', 'info'); return; }
+  const hh = new Set(S.rows.map(function (r) { return r.id; })).size;
+  if (!await showConfirmModal('Correct ' + S.rows.length.toLocaleString('en-IN') + ' date' + (S.rows.length === 1 ? '' : 's')
+      + ' on ' + hh.toLocaleString('en-IN') + ' household' + (hh === 1 ? '' : 's') + '?\n\nEach becomes the day Excel meant '
+      + '(for example the year 46143 becomes 1 May 2026). Nothing else on these households changes, and they can be put back.',
+      { okLabel: 'Correct them', title: 'Dates saved as numbers' })) return;
+  _v241DateBusy = true;
+  renderAdminDateFix();
+  const batchId = 'df-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const rows = S.rows.map(function (r) { return [r.id, r.field, r.from, r.to]; });
+  let res = { ok: false, done: [] };
+  try {
+    res = await _v241WriteDates(rows, function (r, which) { return which === 'now' ? r[2] : r[3]; });
+  } catch (e) { res = { ok: false, done: [], why: (e && e.message) || String(e) }; }
+  if (res.ok && res.done.length) {
+    // the way back travels in the audit entry, 250 dates to an entry
+    for (let i = 0; i < res.done.length; i += 250) {
+      auditLog('update', 'beneficiary', batchId, 'date correction',
+        'Corrected ' + Math.min(250, res.done.length - i) + ' date(s) that arrived from Excel as numbers',
+        { dateFix: res.done.slice(i, i + 250) });
+    }
+  }
+  _v241DateLast = res.ok ? { kind: 'run', n: res.done.length, batchId: batchId, rows: res.done }
+                         : { kind: 'stopped', n: 0, why: res.why || 'the save did not go through' };
+  _v241DateBusy = false;
+  _v241DateScan = null;
+  renderAdminDateFix();
+}
+async function _v241UndoDateFix(batchId) {
+  if (_v241DateBusy) return;
+  if (!isAdmin()) { toast('Admin only.', 'error'); return; }
+  let rows = (_v241DateLast && _v241DateLast.batchId === batchId) ? _v241DateLast.rows : [];
+  if (!rows.length) {
+    try {
+      (loadAudit() || []).forEach(function (a) {
+        if (a && a.recordId === batchId && a.changes && Array.isArray(a.changes.dateFix)) rows = rows.concat(a.changes.dateFix);
+      });
+    } catch (_) {}
+  }
+  if (!rows.length) { toast('Nothing recorded for that batch.', 'error'); return; }
+  if (!await showConfirmModal('Put ' + rows.length + ' date' + (rows.length === 1 ? '' : 's') + ' back as they were?',
+      { danger: true, okLabel: 'Put them back', title: 'Undo date correction' })) return;
+  _v241DateBusy = true;
+  renderAdminDateFix();
+  let res = { ok: false, done: [] };
+  try {
+    res = await _v241WriteDates(rows, function (r, which) { return which === 'now' ? r[3] : r[2]; });
+  } catch (e) { res = { ok: false, done: [] }; }
+  if (res.ok) auditLog('update', 'beneficiary', batchId + '-undo', 'date correction undone',
+    'Put ' + res.done.length + ' date(s) back as they were', null);
+  _v241DateLast = { kind: res.ok ? 'undo' : 'stopped', n: res.done.length, why: res.ok ? '' : 'the save did not go through' };
+  _v241DateBusy = false;
+  renderAdminDateFix();
+}
+// shown on Import Data only while there is something to correct
+function _v241DateBanner() {
+  let n = 0;
+  try { n = _v241ScanDates().rows.length; } catch (_) { return ''; }
+  if (!n) return '';
+  return '<div style="background:#FFFBEB;border:1px solid #F59E0B;border-radius:8px;padding:12px 14px;color:#78350F;'
+    + 'font-size:13px;margin-bottom:18px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">'
+    + '<div style="flex:1;min-width:220px"><b>' + n.toLocaleString('en-IN') + ' date' + (n === 1 ? '' : 's')
+    + ' saved as a number.</b> An earlier import read Excel dates as years (for example 46143 instead of 1 May 2026).</div>'
+    + '<button class="btn btn-sm" id="v241-dates-btn" onclick="nav(\'admin_date_fix\')">Review and correct</button></div>';
+}
+function renderAdminDateFix() {
+  const el = document.getElementById('content');
+  if (!el) return;
+  if (!isAdmin()) { el.innerHTML = '<div class="empty">Admin only.</div>'; return; }
+  const back = '<button class="btn btn-sm" onclick="nav(\'admin_import\')">&larr; Import Data</button>';
+  let body = '';
+  if (_v241DateBusy) {
+    body = '<div style="font-size:15px">Saving&hellip;</div>';
+  } else {
+    const S = _v241ScanDates();
+    if (!S.rows.length) {
+      body = '<div style="font-size:15px">Nothing to correct &mdash; no household has a date saved as a number.</div>';
+    } else {
+      const hh = new Set(S.rows.map(function (r) { return r.id; })).size;
+      const per = {};
+      S.rows.forEach(function (r) { per[r.ngo] = (per[r.ngo] || 0) + 1; });
+      body = '<div style="font-size:15px;margin-bottom:6px"><b>' + S.rows.length.toLocaleString('en-IN') + '</b> date'
+        + (S.rows.length === 1 ? '' : 's') + ' on <b>' + hh.toLocaleString('en-IN') + '</b> household' + (hh === 1 ? '' : 's')
+        + ' were saved as a number instead of a day.</div>'
+        + '<div style="color:var(--gray2);font-size:13px;margin-bottom:14px">'
+        + Object.keys(per).sort().map(function (k) { return escHtml(k || 'No partner') + ': ' + per[k]; }).join(' &middot; ')
+        + '</div>'
+        + '<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Household</th><th>Date</th><th>Saved as</th><th>Will be</th></tr></thead><tbody>'
+        + S.rows.slice(0, 50).map(function (r) {
+            return '<tr><td>' + escHtml(r.name) + ' <span style="color:var(--gray2);font-size:11px">' + escHtml(r.id) + '</span></td><td>'
+              + escHtml(_V241_DATE_FIELDS[r.field]) + '</td><td>' + escHtml(r.from) + '</td><td><b>' + escHtml(fmtD(r.to)) + '</b></td></tr>';
+          }).join('')
+        + '</tbody></table></div>'
+        + (S.rows.length > 50 ? '<div style="color:var(--gray2);font-size:12px;margin-top:6px">&hellip;and '
+            + (S.rows.length - 50).toLocaleString('en-IN') + ' more, corrected the same way.</div>' : '')
+        + '<div style="background:#FFFBEB;border:1px solid #F59E0B;border-radius:8px;padding:10px 12px;color:#78350F;'
+        + 'font-size:13px;margin:14px 0">Only these dates change. Nothing else on the households changes, and every figure stays the same.</div>'
+        + '<button class="btn btn-primary btn-sm" onclick="_v241RunDateFix()">Correct ' + S.rows.length.toLocaleString('en-IN') + '</button>';
+    }
+  }
+  let doneHtml = '';
+  if (_v241DateLast && !_v241DateBusy) {
+    const L = _v241DateLast, good = L.kind !== 'stopped';
+    const line = L.kind === 'undo' ? L.n.toLocaleString('en-IN') + ' dates put back as they were.'
+      : L.kind === 'stopped' ? 'Nothing was saved. ' + escHtml(L.why || '')
+      : L.n.toLocaleString('en-IN') + ' dates corrected.';
+    doneHtml = '<div style="background:' + (good ? '#ECFDF5' : '#FEF2F2') + ';border:1px solid ' + (good ? '#10B981' : '#EF4444')
+      + ';border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:13px;color:' + (good ? '#065F46' : '#7F1D1D') + '">'
+      + '<b>' + (good ? '\u2713 Done' : 'Stopped') + '</b> &mdash; ' + line
+      + (L.kind === 'run' && L.batchId ? ' <button class="btn btn-sm" style="margin-left:8px" onclick="_v241UndoDateFix(\'' + L.batchId + '\')">Put them back</button>' : '')
+      + '</div>';
+  }
+  el.innerHTML = _adminSecurityBanner() + '<div class="card"><div class="card-head"><div class="card-title">Dates saved as numbers</div>'
     + back + '</div><div style="padding:16px">' + doneHtml + body + '</div></div>';
 }
 
@@ -43702,6 +44030,7 @@ function renderAdminImport() {
           Upload a CSV or Excel file to create multiple beneficiary records in one batch.
           Admin only. Use the downloaded template to ensure column names match exactly.
         </p>
+        ${_v241DateBanner()}
 
         <!-- V4.2: advisory banner removed — importer is now fully aligned
              with the V4 schema. -->
@@ -44473,6 +44802,8 @@ function _validateEndlineRows() {
       // Accept YYYY-MM-DD; warn (not error) for other formats — we'll fall back to today
       if (/^\d{4}-\d{2}-\d{2}$/.test(entryDate)) {
         dateClean = entryDate;
+      } else if (_v241SerialDate(entryDate)) {
+        dateClean = _v241SerialDate(entryDate);   // V24.1: an Excel date cell
       } else {
         return { rowNum: idx + 2, id, parsed: null, status: 'error', reason: `entryDate "${entryDate}" must be YYYY-MM-DD format`, beforeIncome: b.endIncome, afterIncome: null };
       }
