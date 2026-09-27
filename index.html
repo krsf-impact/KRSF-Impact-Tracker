@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V24.1-LIVE
+  KRSF Beneficiary Impact Tracker  -  V24.2-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,21 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V24.2-LIVE (2026-09-27 - every save carries the database's own time).
+
+    + A household saved on a weak signal reached the database after the
+      office laptop had caught up past the time the phone stamped on it, and
+      was never fetched (27 Sep: 3 KRSF.Idar households, their schemes under a
+      dash in Today by partner). Every save - ordinary, targeted, owner moves,
+      deletion markers - now sends ServerValue.TIMESTAMP, so the stamp is the
+      moment it ARRIVES. The device keeps its own estimate, as before. Nothing
+      listens to these records, so nothing extra is downloaded.
+    + Admin safety net: a household whose scheme record changed in the last 7
+      days but which the laptop lacks is fetched by ID (max 50, once each).
+    + The dash row in Today by partner: "which households?" lists them and
+      fetches them.
+    + Tests: 89 files. v242 recreates the late arrival and is red on V24.1.
+
   V24.1-LIVE (2026-09-27 - owner changes reach every copy; fresh copy; Excel dates).
 
     + V24.0 wrote a scheme record's new owner with no edit time, so no other
@@ -665,28 +680,6 @@
       ⛔ Four of my own false starts first: a wrong ready gate, an unanswered
       native confirm, 139,422 scheme records served to a phone that holds 40,
       and a card sitting on page two of ten.
-
-  V21.8-LIVE (2026-09-17 - offline numbers for every state ticked on the partner).
-
-    + WHAT GURU ASKED. "If I have ticked three states, then?" A phone set
-      numbers aside for ONE state only, so a coordinator of a two- or
-      three-state partner could enrol offline in just one of them.
-
-    + ⛔ AND NOT EVEN THE FIRST ONE TICKED. The partner's comma-joined state
-      was handed to _v196CodeForState, which returns the first name in
-      ALL_STATE_NAMES it finds - and that list puts Maharashtra before
-      Gujarat. Ticking Maharashtra on a Gujarat partner quietly swapped a new
-      phone's stock from Gujarat to Maharashtra.
-
-    + NOW every ticked state, in the order the partner form saves them
-      (alphabetical), up to the existing cap of three. Each costs one tiny
-      counter read and one write when its stock runs low. 566 of 569
-      coordinators belong to a one-state partner and see no change at all.
-
-    + Tests: 69 files. v218.js is new - 19 checks: a partner with four states
-      ticked, signed in as its coordinator; the first three stocked at
-      sign-in, offline enrolments in two of them saved and sent, the fourth
-      refused. V21.7 fails 6 of them; 4/4 mutants killed.
 
   ============================================================================
   Everything before this point lives in CHANGELOG.md, beside this file.
@@ -4594,7 +4587,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V24.1-LIVE';
+const APP_VERSION = 'V24.2-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -7256,6 +7249,7 @@ async function _advAdminIncrementalSync() {
     else console.warn('[V19] admin advocacy pantry write failed - tombstone watermark held back');
     console.log('[V347] admin adv sync: +' + added + ' / -' + removed +
                 (_pantryOkAdminA ? '' : ' [V19 tombstone watermark held back]'));
+    try { await _v242FetchMissingHouseholds(); } catch (_) {}   // V24.2
     return { ok: true, added, removed };
   } catch (e) {
     console.warn('[V347] admin adv sync failed:', e);
@@ -10893,12 +10887,12 @@ async function fbSyncCollection(coll, newArr, idField, lastMapRef) {
   }
   // Build multi-path update
   const updates = {};
-  for (const w of diff.writes) updates[`${FB_NAMESPACE}/${coll}/${w.id}`] = w.value;
+  for (const w of diff.writes) updates[`${FB_NAMESPACE}/${coll}/${w.id}`] = _v242Payload(w.value);   // V24.2
   for (const d of diff.deletes) {
     updates[`${FB_NAMESPACE}/${coll}/${d}`] = null;
     // V347: tombstone the delete so incremental syncs propagate it.
     if (coll === 'beneficiaries' || coll === 'advocacy') {
-      updates[`${FB_NAMESPACE}/tombstones/${coll}/${d}`] = { ts: Date.now() };
+      updates[`${FB_NAMESPACE}/tombstones/${coll}/${d}`] = { ts: _v242SrvTime() || Date.now() };   // V24.2: when it ARRIVES
       // V371 [Guard 2]: audit log entry for sync-path deletes too. Previously
       // only the explicit delete UI called auditLog(); this sync path bypassed
       // it, leaving zero forensic trail when sync silently tombstoned records.
@@ -10930,6 +10924,28 @@ async function fbSyncCollection(coll, newArr, idField, lastMapRef) {
     FB.pendingWrites--;
     fbUpdatePill();
   }
+}
+
+// ── V24.2: THE DATABASE WRITES THE TIME ──────────────────────────────────
+// Every device finds "what changed" by asking for records stamped after the
+// newest one it holds (less five minutes). A phone on a weak signal stamped a
+// household at 4:50 and it reached the database later, by when Guru's laptop
+// had caught up to 5:17 - so the laptop never asked for it (27 Sep,
+// KRSF-GJ-163483..163485). The SENT copy now carries ServerValue.TIMESTAMP:
+// the database puts in the moment the record ARRIVES. The device keeps its own
+// estimate in memory and in its saved copy, exactly as before.
+// ⛔ Nothing listens to beneficiaries or advocacy (every read is a one-off
+// fetch), so no resolved value is ever sent back: not one extra byte.
+function _v242SrvTime() {
+  try {
+    if (window.firebase && firebase.database && firebase.database.ServerValue) return firebase.database.ServerValue.TIMESTAMP;
+  } catch (_) {}
+  return null;
+}
+// what is SENT - a copy, so the record held here never carries the placeholder
+function _v242Payload(rec) {
+  const sv = _v242SrvTime();
+  return (sv && rec && typeof rec === 'object') ? Object.assign({}, rec, { _lastEditedAt: sv }) : rec;
 }
 
 // ── V320: targeted per-record write (for migrations) ──────────────────────
@@ -10970,7 +10986,7 @@ async function fbWriteChangedRecords(coll, changed, idField, lastMapRef, cacheSe
     // the delta fetch could not find it. The queue makes this reachable,
     // because such a phone can now save at all.
     rec._lastEditedAt = (typeof _v19ServerNow === 'function') ? _v19ServerNow() : now;
-    updates[`${FB_NAMESPACE}/${coll}/${id}`] = rec;
+    updates[`${FB_NAMESPACE}/${coll}/${id}`] = _v242Payload(rec);   // V24.2
   }
   const ids = Object.keys(updates);
   if (ids.length === 0) return 0;
@@ -25250,8 +25266,10 @@ function _v207TodayByNgo(opts) {
              benefits: a.benefits + r.benefits, liv: a.liv + r.liv };
   }, { enrolled: 0, applied: 0, benefits: 0, liv: 0 });
   const body = rows.map(function (r) {
+    // V24.2: the dash row says which households it is
+    const _v242Dash = r.ngo === '\u2014' && u.role === 'admin';
     return '<tr>'
-      + '<td style="' + TDL + '">' + esc(r.ngo) + '</td>'
+      + '<td style="' + TDL + '">' + esc(r.ngo) + (_v242Dash ? ' <a href="#" id="v242-show" onclick="_v242ShowUnplaced();return false" style="font-size:11px;margin-left:6px;color:var(--blue,#1d4ed8)">which households?</a>' : '') + '</td>'
       + '<td style="' + TD + '">' + n(r.enrolled) + '</td>'
       + '<td style="' + TD + '">' + n(r.applied) + '</td>'
       + '<td style="' + TD + '">' + n(r.benefits) + '</td>'
@@ -25283,6 +25301,80 @@ function _v207TodayByNgo(opts) {
     + '<div style="font-size:10px;color:var(--gray2);margin-top:8px;line-height:1.5">' + note + '</div></div>';
 }
 window._v207TodayByNgo = _v207TodayByNgo;
+
+// ── V24.2: households this laptop is missing ─────────────────────────────
+// A scheme record edited in the last 7 days whose household this laptop does
+// not hold: the household reached the database late and the catch-up passed
+// it by. Each is fetched by its ID (about 1 KB), at most 50 a time, each tried
+// once a session - one that has really gone stays gone and is not asked again.
+// Normally there are none, and it reads nothing at all.
+const _V242_MAX = 50, _V242_DAYS = 7;
+const _v242Tried = new Set();
+function _v242Missing(onlyToday) {
+  const out = [];
+  if (!RecordCache || !RecordCache.adv || !RecordCache.benef) return out;
+  const since = Date.now() - _V242_DAYS * 86400000, today = (typeof _istDate === 'function') ? _istDate() : '';
+  RecordCache.adv.forEach(function (a) {
+    if (!a || !a.bid || RecordCache.benef.has(a.bid)) return;
+    if (onlyToday) {
+      if (!(a.schemeRows || []).some(function (r) { return r && (r._aAt === today || r._bAt === today); })) return;
+    } else if (_v19SaneStamp(a._lastEditedAt) < since) return;
+    out.push(a);
+  });
+  return out;
+}
+async function _v242FetchMissingHouseholds(force) {
+  const u = (typeof currentUser === 'function') ? currentUser() : null;
+  if (!u || u.role !== 'admin' || !FB || !FB.db || !FB.online) return { fetched: 0, tried: 0 };
+  if (!FB.benefReplayComplete || !FB.advReplayComplete) return { fetched: 0, tried: 0 };
+  const want = [];
+  _v242Missing(false).forEach(function (a) { if (want.indexOf(a.bid) < 0 && (force || !_v242Tried.has(a.bid))) want.push(a.bid); });
+  const ids = want.slice(0, _V242_MAX);
+  if (!ids.length) return { fetched: 0, tried: 0 };
+  const got = [];
+  await Promise.all(ids.map(async function (id) {
+    _v242Tried.add(id);
+    try {
+      const v = (await fbRef('beneficiaries/' + id).once('value')).val();
+      if (v && typeof v === 'object') { if (!v.id) v.id = id; got.push(v); }
+    } catch (_) {}
+  }));
+  if (got.length) {
+    if (!FB.lastBenef) FB.lastBenef = {};
+    got.forEach(function (b) { RecordCache.benef.set(b.id, b); FB.lastBenef[b.id] = fbHash(b); });
+    // ⛔ THE WHOLE SET, NOT A MERGE: this laptop holds every household (checked
+    // above), and a merge into a missing saved copy would leave a copy of just
+    // these few - which the next start would take for the whole list. The same
+    // verified write the catch-up itself makes after adding records.
+    try {
+      await _v192VerifiedPantryWrite('benef', u.userId,
+        function () { return _pantryWrite(u.userId, Array.from(RecordCache.benef.values())); });
+    } catch (_) {}
+    try { if (typeof _v357DataVersion !== 'undefined') _v357DataVersion = (_v357DataVersion || 0) + 1; } catch (_) {}
+    try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch (_) {}
+    try { if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache(); } catch (_) {}
+    try { renderCurrentView(); } catch (_) {}
+    console.log('[V24.2] fetched ' + got.length + ' household(s) this laptop had missed: ' + got.map(function (b) { return b.id; }).join(', '));
+  }
+  return { fetched: got.length, tried: ids.length };
+}
+// the dash row: which households, and fetch them
+async function _v242ShowUnplaced() {
+  const list = _v242Missing(true);
+  if (!list.length) { toast('Every record today has its household on this laptop now.', 'success', 5000); try { renderCurrentView(); } catch (_) {} return; }
+  const lines = list.slice(0, 20).map(function (a) {
+    return a.bid + ' - ' + (a.bname || 'no name') + (a.ngo ? ' (' + a.ngo + ')' : '') + (a._lastEditedBy ? ', saved by ' + a._lastEditedBy : '');
+  });
+  const more = list.length > 20 ? '\n...and ' + (list.length - 20) + ' more.' : '';
+  const go = await showConfirmModal(list.length + ' scheme record' + (list.length === 1 ? ' was' : 's were') + ' updated today for a household this laptop does not hold yet - '
+    + 'it reached the database after this laptop had caught up.\n\n' + lines.join('\n') + more
+    + '\n\nFetch ' + (list.length === 1 ? 'it' : 'them') + ' now? About 1 KB each; nothing is changed in the database.',
+    { okLabel: 'Fetch ' + (list.length === 1 ? 'it' : 'them'), cancelLabel: 'Close', title: 'Records without a partner' });
+  if (!go) return;
+  const r = await _v242FetchMissingHouseholds(true);
+  const left = _v242Missing(true).length;
+  toast(r.fetched + ' household' + (r.fetched === 1 ? '' : 's') + ' fetched.' + (left ? ' ' + left + ' could not be found in the database.' : ''), left ? 'warn' : 'success', 7000);
+}
 function _v401TodayScopeLabel() {
   const n = (typeof ngoFilter !== 'undefined' && ngoFilter) ? String(ngoFilter) : '';
   const s = (typeof stateFilter !== 'undefined' && stateFilter) ? String(stateFilter) : '';
@@ -43291,7 +43383,7 @@ async function _v240WriteSchemeMoves(moves, onChunk) {
       const p = FB_NAMESPACE + '/advocacy/' + m.key + '/';
       if (m.fromBy !== m.toBy) updates[p + 'createdBy'] = m.toBy;
       if (m.fromNgo !== m.toNgo) updates[p + 'ngo'] = m.toNgo;
-      updates[p + '_lastEditedAt'] = at;
+      updates[p + '_lastEditedAt'] = _v242SrvTime() || at;   // V24.2: the database's time
       updates[p + '_lastEditedBy'] = by;
       if (m.fromBy) who.add(m.fromBy);
       if (m.toBy) who.add(m.toBy);
