@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V24.3-LIVE
+  KRSF Beneficiary Impact Tracker  -  V24.4-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,23 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V24.4-LIVE (2026-09-29 - Hindi on the coordinator forms).
+
+    + Hindi is a third choice on the coordinator's EN / GJ / HI switch: every
+      label, hint, placeholder, button, warning and reminder on the enrolment
+      form, the endline form's text, the success screen, all 36 states and
+      780 district names, and the scheme and livelihood names (Hindi, with
+      the English name small underneath). Admin and viewer screens stay in
+      English. WHAT IS SAVED DOES NOT CHANGE: the app reads scheme and
+      livelihood names off the screen when it saves, so their Hindi is drawn
+      by CSS and the text stays the English name; state and district values
+      stay English. Nothing new is read or written.
+    + The "KRSF" label left the coordinator header to make room for three
+      buttons. Gujarati gains the question numbers the Livelihood reminder
+      refers to, and the scheme-row buttons and titles that were English.
+    + Tests: 91 files. v244 saves the same household in English and in
+      Hindi and compares what is stored.
+
   V24.3-LIVE (2026-09-27 - "which households?" fetches what it lists; check for missing).
 
     + V24.2's button said "0 fetched, 3 could not be found" for 3 Idar
@@ -652,50 +669,6 @@
       rather than by me: the result screen counted the preview after clearing
       it, so it said "0 skipped, 0 refused" whatever the file held.
 
-  V21.9-LIVE (2026-09-18 - a scheme status changed on the card with no signal).
-
-    + WHAT GURU HIT. Enrolled somebody offline (that worked), then tapped the
-      scheme on their card to change its status: "No internet connection."
-      The card path went straight to the server - the scheme FORM has queued
-      since V19.7, this never did. Worse, the new status was already painted,
-      so the card showed a change saved nowhere; it vanished on reload.
-
-    + NOW the card queues exactly as the form does: only the rows that
-      changed travel, merged into the server’s own copy when sent, and an
-      online save still cancels anything waiting for that person. ⛔ If the
-      phone cannot store the change, the card goes BACK to the old status
-      rather than showing one that is saved nowhere.
-
-    + ⛔ AND THE PHONE NOW SAYS WHAT HAS NOT GONE. Guru: "I as an FC cannot
-      know that this beneficiary is still offline." A "Waiting to send" label
-      on the card, a line above the list, and a line on the coordinator’s
-      Reports saying its figures include work still on this phone. All three
-      read one in-memory set - no read, no write - and clear themselves when
-      the sender empties the queue.
-
-    + ⛔ AND THE REVIEW FOUND A LOSS OLDER THAN THIS RELEASE. Every save drops
-      a benefit date this app cannot vouch for - anything filed before the
-      stamping floor, which is every imported row and 94.6% of the data. The
-      queue compared dates, so those untouched rows read as CHANGED, travelled,
-      and were written over whatever the office had recorded meanwhile. On the
-      real export: Rs 77,000 the office entered came back as nothing, on a row
-      the coordinator never opened. A dropped date nobody can vouch for is no
-      longer a change, so the row stays at home. Live since V19.7 through the
-      scheme form; the card would have opened a second door to it.
-
-    + COLOURS. "Saved on phone" was dark brown on amber, on both the button
-      and the message. Both are indigo now, matching the label; other warnings
-      are dark amber text on pale amber instead of near-black on brown.
-
-    + Tests: 70 files. v219.js is new - 36 checks driven through the real card,
-      the real status sheet and the real enrolment form as a COORDINATOR, with
-      a true reload while offline and the office editing the same person in
-      between, and a second person whose history the office edits while the
-      phone is away. V21.8 fails 21 of them; 9 mutants of this build, all killed.
-      ⛔ Four of my own false starts first: a wrong ready gate, an unanswered
-      native confirm, 139,422 scheme records served to a phone that holds 40,
-      and a card sitting on page two of ten.
-
   ============================================================================
   Everything before this point lives in CHANGELOG.md, beside this file.
 -->
@@ -1095,6 +1068,15 @@ html,body{height:100%;font-family:var(--font);background:#EEF2F7;color:var(--tex
    the modal so the next submit proceeds. */
 .inline-warn{background:#FEF3C7;border-left:3px solid #F59E0B;padding:11px 14px;border-radius:7px;margin:10px 0;font-size:13px;line-height:1.5;color:#78350F;display:none}
 .inline-warn.show{display:block}
+/* V24.4: Hindi names beside scheme and livelihood names. The English name stays
+   the element's own text - the app reads it back when it saves - so the Hindi
+   is drawn in ::before and never becomes part of the saved value. */
+body.v244-hi .adv-enroll-name[data-hi]{font-size:11px!important;color:var(--gray2);line-height:1.3}
+body.v244-hi .adv-enroll-name[data-hi]::before{content:attr(data-hi);display:block;font-size:13px;color:var(--ink)}
+body.v244-hi #ichips .ichip[data-hi]{display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:8px;align-items:center;font-size:10.5px;line-height:1.25}
+body.v244-hi #ichips .ichip[data-hi] .ichip-box{grid-column:1;grid-row:1 / span 2}
+body.v244-hi #ichips .ichip[data-hi]::before{content:attr(data-hi);grid-column:2;grid-row:1;font-size:12px}
+body.v244-hi .adv-enroll-toggle{flex-shrink:0;white-space:nowrap}
 .inline-warn-title{font-weight:700;margin-bottom:4px;font-size:13px}
 .inline-warn-actions{display:flex;gap:8px;margin-top:10px}
 .inline-warn-actions button{flex:1;padding:8px 12px;font-size:13px;font-weight:600;border-radius:7px;border:1px solid;cursor:pointer;font-family:var(--font)}
@@ -3118,7 +3100,7 @@ body[data-shell="coord"] .coord-card {
     <header class="coord-header">
       <div class="coord-header-brand">
         <img class="logo-icon" style="width:26px;height:26px;border-radius:6px" src="data:image/jpeg;base64,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" alt="">
-        <span class="coord-header-logo">KRSF</span>
+        <!-- V24.4: the KRSF label made room for EN / GJ / HI; the logo stays -->
         <span class="coord-header-title" id="coord-greeting">Beneficiary Tracker</span>
       </div>
       <div style="display:flex;align-items:center;gap:6px">
@@ -3141,13 +3123,18 @@ body[data-shell="coord"] .coord-card {
              aria-label="Form language">
           <button type="button" id="coord-lang-en" onclick="setLanguageTo('en')"
                   role="tab" aria-selected="false" title="English"
-                  style="border:0;background:transparent;color:#fff;padding:5px 10px;border-radius:17px;cursor:pointer;font-family:var(--font);font-weight:600;font-size:12px;transition:all 0.15s">
+                  style="border:0;background:transparent;color:#fff;padding:5px 8px;border-radius:17px;cursor:pointer;font-family:var(--font);font-weight:600;font-size:12px;transition:all 0.15s">
             EN
           </button>
           <button type="button" id="coord-lang-gu" onclick="setLanguageTo('gu')"
                   role="tab" aria-selected="false" title="ગુજરાતી"
-                  style="border:0;background:transparent;color:#fff;padding:5px 10px;border-radius:17px;cursor:pointer;font-family:var(--font);font-weight:600;font-size:12px;transition:all 0.15s">
+                  style="border:0;background:transparent;color:#fff;padding:5px 8px;border-radius:17px;cursor:pointer;font-family:var(--font);font-weight:600;font-size:12px;transition:all 0.15s">
             GJ
+          </button>
+          <button type="button" id="coord-lang-hi" onclick="setLanguageTo('hi')"
+                  role="tab" aria-selected="false" title="हिन्दी"
+                  style="border:0;background:transparent;color:#fff;padding:5px 8px;border-radius:17px;cursor:pointer;font-family:var(--font);font-weight:600;font-size:12px;transition:all 0.15s">
+            HI
           </button>
         </div>
         <!-- V5.4: icon-only — "Alerts" text label dropped, bell + badge count
@@ -3660,17 +3647,17 @@ body[data-shell="coord"] .coord-card {
          acknowledge before re-submitting (bug #13). -->
     <div class="inline-warn" id="baseline-warn">
       <div class="inline-warn-title"
-           data-en="⚠ Baseline income looks unusually high"
-           data-gu="આ લાભાર્થીની Baseline આવક સામાન્ય કરતાં વધુ છે">⚠ Baseline income looks unusually high</div>
+           data-en="⚠ Baseline income looks unusually high" data-hi="⚠ बेसलाइन आय सामान्य से बहुत अधिक लग रही है"
+           data-gu="આ લાભાર્થીની Baseline આવક સામાન્ય કરતાં વધુ છે">⚠ Baseline income looks unusually high</div>
       <div id="baseline-warn-msg"></div>
       <div style="margin-top:6px;font-size:12px"
-           data-en="Please confirm this figure is correct, or go back and check."
+           data-en="Please confirm this figure is correct, or go back and check." data-hi="कृपया पुष्टि करें कि यह आँकड़ा सही है, या वापस जाकर जाँच करें।"
            data-gu="કૃપા કરીને ખાતરી કરો કે આ આંકડો સાચો છે, અથવા પાછા જઈને તપાસો.">Please confirm this figure is correct, or go back and check.</div>
       <div class="inline-warn-actions">
         <button type="button" class="inline-warn-btn-cancel" onclick="_dismissBaselineWarn()"
-                data-en="Go back to check" data-gu="તપાસવા પાછા જાઓ">Go back to check</button>
+                data-en="Go back to check" data-hi="जाँचने के लिए वापस जाएँ" data-gu="તપાસવા પાછા જાઓ">Go back to check</button>
         <button type="button" class="inline-warn-btn-confirm" onclick="_confirmBaselineWarn()"
-                data-en="Yes, this is correct" data-gu="હા, આ સાચું છે">Yes, this is correct</button>
+                data-en="Yes, this is correct" data-hi="हाँ, यह सही है" data-gu="હા, આ સાચું છે">Yes, this is correct</button>
       </div>
     </div>
     <!-- V4.1: Income-component mismatch banner removed — income is now a single
@@ -3683,19 +3670,19 @@ body[data-shell="coord"] .coord-card {
          distinct person, or go back to fix a typo. -->
     <div class="inline-warn" id="dup-mobile-warn">
       <div class="inline-warn-title"
-           data-en="⚠ This mobile number is already in use"
+           data-en="⚠ This mobile number is already in use" data-hi="⚠ यह मोबाइल नंबर पहले से किसी दूसरे लाभार्थी के नाम दर्ज है"
            data-gu="આ મોબાઈલ નંબરથી અગાઉ અન્ય લાભાર્થી રજિસ્ટર થયેલ છે">⚠ This mobile number is already in use</div>
       <div id="dup-mobile-warn-msg"></div>
       <div style="margin-top:6px;font-size:12px"
-           data-en="Is this the same person, or a different beneficiary who shares this number (e.g. a family member without their own phone)?"
+           data-en="Is this the same person, or a different beneficiary who shares this number (e.g. a family member without their own phone)?" data-hi="क्या यह वही व्यक्ति है, या यही नंबर इस्तेमाल करने वाला कोई दूसरा लाभार्थी है (जैसे परिवार का कोई सदस्य जिसके पास अपना फ़ोन नहीं है)?"
            data-gu="શું આ એ જ વ્યક્તિ છે? કે આ જ નંબર વાપરતા બીજા લાભાર્થી છે (દા.ત. પોતાનો ફોન ન ધરાવતા કુટુંબના સભ્ય)?">Is this the same person, or a different beneficiary who shares this number (e.g. a family member without their own phone)?</div>
       <div class="inline-warn-actions" style="flex-wrap:wrap;gap:6px">
         <button type="button" class="inline-warn-btn-cancel" onclick="_dismissDupMobileWarn()"
-                data-en="Go back to check" data-gu="તપાસવા પાછા જાઓ">Go back to check</button>
+                data-en="Go back to check" data-hi="जाँचने के लिए वापस जाएँ" data-gu="તપાસવા પાછા જાઓ">Go back to check</button>
         <button type="button" class="inline-warn-btn-cancel" onclick="_viewDupMobileExisting()"
-                data-en="View existing beneficiary" data-gu="હાલના લાભાર્થી જુઓ">View existing beneficiary</button>
+                data-en="View existing beneficiary" data-hi="मौजूदा लाभार्थी देखें" data-gu="હાલના લાભાર્થી જુઓ">View existing beneficiary</button>
         <button type="button" class="inline-warn-btn-confirm" onclick="_confirmDupMobileWarn()"
-                data-en="Different person — proceed" data-gu="અલગ વ્યક્તિ — આગળ વધો">Different person — proceed</button>
+                data-en="Different person — proceed" data-hi="अलग व्यक्ति — आगे बढ़ें" data-gu="અલગ વ્યક્તિ — આગળ વધો">Different person — proceed</button>
       </div>
     </div>
     <!-- V326: Soft name+village+NGO duplicate warning. Shown on submit when the
@@ -3704,19 +3691,19 @@ body[data-shell="coord"] .coord-card {
          are possible and a coordinator should be able to override. -->
     <div class="inline-warn" id="dup-name-warn">
       <div class="inline-warn-title"
-           data-en="⚠ Possible duplicate — this person may already be enrolled"
+           data-en="⚠ Possible duplicate — this person may already be enrolled" data-hi="⚠ संभावित डुप्लिकेट — यह व्यक्ति शायद पहले से दर्ज है"
            data-gu="⚠ સંભવિત ડુપ્લિકેટ — આ વ્યક્તિ કદાચ પહેલાંથી નોંધાયેલ છે">⚠ Possible duplicate — this person may already be enrolled</div>
       <div id="dup-name-warn-msg"></div>
       <div style="margin-top:6px;font-size:12px"
-           data-en="A beneficiary with the same name in the same village and NGO is already on record. Is this the same person enrolled twice, or a different person with the same name?"
+           data-en="A beneficiary with the same name in the same village and NGO is already on record. Is this the same person enrolled twice, or a different person with the same name?" data-hi="इसी गाँव और NGO में इसी नाम का लाभार्थी पहले से दर्ज है। क्या यही व्यक्ति दो बार दर्ज हो रहा है, या यह इसी नाम का कोई अलग व्यक्ति है?"
            data-gu="આ જ ગામ અને NGOમાં આ જ નામની વ્યક્તિ પહેલાંથી નોંધાયેલ છે. શું આ એ જ વ્યક્તિ બે વાર નોંધાઈ છે, કે અલગ વ્યક્તિ છે?">A beneficiary with the same name in the same village and NGO is already on record. Is this the same person enrolled twice, or a different person with the same name?</div>
       <div class="inline-warn-actions" style="flex-wrap:wrap;gap:6px">
         <button type="button" class="inline-warn-btn-cancel" onclick="_dismissDupNameWarn()"
-                data-en="Go back to check" data-gu="તપાસવા પાછા જાઓ">Go back to check</button>
+                data-en="Go back to check" data-hi="जाँचने के लिए वापस जाएँ" data-gu="તપાસવા પાછા જાઓ">Go back to check</button>
         <button type="button" class="inline-warn-btn-cancel" onclick="_viewDupNameExisting()"
-                data-en="View existing record" data-gu="હાલની એન્ટ્રી જુઓ">View existing record</button>
+                data-en="View existing record" data-hi="मौजूदा रिकॉर्ड देखें" data-gu="હાલની એન્ટ્રી જુઓ">View existing record</button>
         <button type="button" class="inline-warn-btn-confirm" onclick="_confirmDupNameWarn()"
-                data-en="Different person — proceed" data-gu="અલગ વ્યક્તિ — આગળ વધો">Different person — proceed</button>
+                data-en="Different person — proceed" data-hi="अलग व्यक्ति — आगे बढ़ें" data-gu="અલગ વ્યક્તિ — આગળ વધો">Different person — proceed</button>
       </div>
     </div>
     <!-- "Add Family Member" mode banner. Shown only when the enrollment form
@@ -3729,11 +3716,11 @@ body[data-shell="coord"] .coord-card {
     <div id="family-member-banner" style="display:none;background:#F0F9FF;border:1px solid #93C5FD;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px;color:var(--navy);line-height:1.5">
       <div style="font-weight:700;display:flex;align-items:center;gap:6px;margin-bottom:3px">
         <span style="font-size:16px">👨‍👩‍👧</span>
-        <span data-en="Adding family member" data-gu="કુટુંબના સભ્ય ઉમેરો">Adding family member</span>
+        <span data-en="Adding family member" data-hi="परिवार का सदस्य जोड़ रहे हैं" data-gu="કુટુંબના સભ્ય ઉમેરો">Adding family member</span>
       </div>
       <div id="family-member-banner-msg" style="font-size:12px;color:var(--gray1)"></div>
       <div style="font-size:11px;color:var(--gray2);margin-top:4px"
-           data-en="Household details are pre-filled from the head and locked. Livelihood section is skipped — family members are tracked for advocacy only."
+           data-en="Household details are pre-filled from the head and locked. Livelihood section is skipped — family members are tracked for advocacy only." data-hi="परिवार की जानकारी मुखिया के रिकॉर्ड से भरी गई है और लॉक है। आय बढ़ाने वाला भाग छोड़ दिया गया है — परिवार के सदस्यों के लिए केवल सरकारी लाभ का काम दर्ज होता है।"
            data-gu="પરિવારની વિગતો મુખ્ય સભ્યમાંથી લઈને ભરી છે અને Lock કરી છે. આવક / લાઇવલીહૂડ વિભાગ છોડી દીધો છે — કુટુંબના સભ્યો માટે ફક્ત Advocacy ટ્રેક થાય છે.">
         Household details are pre-filled from the head and locked. Livelihood section is skipped — family members are tracked for advocacy only.
       </div>
@@ -3745,7 +3732,7 @@ body[data-shell="coord"] .coord-card {
         <a href="javascript:void(0)" id="family-member-unlock-link"
            style="font-size:11px;color:var(--navy);font-weight:600;text-decoration:underline;cursor:pointer"
            onclick="_clearFamilyMemberLocks(true)"
-           data-en="Need to override these? Unlock household fields"
+           data-en="Need to override these? Unlock household fields" data-hi="इन्हें बदलना है? परिवार की जानकारी अनलॉक करें"
            data-gu="ફેરફાર કરવો છે? Household વિગતો Unlock કરો">
           Need to override these? Unlock household fields
         </a>
@@ -3753,20 +3740,20 @@ body[data-shell="coord"] .coord-card {
     </div>
     <div class="msec">
       <div class="msec-title"
-           data-en="Section 1 — Household Profile"
+           data-en="Section 1 — Household Profile" data-hi="भाग 1 — परिवार की जानकारी"
            data-gu="પરિવારની વિગતો">Section 1 — Household Profile</div>
       <div class="frow">
-        <div class="fg"><label data-en="1.1 Beneficiary Name" data-gu="લાભાર્થીનું નામ">1.1 Beneficiary Name<span class="req">*</span></label><input id="f-name" placeholder="Full name of beneficiary" data-en-ph="Full name of beneficiary" data-gu-ph="લાભાર્થીનું પૂરું નામ"></div>
+        <div class="fg"><label data-en="1.1 Beneficiary Name" data-hi="1.1 लाभार्थी का नाम" data-gu="1.1 લાભાર્થીનું નામ">1.1 Beneficiary Name<span class="req">*</span></label><input id="f-name" placeholder="Full name of beneficiary" data-en-ph="Full name of beneficiary" data-hi-ph="लाभार्थी का पूरा नाम" data-gu-ph="લાભાર્થીનું પૂરું નામ"></div>
         <!-- V4.1: phone numeric only, 10 digits max, mobile number pad -->
-        <div class="fg"><label data-en="1.2 Contact Number " data-gu="સંપર્ક નંબર ">1.2 Contact Number <span style="font-weight:400;color:var(--gray2);font-size:11px" data-en="(10 digits)" data-gu="(૧૦ અંક)">(10 digits)</span></label><input id="f-phone" type="tel" inputmode="numeric" pattern="[6-9][0-9]{9}" maxlength="10" minlength="10" placeholder="e.g. 9876543210" title="Indian mobile: 10 digits starting with 6, 7, 8 or 9" data-en-ph="e.g. 9876543210" data-gu-ph="દા.ત. 9876543210"></div>
+        <div class="fg"><label data-en="1.2 Contact Number " data-hi="1.2 संपर्क नंबर " data-gu="1.2 સંપર્ક નંબર ">1.2 Contact Number <span style="font-weight:400;color:var(--gray2);font-size:11px" data-en="(10 digits)" data-hi="(10 अंक)" data-gu="(૧૦ અંક)">(10 digits)</span></label><input id="f-phone" type="tel" inputmode="numeric" pattern="[6-9][0-9]{9}" maxlength="10" minlength="10" placeholder="e.g. 9876543210" title="Indian mobile: 10 digits starting with 6, 7, 8 or 9" data-en-ph="e.g. 9876543210" data-hi-ph="जैसे 9876543210" data-gu-ph="દા.ત. 9876543210"></div>
       </div>
       <!-- V4.1: Gender — new field, single-select Male/Female -->
       <div class="frow full">
         <div class="fg">
-          <label style="margin-bottom:8px;display:block" data-en="1.3 Gender" data-gu="જાતિ">1.3 Gender<span class="req">*</span></label>
+          <label style="margin-bottom:8px;display:block" data-en="1.3 Gender" data-hi="1.3 लिंग" data-gu="1.3 જાતિ">1.3 Gender<span class="req">*</span></label>
           <div class="ichips" id="gender-chips" style="grid-template-columns:1fr 1fr;max-width:280px">
-            <div class="ichip" data-gender="Male" onclick="selectGender(this)"><div class="ichip-box"></div><span data-en="Male" data-gu="પુરુષ">Male</span></div>
-            <div class="ichip" data-gender="Female" onclick="selectGender(this)"><div class="ichip-box"></div><span data-en="Female" data-gu="સ્ત્રી">Female</span></div>
+            <div class="ichip" data-gender="Male" onclick="selectGender(this)"><div class="ichip-box"></div><span data-en="Male" data-hi="पुरुष" data-gu="પુરુષ">Male</span></div>
+            <div class="ichip" data-gender="Female" onclick="selectGender(this)"><div class="ichip-box"></div><span data-en="Female" data-hi="महिला" data-gu="સ્ત્રી">Female</span></div>
           </div>
         </div>
       </div>
@@ -3777,25 +3764,25 @@ body[data-shell="coord"] .coord-card {
            wrapper id. -->
       <div class="frow full" id="family-relation-wrap" style="display:none">
         <div class="fg">
-          <label data-en="Relation to head of family" data-gu="મુખ્ય સભ્ય સાથેનો સંબંધ">Relation to head of family<span class="req">*</span></label>
+          <label data-en="Relation to head of family" data-hi="परिवार के मुखिया से संबंध" data-gu="મુખ્ય સભ્ય સાથેનો સંબંધ">Relation to head of family<span class="req">*</span></label>
           <select id="f-relation">
-            <option value="" data-en="— Select relation —" data-gu="— સંબંધ પસંદ કરો —">— Select relation —</option>
-            <option value="Wife"     data-en="Wife"     data-gu="પત્ની">Wife</option>
-            <option value="Husband"  data-en="Husband"  data-gu="પતિ">Husband</option>
-            <option value="Daughter" data-en="Daughter" data-gu="પુત્રી">Daughter</option>
-            <option value="Son"      data-en="Son"      data-gu="પુત્ર">Son</option>
-            <option value="Mother"   data-en="Mother"   data-gu="માતા">Mother</option>
-            <option value="Father"   data-en="Father"   data-gu="પિતા">Father</option>
-            <option value="Sister"   data-en="Sister"   data-gu="બહેન">Sister</option>
-            <option value="Brother"  data-en="Brother"  data-gu="ભાઈ">Brother</option>
-            <option value="Other"    data-en="Other relative" data-gu="અન્ય સંબંધી">Other relative</option>
+            <option value="" data-en="— Select relation —" data-hi="— संबंध चुनें —" data-gu="— સંબંધ પસંદ કરો —">— Select relation —</option>
+            <option value="Wife"     data-en="Wife" data-hi="पत्नी"     data-gu="પત્ની">Wife</option>
+            <option value="Husband"  data-en="Husband" data-hi="पति"  data-gu="પતિ">Husband</option>
+            <option value="Daughter" data-en="Daughter" data-hi="बेटी" data-gu="પુત્રી">Daughter</option>
+            <option value="Son"      data-en="Son" data-hi="बेटा"      data-gu="પુત્ર">Son</option>
+            <option value="Mother"   data-en="Mother" data-hi="माँ"   data-gu="માતા">Mother</option>
+            <option value="Father"   data-en="Father" data-hi="पिता"   data-gu="પિતા">Father</option>
+            <option value="Sister"   data-en="Sister" data-hi="बहन"   data-gu="બહેન">Sister</option>
+            <option value="Brother"  data-en="Brother" data-hi="भाई"  data-gu="ભાઈ">Brother</option>
+            <option value="Other"    data-en="Other relative" data-hi="अन्य रिश्तेदार" data-gu="અન્ય સંબંધી">Other relative</option>
           </select>
         </div>
       </div>
       <div class="frow">
-        <div class="fg"><label data-en="1.4a State" data-gu="રાજ્ય">1.4a State<span class="req">*</span></label>
+        <div class="fg"><label data-en="1.4a State" data-hi="1.4a राज्य" data-gu="1.4a રાજ્ય">1.4a State<span class="req">*</span></label>
           <select id="f-state" onchange="onStateChange()">
-<option value="" data-en="— Select State —" data-gu="— રાજ્ય પસંદ કરો —">— Select State —</option>
+<option value="" data-en="— Select State —" data-hi="— राज्य चुनें —" data-gu="— રાજ્ય પસંદ કરો —">— Select State —</option>
             <option value="Andhra Pradesh">Andhra Pradesh</option>
             <option value="Arunachal Pradesh">Arunachal Pradesh</option>
             <option value="Assam">Assam</option>
@@ -3834,21 +3821,21 @@ body[data-shell="coord"] .coord-card {
             <option value="Puducherry">Puducherry</option>
           </select>
         </div>
-        <div class="fg"><label data-en="1.4b District" data-gu="જિલ્લો">1.4b District<span class="req">*</span></label>
+        <div class="fg"><label data-en="1.4b District" data-hi="1.4b ज़िला" data-gu="1.4b જિલ્લો">1.4b District<span class="req">*</span></label>
           <select id="f-district-sel" onchange="onDistrictChange()">
-            <option value="" data-en="— Select State first —" data-gu="— પહેલા રાજ્ય પસંદ કરો —">— Select State first —</option>
+            <option value="" data-en="— Select State first —" data-hi="— पहले राज्य चुनें —" data-gu="— પહેલા રાજ્ય પસંદ કરો —">— Select State first —</option>
           </select>
         </div>
       </div>
       <div class="frow">
-        <div class="fg"><label data-en="1.4c Taluka / Block" data-gu="તાલુકો / બ્લોક">1.4c Taluka / Block</label><input id="f-taluka" placeholder="Enter taluka or block name" data-en-ph="Enter taluka or block name" data-gu-ph="તાલુકા કે બ્લોકનું નામ"></div>
-        <div class="fg"><label data-en="1.5 Village / Gram Panchayat" data-gu="ગામ / ગ્રામ પંચાયત">1.5 Village / Gram Panchayat<span class="req">*</span></label><input id="f-village" placeholder="Enter village name" data-en-ph="Enter village name" data-gu-ph="ગામનું નામ"></div>
+        <div class="fg"><label data-en="1.4c Taluka / Block" data-hi="1.4c तालुका / ब्लॉक" data-gu="1.4c તાલુકો / બ્લોક">1.4c Taluka / Block</label><input id="f-taluka" placeholder="Enter taluka or block name" data-en-ph="Enter taluka or block name" data-hi-ph="तालुका या ब्लॉक का नाम" data-gu-ph="તાલુકા કે બ્લોકનું નામ"></div>
+        <div class="fg"><label data-en="1.5 Village / Gram Panchayat" data-hi="1.5 गाँव / ग्राम पंचायत" data-gu="1.5 ગામ / ગ્રામ પંચાયત">1.5 Village / Gram Panchayat<span class="req">*</span></label><input id="f-village" placeholder="Enter village name" data-en-ph="Enter village name" data-hi-ph="गाँव का नाम" data-gu-ph="ગામનું નામ"></div>
       </div>
       <div class="frow">
-        <div class="fg"><label data-en="1.6 Social Category" data-gu="જ્ઞાતિ">1.6 Social Category</label>
-          <select id="f-cat"><option value="ST">ST</option><option value="SC">SC</option><option value="OBC">OBC</option><option value="General" data-en="General" data-gu="સામાન્ય">General</option><option value="Other" data-en="Other" data-gu="અન્ય">Other</option></select>
+        <div class="fg"><label data-en="1.6 Social Category" data-hi="1.6 सामाजिक वर्ग" data-gu="1.6 જ્ઞાતિ">1.6 Social Category</label>
+          <select id="f-cat"><option value="ST">ST</option><option value="SC">SC</option><option value="OBC">OBC</option><option value="General" data-en="General" data-hi="सामान्य" data-gu="સામાન્ય">General</option><option value="Other" data-en="Other" data-hi="अन्य" data-gu="અન્ય">Other</option></select>
         </div>
-        <div class="fg" id="hhsize-wrap"><label id="lbl-hhsize" data-en="1.7 No. of Family Members" data-gu="કુટુંબના સભ્યોની સંખ્યા">1.7 No. of Family Members<span class="req req-liv">*</span><span class="req-opt" data-en="(optional)" data-gu="(વૈકલ્પિક)">(optional)</span></label><input id="f-hhsize" type="number" min="1" placeholder="Number of members" data-en-ph="Number of members" data-gu-ph="સભ્યોની સંખ્યા"></div>
+        <div class="fg" id="hhsize-wrap"><label id="lbl-hhsize" data-en="1.7 No. of Family Members" data-hi="1.7 परिवार के सदस्यों की संख्या" data-gu="1.7 કુટુંબના સભ્યોની સંખ્યા">1.7 No. of Family Members<span class="req req-liv">*</span><span class="req-opt" data-en="(optional)" data-hi="(वैकल्पिक)" data-gu="(વૈકલ્પિક)">(optional)</span></label><input id="f-hhsize" type="number" min="1" placeholder="Number of members" data-en-ph="Number of members" data-hi-ph="सदस्यों की संख्या" data-gu-ph="સભ્યોની સંખ્યા"></div>
       </div>
       <!-- Livelihood-only data block. Wrapped together so "Add Family Member"
            mode can hide all of it in one go (land/livestock/sources/income
@@ -3856,45 +3843,45 @@ body[data-shell="coord"] .coord-card {
            via the family-livelihood-fields id. -->
       <div id="family-livelihood-fields">
       <div class="frow">
-        <div class="fg"><label data-en="1.8 Land Holding (acres)" data-gu="જમીન (એકરમાં )">1.8 Land Holding (acres)<span class="req req-liv">*</span><span class="req-opt" data-en="(optional)" data-gu="(વૈકલ્પિક)">(optional)</span></label><input id="f-land" type="number" min="0" max="50" step="0.1" placeholder="0.0"></div>
+        <div class="fg"><label data-en="1.8 Land Holding (acres)" data-hi="1.8 ज़मीन (एकड़ में)" data-gu="1.8 જમીન (એકરમાં )">1.8 Land Holding (acres)<span class="req req-liv">*</span><span class="req-opt" data-en="(optional)" data-hi="(वैकल्पिक)" data-gu="(વૈકલ્પિક)">(optional)</span></label><input id="f-land" type="number" min="0" max="50" step="0.1" placeholder="0.0"></div>
         <!-- V4.1: livestock collapsed from 3 fields to single total -->
-        <div class="fg"><label data-en="1.9 No. of Livestock" data-gu="પશુધનની સંખ્યા">1.9 No. of Livestock<span class="req req-liv">*</span><span class="req-opt" data-en="(optional)" data-gu="(વૈકલ્પિક)">(optional)</span></label><input id="f-livestock" type="number" min="0" max="500" placeholder="cow + buffalo + goat" data-en-ph="cow + buffalo + goat" data-gu-ph="ગાય + ભેંસ + બકરી"></div>
+        <div class="fg"><label data-en="1.9 No. of Livestock" data-hi="1.9 पशुधन की संख्या" data-gu="1.9 પશુધનની સંખ્યા">1.9 No. of Livestock<span class="req req-liv">*</span><span class="req-opt" data-en="(optional)" data-hi="(वैकल्पिक)" data-gu="(વૈકલ્પિક)">(optional)</span></label><input id="f-livestock" type="number" min="0" max="500" placeholder="cow + buffalo + goat" data-en-ph="cow + buffalo + goat" data-hi-ph="गाय + भैंस + बकरी" data-gu-ph="ગાય + ભેંસ + બકરી"></div>
       </div>
       <!-- V4.1: Current Sources of Livelihood — multi-select chips, "Other" reveals text input -->
       <div class="frow full">
         <div class="fg">
-          <label id="lbl-sources" style="margin-bottom:8px;display:block" data-en="1.10 Current Sources of Livelihood" data-gu="હાલના આવકના સ્ત્રોત">1.10 Current Sources of Livelihood<span class="req req-liv">*</span><span class="req-opt" data-en="(optional)" data-gu="(વૈકલ્પિક)">(optional)</span> <span style="font-weight:400;color:var(--gray2);font-size:11px" data-en="(multi-select — tick all that apply)" data-gu="(બહુવિધ — લાગુ પડતા બધા પસંદ કરો)">(multi-select — tick all that apply)</span></label>
+          <label id="lbl-sources" style="margin-bottom:8px;display:block" data-en="1.10 Current Sources of Livelihood" data-hi="1.10 आय के मौजूदा स्रोत" data-gu="1.10 હાલના આવકના સ્ત્રોત">1.10 Current Sources of Livelihood<span class="req req-liv">*</span><span class="req-opt" data-en="(optional)" data-hi="(वैकल्पिक)" data-gu="(વૈકલ્પિક)">(optional)</span> <span style="font-weight:400;color:var(--gray2);font-size:11px" data-en="(multi-select — tick all that apply)" data-hi="(एक से अधिक — जो भी लागू हों, सब चुनें)" data-gu="(બહુવિધ — લાગુ પડતા બધા પસંદ કરો)">(multi-select — tick all that apply)</span></label>
           <!-- V17.1: the column count moved to CSS. As an inline style no media
                query could beat it, so three columns of "Animal Husbandry" were
                forced onto a 375px phone and the last column was cut off. -->
           <div class="ichips" id="sources-chips">
-            <div class="ichip" data-src="Farming"          onclick="toggleSourceChip(this)"><div class="ichip-box"></div><span data-en="Farming" data-gu="ખેતી">Farming</span></div>
-            <div class="ichip" data-src="Animal Husbandry" onclick="toggleSourceChip(this)"><div class="ichip-box"></div><span data-en="Animal Husbandry" data-gu="પશુપાલન">Animal Husbandry</span></div>
-            <div class="ichip" data-src="Daily Labour"     onclick="toggleSourceChip(this)"><div class="ichip-box"></div><span data-en="Daily Labour" data-gu="દૈનિક મજૂરી">Daily Labour</span></div>
-            <div class="ichip" data-src="Poultry"          onclick="toggleSourceChip(this)"><div class="ichip-box"></div><span data-en="Poultry" data-gu="મરઘાં પાલન">Poultry</span></div>
-            <div class="ichip" data-src="Fisheries"        onclick="toggleSourceChip(this)"><div class="ichip-box"></div><span data-en="Fisheries" data-gu="મત્સ્યપાલન">Fisheries</span></div>
-            <div class="ichip" data-src="Forest-based"     onclick="toggleSourceChip(this)"><div class="ichip-box"></div><span data-en="Forest-based" data-gu="જંગલ સંસાધન આધારિત">Forest-based</span></div>
-            <div class="ichip" data-src="Artisan / Craft"  onclick="toggleSourceChip(this)"><div class="ichip-box"></div><span data-en="Artisan / Craft" data-gu="કારીગર / હસ્તકલા">Artisan / Craft</span></div>
-            <div class="ichip" data-src="Remittance"       onclick="toggleSourceChip(this)"><div class="ichip-box"></div><span data-en="Remittance" data-gu="નોકરી તેમજ અન્ય આવક">Remittance</span></div>
-            <div class="ichip" data-src="Other"            onclick="toggleSourceChip(this)"><div class="ichip-box"></div><span data-en="Other" data-gu="અન્ય">Other</span></div>
+            <div class="ichip" data-src="Farming"          onclick="toggleSourceChip(this)"><div class="ichip-box"></div><span data-en="Farming" data-hi="खेती" data-gu="ખેતી">Farming</span></div>
+            <div class="ichip" data-src="Animal Husbandry" onclick="toggleSourceChip(this)"><div class="ichip-box"></div><span data-en="Animal Husbandry" data-hi="पशुपालन" data-gu="પશુપાલન">Animal Husbandry</span></div>
+            <div class="ichip" data-src="Daily Labour"     onclick="toggleSourceChip(this)"><div class="ichip-box"></div><span data-en="Daily Labour" data-hi="दिहाड़ी मज़दूरी" data-gu="દૈનિક મજૂરી">Daily Labour</span></div>
+            <div class="ichip" data-src="Poultry"          onclick="toggleSourceChip(this)"><div class="ichip-box"></div><span data-en="Poultry" data-hi="मुर्गी पालन" data-gu="મરઘાં પાલન">Poultry</span></div>
+            <div class="ichip" data-src="Fisheries"        onclick="toggleSourceChip(this)"><div class="ichip-box"></div><span data-en="Fisheries" data-hi="मत्स्य पालन" data-gu="મત્સ્યપાલન">Fisheries</span></div>
+            <div class="ichip" data-src="Forest-based"     onclick="toggleSourceChip(this)"><div class="ichip-box"></div><span data-en="Forest-based" data-hi="वन-आधारित" data-gu="જંગલ સંસાધન આધારિત">Forest-based</span></div>
+            <div class="ichip" data-src="Artisan / Craft"  onclick="toggleSourceChip(this)"><div class="ichip-box"></div><span data-en="Artisan / Craft" data-hi="कारीगरी / हस्तशिल्प" data-gu="કારીગર / હસ્તકલા">Artisan / Craft</span></div>
+            <div class="ichip" data-src="Remittance"       onclick="toggleSourceChip(this)"><div class="ichip-box"></div><span data-en="Remittance" data-hi="नौकरी व अन्य आय" data-gu="નોકરી તેમજ અન્ય આવક">Remittance</span></div>
+            <div class="ichip" data-src="Other"            onclick="toggleSourceChip(this)"><div class="ichip-box"></div><span data-en="Other" data-hi="अन्य" data-gu="અન્ય">Other</span></div>
           </div>
           <div id="sources-other-wrap" style="margin-top:8px;display:none">
-            <input type="text" id="f-sources-other" placeholder="Specify source..." maxlength="60" style="width:100%;padding:7px 10px;border:1px solid var(--gray3);border-radius:6px;font-size:13px;font-family:var(--font)" data-en-ph="Specify source..." data-gu-ph="સ્ત્રોત સ્પષ્ટ કરો...">
+            <input type="text" id="f-sources-other" placeholder="Specify source..." maxlength="60" style="width:100%;padding:7px 10px;border:1px solid var(--gray3);border-radius:6px;font-size:13px;font-family:var(--font)" data-en-ph="Specify source..." data-hi-ph="स्रोत लिखें..." data-gu-ph="સ્ત્રોત સ્પષ્ટ કરો...">
           </div>
         </div>
       </div>
       <!-- V4.1: Single annual income field — no 2.1/2.2/2.3 breakdown -->
       <div class="frow full">
         <div class="fg">
-          <label data-en="1.11 Annual Household Income (Rs/yr)" data-gu="પરિવારની વાર્ષિક આવક ( રૂ/વર્ષ)">1.11 Annual Household Income (Rs/yr)<span class="req req-liv">*</span><span class="req-opt" data-en="(optional)" data-gu="(વૈકલ્પિક)">(optional)</span></label>
+          <label data-en="1.11 Annual Household Income (Rs/yr)" data-hi="1.11 परिवार की वार्षिक आय (रु./वर्ष)" data-gu="1.11 પરિવારની વાર્ષિક આવક ( રૂ/વર્ષ)">1.11 Annual Household Income (Rs/yr)<span class="req req-liv">*</span><span class="req-opt" data-en="(optional)" data-hi="(वैकल्पिक)" data-gu="(વૈકલ્પિક)">(optional)</span></label>
           <!-- V17.1: the amber inline style is gone. It was hard-coded onto this one
                field in V4.1 to mark it as the important baseline number, but nothing
                else in the form is amber, the matching .fg input.required rule is dead
                CSS, and against V17.1's stronger borders a permanently tinted box reads
                as a permanent warning. The red * and the note below carry the weight. -->
-          <input id="f-total" type="number" min="0" placeholder="Total annual income in rupees" data-en-ph="Total annual income in rupees" data-gu-ph="રૂપિયામાં કુલ વાર્ષિક આવક">
+          <input id="f-total" type="number" min="0" placeholder="Total annual income in rupees" data-en-ph="Total annual income in rupees" data-hi-ph="रुपयों में कुल वार्षिक आय" data-gu-ph="રૂપિયામાં કુલ વાર્ષિક આવક">
           <div style="font-size:11px;color:var(--gray2);margin-top:6px;line-height:1.5"
-               data-en="Sum of all household income (farming + wages + NREGA + remittance + other). This is the baseline for impact measurement."
+               data-en="Sum of all household income (farming + wages + NREGA + remittance + other). This is the baseline for impact measurement." data-hi="परिवार की कुल आय का जोड़ (खेती + मज़दूरी + नरेगा + नौकरी या व्यवसाय की आय + अन्य)। असर मापने के लिए यही आधार होगा।"
                data-gu="પરિવારની  કૂલ આવકનો સરવાળો (ખેતી + મજૂરી + નરેગા + નોકરી કે ધંધાની  આવક + અન્ય). આ કર્યાની અસરકારક્તા માટેનો આધાર રેહશે .">
             Sum of all household income (farming + wages + NREGA + remittance + other). This is the baseline for impact measurement.
           </div>
@@ -3904,18 +3891,18 @@ body[data-shell="coord"] .coord-card {
     </div>
     <!-- V4.1: Section 2 — Programme. Title renames to "Programme Planning" when NGO+FC set. -->
     <div class="msec">
-      <div class="msec-title" id="sec2-title" data-en="Section 2 — Programme" data-gu="વિભાગ ૨ — કાર્યક્રમ">Section 2 — Programme</div>
+      <div class="msec-title" id="sec2-title" data-en="Section 2 — Programme" data-hi="भाग 2 — कार्यक्रम" data-gu="વિભાગ ૨ — કાર્યક્રમ">Section 2 — Programme</div>
       <div class="frow">
-        <div class="fg"><label data-en="2.1 NGO Partner" data-gu="પાર્ટનર NGO">2.1 NGO Partner<span class="req">*</span></label>
+        <div class="fg"><label data-en="2.1 NGO Partner" data-hi="2.1 पार्टनर NGO" data-gu="2.1 પાર્ટનર NGO">2.1 NGO Partner<span class="req">*</span></label>
           <select id="f-ngo" onchange="_checkProgrammePlanning()"></select>
         </div>
-        <div class="fg"><label data-en="2.2 Field Coordinator" data-gu="ફિલ્ડ કોઓર્ડિનેટર">2.2 Field Coordinator<span class="req">*</span></label><input id="f-coord" list="coord-name-list" placeholder="Coordinator name" autocomplete="off" oninput="_checkProgrammePlanning()" data-en-ph="Coordinator name" data-gu-ph="કોઓર્ડિનેટરનું નામ"><datalist id="coord-name-list"></datalist></div>
+        <div class="fg"><label data-en="2.2 Field Coordinator" data-hi="2.2 फ़ील्ड कोऑर्डिनेटर" data-gu="2.2 ફિલ્ડ કોઓર્ડિનેટર">2.2 Field Coordinator<span class="req">*</span></label><input id="f-coord" list="coord-name-list" placeholder="Coordinator name" autocomplete="off" oninput="_checkProgrammePlanning()" data-en-ph="Coordinator name" data-hi-ph="कोऑर्डिनेटर का नाम" data-gu-ph="કોઓર્ડિનેટરનું નામ"><datalist id="coord-name-list"></datalist></div>
       </div>
       <div class="fg" id="programme-chip-wrap" style="margin-top:4px">
-        <label style="margin-bottom:8px;display:block" data-en="2.3 Programme" data-gu="કાર્યક્રમ">2.3 Programme<span class="req">*</span> <span style="font-weight:400;color:var(--gray2);font-size:11px" data-en="(select one or both)" data-gu="(એક અથવા બંને પસંદ કરો)">(select one or both)</span></label>
+        <label style="margin-bottom:8px;display:block" data-en="2.3 Programme" data-hi="2.3 कार्यक्रम" data-gu="2.3 કાર્યક્રમ">2.3 Programme<span class="req">*</span> <span style="font-weight:400;color:var(--gray2);font-size:11px" data-en="(select one or both)" data-hi="(एक या दोनों चुनें)" data-gu="(એક અથવા બંને પસંદ કરો)">(select one or both)</span></label>
         <div class="ichips" id="prog-chips" style="grid-template-columns:1fr 1fr">
-          <div class="ichip" data-prog="Livelihood" onclick="toggleProgChip(this)"><div class="ichip-box"></div><span data-en="Livelihood" data-gu="આવક વધારવાની કામગીરી">Livelihood</span></div>
-          <div class="ichip" data-prog="Advocacy"   onclick="toggleProgChip(this)"><div class="ichip-box"></div><span data-en="Advocacy" data-gu="સરકારી લાભ અપાવવાની કામગીરી">Advocacy</span></div>
+          <div class="ichip" data-prog="Livelihood" onclick="toggleProgChip(this)"><div class="ichip-box"></div><span data-en="Livelihood" data-hi="आय बढ़ाने का काम" data-gu="આવક વધારવાની કામગીરી">Livelihood</span></div>
+          <div class="ichip" data-prog="Advocacy"   onclick="toggleProgChip(this)"><div class="ichip-box"></div><span data-en="Advocacy" data-hi="सरकारी लाभ दिलाने का काम" data-gu="સરકારી લાભ અપાવવાની કામગીરી">Advocacy</span></div>
         </div>
       </div>
       <!-- V17.3: Section 1 sits ABOVE this chip, so by the time an FC ticks
@@ -3928,29 +3915,30 @@ body[data-shell="coord"] .coord-card {
              visible 0, so for that field the sentence was simply untrue — and
              an FC told a filled box is empty will type something else into it.
              "still need an answer" is true of every case in the list. -->
-        <span data-en="Livelihood selected — these questions in Section 1 above still need an answer before you can save:"
+        <span data-en="Livelihood selected — these questions in Section 1 above still need an answer before you can save:" data-hi="आय बढ़ाने का काम चुना है — सेव करने से पहले ऊपर भाग 1 के इन सवालों के जवाब ज़रूरी हैं:"
               data-gu="આવક વધારવાની કામગીરી પસંદ કરી છે — સેવ કરતાં પહેલાં ઉપર વિભાગ ૧ ના આ પ્રશ્નોના જવાબ જરૂરી છે:">Livelihood selected — these questions in Section 1 above still need an answer before you can save:</span>
         <strong id="liv-req-note-list"></strong>
       </div>
       <div class="fg" id="livelihood-types-wrap" style="margin-top:10px;display:none">
-        <label style="margin-bottom:8px;display:block" data-en="Livelihood Intervention Type(s)" data-gu="આવક વધારવાની કામગીરીમાં - પ્રવૃતિઓ">Livelihood Intervention Type(s)<span class="req">*</span> <span style="font-weight:400;color:var(--gray2);font-size:11px" data-en="(multi-select)" data-gu="(બહુવિધ પસંદગી)">(multi-select)</span></label>
+        <label style="margin-bottom:8px;display:block" data-en="Livelihood Intervention Type(s)" data-hi="आय बढ़ाने के काम — गतिविधियाँ" data-gu="આવક વધારવાની કામગીરીમાં - પ્રવૃતિઓ">Livelihood Intervention Type(s)<span class="req">*</span> <span style="font-weight:400;color:var(--gray2);font-size:11px" data-en="(multi-select)" data-hi="(एक से अधिक चुन सकते हैं)" data-gu="(બહુવિધ પસંદગી)">(multi-select)</span></label>
         <div class="ichips" id="ichips">
           <!-- Populated dynamically via _refreshLivelihoodChips() — reads getLivTypes() -->
         </div>
         <div id="liv-other-wrap" style="margin-top:8px;display:none">
-          <input type="text" id="liv-other-text" placeholder="Specify intervention type..." maxlength="60" style="width:100%;padding:7px 10px;border:1px solid var(--gray3);border-radius:6px;font-size:13px;font-family:var(--font)" data-en-ph="Specify intervention type..." data-gu-ph="લાભાર્થી સાથે કરવાની કામગીરી">
+          <input type="text" id="liv-other-text" placeholder="Specify intervention type..." maxlength="60" style="width:100%;padding:7px 10px;border:1px solid var(--gray3);border-radius:6px;font-size:13px;font-family:var(--font)" data-en-ph="Specify intervention type..." data-hi-ph="गतिविधि का नाम लिखें..." data-gu-ph="લાભાર્થી સાથે કરવાની કામગીરી">
         </div>
       </div>
       <div id="advocacy-note-wrap" style="margin-top:10px;display:none">
-        <label style="margin-bottom:8px;display:block;font-size:13px;font-weight:600;color:var(--gray1)" data-en="Government Schemes " data-gu="સરકારી યોજનાઓ ">Government Schemes <span style="font-weight:400;color:var(--gray2);font-size:11px" data-en="(tick each scheme you'll help with and set its status)" data-gu="(તમે મદદ કરશો તે દરેક યોજના ટિક કરો અને તેની સ્થિતિ સેટ કરો)">(tick each scheme you'll help with and set its status)</span></label>
+        <label style="margin-bottom:8px;display:block;font-size:13px;font-weight:600;color:var(--gray1)" data-en="Government Schemes " data-hi="सरकारी योजनाएँ " data-gu="સરકારી યોજનાઓ ">Government Schemes <span style="font-weight:400;color:var(--gray2);font-size:11px" data-en="(tick each scheme you'll help with and set its status)" data-hi="(जिस योजना में आप मदद करेंगे उसे टिक करें और उसकी स्थिति चुनें)" data-gu="(તમે મદદ કરશો તે દરેક યોજના ટિક કરો અને તેની સ્થિતિ સેટ કરો)">(tick each scheme you'll help with and set its status)</span></label>
         <div data-lang-group="en" style="background:#EFF6FF;border:1px solid var(--navy3);border-radius:7px;padding:8px 10px;margin-bottom:8px;font-size:11px;color:var(--navy);line-height:1.5">
           <strong>Need to Apply</strong> — beneficiary is eligible but hasn't yet filed the application. <strong>Applied</strong> — application has been submitted; outcome (Approved / Rejected / Benefits Received) can be logged later via the Advocacy tab.
         </div>
         <div data-lang-group="gu" style="background:#EFF6FF;border:1px solid var(--navy3);border-radius:7px;padding:8px 10px;margin-bottom:8px;font-size:11px;color:var(--navy);line-height:1.5;display:none">
           <strong>અરજી કરવી જરૂરી</strong> — લાભાર્થી પાત્ર છે પણ હજુ અરજી દાખલ કરી નથી. <strong>અરજી કરેલી</strong> — અરજી સબમિટ થઈ ગઈ છે; પરિણામ (મંજૂર / નકારાયેલ / લાભ મળ્યો) પછીથી એડવોકેસી ટેબ દ્વારા નોંધી શકાય છે.
         </div>
+        <div data-lang-group="hi" style="background:#EFF6FF;border:1px solid var(--navy3);border-radius:7px;padding:8px 10px;margin-bottom:8px;font-size:11px;color:var(--navy);line-height:1.5;display:none"><strong>आवेदन करना है</strong> — लाभार्थी पात्र है पर अभी आवेदन नहीं किया है। <strong>आवेदन किया</strong> — आवेदन जमा हो गया है; नतीजा (मंज़ूर / नामंज़ूर / लाभ मिला) बाद में सरकारी योजनाएँ टैब से दर्ज कर सकते हैं।</div>
         <div id="adv-enroll-scheme-list" style="background:#fff;border:1px solid var(--gray3);border-radius:8px;overflow:hidden"></div>
-        <div style="margin-top:8px"><button type="button" class="btn btn-sm" onclick="advEnrollAddCustomScheme()" data-en="+ Add custom scheme" data-gu="લિસ્ટમાં નથી તે યોજના ઉમેરવા માટે">+ Add custom scheme</button></div>
+        <div style="margin-top:8px"><button type="button" class="btn btn-sm" onclick="advEnrollAddCustomScheme()" data-en="+ Add custom scheme" data-hi="+ सूची में न हो वह योजना जोड़ें" data-gu="લિસ્ટમાં નથી તે યોજના ઉમેરવા માટે">+ Add custom scheme</button></div>
       </div>
     </div>
     <div class="msec">
@@ -3959,9 +3947,9 @@ body[data-shell="coord"] .coord-card {
            tiles). GPS capture STAYS — it powers the Field Map — and now
            runs automatically when the form opens instead of only after a
            photo was taken. -->
-      <div class="msec-title" data-en="📍 GPS Location" data-gu="📍 GPS સ્થાન">📍 GPS Location</div>
+      <div class="msec-title" data-en="📍 GPS Location" data-hi="📍 GPS स्थान" data-gu="📍 GPS સ્થાન">📍 GPS Location</div>
       <div class="photo-section" id="photo-section" style="padding:10px 12px;text-align:left">
-        <div style="color:var(--gray2);font-size:12px;margin-bottom:6px" data-en="Captured automatically if location is allowed (optional). Photos can be added anytime from the beneficiary's record." data-gu="સ્થાનની પરવાનગી હોય તો આપમેળે લેવાય છે (વૈકલ્પિક). ફોટા લાભાર્થીના રેકોર્ડમાંથી ગમે ત્યારે ઉમેરી શકાય છે.">Captured automatically if location is allowed (optional). Photos can be added anytime from the beneficiary's record.</div>
+        <div style="color:var(--gray2);font-size:12px;margin-bottom:6px" data-en="Captured automatically if location is allowed (optional). Photos can be added anytime from the beneficiary's record." data-hi="लोकेशन की अनुमति हो तो अपने-आप दर्ज होता है (वैकल्पिक)। फ़ोटो लाभार्थी के रिकॉर्ड से कभी भी जोड़ी जा सकती हैं।" data-gu="સ્થાનની પરવાનગી હોય તો આપમેળે લેવાય છે (વૈકલ્પિક). ફોટા લાભાર્થીના રેકોર્ડમાંથી ગમે ત્યારે ઉમેરી શકાય છે.">Captured automatically if location is allowed (optional). Photos can be added anytime from the beneficiary's record.</div>
         <div id="gps-status" style="min-height:16px;font-size:11px"></div>
       </div>
     </div>
@@ -3971,16 +3959,16 @@ body[data-shell="coord"] .coord-card {
          appears in the unified gallery. Skippable — a blank photo enrolls
          normally with no error. -->
     <div class="msec">
-      <div class="msec-title" data-en="📷 Beneficiary Photo" data-gu="📷 લાભાર્થીનો ફોટો">📷 Beneficiary Photo <span style="font-weight:400;color:var(--gray2);font-size:11px" data-en="(optional)" data-gu="(વૈકલ્પિક)">(optional)</span></div>
+      <div class="msec-title" data-en="📷 Beneficiary Photo" data-hi="📷 लाभार्थी की फ़ोटो" data-gu="📷 લાભાર્થીનો ફોટો">📷 Beneficiary Photo <span style="font-weight:400;color:var(--gray2);font-size:11px" data-en="(optional)" data-hi="(वैकल्पिक)" data-gu="(વૈકલ્પિક)">(optional)</span></div>
       <div style="padding:4px 12px 12px">
-        <div style="color:var(--gray2);font-size:12px;margin-bottom:8px" data-en="Take a photo now or upload one from the gallery. You can also add or change photos later from the beneficiary's record." data-gu="અત્યારે ફોટો લો અથવા ગેલેરીમાંથી અપલોડ કરો. તમે પછીથી લાભાર્થીના રેકોર્ડમાંથી પણ ફોટા ઉમેરી કે બદલી શકો છો.">Take a photo now or upload one from the gallery. You can also add or change photos later from the beneficiary's record.</div>
+        <div style="color:var(--gray2);font-size:12px;margin-bottom:8px" data-en="Take a photo now or upload one from the gallery. You can also add or change photos later from the beneficiary's record." data-hi="अभी फ़ोटो लें या गैलरी से अपलोड करें। आप बाद में भी लाभार्थी के रिकॉर्ड से फ़ोटो जोड़ या बदल सकते हैं।" data-gu="અત્યારે ફોટો લો અથવા ગેલેરીમાંથી અપલોડ કરો. તમે પછીથી લાભાર્થીના રેકોર્ડમાંથી પણ ફોટા ઉમેરી કે બદલી શકો છો.">Take a photo now or upload one from the gallery. You can also add or change photos later from the beneficiary's record.</div>
         <div id="enroll-photo-tiles" style="display:flex;gap:10px">
-          <label style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:80px;border:1px dashed var(--gray3);border-radius:8px;background:var(--gray4);cursor:pointer;color:var(--navy);font-size:12px;font-weight:600" data-en-title="Open camera" data-gu-title="કૅમેરા ખોલો">
-            <span style="font-size:22px">📷</span><span data-en="Camera" data-gu="કૅમેરા">Camera</span>
+          <label style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:80px;border:1px dashed var(--gray3);border-radius:8px;background:var(--gray4);cursor:pointer;color:var(--navy);font-size:12px;font-weight:600" data-en-title="Open camera" data-hi-title="कैमरा खोलें" data-gu-title="કૅમેરા ખોલો">
+            <span style="font-size:22px">📷</span><span data-en="Camera" data-hi="कैमरा" data-gu="કૅમેરા">Camera</span>
             <input type="file" accept="image/*" capture="environment" onchange="_v410EnrollPhotoPick(this)" style="display:none">
           </label>
-          <label style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:80px;border:1px dashed var(--gray3);border-radius:8px;background:var(--gray4);cursor:pointer;color:var(--navy);font-size:12px;font-weight:600" data-en-title="Choose from gallery" data-gu-title="ગેલેરીમાંથી પસંદ કરો">
-            <span style="font-size:22px">🖼️</span><span data-en="Gallery" data-gu="ગેલેરી">Gallery</span>
+          <label style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:80px;border:1px dashed var(--gray3);border-radius:8px;background:var(--gray4);cursor:pointer;color:var(--navy);font-size:12px;font-weight:600" data-en-title="Choose from gallery" data-hi-title="गैलरी से चुनें" data-gu-title="ગેલેરીમાંથી પસંદ કરો">
+            <span style="font-size:22px">🖼️</span><span data-en="Gallery" data-hi="गैलरी" data-gu="ગેલેરી">Gallery</span>
             <input type="file" accept="image/*" onchange="_v410EnrollPhotoPick(this)" style="display:none">
           </label>
         </div>
@@ -3989,18 +3977,18 @@ body[data-shell="coord"] .coord-card {
             <img id="enroll-photo-thumb" alt="Selected photo" style="width:100%;height:100%;object-fit:cover;display:block">
           </div>
           <div style="flex:1;min-width:0">
-            <div id="enroll-photo-status" style="font-size:12px;color:var(--green);font-weight:600" data-en="✓ Photo ready — will be saved with this enrollment" data-gu="✓ ફોટો તૈયાર — આ નોંધણી સાથે સાચવવામાં આવશે">✓ Photo ready — will be saved with this enrollment</div>
-            <button type="button" onclick="_v410RemoveEnrollPhoto()" style="margin-top:6px;background:none;border:none;color:var(--red);font-size:12px;font-weight:600;cursor:pointer;padding:0" data-en="✕ Remove" data-gu="✕ કાઢી નાખો">✕ Remove</button>
+            <div id="enroll-photo-status" style="font-size:12px;color:var(--green);font-weight:600" data-en="✓ Photo ready — will be saved with this enrollment" data-hi="✓ फ़ोटो तैयार — यह इस पंजीकरण के साथ सेव होगी" data-gu="✓ ફોટો તૈયાર — આ નોંધણી સાથે સાચવવામાં આવશે">✓ Photo ready — will be saved with this enrollment</div>
+            <button type="button" onclick="_v410RemoveEnrollPhoto()" style="margin-top:6px;background:none;border:none;color:var(--red);font-size:12px;font-weight:600;cursor:pointer;padding:0" data-en="✕ Remove" data-hi="✕ हटाएँ" data-gu="✕ કાઢી નાખો">✕ Remove</button>
           </div>
         </div>
-        <div id="enroll-photo-busy" style="display:none;margin-top:10px;font-size:12px;color:var(--gray2)" data-en="Uploading photo…" data-gu="ફોટો અપલોડ થઈ રહ્યો છે…">Uploading photo…</div>
+        <div id="enroll-photo-busy" style="display:none;margin-top:10px;font-size:12px;color:var(--gray2)" data-en="Uploading photo…" data-hi="फ़ोटो अपलोड हो रही है…" data-gu="ફોટો અપલોડ થઈ રહ્યો છે…">Uploading photo…</div>
       </div>
     </div>
   </div>
   <div class="modal-foot" style="flex-direction:column;align-items:stretch;gap:10px">
     <div style="display:flex;gap:8px;justify-content:flex-end;position:relative"><!-- V23.3: holds the announce span inside the form -->
-      <button class="btn" onclick="closeEnroll()" data-en="Cancel" data-gu="રદ કરો">Cancel</button>
-      <button class="btn btn-primary" id="enroll-submit-btn" onclick="submitEnroll()" data-en="Enroll &amp; Generate ID" data-gu="નોંધણી કરો અને ID જનરેટ કરો">Enroll &amp; Generate ID</button>
+      <button class="btn" onclick="closeEnroll()" data-en="Cancel" data-hi="रद्द करें" data-gu="રદ કરો">Cancel</button>
+      <button class="btn btn-primary" id="enroll-submit-btn" onclick="submitEnroll()" data-en="Enroll &amp; Generate ID" data-hi="पंजीकरण करें और ID बनाएँ" data-gu="નોંધણી કરો અને ID જનરેટ કરો">Enroll &amp; Generate ID</button>
       <span id="enroll-submit-announce" role="status" aria-live="polite" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap"></span>
     </div>
   </div>
@@ -4602,7 +4590,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V24.3-LIVE';
+const APP_VERSION = 'V24.4-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -11612,7 +11600,7 @@ const SCHEMES_KEY = 'krsf_schemes_v1';
 // stay in English. Only labels/placeholders/button captions/hints translate.
 const LANG_KEY = 'krsf_lang_v1';
 function getLang() {
-  try { return localStorage.getItem(LANG_KEY) === 'gu' ? 'gu' : 'en'; }
+  try { const v = localStorage.getItem(LANG_KEY); return (v === 'gu' || v === 'hi') ? v : 'en'; }   // V24.4: Hindi
   catch(_) { return 'en'; }
 }
 // Effective language considering current user role — admin/NGO always see
@@ -11627,49 +11615,54 @@ function _effectiveLang() {
   return (role === 'coordinator') ? getLang() : 'en';
 }
 function setLang(l) {
-  try { localStorage.setItem(LANG_KEY, l === 'gu' ? 'gu' : 'en'); } catch(_) {}
+  try { localStorage.setItem(LANG_KEY, (l === 'gu' || l === 'hi') ? l : 'en'); } catch(_) {}
 }
 // Quick lookup for JS-generated strings. Add keys as needed.
 const I18N = {
   // Endline modal
-  'endline.title':            {en: 'Endline Survey', gu: 'અસરકારક્તા જોવા માટેનો અંતિમ સર્વે'},
-  'endline.editTitle':        {en: 'Edit Endline Data', gu: 'અંતિમ સર્વેની વિગતોમાં ફેરકાર કરવા'},
-  'endline.submit':           {en: 'Submit Endline Survey', gu: 'અંતિમ સર્વે submit કરો'},
-  'endline.save':             {en: 'Save Changes', gu: 'ફેરફારો સાચવો'},
-  'endline.cancel':           {en: 'Cancel', gu: 'રદ કરો'},
-  'endline.section':          {en: 'Section 2 — Endline Income Update', gu: 'અંતિમ સર્વેની આવકની નોંધણી'},
-  'endline.baselineLbl':      {en: 'Baseline Annual Income', gu: 'પ્રારંભિક સર્વે દરમિયાનની વાર્ષિક આવક'},
-  'endline.baselineOn':       {en: 'Recorded on', gu: 'નોંધાયેલ તારીખ'},
-  'endline.endlineLbl':       {en: 'Endline Annual Income (Rs/yr) *', gu: 'અંતિમ સર્વે દરમિયાનની વાર્ષિક આવક'},
-  'endline.endlinePh':        {en: 'Enter TOTAL income now (not just the gain)', gu: 'હાલની કુલ આવક દાખલ કરો (માત્ર વધારો નહીં)'},
-  'endline.endlineHint':      {en: 'TOTAL annual household income now — old income + new income together. Do NOT enter only the additional income from the intervention.', gu: 'હાલની કુલ વાર્ષિક આવક — જૂની આવક + નવી આવક બંને મળીને. માત્ર વધારાની (નવી) આવક જ દાખલ કરશો નહીં.'},
+  'endline.title':            {en: 'Endline Survey', gu: 'અસરકારક્તા જોવા માટેનો અંતિમ સર્વે', hi: 'एंडलाइन सर्वे'},
+  'endline.editTitle':        {en: 'Edit Endline Data', gu: 'અંતિમ સર્વેની વિગતોમાં ફેરકાર કરવા', hi: 'एंडलाइन जानकारी बदलें'},
+  'endline.submit':           {en: 'Submit Endline Survey', gu: 'અંતિમ સર્વે submit કરો', hi: 'एंडलाइन सर्वे जमा करें'},
+  'endline.save':             {en: 'Save Changes', gu: 'ફેરફારો સાચવો', hi: 'बदलाव सेव करें'},
+  'endline.cancel':           {en: 'Cancel', gu: 'રદ કરો', hi: 'रद्द करें'},
+  'endline.section':          {en: 'Section 2 — Endline Income Update', gu: 'અંતિમ સર્વેની આવકની નોંધણી', hi: 'भाग 2 — एंडलाइन आय की जानकारी'},
+  'endline.baselineLbl':      {en: 'Baseline Annual Income', gu: 'પ્રારંભિક સર્વે દરમિયાનની વાર્ષિક આવક', hi: 'बेसलाइन वार्षिक आय'},
+  'endline.baselineOn':       {en: 'Recorded on', gu: 'નોંધાયેલ તારીખ', hi: 'दर्ज की गई तारीख'},
+  'endline.endlineLbl':       {en: 'Endline Annual Income (Rs/yr) *', gu: 'અંતિમ સર્વે દરમિયાનની વાર્ષિક આવક', hi: 'एंडलाइन वार्षिक आय (रु./वर्ष) *'},
+  'endline.endlinePh':        {en: 'Enter TOTAL income now (not just the gain)', gu: 'હાલની કુલ આવક દાખલ કરો (માત્ર વધારો નહીં)', hi: 'अभी की कुल आय लिखें (सिर्फ़ बढ़ोतरी नहीं)'},
+  'endline.endlineHint':      {en: 'TOTAL annual household income now — old income + new income together. Do NOT enter only the additional income from the intervention.', gu: 'હાલની કુલ વાર્ષિક આવક — જૂની આવક + નવી આવક બંને મળીને. માત્ર વધારાની (નવી) આવક જ દાખલ કરશો નહીં.', hi: 'अभी परिवार की कुल वार्षिक आय — पुरानी आय + नई आय दोनों मिलाकर। केवल काम से हुई अतिरिक्त (नई) आय न लिखें।'},
   // V4.7: guard dialog — catches the "entered only the ADDITIONAL income" mistake
-  'endline.guardTitle':       {en: '⚠ Please check this amount', gu: '⚠ મહેરબાની કરીને આ રકમ તપાસો'},
-  'endline.guardBase':        {en: 'Baseline income was', gu: 'પ્રારંભિક આવક હતી'},
-  'endline.guardEntered':     {en: 'You entered', gu: 'તમે દાખલ કરી'},
-  'endline.guardQ':           {en: 'Is the amount you entered only the ADDITIONAL (new) income from the intervention?', gu: 'શું તમે દાખલ કરેલી રકમ માત્ર વધારાની (નવી) આવક છે?'},
-  'endline.guardAdd':         {en: 'Yes — it is additional. Save TOTAL as', gu: 'હા — આ વધારાની આવક છે. કુલ આવક તરીકે સાચવો'},
-  'endline.guardKeep':        {en: 'No — income really fell. Save', gu: 'ના — આવક ખરેખર ઘટી છે. સાચવો'},
-  'endline.guardCancel':      {en: 'Go back and correct the amount', gu: 'પાછા જઈને રકમ સુધારો'},
-  'endline.photoSection':     {en: '📷 Endline Photo & GPS Location', gu: 'અંતિમ સર્વે દરમિયાનનો ફોટો અને GPS સ્થાન'},
-  'endline.photoIntro':       {en: 'Take a photo of the beneficiary at their farm or workplace to verify the endline visit. GPS coordinates captured automatically.', gu: 'અંતિમ સર્વેની આવક ચકાસવા માટે લાભાર્થીનો તેમના ખેતર અથવા કાર્યસ્થળે મુલાકાતનો ફોટો લો. GPS કોઓર્ડિનેટ્સ આપોઆપ કેપ્ચર થાય છે.'},
-  'endline.noPhoto':          {en: 'No endline photo taken yet', gu: 'હજુ સુધી અંતિમ સર્વેનો ફોટો લેવાયો નથી'},
-  'endline.prevPhoto':        {en: '✓ Previous endline photo exists — retake to update', gu: '✓ અગાઉનો અંતિમ સર્વે દરમિયાનનો ફોટો છે — સુધારવા કરવા ફરીથી લો'},
-  'endline.openCam':          {en: 'Open Camera', gu: 'કેમેરા ખોલો'},
-  'endline.capture':          {en: '📞 Capture Photo', gu: '📞 ફોટો લો'},
-  'endline.retake':           {en: '↺ Retake', gu: '↺ ફરીથી લો'},
-  'endline.baselineDate':     {en: 'Baseline date', gu: 'પ્રારંભિક સર્વેની તારીખ'},
-  'endline.baselineIncome':   {en: 'Baseline income', gu: 'પ્રારંભિક સર્વેની આવક'},
-  'endline.prevSubmitted':    {en: 'Endline previously submitted on', gu: 'અંતિમ સર્વે અગાઉ આ તારીખે સુધારેલ હતો'},
-  'endline.liveDelta':        {en: 'Live Income Delta Preview', gu: 'આવકમાં હાલ થયેલ ફેરફારની વિગતો'},
+  'endline.guardTitle':       {en: '⚠ Please check this amount', gu: '⚠ મહેરબાની કરીને આ રકમ તપાસો', hi: '⚠ कृपया यह रकम जाँचें'},
+  'endline.guardBase':        {en: 'Baseline income was', gu: 'પ્રારંભિક આવક હતી', hi: 'बेसलाइन आय थी'},
+  'endline.guardEntered':     {en: 'You entered', gu: 'તમે દાખલ કરી', hi: 'आपने लिखा'},
+  'endline.guardQ':           {en: 'Is the amount you entered only the ADDITIONAL (new) income from the intervention?', gu: 'શું તમે દાખલ કરેલી રકમ માત્ર વધારાની (નવી) આવક છે?', hi: 'क्या आपकी लिखी रकम केवल काम से हुई अतिरिक्त (नई) आय है?'},
+  'endline.guardAdd':         {en: 'Yes — it is additional. Save TOTAL as', gu: 'હા — આ વધારાની આવક છે. કુલ આવક તરીકે સાચવો', hi: 'हाँ — यह अतिरिक्त आय है। कुल आय सेव करें'},
+  'endline.guardKeep':        {en: 'No — income really fell. Save', gu: 'ના — આવક ખરેખર ઘટી છે. સાચવો', hi: 'नहीं — आय सच में घटी है। सेव करें'},
+  'endline.guardCancel':      {en: 'Go back and correct the amount', gu: 'પાછા જઈને રકમ સુધારો', hi: 'वापस जाकर रकम सुधारें'},
+  'endline.photoSection':     {en: '📷 Endline Photo & GPS Location', gu: 'અંતિમ સર્વે દરમિયાનનો ફોટો અને GPS સ્થાન', hi: '📷 एंडलाइन फ़ोटो और GPS स्थान'},
+  'endline.photoIntro':       {en: 'Take a photo of the beneficiary at their farm or workplace to verify the endline visit. GPS coordinates captured automatically.', gu: 'અંતિમ સર્વેની આવક ચકાસવા માટે લાભાર્થીનો તેમના ખેતર અથવા કાર્યસ્થળે મુલાકાતનો ફોટો લો. GPS કોઓર્ડિનેટ્સ આપોઆપ કેપ્ચર થાય છે.', hi: 'एंडलाइन मुलाक़ात की पुष्टि के लिए लाभार्थी की उनके खेत या काम की जगह पर फ़ोटो लें। GPS स्थान अपने-आप दर्ज होता है।'},
+  'endline.noPhoto':          {en: 'No endline photo taken yet', gu: 'હજુ સુધી અંતિમ સર્વેનો ફોટો લેવાયો નથી', hi: 'अभी तक एंडलाइन फ़ोटो नहीं ली गई'},
+  'endline.prevPhoto':        {en: '✓ Previous endline photo exists — retake to update', gu: '✓ અગાઉનો અંતિમ સર્વે દરમિયાનનો ફોટો છે — સુધારવા કરવા ફરીથી લો', hi: '✓ पिछली एंडलाइन फ़ोटो मौजूद है — बदलने के लिए फिर से लें'},
+  'endline.openCam':          {en: 'Open Camera', gu: 'કેમેરા ખોલો', hi: 'कैमरा खोलें'},
+  'endline.capture':          {en: '📞 Capture Photo', gu: '📞 ફોટો લો', hi: '📞 फ़ोटो लें'},
+  'endline.retake':           {en: '↺ Retake', gu: '↺ ફરીથી લો', hi: '↺ फिर से लें'},
+  'endline.baselineDate':     {en: 'Baseline date', gu: 'પ્રારંભિક સર્વેની તારીખ', hi: 'बेसलाइन तारीख'},
+  'endline.baselineIncome':   {en: 'Baseline income', gu: 'પ્રારંભિક સર્વેની આવક', hi: 'बेसलाइन आय'},
+  'endline.prevSubmitted':    {en: 'Endline previously submitted on', gu: 'અંતિમ સર્વે અગાઉ આ તારીખે સુધારેલ હતો', hi: 'एंडलाइन पहले इस तारीख को जमा हुई थी'},
+  'endline.liveDelta':        {en: 'Live Income Delta Preview', gu: 'આવકમાં હાલ થયેલ ફેરફારની વિગતો', hi: 'आय में बदलाव की झलक'},
   // Toggle button
-  'toggle.switchToGu':        {en: 'ગુજરાતી', gu: 'ગુજરાતી'},
-  'toggle.switchToEn':        {en: 'English', gu: 'English'},
+  'toggle.switchToGu':        {en: 'ગુજરાતી', gu: 'ગુજરાતી', hi: 'ગુજરાતી'},
+  'toggle.switchToEn':        {en: 'English', gu: 'English', hi: 'English'},
   // Dropdown placeholders
-  'sel.state':                {en: '— Select State —', gu: '— રાજ્ય પસંદ કરો —'},
-  'sel.stateFirst':           {en: '— Select State first —', gu: '— પહેલા રાજ્ય પસંદ કરો —'},
-  'sel.district':             {en: '— Select District —', gu: '— જિલ્લો પસંદ કરો —'},
+  'sel.state':                {en: '— Select State —', gu: '— રાજ્ય પસંદ કરો —', hi: '— राज्य चुनें —'},
+  'sel.stateFirst':           {en: '— Select State first —', gu: '— પહેલા રાજ્ય પસંદ કરો —', hi: '— पहले राज्य चुनें —'},
+  'sel.district':             {en: '— Select District —', gu: '— જિલ્લો પસંદ કરો —', hi: '— ज़िला चुनें —'},
 };
+// V24.4: the language attribute to show - data-hi / data-gu, English when absent
+function _v244Pick(el, suffix, lang) {
+  const v = (lang && lang !== 'en') ? el.getAttribute('data-' + lang + suffix) : null;
+  return v != null ? v : el.getAttribute('data-en' + suffix);
+}
 function t(key) {
   const entry = I18N[key];
   if (!entry) return key;
@@ -11686,7 +11679,7 @@ function _applyLanguage(root) {
   const lang = _effectiveLang();
   // Swap text content for elements with data-en + data-gu
   root.querySelectorAll('[data-en][data-gu]').forEach(el => {
-    const val = lang === 'gu' ? el.getAttribute('data-gu') : el.getAttribute('data-en');
+    const val = _v244Pick(el, '', lang);
     if (val != null) {
       // Preserve child elements (like <span> hints) by swapping only the text
       // node we marked up. If the element has children, we only swap a
@@ -11708,14 +11701,14 @@ function _applyLanguage(root) {
   });
   // Swap placeholders for elements with data-en-ph + data-gu-ph
   root.querySelectorAll('[data-en-ph][data-gu-ph]').forEach(el => {
-    const val = lang === 'gu' ? el.getAttribute('data-gu-ph') : el.getAttribute('data-en-ph');
+    const val = _v244Pick(el, '-ph', lang);
     if (val != null) el.placeholder = val;
   });
   // Swap <option> text inside selects tagged for translation. The first
   // option (placeholder-like) uses data-en/data-gu; later options are the
   // data values and stay untranslated.
   root.querySelectorAll('option[data-en][data-gu]').forEach(opt => {
-    const val = lang === 'gu' ? opt.getAttribute('data-gu') : opt.getAttribute('data-en');
+    const val = _v244Pick(opt, '', lang);
     if (val != null) opt.textContent = val;
   });
   // Toggle data-lang-group="en"/"gu" dual blocks. These are used for rich
@@ -11724,12 +11717,20 @@ function _applyLanguage(root) {
   root.querySelectorAll('[data-lang-group]').forEach(el => {
     el.style.display = (el.getAttribute('data-lang-group') === lang) ? '' : 'none';
   });
+  // V24.4: tooltips, state / district names, and the Hindi names drawn beside
+  // scheme and livelihood names (see the v244-hi CSS)
+  root.querySelectorAll('[data-en-title][data-gu-title]').forEach(el => {
+    const val = _v244Pick(el, '-title', lang);
+    if (val != null) el.title = val;
+  });
+  try { _v244NamePlaces(lang); } catch (_) {}
+  try { document.body.classList.toggle('v244-hi', lang === 'hi'); } catch (_) {}
 }
 // Set language to a specific value ('en' or 'gu'), persist, re-apply to any
 // open modal, and refresh the segmented-switch visual state. Called directly
 // from each segment's onclick — no toggle logic needed.
 function setLanguageTo(lang) {
-  const next = (lang === 'gu') ? 'gu' : 'en';
+  const next = (lang === 'gu' || lang === 'hi') ? lang : 'en';   // V24.4
   if (getLang() === next) return;  // no-op if already active
   setLang(next);
   _applyLanguage(document.getElementById('enroll-overlay'));
@@ -11750,24 +11751,20 @@ function _refreshLangToggleLabel() {
   const cur = getLang();
   const en = document.getElementById('coord-lang-en');
   const gu = document.getElementById('coord-lang-gu');
+  const hi = document.getElementById('coord-lang-hi');   // V24.4
   if (!en || !gu) return;
   const activeStyle   = 'background:#fff;color:var(--navy);box-shadow:0 1px 3px rgba(0,0,0,0.15)';
   const inactiveStyle = 'background:transparent;color:#fff';
   // V5.4: padding tightened from 5px 12px to match the shorter EN/GJ labels
   // (was sized for "English"/"ગુજરાતી") — kept in sync with the initial
   // inline style in the coord-header markup itself.
-  const baseStyle = 'border:0;padding:5px 10px;border-radius:17px;cursor:pointer;font-family:var(--font);font-weight:600;font-size:12px;transition:all 0.15s;';
-  if (cur === 'gu') {
-    gu.style.cssText = baseStyle + activeStyle;
-    en.style.cssText = baseStyle + inactiveStyle;
-    gu.setAttribute('aria-selected', 'true');
-    en.setAttribute('aria-selected', 'false');
-  } else {
-    en.style.cssText = baseStyle + activeStyle;
-    gu.style.cssText = baseStyle + inactiveStyle;
-    en.setAttribute('aria-selected', 'true');
-    gu.setAttribute('aria-selected', 'false');
-  }
+  const baseStyle = 'border:0;padding:5px 8px;border-radius:17px;cursor:pointer;font-family:var(--font);font-weight:600;font-size:12px;transition:all 0.15s;';
+  // V24.4: three segments - the active one is the filled white pill
+  [['en', en], ['gu', gu], ['hi', hi]].forEach(function (p) {
+    if (!p[1]) return;
+    p[1].style.cssText = baseStyle + (cur === p[0] ? activeStyle : inactiveStyle);
+    p[1].setAttribute('aria-selected', cur === p[0] ? 'true' : 'false');
+  });
 }
 
 
@@ -14086,13 +14083,15 @@ const ALL_STATE_NAMES = [
 function onStateChange() {
   const state = document.getElementById('f-state').value;
   const dsel  = document.getElementById('f-district-sel');
+  // V24.4: the prompts carry all three languages; names follow the language
   if (!state) {
-    dsel.innerHTML = '<option value="">— Select State first —</option>';
+    dsel.innerHTML = '<option value="" data-en="— Select State first —" data-gu="— પહેલા રાજ્ય પસંદ કરો —" data-hi="— पहले राज्य चुनें —">— Select State first —</option>';
   } else {
     const districts = DISTRICTS[state] || [];
-    dsel.innerHTML = '<option value="">— Select District —</option>'
+    dsel.innerHTML = '<option value="" data-en="— Select District —" data-gu="— જિલ્લો પસંદ કરો —" data-hi="— ज़िला चुनें —">— Select District —</option>'
       + districts.map(d => `<option value="${d}">${d}</option>`).join('');
   }
+  try { _v244NamePlaces(); } catch (_) {}
   // V412: re-filter the scheme panel by the newly-picked state — FRESH
   // ENROLLMENT ONLY (editingId is null). Deliberately NOT fired while editing
   // an existing beneficiary: openEdit() populates the scheme panel itself
@@ -15887,9 +15886,9 @@ function openEnroll() {
   // browser. _effectiveLang() enforces that role gate.
   const _lang = (typeof _effectiveLang === 'function') ? _effectiveLang() : 'en';
   document.getElementById('modal-title-text').textContent =
-    _lang === 'gu' ? 'નવા લાભાર્થીની નોંધણી — પ્રારંભિક સર્વે' : 'Enroll New Beneficiary — Baseline Survey';
+    _lang === 'gu' ? 'નવા લાભાર્થીની નોંધણી — પ્રારંભિક સર્વે' : _lang === 'hi' ? 'नए लाभार्थी का पंजीकरण — बेसलाइन सर्वे' : 'Enroll New Beneficiary — Baseline Survey';
   document.getElementById('enroll-submit-btn').textContent =
-    _lang === 'gu' ? 'નોંધણી કરો અને ID જનરેટ કરો' : 'Enroll & Generate ID';
+    _lang === 'gu' ? 'નોંધણી કરો અને ID જનરેટ કરો' : _lang === 'hi' ? 'पंजीकरण करें और ID बनाएँ' : 'Enroll & Generate ID';
   document.getElementById('enroll-submit-btn').removeAttribute('data-state');   // V20.1: defensive
   document.getElementById('enroll-overlay').classList.add('open');
   document.body.classList.add('modal-open');
@@ -15916,8 +15915,8 @@ function openEnroll() {
   document.getElementById('f-state').value = '';
   // District placeholder — carry lang attrs so a later re-toggle still swaps it.
   document.getElementById('f-district-sel').innerHTML =
-    '<option value="" data-en="— Select State first —" data-gu="— પહેલા રાજ્ય પસંદ કરો —">' +
-    (_lang === 'gu' ? '— પહેલા રાજ્ય પસંદ કરો —' : '— Select State first —') +
+    '<option value="" data-en="— Select State first —" data-gu="— પહેલા રાજ્ય પસંદ કરો —" data-hi="— पहले राज्य चुनें —">' +
+    (_lang === 'gu' ? '— પહેલા રાજ્ય પસંદ કરો —' : _lang === 'hi' ? '— पहले राज्य चुनें —' : '— Select State first —') +
     '</option>';
   resetPhotoSection();
   _v410ResetEnrollPhoto();  // V410: clear any optional enroll photo from a prior open
@@ -16277,9 +16276,9 @@ function openEnrollAsFamilyMember(headId) {
   // enrollment text). Bilingual labels handled inline.
   const _lang = (typeof _effectiveLang === 'function') ? _effectiveLang() : 'en';
   document.getElementById('modal-title-text').textContent =
-    _lang === 'gu' ? 'કુટુંબના સભ્ય ઉમેરો' : 'Add Family Member';
+    _lang === 'gu' ? 'કુટુંબના સભ્ય ઉમેરો' : _lang === 'hi' ? 'परिवार का सदस्य जोड़ें' : 'Add Family Member';
   document.getElementById('enroll-submit-btn').textContent =
-    _lang === 'gu' ? 'કુટુંબના સભ્યની નોંધણી કરો' : 'Add Family Member';
+    _lang === 'gu' ? 'કુટુંબના સભ્યની નોંધણી કરો' : _lang === 'hi' ? 'परिवार के सदस्य का पंजीकरण करें' : 'Add Family Member';
   document.getElementById('enroll-submit-btn').removeAttribute('data-state');   // V20.1: defensive
 
   // Step 5: V5.8 — neither programme is pre-ticked (_applyFamilyMemberModeUI
@@ -16794,11 +16793,14 @@ function openEdit(id) {
   } else {
     _applyFamilyMemberModeUI(null);
   }
+  // V24.4: in the coordinator's language (English for everyone else)
+  const _v244L = (typeof _effectiveLang === 'function') ? _effectiveLang() : 'en';
+  const _v244T = function (en, o) { return (_v244L !== 'en' && o[_v244L]) || en; };
   document.getElementById('modal-title-text').textContent =
     editingFamilyMember
-      ? 'Edit Family Member — ' + b.id
-      : 'Edit Beneficiary — ' + b.id;
-  document.getElementById('enroll-submit-btn').textContent = 'Save Changes';
+      ? _v244T('Edit Family Member — ', {"gu": "કુટુંબના સભ્યની વિગતો બદલો — ", "hi": "परिवार के सदस्य की जानकारी बदलें — "}) + b.id
+      : _v244T('Edit Beneficiary — ', {"gu": "લાભાર્થીની વિગતો બદલો — ", "hi": "लाभार्थी की जानकारी बदलें — "}) + b.id;
+  document.getElementById('enroll-submit-btn').textContent = _v244T('Save Changes', {"gu": "ફેરફારો સાચવો", "hi": "बदलाव सेव करें"});
   document.getElementById('enroll-submit-btn').removeAttribute('data-state');   // V20.1: defensive
   document.getElementById('enroll-overlay').classList.add('open');
   document.body.classList.add('modal-open');
@@ -17498,8 +17500,9 @@ function _advEnrollGroupShellHtml() {
          +   '<div class="adv-enroll-group-body" data-group-body="' + type + '" style="display:none"></div>'
          + '</div>';
   };
-  return card('Document', '📄', 'Documents', '')
-       + card('Scheme',   '🏛', 'Schemes',   ' style="border-top:1px solid var(--gray3)"');
+  // V24.4: the group names switch with the language
+  return card('Document', '📄', '<span data-en="Documents" data-gu="દસ્તાવેજો" data-hi="दस्तावेज़">Documents</span>', '')
+       + card('Scheme',   '🏛', '<span data-en="Schemes" data-gu="યોજનાઓ" data-hi="योजनाएँ">Schemes</span>',   ' style="border-top:1px solid var(--gray3)"');
 }
 
 // Idempotent. Safe to call before every append.
@@ -17508,6 +17511,7 @@ function advEnrollEnsureGroups() {
   if (!list) return null;
   if (list.querySelector('[data-group-body="Document"]') &&
       list.querySelector('[data-group-body="Scheme"]')) return list;
+  try { setTimeout(function () { try { _applyLanguage(list); } catch (_) {} }, 0); } catch (_) {}   // V24.4: the group names
   // Rows may already have been appended flat by a caller that wiped the
   // shells. Keep them - re-parenting preserves their listeners and dataset,
   // which rebuilding from scratch would lose along with any edit-mode state.
@@ -17615,8 +17619,8 @@ function advEnrollAppendSchemeRow(schemeName, checked, status, isCustom, origina
   const pillHtml = showReadOnlyPill
     ? `<span title="This scheme has an advanced status — to change it, use the full Advocacy → Log screen." style="display:inline-flex;align-items:center;padding:4px 10px;font-size:11px;border-radius:6px;background:${pillBg};color:${pillColor};font-weight:600;cursor:help;border:1px solid ${pillColor}33">${storedStatus}${(originalStored.benefitAmt && originalStored.benefitAmt > 0) ? ` · ₹${originalStored.benefitAmt.toLocaleString('en-IN')}` : ''} 🔒</span>`
     : `<div class="adv-enroll-toggle" style="display:inline-flex;border:1px solid var(--gray3);border-radius:6px;overflow:hidden;opacity:${checked?'1':'0.4'};pointer-events:${checked?'auto':'none'}">
-        <button type="button" data-status="Need to Apply" data-active="${status==='Need to Apply'?'true':'false'}" onclick="advEnrollSetStatus(this)" style="padding:4px 10px;font-size:11px;border:none;cursor:pointer;background:${status==='Need to Apply'?'#FEF3C7':'#fff'};color:${status==='Need to Apply'?'#B45309':'var(--gray2)'};font-weight:${status==='Need to Apply'?'600':'400'};border-right:1px solid var(--gray3);font-family:var(--font)">Need to Apply</button>
-        <button type="button" data-status="Applied" data-active="${status==='Applied'?'true':'false'}" onclick="advEnrollSetStatus(this)" style="padding:4px 10px;font-size:11px;border:none;cursor:pointer;background:${status==='Applied'?'#DBEAFE':'#fff'};color:${status==='Applied'?'#1D4ED8':'var(--gray2)'};font-weight:${status==='Applied'?'600':'400'};font-family:var(--font)">Applied</button>
+        <button type="button" data-status="Need to Apply" data-active="${status==='Need to Apply'?'true':'false'}" onclick="advEnrollSetStatus(this)" style="padding:4px 10px;font-size:11px;border:none;cursor:pointer;background:${status==='Need to Apply'?'#FEF3C7':'#fff'};color:${status==='Need to Apply'?'#B45309':'var(--gray2)'};font-weight:${status==='Need to Apply'?'600':'400'};border-right:1px solid var(--gray3);font-family:var(--font)" data-en="Need to Apply" data-gu="અરજી કરવી જરૂરી" data-hi="आवेदन करना है">Need to Apply</button>
+        <button type="button" data-status="Applied" data-active="${status==='Applied'?'true':'false'}" onclick="advEnrollSetStatus(this)" style="padding:4px 10px;font-size:11px;border:none;cursor:pointer;background:${status==='Applied'?'#DBEAFE':'#fff'};color:${status==='Applied'?'#1D4ED8':'var(--gray2)'};font-weight:${status==='Applied'?'600':'400'};font-family:var(--font)" data-en="Applied" data-gu="અરજી કરેલી" data-hi="आवेदन किया">Applied</button>
       </div>`;
   // When showing the read-only pill, also disable the checkbox — otherwise
   // unticking it would also demote the rich status. The user can still see
@@ -17628,8 +17632,8 @@ function advEnrollAppendSchemeRow(schemeName, checked, status, isCustom, origina
     <div style="display:flex;align-items:center;gap:10px;width:100%">
       ${checkboxHtml}
       ${isCustom
-        ? `<input type="text" class="adv-enroll-name" placeholder="Custom scheme name..." value="${escHtml(schemeName||'')}" style="flex:1;padding:5px 9px;border:1px solid var(--gray3);border-radius:5px;font-size:13px;font-family:var(--font)">`
-        : `<span class="adv-enroll-name" style="flex:1;font-size:13px">${escHtml(schemeName)}</span>`}
+        ? `<input type="text" class="adv-enroll-name" placeholder="Custom scheme name..." data-en-ph="Custom scheme name..." data-gu-ph="યોજનાનું નામ..." data-hi-ph="योजना का नाम..." value="${escHtml(schemeName||'')}" style="flex:1;padding:5px 9px;border:1px solid var(--gray3);border-radius:5px;font-size:13px;font-family:var(--font)">`
+        : `<span class="adv-enroll-name" style="flex:1;font-size:13px"${_v244HiName(schemeName) ? ' data-hi="' + escHtml(_v244HiName(schemeName)) + '"' : ''}>${escHtml(schemeName)}</span>`}
       ${pillHtml}
       ${isCustom ? `<button type="button" onclick="this.closest('.adv-enroll-row').remove()" style="background:none;border:none;color:var(--gray2);cursor:pointer;font-size:16px;padding:0 4px" title="Remove">×</button>` : ''}
     </div>
@@ -17637,8 +17641,8 @@ function advEnrollAppendSchemeRow(schemeName, checked, status, isCustom, origina
          single scheme name covers multiple applications (tractor, rotavator,
          greenhouse). The remarks field surfaces what THIS application is for. -->
     <div class="adv-enroll-remarks-wrap" style="width:100%;padding-left:28px;margin-top:6px;display:${checked?'block':'none'}">
-      <input type="text" class="adv-enroll-remarks" placeholder="Optional remarks (e.g. tractor, rotavator, greenhouse, application date, scheme variant…)" value="${escHtml(originalStored && originalStored.remarks ? originalStored.remarks : '')}" maxlength="200" style="width:100%;padding:5px 9px;border:1px solid var(--gray3);border-radius:5px;font-size:12px;font-family:var(--font);background:#FAFAFA" oninput="this.closest('.adv-enroll-row').dataset.touched='1'">
-      ${!isCustom ? `<button type="button" onclick="advEnrollDuplicateRow(this)" style="margin-top:5px;background:none;border:1px dashed var(--navy);color:var(--navy);cursor:pointer;font-size:11px;padding:3px 9px;border-radius:5px;font-family:var(--font)" title="Add another application under this same scheme (e.g. for a different machine or application date)">+ Add another ${escHtml(schemeName)} application</button>` : ''}
+      <input type="text" class="adv-enroll-remarks" placeholder="Optional remarks (e.g. tractor, rotavator, greenhouse, application date, scheme variant…)" data-en-ph="Optional remarks (e.g. tractor, rotavator, greenhouse, application date, scheme variant…)" data-gu-ph="વૈકલ્પિક નોંધ (દા.ત. ટ્રેક્ટર, રોટાવેટર, ગ્રીનહાઉસ, અરજીની તારીખ…)" data-hi-ph="वैकल्पिक टिप्पणी (जैसे ट्रैक्टर, रोटावेटर, ग्रीनहाउस, आवेदन की तारीख…)" value="${escHtml(originalStored && originalStored.remarks ? originalStored.remarks : '')}" maxlength="200" style="width:100%;padding:5px 9px;border:1px solid var(--gray3);border-radius:5px;font-size:12px;font-family:var(--font);background:#FAFAFA" oninput="this.closest('.adv-enroll-row').dataset.touched='1'">
+      ${!isCustom ? `<button type="button" onclick="advEnrollDuplicateRow(this)" style="margin-top:5px;background:none;border:1px dashed var(--navy);color:var(--navy);cursor:pointer;font-size:11px;padding:3px 9px;border-radius:5px;font-family:var(--font)" title="Add another application under this same scheme (e.g. for a different machine or application date)" data-en="${escHtml('+ Add another {S} application'.replace('{S}', schemeName))}" data-gu="${escHtml('+ {S} ની બીજી અરજી ઉમેરો'.replace('{S}', schemeName))}" data-hi="${escHtml('+ {S} का एक और आवेदन जोड़ें'.replace('{S}', _v244HiName(schemeName) || schemeName))}">+ Add another ${escHtml(schemeName)} application</button>` : ''}
     </div>
   `;
   // Make the row a column container so the remarks line stacks below.
@@ -17647,6 +17651,7 @@ function advEnrollAppendSchemeRow(schemeName, checked, status, isCustom, origina
   // means parent is effectively always a group body now.
   (parent || list).appendChild(row);
   advEnrollUpdateGroupCounts();
+  try { _applyLanguage(row); } catch (_) {}   // V24.4: this row in the coordinator's language
 }
 
 // Checkbox click — enable/disable the segmented status toggle visually.
@@ -19231,6 +19236,13 @@ const _ENROLL_SUCCESS_COPY = {
       addLabel: 'હા, કુટુંબના સભ્ય ઉમેરો',
       doneLabel: 'ના, પૂર્ણ',
     },
+    hi: {
+      title: 'लाभार्थी का पंजीकरण हो गया',
+      question: 'क्या आप इसी परिवार का कोई और सदस्य जोड़ना चाहते हैं?',
+      explainer: 'परिवार के सदस्य (पत्नी, बेटी आदि) केवल सरकारी योजनाओं के काम के लिए जोड़े जाते हैं। उनकी जानकारी मुखिया के रिकॉर्ड से भर दी जाएगी।',
+      addLabel: 'हाँ, परिवार का सदस्य जोड़ें',
+      doneLabel: 'नहीं, हो गया',
+    },
   },
   family: {
     en: {
@@ -19246,6 +19258,13 @@ const _ENROLL_SUCCESS_COPY = {
       explainer: 'પત્ની, પુત્રી, પુત્ર કે અન્ય સંબંધીઓ ઉમેરવાનું ચાલુ રાખો. દરેક સભ્ય મુખ્ય સભ્ય હેઠળ સરકારી યોજનામાં નોંધણી માટે ટ્રેક થાય છે.',
       addLabel: 'હા, બીજા સભ્યને ઉમેરો',
       doneLabel: 'ના, પૂર્ણ',
+    },
+    hi: {
+      title: 'परिवार का सदस्य जुड़ गया',
+      question: 'क्या आप इसी परिवार का एक और सदस्य जोड़ना चाहते हैं?',
+      explainer: 'पत्नी, बेटी, बेटा या अन्य रिश्तेदार जोड़ते रहें। हर सदस्य उसी मुखिया के तहत सरकारी योजनाओं के लिए दर्ज होता है।',
+      addLabel: 'हाँ, एक और जोड़ें',
+      doneLabel: 'नहीं, हो गया',
     },
   },
 };
@@ -19301,7 +19320,7 @@ function showEnrollSuccessModal(id, name, headId) {
     if (isFamilyContext) {
       const headRec = loadData().find(x => x.id === headId);
       const headName = (headRec?.name || '(unknown)').replace(/</g, '&lt;');
-      headLinkEl.innerHTML = (lang === 'gu' ? 'મુખ્ય સભ્ય: ' : 'Linked to ') + '<b>' + headName + '</b>';
+      headLinkEl.innerHTML = (lang === 'gu' ? 'મુખ્ય સભ્ય: ' : lang === 'hi' ? 'मुखिया: ' : 'Linked to ') + '<b>' + headName + '</b>';
       headLinkEl.style.display = '';
     } else {
       headLinkEl.style.display = 'none';
@@ -32763,14 +32782,34 @@ function _statesWithBeneficiariesForCurrentFilter() {
 // Rebuild the enrollment form's Livelihood intervention chips from getLivTypes().
 // Called on openEnroll so newly added types (e.g., Carpentry) show up without
 // a page reload. Always appends the "Other" custom-entry chip at the end.
+// ── V24.4: names shown in Hindi / Gujarati; the English name is what is saved ──
+// [hi, gu] per state and district. The option's VALUE stays English; only its
+// text follows the coordinator's language.
+const _V244_PLACES = {"s": {"Andhra Pradesh": ["आंध्र प्रदेश", "આંધ્ર પ્રદેશ"], "Arunachal Pradesh": ["अरुणाचल प्रदेश", "અરુણાચલ પ્રદેશ"], "Assam": ["असम", "આસામ"], "Bihar": ["बिहार", "બિહાર"], "Chhattisgarh": ["छत्तीसगढ़", "છત્તીસગઢ"], "Goa": ["गोवा", "ગોવા"], "Gujarat": ["गुजरात", "ગુજરાત"], "Haryana": ["हरियाणा", "હરિયાણા"], "Himachal Pradesh": ["हिमाचल प्रदेश", "હિમાચલ પ્રદેશ"], "Jharkhand": ["झारखंड", "ઝારખંડ"], "Karnataka": ["कर्नाटक", "કર્ણાટક"], "Kerala": ["केरल", "કેરળ"], "Madhya Pradesh": ["मध्य प्रदेश", "મધ્ય પ્રદેશ"], "Maharashtra": ["महाराष्ट्र", "મહારાષ્ટ્ર"], "Manipur": ["मणिपुर", "મણિપુર"], "Meghalaya": ["मेघालय", "મેઘાલય"], "Mizoram": ["मिज़ोरम", "મિઝોરમ"], "Nagaland": ["नागालैंड", "નાગાલેન્ડ"], "Odisha": ["ओडिशा", "ઓડિશા"], "Punjab": ["पंजाब", "પંજાબ"], "Rajasthan": ["राजस्थान", "રાજસ્થાન"], "Sikkim": ["सिक्किम", "સિક્કિમ"], "Tamil Nadu": ["तमिलनाडु", "તમિલનાડુ"], "Telangana": ["तेलंगाना", "તેલંગાણા"], "Tripura": ["त्रिपुरा", "ત્રિપુરા"], "Uttar Pradesh": ["उत्तर प्रदेश", "ઉત્તર પ્રદેશ"], "Uttarakhand": ["उत्तराखंड", "ઉત્તરાખંડ"], "West Bengal": ["पश्चिम बंगाल", "પશ્ચિમ બંગાળ"], "Andaman & Nicobar Islands": ["अंडमान और निकोबार द्वीप समूह", "આંદામાન અને નિકોબાર ટાપુઓ"], "Chandigarh": ["चंडीगढ़", "ચંડીગઢ"], "Dadra & Nagar Haveli and Daman & Diu": ["दादरा और नगर हवेली और दमन और दीव", "દાદરા અને નગર હવેલી અને દમણ અને દીવ"], "Delhi": ["दिल्ली", "દિલ્હી"], "Jammu & Kashmir": ["जम्मू और कश्मीर", "જમ્મુ અને કાશ્મીર"], "Ladakh": ["लद्दाख", "લદ્દાખ"], "Lakshadweep": ["लक्षद्वीप", "લક્ષદ્વીપ"], "Puducherry": ["पुदुचेरी", "પુડુચેરી"]}, "d": {"Ahmedabad": ["अहमदाबाद", "અમદાવાદ"], "Amreli": ["अमरेली", "અમરેલી"], "Anand": ["आणंद", "આણંદ"], "Aravalli": ["अरवल्ली", "અરવલ્લી"], "Banaskantha": ["बनासकांठा", "બનાસકાંઠા"], "Bharuch": ["भरूच", "ભરૂચ"], "Bhavnagar": ["भावनगर", "ભાવનગર"], "Botad": ["बोटाद", "બોટાદ"], "Chhota Udaipur": ["छोटा उदयपुर", "છોટા ઉદેપુર"], "Dahod": ["दाहोद", "દાહોદ"], "Dangs (Ahwa)": ["डांग (आहवा)", "ડાંગ (આહવા)"], "Devbhoomi Dwarka": ["देवभूमि द्वारका", "દેવભૂમિ દ્વારકા"], "Gandhinagar": ["गांधीनगर", "ગાંધીનગર"], "Gir Somnath": ["गिर सोमनाथ", "ગીર સોમનાથ"], "Jamnagar": ["जामनगर", "જામનગર"], "Junagadh": ["जूनागढ़", "જૂનાગઢ"], "Kheda": ["खेड़ा", "ખેડા"], "Kutch": ["कच्छ", "કચ્છ"], "Mahisagar": ["महीसागर", "મહીસાગર"], "Mehsana": ["मेहसाणा", "મહેસાણા"], "Morbi": ["मोरबी", "મોરબી"], "Narmada": ["नर्मदा", "નર્મદા"], "Navsari": ["नवसारी", "નવસારી"], "Panchmahal": ["पंचमहाल", "પંચમહાલ"], "Patan": ["पाटण", "પાટણ"], "Porbandar": ["पोरबंदर", "પોરબંદર"], "Rajkot": ["राजकोट", "રાજકોટ"], "Sabarkantha": ["साबरकांठा", "સાબરકાંઠા"], "Surat": ["सूरत", "સુરત"], "Surendranagar": ["सुरेंद्रनगर", "સુરેન્દ્રનગર"], "Tapi": ["तापी", "તાપી"], "Vadodara": ["वडोदरा", "વડોદરા"], "Valsad": ["वलसाड", "વલસાડ"], "Vav-Tharad": ["वाव-थराद", "વાવ-થરાદ"], "Ajmer": ["अजमेर", null], "Alwar": ["अलवर", null], "Balotra": ["बालोतरा", null], "Banswara": ["बांसवाड़ा", null], "Baran": ["बारां", null], "Barmer": ["बाड़मेर", null], "Beawar": ["ब्यावर", null], "Bharatpur": ["भरतपुर", null], "Bhilwara": ["भीलवाड़ा", null], "Bikaner": ["बीकानेर", null], "Bundi": ["बूंदी", null], "Chittorgarh": ["चित्तौड़गढ़", null], "Churu": ["चूरू", null], "Dausa": ["दौसा", null], "Deeg": ["डीग", null], "Dholpur": ["धौलपुर", null], "Didwana-Kuchaman": ["डीडवाना-कुचामन", null], "Dungarpur": ["डूंगरपुर", null], "Hanumangarh": ["हनुमानगढ़", null], "Jaipur": ["जयपुर", null], "Jaisalmer": ["जैसलमेर", null], "Jalore": ["जालोर", null], "Jhalawar": ["झालावाड़", null], "Jhunjhunu": ["झुंझुनूं", null], "Jodhpur": ["जोधपुर", null], "Karauli": ["करौली", null], "Khairthal-Tijara": ["खैरथल-तिजारा", null], "Kota": ["कोटा", null], "Kotputli-Behror": ["कोटपूतली-बहरोड़", null], "Nagaur": ["नागौर", null], "Pali": ["पाली", null], "Phalodi": ["फलोदी", null], "Pratapgarh": ["प्रतापगढ़", null], "Rajsamand": ["राजसमंद", null], "Salumbar": ["सलूंबर", null], "Sawai Madhopur": ["सवाई माधोपुर", null], "Sikar": ["सीकर", null], "Sirohi": ["सिरोही", null], "Sri Ganganagar": ["श्रीगंगानगर", null], "Tonk": ["टोंक", null], "Udaipur": ["उदयपुर", null], "Ahmednagar": ["अहमदनगर", null], "Akola": ["अकोला", null], "Amravati": ["अमरावती", null], "Aurangabad (Chhatrapati Sambhajinagar)": ["औरंगाबाद (छत्रपति संभाजीनगर)", null], "Beed": ["बीड", null], "Bhandara": ["भंडारा", null], "Buldhana": ["बुलढाणा", null], "Chandrapur": ["चंद्रपुर", null], "Dhule": ["धुले", null], "Gadchiroli": ["गढ़चिरौली", null], "Gondia": ["गोंदिया", null], "Hingoli": ["हिंगोली", null], "Jalgaon": ["जलगांव", null], "Jalna": ["जालना", null], "Kolhapur": ["कोल्हापुर", null], "Latur": ["लातूर", null], "Mumbai City": ["मुंबई शहर", null], "Mumbai Suburban": ["मुंबई उपनगर", null], "Nagpur": ["नागपुर", null], "Nanded": ["नांदेड़", null], "Nandurbar": ["नंदुरबार", null], "Nashik": ["नासिक", null], "Osmanabad (Dharashiv)": ["उस्मानाबाद (धाराशिव)", null], "Palghar": ["पालघर", null], "Parbhani": ["परभणी", null], "Pune": ["पुणे", null], "Raigad": ["रायगढ़", null], "Ratnagiri": ["रत्नागिरी", null], "Sangli": ["सांगली", null], "Satara": ["सातारा", null], "Sindhudurg": ["सिंधुदुर्ग", null], "Solapur": ["सोलापुर", null], "Thane": ["ठाणे", null], "Wardha": ["वर्धा", null], "Washim": ["वाशिम", null], "Yavatmal": ["यवतमाल", null], "Chumoukedima": ["चुमौकेदिमा", null], "Dimapur": ["दीमापुर", null], "Kiphire": ["किफिरे", null], "Kohima": ["कोहिमा", null], "Longleng": ["लोंगलेंग", null], "Meluri": ["मेलुरी", null], "Mokokchung": ["मोकोकचुंग", null], "Mon": ["मोन", null], "Niuland": ["नियुलैंड", null], "Noklak": ["नोकलाक", null], "Peren": ["पेरेन", null], "Phek": ["फेक", null], "Shamator": ["शामतोर", null], "Tseminyu": ["त्सेमिन्यू", null], "Tuensang": ["त्युएनसांग", null], "Wokha": ["वोखा", null], "Zunheboto": ["ज़ुन्हेबोटो", null], "Alluri Sitharama Raju": ["अल्लूरी सीताराम राजू", null], "Anakapalli": ["अनकापल्ली", null], "Ananthapuramu": ["अनंतपुरमु", null], "Annamayya": ["अन्नमय्या", null], "Bapatla": ["बापटला", null], "Chittoor": ["चित्तूर", null], "Dr. B.R. Ambedkar Konaseema": ["डॉ. बी.आर. आंबेडकर कोनसीमा", null], "East Godavari": ["पूर्वी गोदावरी", null], "Eluru": ["एलुरु", null], "Guntur": ["गुंटूर", null], "Kakinada": ["काकीनाडा", null], "Krishna": ["कृष्णा", null], "Kurnool": ["कुरनूल", null], "Markapuram": ["मार्कापुरम", null], "Nandyal": ["नंद्याल", null], "NTR": ["एनटीआर", null], "Palnadu": ["पलनाडु", null], "Parvathipuram Manyam": ["पार्वतीपुरम मन्यम", null], "Polavaram": ["पोलावरम", null], "Prakasam": ["प्रकाशम", null], "Sri Potti Sriramulu Nellore": ["श्री पोट्टि श्रीरामुलु नेल्लोर", null], "Sri Sathya Sai": ["श्री सत्य साई", null], "Srikakulam": ["श्रीकाकुलम", null], "Tirupati": ["तिरुपति", null], "Visakhapatnam": ["विशाखापत्तनम", null], "Vizianagaram": ["विजयनगरम", null], "West Godavari": ["पश्चिमी गोदावरी", null], "YSR Kadapa": ["वाईएसआर कडपा", null], "Anjaw": ["अंजाव", null], "Bichom": ["बिचोम", null], "Changlang": ["चांगलांग", null], "Dibang Valley": ["दिबांग घाटी", null], "East Kameng": ["पूर्वी कामेंग", null], "East Siang": ["पूर्वी सियांग", null], "Kamle": ["कमले", null], "Keyi Panyor": ["केयी पन्योर", null], "Kra Daadi": ["क्रा दादी", null], "Kurung Kumey": ["कुरुंग कुमे", null], "Leparada": ["लेपाराडा", null], "Lohit": ["लोहित", null], "Longding": ["लोंगडिंग", null], "Lower Dibang Valley": ["निचली दिबांग घाटी", null], "Lower Siang": ["निचला सियांग", null], "Lower Subansiri": ["निचला सुबनसिरी", null], "Namsai": ["नामसाई", null], "Pakke Kessang": ["पक्के केसांग", null], "Papum Pare": ["पापुम पारे", null], "Shi Yomi": ["शि योमी", null], "Siang": ["सियांग", null], "Tawang": ["तवांग", null], "Tirap": ["तिरप", null], "Upper Siang": ["ऊपरी सियांग", null], "Upper Subansiri": ["ऊपरी सुबनसिरी", null], "West Kameng": ["पश्चिमी कामेंग", null], "West Siang": ["पश्चिमी सियांग", null], "Bajali": ["बजाली", null], "Baksa": ["बक्सा", null], "Barpeta": ["बरपेटा", null], "Biswanath": ["बिश्वनाथ", null], "Bongaigaon": ["बोंगाईगांव", null], "Cachar": ["कछार", null], "Charaideo": ["चराईदेव", null], "Chirang": ["चिरांग", null], "Darrang": ["दरांग", null], "Dhemaji": ["धेमाजी", null], "Dhubri": ["धुबरी", null], "Dibrugarh": ["डिब्रूगढ़", null], "Dima Hasao": ["दिमा हसाओ", null], "Goalpara": ["ग्वालपाड़ा", null], "Golaghat": ["गोलाघाट", null], "Hailakandi": ["हैलाकांदी", null], "Hojai": ["होजाई", null], "Jorhat": ["जोरहाट", null], "Kamrup": ["कामरूप", null], "Kamrup Metropolitan": ["कामरूप महानगर", null], "Karbi Anglong": ["कार्बी आंगलोंग", null], "Karimganj": ["करीमगंज", null], "Kokrajhar": ["कोकराझार", null], "Lakhimpur": ["लखीमपुर", null], "Majuli": ["माजुली", null], "Morigaon": ["मोरीगांव", null], "Nagaon": ["नगांव", null], "Nalbari": ["नलबाड़ी", null], "Sivasagar": ["शिवसागर", null], "Sonitpur": ["शोणितपुर", null], "South Salmara-Mankachar": ["दक्षिण सालमारा-मनकाचर", null], "Tamulpur": ["तामुलपुर", null], "Tinsukia": ["तिनसुकिया", null], "Udalguri": ["उदालगुड़ी", null], "West Karbi Anglong": ["पश्चिम कार्बी आंगलोंग", null], "Araria": ["अररिया", null], "Arwal": ["अरवल", null], "Aurangabad": ["औरंगाबाद", null], "Banka": ["बांका", null], "Begusarai": ["बेगूसराय", null], "Bhagalpur": ["भागलपुर", null], "Bhojpur": ["भोजपुर", null], "Buxar": ["बक्सर", null], "Darbhanga": ["दरभंगा", null], "East Champaran (Motihari)": ["पूर्वी चंपारण (मोतिहारी)", null], "Gaya": ["गया", null], "Gopalganj": ["गोपालगंज", null], "Jamui": ["जमुई", null], "Jehanabad": ["जहानाबाद", null], "Kaimur (Bhabua)": ["कैमूर (भभुआ)", null], "Katihar": ["कटिहार", null], "Khagaria": ["खगड़िया", null], "Kishanganj": ["किशनगंज", null], "Lakhisarai": ["लखीसराय", null], "Madhepura": ["मधेपुरा", null], "Madhubani": ["मधुबनी", null], "Munger": ["मुंगेर", null], "Muzaffarpur": ["मुजफ्फरपुर", null], "Nalanda": ["नालंदा", null], "Nawada": ["नवादा", null], "Patna": ["पटना", null], "Purnia": ["पूर्णिया", null], "Rohtas": ["रोहतास", null], "Saharsa": ["सहरसा", null], "Samastipur": ["समस्तीपुर", null], "Saran": ["सारण", null], "Sheikhpura": ["शेखपुरा", null], "Sheohar": ["शिवहर", null], "Sitamarhi": ["सीतामढ़ी", null], "Siwan": ["सिवान", null], "Supaul": ["सुपौल", null], "Vaishali": ["वैशाली", null], "West Champaran (Bettiah)": ["पश्चिमी चंपारण (बेतिया)", null], "Balod": ["बालोद", null], "Baloda Bazar": ["बलौदा बाजार", null], "Balrampur": ["बलरामपुर", null], "Bastar": ["बस्तर", null], "Bemetara": ["बेमेतरा", null], "Bijapur": ["बीजापुर", null], "Bilaspur": ["बिलासपुर", null], "Dantewada": ["दंतेवाड़ा", null], "Dhamtari": ["धमतरी", null], "Durg": ["दुर्ग", null], "Gariaband": ["गरियाबंद", null], "Gaurela-Pendra-Marwahi": ["गौरेला-पेंड्रा-मरवाही", null], "Janjgir-Champa": ["जांजगीर-चांपा", null], "Jashpur": ["जशपुर", null], "Kabirdham (Kawardha)": ["कबीरधाम (कवर्धा)", null], "Kanker": ["कांकेर", null], "Khairagarh-Chhuikhadan-Gandai": ["खैरागढ़-छुईखदान-गंडई", null], "Kondagaon": ["कोंडागांव", null], "Korba": ["कोरबा", null], "Koriya": ["कोरिया", null], "Mahasamund": ["महासमुंद", null], "Manendragarh-Chirmiri-Bharatpur": ["मनेंद्रगढ़-चिरमिरी-भरतपुर", null], "Mohla-Manpur-Ambagarh Chowki": ["मोहला-मानपुर-अंबागढ़ चौकी", null], "Mungeli": ["मुंगेली", null], "Narayanpur": ["नारायणपुर", null], "Raigarh": ["रायगढ़", null], "Raipur": ["रायपुर", null], "Rajnandgaon": ["राजनांदगांव", null], "Sakti": ["सक्ती", null], "Sarangarh-Bilaigarh": ["सारंगढ़-बिलाईगढ़", null], "Sukma": ["सुकमा", null], "Surajpur": ["सूरजपुर", null], "Surguja": ["सरगुजा", null], "North Goa": ["उत्तर गोवा", null], "South Goa": ["दक्षिण गोवा", null], "Ambala": ["अंबाला", null], "Bhiwani": ["भिवानी", null], "Charkhi Dadri": ["चरखी दादरी", null], "Faridabad": ["फरीदाबाद", null], "Fatehabad": ["फतेहाबाद", null], "Gurugram": ["गुरुग्राम", null], "Hisar": ["हिसार", null], "Jhajjar": ["झज्जर", null], "Jind": ["जींद", null], "Kaithal": ["कैथल", null], "Karnal": ["करनाल", null], "Kurukshetra": ["कुरुक्षेत्र", null], "Mahendragarh": ["महेंद्रगढ़", null], "Nuh": ["नूंह", null], "Palwal": ["पलवल", null], "Panchkula": ["पंचकूला", null], "Panipat": ["पानीपत", null], "Rewari": ["रेवाड़ी", null], "Rohtak": ["रोहतक", null], "Sirsa": ["सिरसा", null], "Sonipat": ["सोनीपत", null], "Yamunanagar": ["यमुनानगर", null], "Chamba": ["चंबा", null], "Hamirpur": ["हमीरपुर", null], "Kangra": ["कांगड़ा", null], "Kinnaur": ["किन्नौर", null], "Kullu": ["कुल्लू", null], "Lahaul & Spiti": ["लाहौल और स्पीति", null], "Mandi": ["मंडी", null], "Shimla": ["शिमला", null], "Sirmaur": ["सिरमौर", null], "Solan": ["सोलन", null], "Una": ["ऊना", null], "Bokaro": ["बोकारो", null], "Chatra": ["चतरा", null], "Deoghar": ["देवघर", null], "Dhanbad": ["धनबाद", null], "Dumka": ["दुमका", null], "East Singhbhum": ["पूर्वी सिंहभूम", null], "Garhwa": ["गढ़वा", null], "Giridih": ["गिरिडीह", null], "Godda": ["गोड्डा", null], "Gumla": ["गुमला", null], "Hazaribagh": ["हजारीबाग", null], "Jamtara": ["जामताड़ा", null], "Khunti": ["खूंटी", null], "Koderma": ["कोडरमा", null], "Latehar": ["लातेहार", null], "Lohardaga": ["लोहरदगा", null], "Pakur": ["पाकुड़", null], "Palamu": ["पलामू", null], "Ramgarh": ["रामगढ़", null], "Ranchi": ["रांची", null], "Sahibganj": ["साहिबगंज", null], "Seraikela-Kharsawan": ["सरायकेला-खरसावां", null], "Simdega": ["सिमडेगा", null], "West Singhbhum": ["पश्चिमी सिंहभूम", null], "Bagalkot": ["बागलकोट", null], "Ballari (Bellary)": ["बल्लारी (बेल्लारी)", null], "Belagavi (Belgaum)": ["बेलगावी (बेलगाम)", null], "Bengaluru Rural": ["बेंगलुरु ग्रामीण", null], "Bengaluru Urban": ["बेंगलुरु शहरी", null], "Bidar": ["बीदर", null], "Chamarajanagar": ["चामराजनगर", null], "Chikballapur": ["चिक्कबल्लापुर", null], "Chikkamagaluru": ["चिक्कमगलुरु", null], "Chitradurga": ["चित्रदुर्ग", null], "Dakshina Kannada": ["दक्षिण कन्नड़", null], "Davanagere": ["दावणगेरे", null], "Dharwad": ["धारवाड़", null], "Gadag": ["गदग", null], "Hassan": ["हासन", null], "Haveri": ["हावेरी", null], "Kalaburagi (Gulbarga)": ["कलबुर्गी (गुलबर्गा)", null], "Kodagu": ["कोडगु", null], "Kolar": ["कोलार", null], "Koppal": ["कोप्पल", null], "Mandya": ["मांड्या", null], "Mysuru": ["मैसूरु", null], "Raichur": ["रायचूर", null], "Ramanagara": ["रामनगर", null], "Shivamogga (Shimoga)": ["शिवमोग्गा (शिमोगा)", null], "Tumakuru (Tumkur)": ["तुमकुरु (तुमकुर)", null], "Udupi": ["उडुपी", null], "Uttara Kannada": ["उत्तर कन्नड़", null], "Vijayanagara": ["विजयनगर", null], "Vijayapura (Bijapur)": ["विजयपुरा (बीजापुर)", null], "Yadgir": ["यादगीर", null], "Alappuzha": ["अलप्पुझा", null], "Ernakulam": ["एर्णाकुलम", null], "Idukki": ["इडुक्की", null], "Kannur": ["कन्नूर", null], "Kasaragod": ["कासरगोड", null], "Kollam": ["कोल्लम", null], "Kottayam": ["कोट्टायम", null], "Kozhikode": ["कोझिकोड", null], "Malappuram": ["मलप्पुरम", null], "Palakkad": ["पालक्काड", null], "Pathanamthitta": ["पत्तनंतिट्टा", null], "Thiruvananthapuram": ["तिरुवनंतपुरम", null], "Thrissur": ["त्रिशूर", null], "Wayanad": ["वायनाड", null], "Aalirajpur": ["आलीराजपुर", null], "Agar Malwa": ["आगर मालवा", null], "Anuppur": ["अनूपपुर", null], "Ashoknagar": ["अशोकनगर", null], "Balaghat": ["बालाघाट", null], "Barwani": ["बड़वानी", null], "Betul": ["बैतूल", null], "Bhind": ["भिंड", null], "Bhopal": ["भोपाल", null], "Burhanpur": ["बुरहानपुर", null], "Chhatarpur": ["छतरपुर", null], "Chhindwara": ["छिंदवाड़ा", null], "Damoh": ["दमोह", null], "Datia": ["दतिया", null], "Dewas": ["देवास", null], "Dhar": ["धार", null], "Dindori": ["डिंडोरी", null], "Guna": ["गुना", null], "Gwalior": ["ग्वालियर", null], "Harda": ["हरदा", null], "Indore": ["इंदौर", null], "Jabalpur": ["जबलपुर", null], "Jhabua": ["झाबुआ", null], "Katni": ["कटनी", null], "Khandwa": ["खंडवा", null], "Khargone": ["खरगोन", null], "Maihar": ["मैहर", null], "Mandla": ["मंडला", null], "Mandsaur": ["मंदसौर", null], "Mauganj": ["मऊगंज", null], "Morena": ["मुरैना", null], "Narmadapuram (Hoshangabad)": ["नर्मदापुरम (होशंगाबाद)", null], "Narsinghpur": ["नरसिंहपुर", null], "Neemuch": ["नीमच", null], "Niwari": ["निवाड़ी", null], "Panna": ["पन्ना", null], "Pandhurna": ["पांढुर्णा", null], "Raisen": ["रायसेन", null], "Rajgarh": ["राजगढ़", null], "Ratlam": ["रतलाम", null], "Rewa": ["रीवा", null], "Sagar": ["सागर", null], "Satna": ["सतना", null], "Sehore": ["सीहोर", null], "Seoni": ["सिवनी", null], "Shahdol": ["शहडोल", null], "Shajapur": ["शाजापुर", null], "Sheopur": ["श्योपुर", null], "Shivpuri": ["शिवपुरी", null], "Sidhi": ["सीधी", null], "Singrauli": ["सिंगरौली", null], "Tikamgarh": ["टीकमगढ़", null], "Ujjain": ["उज्जैन", null], "Umaria": ["उमरिया", null], "Vidisha": ["विदिशा", null], "Bishnupur": ["बिष्णुपुर", null], "Chandel": ["चंदेल", null], "Churachandpur": ["चुराचांदपुर", null], "Imphal East": ["इंफाल पूर्व", null], "Imphal West": ["इंफाल पश्चिम", null], "Jiribam": ["जिरीबाम", null], "Kakching": ["काकचिंग", null], "Kamjong": ["कामजोंग", null], "Kangpokpi": ["कांगपोकपी", null], "Noney": ["नोनी", null], "Pherzawl": ["फेरजॉल", null], "Senapati": ["सेनापति", null], "Tamenglong": ["तामेंगलोंग", null], "Tengnoupal": ["तेंगनौपाल", null], "Thoubal": ["थौबल", null], "Ukhrul": ["उखरूल", null], "East Garo Hills": ["पूर्वी गारो हिल्स", null], "East Jaintia Hills": ["पूर्वी जैंतिया हिल्स", null], "East Khasi Hills": ["पूर्वी खासी हिल्स", null], "Eastern West Khasi Hills": ["पूर्वी पश्चिम खासी हिल्स", null], "North Garo Hills": ["उत्तरी गारो हिल्स", null], "Ri-Bhoi": ["री-भोई", null], "South Garo Hills": ["दक्षिणी गारो हिल्स", null], "South West Garo Hills": ["दक्षिण पश्चिम गारो हिल्स", null], "South West Khasi Hills": ["दक्षिण पश्चिम खासी हिल्स", null], "West Garo Hills": ["पश्चिमी गारो हिल्स", null], "West Jaintia Hills": ["पश्चिमी जैंतिया हिल्स", null], "West Khasi Hills": ["पश्चिमी खासी हिल्स", null], "Aizawl": ["आइजोल", null], "Champhai": ["चम्फाई", null], "Hnahthial": ["ह्नाहथियाल", null], "Khawzawl": ["खोजोल", null], "Kolasib": ["कोलासिब", null], "Lawngtlai": ["लॉन्गतलाई", null], "Lunglei": ["लुंगलेई", null], "Mamit": ["मामित", null], "Saiha": ["सइहा", null], "Saitual": ["सैतुअल", null], "Serchhip": ["सेरछिप", null], "Angul": ["अनुगुल", null], "Balangir": ["बलांगीर", null], "Balasore": ["बालेश्वर", null], "Bargarh": ["बरगढ़", null], "Bhadrak": ["भद्रक", null], "Boudh": ["बौध", null], "Cuttack": ["कटक", null], "Deogarh": ["देवगढ़", null], "Dhenkanal": ["ढेंकानाल", null], "Gajapati": ["गजपति", null], "Ganjam": ["गंजाम", null], "Jagatsinghpur": ["जगतसिंहपुर", null], "Jajpur": ["जाजपुर", null], "Jharsuguda": ["झारसुगुड़ा", null], "Kalahandi": ["कालाहांडी", null], "Kandhamal": ["कंधमाल", null], "Kendrapara": ["केंद्रपाड़ा", null], "Kendujhar (Keonjhar)": ["केंदुझर (क्योंझर)", null], "Khordha": ["खोर्धा", null], "Koraput": ["कोरापुट", null], "Malkangiri": ["मलकानगिरी", null], "Mayurbhanj": ["मयूरभंज", null], "Nabarangpur": ["नबरंगपुर", null], "Nayagarh": ["नयागढ़", null], "Nuapada": ["नुआपड़ा", null], "Puri": ["पुरी", null], "Rayagada": ["रायगड़ा", null], "Sambalpur": ["संबलपुर", null], "Subarnapur (Sonepur)": ["सुबर्णपुर (सोनपुर)", null], "Sundargarh": ["सुंदरगढ़", null], "Amritsar": ["अमृतसर", null], "Barnala": ["बरनाला", null], "Bathinda": ["बठिंडा", null], "Faridkot": ["फरीदकोट", null], "Fatehgarh Sahib": ["फतेहगढ़ साहिब", null], "Fazilka": ["फाजिल्का", null], "Firozpur": ["फिरोजपुर", null], "Gurdaspur": ["गुरदासपुर", null], "Hoshiarpur": ["होशियारपुर", null], "Jalandhar": ["जालंधर", null], "Kapurthala": ["कपूरथला", null], "Ludhiana": ["लुधियाना", null], "Malerkotla": ["मलेरकोटला", null], "Mansa": ["मानसा", null], "Moga": ["मोगा", null], "Muktsar (Sri Muktsar Sahib)": ["मुक्तसर (श्री मुक्तसर साहिब)", null], "Pathankot": ["पठानकोट", null], "Patiala": ["पटियाला", null], "Rupnagar": ["रूपनगर", null], "SAS Nagar (Mohali)": ["एसएएस नगर (मोहाली)", null], "Sangrur": ["संगरूर", null], "SBS Nagar (Nawanshahr)": ["एसबीएस नगर (नवांशहर)", null], "Tarn Taran": ["तरन तारन", null], "Gangtok": ["गंगटोक", null], "Gyalshing": ["ग्यालशिंग", null], "Mangan": ["मंगन", null], "Namchi": ["नामची", null], "Pakyong": ["पाक्योंग", null], "Soreng": ["सोरेंग", null], "Ariyalur": ["अरियालुर", null], "Chengalpattu": ["चेंगलपट्टू", null], "Chennai": ["चेन्नई", null], "Coimbatore": ["कोयंबटूर", null], "Cuddalore": ["कुड्डालोर", null], "Dharmapuri": ["धर्मपुरी", null], "Dindigul": ["डिंडीगुल", null], "Erode": ["इरोड", null], "Kallakurichi": ["कल्लाकुरिची", null], "Kanchipuram": ["कांचीपुरम", null], "Kanyakumari": ["कन्याकुमारी", null], "Karur": ["करूर", null], "Krishnagiri": ["कृष्णगिरि", null], "Madurai": ["मदुरै", null], "Mayiladuthurai": ["मयिलादुथुराई", null], "Nagapattinam": ["नागपट्टिनम", null], "Namakkal": ["नामक्कल", null], "Nilgiris": ["नीलगिरि", null], "Perambalur": ["पेरम्बलूर", null], "Pudukkottai": ["पुदुकोट्टई", null], "Ramanathapuram": ["रामनाथपुरम", null], "Ranipet": ["रानीपेट", null], "Salem": ["सेलम", null], "Sivaganga": ["शिवगंगा", null], "Tenkasi": ["तेनकासी", null], "Thanjavur": ["तंजावुर", null], "Theni": ["तेनी", null], "Thoothukudi (Tuticorin)": ["तूतुकुडी (तूतीकोरिन)", null], "Tiruchirappalli": ["तिरुचिरापल्ली", null], "Tirunelveli": ["तिरुनेलवेली", null], "Tirupathur": ["तिरुपत्तूर", null], "Tiruppur": ["तिरुप्पुर", null], "Tiruvallur": ["तिरुवल्लूर", null], "Tiruvannamalai": ["तिरुवन्नामलाई", null], "Tiruvarur": ["तिरुवारूर", null], "Vellore": ["वेल्लोर", null], "Viluppuram": ["विल्लुपुरम", null], "Virudhunagar": ["विरुधुनगर", null], "Adilabad": ["आदिलाबाद", null], "Bhadradri Kothagudem": ["भद्राद्री कोठागुडेम", null], "Hanamkonda": ["हनमकोंडा", null], "Hyderabad": ["हैदराबाद", null], "Jagtial": ["जगतियाल", null], "Jangaon": ["जनगांव", null], "Jayashankar Bhupalpally": ["जयशंकर भूपालपल्ली", null], "Jogulamba Gadwal": ["जोगुलांबा गडवाल", null], "Kamareddy": ["कामारेड्डी", null], "Karimnagar": ["करीमनगर", null], "Khammam": ["खम्मम", null], "Komaram Bheem Asifabad": ["कोमाराम भीम आसिफाबाद", null], "Mahabubabad": ["महबूबाबाद", null], "Mahabubnagar": ["महबूबनगर", null], "Mancherial": ["मंचेरियल", null], "Medak": ["मेदक", null], "Medchal-Malkajgiri": ["मेडचल-मलकाजगिरी", null], "Mulugu": ["मुलुगु", null], "Nagarkurnool": ["नागरकुरनूल", null], "Nalgonda": ["नलगोंडा", null], "Narayanpet": ["नारायणपेट", null], "Nirmal": ["निर्मल", null], "Nizamabad": ["निजामाबाद", null], "Peddapalli": ["पेद्दापल्ली", null], "Rajanna Sircilla": ["राजन्ना सिरसिल्ला", null], "Rangareddy": ["रंगारेड्डी", null], "Sangareddy": ["संगारेड्डी", null], "Siddipet": ["सिद्दीपेट", null], "Suryapet": ["सूर्यापेट", null], "Vikarabad": ["विकाराबाद", null], "Wanaparthy": ["वनपर्ती", null], "Warangal": ["वारंगल", null], "Yadadri Bhuvanagiri": ["यादाद्री भुवनगिरी", null], "Dhalai": ["धलाई", null], "Gomati": ["गोमती", null], "Khowai": ["खोवाई", null], "North Tripura": ["उत्तर त्रिपुरा", null], "Sepahijala": ["सिपाहीजाला", null], "South Tripura": ["दक्षिण त्रिपुरा", null], "Unakoti": ["उनाकोटी", null], "West Tripura": ["पश्चिम त्रिपुरा", null], "Agra": ["आगरा", null], "Aligarh": ["अलीगढ़", null], "Ambedkar Nagar": ["अंबेडकर नगर", null], "Amethi": ["अमेठी", null], "Amroha": ["अमरोहा", null], "Auraiya": ["औरैया", null], "Ayodhya": ["अयोध्या", null], "Azamgarh": ["आजमगढ़", null], "Baghpat": ["बागपत", null], "Bahraich": ["बहराइच", null], "Ballia": ["बलिया", null], "Banda": ["बांदा", null], "Barabanki": ["बाराबंकी", null], "Bareilly": ["बरेली", null], "Basti": ["बस्ती", null], "Bhadohi (Sant Ravidas Nagar)": ["भदोही (संत रविदास नगर)", null], "Bijnor": ["बिजनौर", null], "Budaun": ["बदायूं", null], "Bulandshahr": ["बुलंदशहर", null], "Chandauli": ["चंदौली", null], "Chitrakoot": ["चित्रकूट", null], "Deoria": ["देवरिया", null], "Etah": ["एटा", null], "Etawah": ["इटावा", null], "Farrukhabad": ["फर्रुखाबाद", null], "Fatehpur": ["फतेहपुर", null], "Firozabad": ["फिरोजाबाद", null], "Gautam Buddha Nagar": ["गौतम बुद्ध नगर", null], "Ghaziabad": ["गाजियाबाद", null], "Ghazipur": ["गाजीपुर", null], "Gonda": ["गोंडा", null], "Gorakhpur": ["गोरखपुर", null], "Hapur": ["हापुड़", null], "Hardoi": ["हरदोई", null], "Hathras": ["हाथरस", null], "Jalaun": ["जालौन", null], "Jaunpur": ["जौनपुर", null], "Jhansi": ["झांसी", null], "Kannauj": ["कन्नौज", null], "Kanpur Dehat": ["कानपुर देहात", null], "Kanpur Nagar": ["कानपुर नगर", null], "Kasganj": ["कासगंज", null], "Kaushambi": ["कौशांबी", null], "Kheri (Lakhimpur Kheri)": ["खीरी (लखीमपुर खीरी)", null], "Kushinagar": ["कुशीनगर", null], "Lalitpur": ["ललितपुर", null], "Lucknow": ["लखनऊ", null], "Maharajganj": ["महराजगंज", null], "Mahoba": ["महोबा", null], "Mainpuri": ["मैनपुरी", null], "Mathura": ["मथुरा", null], "Mau": ["मऊ", null], "Meerut": ["मेरठ", null], "Mirzapur": ["मिर्जापुर", null], "Moradabad": ["मुरादाबाद", null], "Muzaffarnagar": ["मुजफ्फरनगर", null], "Pilibhit": ["पीलीभीत", null], "Prayagraj (Allahabad)": ["प्रयागराज (इलाहाबाद)", null], "Raebareli": ["रायबरेली", null], "Rampur": ["रामपुर", null], "Saharanpur": ["सहारनपुर", null], "Sambhal": ["संभल", null], "Sant Kabir Nagar": ["संत कबीर नगर", null], "Shahjahanpur": ["शाहजहांपुर", null], "Shamli": ["शामली", null], "Shravasti": ["श्रावस्ती", null], "Siddharthnagar": ["सिद्धार्थनगर", null], "Sitapur": ["सीतापुर", null], "Sonbhadra": ["सोनभद्र", null], "Sultanpur": ["सुल्तानपुर", null], "Unnao": ["उन्नाव", null], "Varanasi": ["वाराणसी", null], "Almora": ["अल्मोड़ा", null], "Bageshwar": ["बागेश्वर", null], "Chamoli": ["चमोली", null], "Champawat": ["चंपावत", null], "Dehradun": ["देहरादून", null], "Haridwar": ["हरिद्वार", null], "Nainital": ["नैनीताल", null], "Pauri Garhwal": ["पौड़ी गढ़वाल", null], "Pithoragarh": ["पिथौरागढ़", null], "Rudraprayag": ["रुद्रप्रयाग", null], "Tehri Garhwal": ["टिहरी गढ़वाल", null], "Udham Singh Nagar": ["उधम सिंह नगर", null], "Uttarkashi": ["उत्तरकाशी", null], "Alipurduar": ["अलीपुरद्वार", null], "Bankura": ["बांकुड़ा", null], "Birbhum": ["बीरभूम", null], "Cooch Behar": ["कूचबिहार", null], "Dakshin Dinajpur (South Dinajpur)": ["दक्षिण दिनाजपुर", null], "Darjeeling": ["दार्जिलिंग", null], "Hooghly": ["हुगली", null], "Howrah": ["हावड़ा", null], "Jalpaiguri": ["जलपाईगुड़ी", null], "Jhargram": ["झाड़ग्राम", null], "Kalimpong": ["कालिम्पोंग", null], "Kolkata": ["कोलकाता", null], "Malda": ["मालदा", null], "Murshidabad": ["मुर्शिदाबाद", null], "Nadia": ["नदिया", null], "North 24 Parganas": ["उत्तर 24 परगना", null], "Paschim Bardhaman (West Bardhaman)": ["पश्चिम बर्धमान", null], "Paschim Medinipur (West Medinipur)": ["पश्चिम मेदिनीपुर", null], "Purba Bardhaman (East Bardhaman)": ["पूर्व बर्धमान", null], "Purba Medinipur (East Medinipur)": ["पूर्व मेदिनीपुर", null], "Purulia": ["पुरुलिया", null], "South 24 Parganas": ["दक्षिण 24 परगना", null], "Uttar Dinajpur (North Dinajpur)": ["उत्तर दिनाजपुर", null], "Nicobar": ["निकोबार", null], "North & Middle Andaman": ["उत्तर और मध्य अंडमान", null], "South Andaman": ["दक्षिण अंडमान", null], "Chandigarh": ["चंडीगढ़", null], "Dadra & Nagar Haveli": ["दादरा और नगर हवेली", null], "Daman": ["दमन", null], "Diu": ["दीव", null], "Central": ["मध्य", null], "Central North": ["मध्य उत्तर", null], "East": ["पूर्व", null], "New Delhi": ["नई दिल्ली", null], "North": ["उत्तर", null], "North East": ["उत्तर पूर्व", null], "North West": ["उत्तर पश्चिम", null], "Old Delhi": ["पुरानी दिल्ली", null], "Outer North": ["बाहरी उत्तर", null], "South": ["दक्षिण", null], "South East": ["दक्षिण पूर्व", null], "South West": ["दक्षिण पश्चिम", null], "West": ["पश्चिम", null], "Anantnag": ["अनंतनाग", null], "Bandipora": ["बांदीपोरा", null], "Baramulla": ["बारामूला", null], "Budgam": ["बडगाम", null], "Doda": ["डोडा", null], "Ganderbal": ["गांदरबल", null], "Jammu": ["जम्मू", null], "Kathua": ["कठुआ", null], "Kishtwar": ["किश्तवाड़", null], "Kulgam": ["कुलगाम", null], "Kupwara": ["कुपवाड़ा", null], "Poonch": ["पुंछ", null], "Pulwama": ["पुलवामा", null], "Rajouri": ["राजौरी", null], "Ramban": ["रामबन", null], "Reasi": ["रियासी", null], "Samba": ["सांबा", null], "Shopian": ["शोपियां", null], "Srinagar": ["श्रीनगर", null], "Udhampur": ["उधमपुर", null], "Kargil": ["कारगिल", null], "Leh": ["लेह", null], "Lakshadweep": ["लक्षद्वीप", null], "Karaikal": ["कराईकल", null], "Mahe": ["माहे", null], "Puducherry": ["पुदुचेरी", null], "Yanam": ["यनम", null]}};
+// Hindi names of the schemes and livelihood types in the admin lists. A name
+// added later in Admin shows in English until it is added here.
+const _V244_NAMES_HI = {"Ayushman Bharat": "आयुष्मान भारत", "Birth Certificate": "जन्म प्रमाण पत्र", "Caste Certificate": "जाति प्रमाण पत्र", "Income Certificate": "आय प्रमाण पत्र", "E-Shram Card": "ई-श्रम कार्ड", "Ration Card (NFSA)": "राशन कार्ड (NFSA)", "Aadhar Card": "आधार कार्ड", "Suraksha/Jivan Vima Yojana": "सुरक्षा / जीवन बीमा योजना", "i Khedut": "आई-खेडूत", "PM-KISAN": "पीएम-किसान", "Ujjwala Yojana": "उज्ज्वला योजना", "Vahali Dikari Yojana": "वहाली दीकरी योजना", "Vrudhdha Pension Yojana": "वृद्धावस्था पेंशन योजना", "Vidhva Sahay": "विधवा सहायता", "Palak Mata-Pita Yojana": "पालक माता-पिता योजना", "PAN Card": "पैन कार्ड", "MANREGA": "मनरेगा", "Disability Cerificate": "दिव्यांग प्रमाण पत्र", "PM Awas Yojana": "पीएम आवास योजना", "Manav Kalyan Yojana Toolkit": "मानव कल्याण योजना टूलकिट", "Organic Farming": "जैविक खेती", "Vermi-composting": "केंचुआ खाद", "Forest-based Livelihood": "वन-आधारित आजीविका", "Artisan / Craftsmanship": "कारीगरी / हस्तशिल्प", "Weaving": "बुनाई", "Bee-keeping": "मधुमक्खी पालन", "Agriculture": "कृषि", "Dairy (Cow / Buffalo)": "डेयरी (गाय / भैंस)", "Poultry / Duckery": "मुर्गी / बत्तख पालन", "Handicraft": "हस्तशिल्प", "Piggery / Goatery": "सूअर / बकरी पालन", "Food Processing": "खाद्य प्रसंस्करण", "Micro-enterprise": "सूक्ष्म उद्यम", "VBGRAMG (NREGA) Job Card": "वीबी-जी राम जी (नरेगा) जॉब कार्ड", "Disability Certificate (UDID)": "दिव्यांग प्रमाण पत्र (UDID)", "Election Card": "मतदाता पहचान पत्र (इलेक्शन कार्ड)", "National Common Mobility Card": "नेशनल कॉमन मोबिलिटी कार्ड", "MahaDBT": "महाडीबीटी", "Non-Creamy layer Certificate": "नॉन-क्रीमी लेयर प्रमाण पत्र", "Animal Husbandry": "पशुपालन", "Poultry": "मुर्गी पालन", "Fisheries": "मत्स्य पालन", "Other": "अन्य"};
+function _v244HiName(en) { return (en && _V244_NAMES_HI[en]) || ''; }
+function _v244NamePlaces(lang) {
+  lang = lang || ((typeof _effectiveLang === 'function') ? _effectiveLang() : 'en');
+  const idx = lang === 'hi' ? 0 : lang === 'gu' ? 1 : -1;
+  const name = function (map, en) { const p = idx >= 0 && map[en]; return (p && p[idx]) || en; };
+  document.querySelectorAll('#f-state option').forEach(function (o) { if (o.value) o.textContent = name(_V244_PLACES.s, o.value); });
+  document.querySelectorAll('#f-district-sel option').forEach(function (o) {
+    if (o.value) o.textContent = name(_V244_PLACES.d, o.value);
+    else if (o.getAttribute('data-en')) o.textContent = _v244Pick(o, '', lang);
+  });
+}
+
 function _refreshLivelihoodChips() {
   const container = document.getElementById('ichips');
   if (!container) return;
   const types = getLivTypes();
   container.innerHTML = types.map(t =>
-    `<div class="ichip" onclick="toggleChip(this)"><div class="ichip-box"></div>${t.replace(/</g,'&lt;')}</div>`
+    `<div class="ichip" onclick="toggleChip(this)"${_v244HiName(t) ? ' data-hi="' + _v244HiName(t).replace(/"/g, '&quot;') + '"' : ''}><div class="ichip-box"></div>${t.replace(/</g,'&lt;')}</div>`
   ).join('') +
-  `<div class="ichip" id="liv-other-chip" onclick="toggleLivOtherChip(this)"><div class="ichip-box"></div>Other</div>`;
+  `<div class="ichip" id="liv-other-chip" onclick="toggleLivOtherChip(this)" data-hi="${_v244HiName('Other')}"><div class="ichip-box"></div>Other</div>`;
+  try { document.body.classList.toggle('v244-hi', ((typeof _effectiveLang === 'function') ? _effectiveLang() : 'en') === 'hi'); } catch (_) {}   // V24.4
 }
 
 // Rebuild the enrollment form's advocacy scheme panel. Called on openEnroll,
