@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V24.4-LIVE
+  KRSF Beneficiary Impact Tracker  -  V24.6-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,42 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V24.6-LIVE (2026-10-01 - Reports: two programmes on the leaderboard; scheme-wise).
+
+    + Coordinator leaderboard and its cards: ADVOCACY Surveyed / Applied /
+      Benefits received (scheme entries) and LIVELIHOOD Enrolled /
+      Intervention / Endline (households), each following the date chip.
+      Surveyed = every entry logged, any status. Intervention counts
+      households that reached that step, completed ones included. Endline
+      follows the one endline rule. "Enrollments" and Data quality are gone.
+      The CSV carries the six window figures, the six all-time figures and
+      the household total.
+    + Advocacy Pipeline: "Scheme-wise" card - every scheme on the scheme list
+      plus one row for names coordinators typed themselves (955 different
+      ones on 26 Sep), by scheme or by partner, with its own date window. Its
+      CSV has one row per partner and scheme name. "Scheme success rates"
+      stays below it, for its estimated rupees.
+    + Same rows and same dates as every other advocacy figure. Nothing new is
+      read or written.
+    + Tests: 98 files. v245 (income entries) and v246 (these screens) are
+      new; v205fctotal follows the new columns and uses a 90-day window.
+
+  V24.5-LIVE (2026-10-01 - partners correct income entries; nothing deleted is lost).
+
+    + A partner login can now edit and delete income entries on its own
+      partner's households, as admin can. The partner is taken from the
+      household. Coordinators still only add entries.
+    + A partner gives a reason for every edit and delete; it shows under the
+      entry. Admin may leave it blank.
+    + A deleted entry is kept on the household under "Deleted entries", out
+      of every total, and admin or that household's partner can restore it.
+    + Changing baseline income in Edit Details now recalculates the endline
+      total (baseline + gains). Before, the household's income screen and
+      the dashboard and reports disagreed by the correction. None of the 181
+      households with income entries in the 26 Sep data disagreed, so no
+      figure changes today.
+    + Nothing new is read. Firebase does not change.
+
   V24.4-LIVE (2026-09-29 - Hindi on the coordinator forms).
 
     + Hindi is a third choice on the coordinator's EN / GJ / HI switch: every
@@ -3083,6 +3119,33 @@ body[data-shell="coord"] .coord-card {
 .rpt-mode button.on{background:#fff;color:var(--navy);font-weight:600;
   box-shadow:0 1px 2px rgba(16,24,40,.05)}
 
+/* V24.6: the leaderboard's two programmes - grouped cards and a group row
+   over the table, so the six columns read as two sets of three. */
+.v246-kgroups{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
+.v246-kg{border-radius:16px;padding:10px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.v246-kg.adv{background:#EEF1FB} .v246-kg.liv{background:#ECF8F1}
+.v246-kg-lab{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;padding:2px 6px 0}
+.v246-kg.adv .v246-kg-lab{color:var(--navy2)} .v246-kg.liv .v246-kg-lab{color:var(--green)}
+.v246-kg-lab span{font-weight:500;letter-spacing:0;text-transform:none;color:var(--ink2)}
+.v246-kcards{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.v246-kcards .rpt-kpi{padding:12px 14px;min-width:0}
+.v246-kcards .rpt-kpi-val{font-size:22px}
+.rpt-tbl tr.v246-grp th{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:8px 12px 4px;text-align:center;border-bottom:0;cursor:default}
+.rpt-tbl tr.v246-grp th.adv{color:var(--navy2);box-shadow:inset 0 -2px 0 var(--navy2)}
+.rpt-tbl tr.v246-grp th.liv{color:var(--green);box-shadow:inset 0 -2px 0 var(--green)}
+.v246-ctrls{display:flex;gap:10px;flex-wrap:wrap;padding:8px 18px 2px}
+.v246-ctrls .rpt-mode{margin:0}
+.rpt-tbl tr.v246-prow td{background:var(--navy4);cursor:pointer;font-weight:600}
+.rpt-tbl tr.v246-sub td:first-child{padding-left:34px;color:var(--ink2)}
+.rpt-tbl tr.v246-sub2 td:first-child{padding-left:52px;color:var(--ink2)}
+.rpt-tbl tr.v246-tot td{font-weight:700;border-top:2px solid var(--rbd);background:var(--rhov)}
+.v246-chev{display:inline-block;width:14px;color:var(--ink3);font-size:10px}
+.v246-bar{display:inline-block;width:56px;height:5px;border-radius:3px;background:#EDF0F5;overflow:hidden;vertical-align:middle;margin-left:8px}
+.v246-bar i{display:block;height:100%;background:var(--green);border-radius:3px}
+.v246-zero{color:var(--ink3)}
+@media(max-width:900px){ .v246-kgroups{grid-template-columns:1fr} }
+@media(max-width:480px){ .v246-kcards{gap:6px} .v246-kcards .rpt-kpi{padding:10px} .v246-kcards .rpt-kpi-val{font-size:18px} .v246-kcards .rpt-kpi-lab{font-size:9.5px} }
+
 @media (prefers-reduced-motion: reduce){
   .rpt-th,.rpt-tbl tbody tr,.rpt-mode button{transition:none}
 }
@@ -4590,7 +4653,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V24.4-LIVE';
+const APP_VERSION = 'V24.6-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -15242,7 +15305,8 @@ function openDrawer(id) {
     ${b.headId && !hasLiv
       ? `<button class="btn" onclick="openAddLivelihoodToFamilyMember('${b.id}')" title="Start a livelihood intervention (dairy, vermicompost, etc.) for this family member" style="color:var(--green);border-color:var(--green2)">+ Add Livelihood Intervention</button>`
       : ''}
-    ${hasLiv && (Array.isArray(b.incomeLog) && b.incomeLog.length > 0 || b.endIncome != null)
+    ${hasLiv && (Array.isArray(b.incomeLog) && b.incomeLog.length > 0 || b.endIncome != null
+                 || (Array.isArray(b._v245DeletedIncome) && b._v245DeletedIncome.length > 0 && _v245CanManageIncome(b)))
       ? `<button class="btn" onclick="openLogIncomeFor('${b.id}')">View / Manage Income Log</button>`
       : ''}
     ${(_u && (_u.role === 'admin' || _u.role === 'ngo'))
@@ -18592,6 +18656,16 @@ async function _submitEnrollInner() {
       // fixed. Hence `!data[idx].status`, tested against the STORED record.
       if (livOn && !data[idx].status && !fields.status) fields.status = 'Enrolled';
       data[idx] = { ...data[idx], ...fields };
+      // V24.5: ⛔ endIncome IS BASELINE + EVERY GAIN LOGGED (V4.8), so a
+      // corrected baseline must carry it. Left alone, the household's income
+      // screen (baseline + gains, worked out fresh) and every dashboard and
+      // report (stored total minus baseline) disagreed by the correction.
+      // Only for records with logged gains: an older single-total endline is
+      // a measured total, and its own screens already agree.
+      if (before.baseIncome !== data[idx].baseIncome && data[idx].endIncome != null
+          && Array.isArray(data[idx].incomeLog) && data[idx].incomeLog.length > 0) {
+        data[idx].endIncome = _incomeLogGrandTotal(data[idx]);
+      }
       // V5.6/V5.7: cascade household-fact changes between a head and every
       // linked family member — see _cascadeFamilySync for the exact rules
       // (7 context fields one-directional head→family, baseline income
@@ -20157,9 +20231,69 @@ function closeLogIncome() {
   _editingLogIdx = -1;
 }
 
+// V24.5: WHO MAY CORRECT OR DELETE AN INCOME ENTRY. Admin, and the partner
+// login of the household's OWN partner - taken from the household itself,
+// never from a filter or from who typed the entry. Coordinators still only add.
+function _v245CanManageIncome(b) {
+  const u = (typeof currentUser === 'function' ? currentUser() : null) || {};
+  if (u.role === 'admin') return true;
+  return u.role === 'ngo' && !!u.ngo && !!b && b.ngo === u.ngo;
+}
+// V24.5: ⛔ A DELETED ENTRY IS NOT THROWN AWAY. It moves to
+// _v245DeletedIncome on the same household - outside incomeLog, so no total,
+// dashboard, report or export counts it - and can be put back. The newest 50
+// are kept per household, so a record can never grow without limit.
+const _V245_KEEP_DELETED = 50;
+function _v245DeletedHtml(b) {
+  const del = Array.isArray(b && b._v245DeletedIncome) ? b._v245DeletedIncome : [];
+  if (!del.length) return '';
+  return `<div id="v245-deleted" style="margin-top:12px;border:1px dashed var(--gray3);border-radius:8px;padding:10px 12px;font-size:12px;background:var(--gray4)">
+      <div style="font-weight:600;color:var(--gray1);margin-bottom:4px">Deleted entries (${del.length}) \u2014 not counted in any total</div>
+      ${del.map((e, i) => `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;${i ? 'border-top:1px solid var(--gray3)' : ''}">
+        <div style="flex:1;min-width:0">${fmtD(e.date)} \u00b7 <b>${(parseFloat(e.amount) || 0) >= 0 ? '+' : ''}\u20b9${(parseFloat(e.amount) || 0).toLocaleString('en-IN')}</b>${Array.isArray(e.sources) && e.sources.length ? ' \u00b7 ' + e.sources.map(escHtml).join(' + ') : ''}
+          <div style="font-size:10.5px;color:var(--gray2);margin-top:2px">Deleted by ${escHtml(e.deletedByName || e.deletedBy || '?')}${e.deletedAt ? ' \u00b7 ' + fmtD(String(e.deletedAt).split('T')[0]) : ''}${e.deleteReason ? ' \u00b7 ' + escHtml(e.deleteReason) : ''}</div>
+        </div>
+        <button class="btn btn-sm" data-v245-restore="${i}" style="font-size:11px;padding:3px 8px;color:var(--green);border-color:var(--green2)" onclick="_v245RestoreLogEntry(${i})">\u21ba Restore</button>
+      </div>`).join('')}
+    </div>`;
+}
+async function _v245RestoreLogEntry(i) {
+  const data = loadData();
+  const b = data.find(x => x.id === _currentLogIncomeBid);
+  if (!b) return;
+  if (!_v245CanManageIncome(b)) { toast('Only admins and this household\'s partner can restore income entries.', 'error'); return; }
+  const del = Array.isArray(b._v245DeletedIncome) ? b._v245DeletedIncome : [];
+  if (!(i >= 0 && i < del.length)) return;
+  const d = del[i];
+  if (!await showConfirmModal(`Restore this income entry?\n\n${fmtD(d.date)} \u2014 \u20b9${(parseFloat(d.amount) || 0).toLocaleString('en-IN')}\n\nIt goes back into this household's total.`, { okLabel: 'Restore', title: 'Restore income entry' })) return;
+  const entry = {};
+  Object.keys(d).forEach(k => { if (k !== 'deletedBy' && k !== 'deletedByName' && k !== 'deletedAt' && k !== 'deleteReason') entry[k] = d[k]; });
+  if (!Array.isArray(b.incomeLog)) b.incomeLog = [];
+  const wasEmpty = b.incomeLog.length === 0;
+  b.incomeLog.push(entry);
+  b._v245DeletedIncome = del.slice(0, i).concat(del.slice(i + 1));
+  b.endIncome = _incomeLogGrandTotal(b);
+  // the same rules a first entry and a delete already follow
+  if (wasEmpty) {
+    b.endlineDate = entry.date;
+    if (b.status !== 'Completed') b.status = 'Completed';
+  } else if (entry.date && b.endlineDate && entry.date < b.endlineDate) {
+    b.endlineDate = entry.date;
+  }
+  if (!await _trySave(() => saveData(data), 'restore income entry')) return;
+  auditLog('income_log_restore', 'beneficiary', b.id, b.name,
+    `Restored income entry: \u20b9${(parseFloat(entry.amount) || 0).toLocaleString('en-IN')} on ${fmtD(entry.date)}. New total: \u20b9${(b.endIncome || 0).toLocaleString('en-IN')}.`,
+    { entry: entry });
+  toast('Entry restored. New total: \u20b9' + (b.endIncome || 0).toLocaleString('en-IN'), 'success');
+  _renderLogIncomeBody(b);
+  renderCurrent();
+  updateAlertBadge();
+}
+
 // Render the modal body. Re-called after every mutation so the entry list
 // always reflects current state. Two sections:
-//   1. Existing entries (with edit/delete for admin)
+//   1. Existing entries (with edit/delete for admin and - V24.5 - the
+//      household's own partner)
 //   2. Add/Edit form (date, amount, optional note)
 function _renderLogIncomeBody(b) {
   const log = Array.isArray(b.incomeLog) ? b.incomeLog : [];
@@ -20172,6 +20306,7 @@ function _renderLogIncomeBody(b) {
   const grandTotal = (b.baseIncome || 0) + additionalTotal;
   const pct = _v213PctText(additionalTotal, b.baseIncome);   // V21.3
   const isAdmin = (currentUser() || {}).role === 'admin';
+  const canManage = _v245CanManageIncome(b);   // V24.5: admin, or this household's own partner
   const today = _istDate();
   // Source chips pool: this beneficiary's own livelihood interventions
   // (excludes the Advocacy tag — that's a different programme). Matches
@@ -20193,14 +20328,14 @@ function _renderLogIncomeBody(b) {
              <th style="padding:8px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--gray2);letter-spacing:.04em">Source(s)</th>
              <th style="padding:8px;text-align:right;font-size:11px;text-transform:uppercase;color:var(--gray2);letter-spacing:.04em">Additional ₹</th>
              <th style="padding:8px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--gray2);letter-spacing:.04em">Added by</th>
-             ${isAdmin ? '<th style="padding:8px;text-align:right;font-size:11px;text-transform:uppercase;color:var(--gray2);letter-spacing:.04em">Actions</th>' : ''}
+             ${canManage ? '<th style="padding:8px;text-align:right;font-size:11px;text-transform:uppercase;color:var(--gray2);letter-spacing:.04em">Actions</th>' : ''}
            </tr>
          </thead>
          <tbody>
            ${log.map((e, i) => {
              const isEditing = _editingLogIdx === i;
              const editedSuffix = e.editedAt
-               ? `<div style="font-size:10px;color:var(--gray2);margin-top:2px">Edited by ${escHtml(e.editedByName||e.editedBy||'?')} · ${fmtD(e.editedAt.split('T')[0])}</div>`
+               ? `<div style="font-size:10px;color:var(--gray2);margin-top:2px">Edited by ${escHtml(e.editedByName||e.editedBy||'?')} · ${fmtD(e.editedAt.split('T')[0])}${e.editReason ? ' · ' + escHtml(e.editReason) : ''}</div>`
                : '';
              const srcTxt = Array.isArray(e.sources) && e.sources.length
                ? e.sources.map(escHtml).join(' + ')
@@ -20215,7 +20350,7 @@ function _renderLogIncomeBody(b) {
                  <span style="font-size:10px">${e.addedAt ? fmtD(e.addedAt.split('T')[0]) : ''}</span>
                  ${editedSuffix}
                </td>
-               ${isAdmin ? `<td style="padding:8px;text-align:right;white-space:nowrap">
+               ${canManage ? `<td style="padding:8px;text-align:right;white-space:nowrap">
                  <button class="btn btn-sm" style="font-size:11px;padding:3px 8px" onclick="_startEditLogEntry(${i})">${isEditing?'Cancel':'Edit'}</button>
                  <button class="btn btn-sm" style="font-size:11px;padding:3px 8px;color:var(--red);border-color:var(--red);margin-left:4px" onclick="_deleteLogEntry(${i})">Delete</button>
                </td>` : ''}
@@ -20233,9 +20368,9 @@ function _renderLogIncomeBody(b) {
   const formSources = editing && Array.isArray(editing.sources) ? editing.sources : [];
   const formTitle  = editing ? `Edit entry from ${fmtD(editing.date)}` : 'Add additional income';
   const submitLabel = editing ? 'Save Changes' : '+ Add Entry';
-  // Form is hidden for non-admins when in edit mode (shouldn't be reachable
-  // anyway since edit buttons are admin-only, defence-in-depth).
-  const formVisible = !editing || isAdmin;
+  // Form is hidden in edit mode for anyone who may not edit (shouldn't be
+  // reachable anyway since the edit buttons are not drawn, defence-in-depth).
+  const formVisible = !editing || canManage;
 
   // V22.9: from a card - the same fields, the same ids, the same two submit
   // buttons, laid out for a phone. Editing an entry keeps the full form below.
@@ -20328,6 +20463,7 @@ function _renderLogIncomeBody(b) {
       </div>
     ` : ''}
     ${entriesHtml}
+    ${canManage ? _v245DeletedHtml(b) : ''}
 
     ${formVisible ? `
     <!-- Fix 3: Add/edit form now has a tinted background + accent left-border
@@ -20359,6 +20495,10 @@ function _renderLogIncomeBody(b) {
         <label>Note (optional)</label>
         <input type="text" id="li-note" placeholder="e.g. Monthly milk sales, vermicompost batch 3, festival earnings…" value="${(formNote||'').replace(/"/g,'&quot;')}" maxlength="200">
       </div>
+      ${editing ? `<div class="fg">
+        <label>Reason for this change ${isAdmin ? '(optional)' : '*'}</label>
+        <input type="text" id="li-reason" placeholder="e.g. Coordinator typed 18,000 instead of 8,000" value="" maxlength="200">
+      </div>` : ''}
       <div class="error-msg" id="li-err" style="margin-top:10px"></div>
       <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
         ${editing
@@ -20561,10 +20701,10 @@ async function _submitZeroIncomeEntry() {
   updateAlertBadge();
 }
 
-// ── Edit existing entry (admin only) ─────────────────────────────────────
+// ── Edit existing entry (admin, and - V24.5 - the household's partner) ──
 function _startEditLogEntry(idx) {
-  if ((currentUser() || {}).role !== 'admin') {
-    toast('Only admins can edit log entries.', 'error');
+  if (!_v245CanManageIncome(RecordCache.benef.get(_currentLogIncomeBid))) {
+    toast('Only admins and this household\'s partner can edit income entries.', 'error');
     return;
   }
   // Toggle: clicking Edit on the currently-edited row cancels.
@@ -20581,13 +20721,14 @@ function _cancelEditLogEntry() {
 }
 
 async function _submitEditLogEntry() {
-  if ((currentUser() || {}).role !== 'admin') {
-    toast('Only admins can edit log entries.', 'error');
+  if (!_v245CanManageIncome(RecordCache.benef.get(_currentLogIncomeBid))) {
+    toast('Only admins and this household\'s partner can edit income entries.', 'error');
     return;
   }
   const dateRaw = document.getElementById('li-date')?.value;
   const amountRaw = document.getElementById('li-amount')?.value;
   const noteRaw = (document.getElementById('li-note')?.value || '').trim();
+  const reasonRaw = (document.getElementById('li-reason')?.value || '').trim();   // V24.5
   const sources = _liSelectedSources();
   const err = document.getElementById('li-err');
   const showErr = msg => { if (err) { err.textContent = msg; err.classList.add('show'); } };
@@ -20600,6 +20741,8 @@ async function _submitEditLogEntry() {
   // V4.8: a positive edited amount still needs at least one source tagged.
   // A ₹0 entry (e.g. editing a "no gain" entry) doesn't require one.
   if (amount > 0 && sources.length === 0) { showErr('Please tap at least one intervention this income came from.'); return; }
+  // V24.5: a partner says why. The coordinator and the office see it under the entry.
+  if (!reasonRaw && (currentUser() || {}).role !== 'admin') { showErr('Please write why this entry is being changed.'); return; }
   const data = loadData();
   const b = data.find(x => x.id === _currentLogIncomeBid);
   if (!b || !Array.isArray(b.incomeLog) || _editingLogIdx < 0 || _editingLogIdx >= b.incomeLog.length) return;
@@ -20615,6 +20758,9 @@ async function _submitEditLogEntry() {
     editedByName: me.fullName || me.username || 'Admin',
     editedAt: new Date().toISOString(),
   };
+  // V24.5: the reason belongs to THIS edit - an older one must not linger
+  if (reasonRaw) b.incomeLog[_editingLogIdx].editReason = reasonRaw;
+  else delete b.incomeLog[_editingLogIdx].editReason;
   // V4.8: recompute the mirror as baseline + sum(incomeLog).
   b.endIncome = _incomeLogGrandTotal(b);
   // If the user edited the FIRST entry's date, refresh endlineDate to match
@@ -20623,8 +20769,8 @@ async function _submitEditLogEntry() {
   // V310-S2: await Firebase. On failure, show toast and don't update UI.
   if (!await _trySave(() => saveData(data), 'edit income entry')) return;
   auditLog('income_log_edit', 'beneficiary', b.id, b.name,
-    `Edited income entry #${_editingLogIdx+1}: ₹${(oldEntry.amount||0).toLocaleString('en-IN')} → ₹${amount.toLocaleString('en-IN')}. New total: ₹${b.endIncome.toLocaleString('en-IN')}.`,
-    {amount: [oldEntry.amount, amount], date: [oldEntry.date, dateRaw], note: [oldEntry.note||'', noteRaw]});
+    `Edited income entry #${_editingLogIdx+1}: ₹${(oldEntry.amount||0).toLocaleString('en-IN')} → ₹${amount.toLocaleString('en-IN')}. New total: ₹${b.endIncome.toLocaleString('en-IN')}.${reasonRaw ? ' Reason: ' + reasonRaw : ''}`,
+    {amount: [oldEntry.amount, amount], date: [oldEntry.date, dateRaw], note: [oldEntry.note||'', noteRaw], reason: reasonRaw});
   toast('Entry updated. New total: ₹' + b.endIncome.toLocaleString('en-IN'), 'success');
   _editingLogIdx = -1;
   _renderLogIncomeBody(b);
@@ -20632,19 +20778,34 @@ async function _submitEditLogEntry() {
   updateAlertBadge();
 }
 
-// ── Delete entry (admin only) ────────────────────────────────────────────
+// ── Delete entry (admin, and - V24.5 - the household's partner) ─────────
 async function _deleteLogEntry(idx) {
-  if ((currentUser() || {}).role !== 'admin') {
-    toast('Only admins can delete log entries.', 'error');
+  if (!_v245CanManageIncome(RecordCache.benef.get(_currentLogIncomeBid))) {
+    toast('Only admins and this household\'s partner can delete income entries.', 'error');
     return;
   }
   const data = loadData();
   const b = data.find(x => x.id === _currentLogIncomeBid);
   if (!b || !Array.isArray(b.incomeLog) || idx < 0 || idx >= b.incomeLog.length) return;
   const removed = b.incomeLog[idx];
-  // V388: themed modal.
-  if (!await showConfirmModal(`Delete this income entry?\n\n${fmtD(removed.date)} — ₹${(removed.amount||0).toLocaleString('en-IN')}\n\nThis cannot be undone.`, { danger: true, okLabel: 'Delete', title: 'Delete income entry' })) return;
+  // V24.5: the reason is asked in the same step as the confirmation. Cancel
+  // keeps the entry. A partner must give one; admin may leave it blank.
+  const _isAdmin245 = (currentUser() || {}).role === 'admin';
+  const _ans245 = await showPromptModal(
+    `Delete the entry of ₹${(parseFloat(removed.amount)||0).toLocaleString('en-IN')} on ${fmtD(removed.date)}? It is kept under "Deleted entries" and can be restored. Why is it being deleted?`,
+    '', { title: 'Delete income entry', okLabel: 'Delete', placeholder: _isAdmin245 ? 'Reason (optional)' : 'Reason (required)' });
+  if (_ans245 == null) return;
+  const reason = String(_ans245).trim();
+  if (!reason && !_isAdmin245) { toast('Please write why this entry is being deleted. Nothing was deleted.', 'error'); return; }
   b.incomeLog.splice(idx, 1);
+  const _me245 = currentUser() || {};
+  const _kept245 = Object.assign({}, removed, {
+    deletedBy: _me245.userId || 'u-admin',
+    deletedByName: _me245.fullName || _me245.username || 'Admin',
+    deletedAt: new Date().toISOString(),
+  });
+  if (reason) _kept245.deleteReason = reason;
+  b._v245DeletedIncome = (Array.isArray(b._v245DeletedIncome) ? b._v245DeletedIncome : []).concat([_kept245]).slice(-_V245_KEEP_DELETED);
   // V4.8: recompute mirror as baseline + sum(incomeLog); null once no
   // entries remain (matches pre-V4.8 "no endline yet" semantics).
   b.endIncome = b.incomeLog.length > 0 ? _incomeLogGrandTotal(b) : null;
@@ -20665,9 +20826,9 @@ async function _deleteLogEntry(idx) {
   // V310-S2: await Firebase.
   if (!await _trySave(() => saveData(data), 'delete income entry')) return;
   auditLog('income_log_delete', 'beneficiary', b.id, b.name,
-    `Deleted income entry: ₹${(removed.amount||0).toLocaleString('en-IN')} on ${fmtD(removed.date)}. New total: ₹${(b.endIncome||0).toLocaleString('en-IN')}.`,
-    null);
-  toast('Entry deleted. New total: ₹' + (b.endIncome||0).toLocaleString('en-IN'), 'success');
+    `Deleted income entry: ₹${(removed.amount||0).toLocaleString('en-IN')} on ${fmtD(removed.date)}. New total: ₹${(b.endIncome||0).toLocaleString('en-IN')}. Kept, can be restored.${reason ? ' Reason: ' + reason : ''}`,
+    { entry: removed, reason: reason });
+  toast('Entry deleted (kept under Deleted entries). New total: ₹' + (b.endIncome||0).toLocaleString('en-IN'), 'success');
   _renderLogIncomeBody(b);
   renderCurrent();
   updateAlertBadge();
@@ -27429,7 +27590,7 @@ function _v216ZeroRowOk(u, scope) {
 // the V357 tab cache, which keys on a signature. Leave one of these out and its
 // control re-renders into a cache HIT — the click appears to do nothing at all.
 // The same bug had to be fixed once already, for rptTab itself.
-let rptFcSort = 1, rptFcDir = -1;      // default: Enrollments, descending
+let rptFcSort = 1, rptFcDir = -1;      // default: Surveyed (V24.6; was Enrollments), descending
 let rptNgoSort = 2, rptNgoDir = -1;    // default: Enrollments, descending
 let rptNgoMode = 'raw';                // 'raw' | 'pfc'
 
@@ -27824,6 +27985,8 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs, ceilMs) {
     const a = { u: f, tot: 0, enrolledWin: 0, advWin: 0, filed: 0, recd: 0,
                 applied: 0, benefits: 0, livelihood: 0,          // V12: all-time
                 appliedWin: 0, benefitsWin: 0, livelihoodWin: 0, // V12.3: in-window
+                surveyed: 0, intervention: 0, endline: 0,        // V24.6: all-time
+                interventionWin: 0, endlineWin: 0,               // V24.6: in-window
                 phone: 0, gps: 0, photo: 0, last: 0 };
     fcAgg.set(f.id, a);
     if (f.fullName) fcByName.set(f.fullName, a);
@@ -27849,6 +28012,7 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs, ceilMs) {
         tot: 0, enrolledWin: 0, advWin: 0, filed: 0, recd: 0,
         applied: 0, benefits: 0, livelihood: 0,
         appliedWin: 0, benefitsWin: 0, livelihoodWin: 0,
+        surveyed: 0, intervention: 0, endline: 0, interventionWin: 0, endlineWin: 0,
         phone: 0, gps: 0, photo: 0, last: 0, _isOffice: true };
       _v187OfficeByNgo.set(k, a);
     }
@@ -27878,6 +28042,19 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs, ceilMs) {
     if ((b.interventions || []).some(i => i && i !== ADVI)) {
       a.livelihood++;
       if (inWin(b.enrollDate)) a.livelihoodWin++;
+      // V24.6: the next two stages, each by its own date. Intervention counts
+      // a household that reached it and has since completed too - the same
+      // funnel the advocacy columns follow (Applied includes Received).
+      const _st246 = _v174Stage(b);
+      if (_st246 === 'Intervention In Progress' || _st246 === 'Completed') {
+        a.intervention++;
+        if (inWin(b.inProgressDate)) a.interventionWin++;
+      }
+      // the ONE endline rule - the Livelihood tab and dashboard use it too
+      if (_v19HasEndline(b)) {
+        a.endline++;
+        if (inWin(b.endlineDate)) a.endlineWin++;
+      }
     }
     if (b.phone) a.phone++;
     if (b.lat != null) a.gps++;
@@ -27941,7 +28118,8 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs, ceilMs) {
     // 33 ms and no allocation before. Sorting the table re-renders.
     if (_r._deleted) return;
     const rows = [_r];
-    if (inWin(_r.__createdAt)) a.advWin += 1;
+    a.surveyed++;   // V24.6: every scheme entry, any status - "Surveyed", all time
+    if (inWin(_r.__createdAt)) a.advWin += 1;   // ...and in the window (the Surveyed column)
     // V12.3: the two windowed counts below rest on DIFFERENT dates, and the
     // difference matters when reading them.
     //   APPLIED  -> the row's own _aAt stamp when it has one (V12.4 onward,
@@ -28043,6 +28221,10 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs, ceilMs) {
   // the app's history; "zero this week" is a statement about the work.
   const benefitsFellBack = !ALL_TIME && benefitDayCounts.size === 0;
   const officeRows = Array.from(_v187OfficeByNgo.values()).filter(a => a.filed > 0);
+  // V24.6: the leaderboard's office rows now include entries still at "Need to
+  // Apply", because Surveyed counts them. officeRows itself is unchanged: the
+  // partner table below is built from it.
+  const officeAll = Array.from(_v187OfficeByNgo.values()).filter(a => a.surveyed > 0);
   if (benefitsFellBack) fcList.concat(officeRows)
     .forEach(a => { a.benefitsWin = a.benefits; });
 
@@ -28216,7 +28398,7 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs, ceilMs) {
   });
   const stuckTotal = Array.from(stuckByScheme.values()).reduce((s, g) => s + g.n, 0);
   const advTotal = latestRows.length;
-  return { fcAgg, fcByName, fcList, officeRows, ngoRows, benefitDayCounts, totalEverEnrolled, benefitFirstStamp, activeFcs, inactiveFcs, convDen, convNum, ADVI, dayCounts, ngoWin, villageFirst, enrolledWinTotal, livN, endN, sumBase, sumEnd, upliftBase, upliftAdded, overdue, stage, byInt, byNgoLiv, overdueNgo, suspects, uName, newVillages, statusCount, stuckByScheme, schemeStats, stuckTotal, advTotal, latestRows, bById, inWin, fcs, allTime: ALL_TIME, benefitsFellBack };
+  return { fcAgg, fcByName, fcList, officeRows, ngoRows, benefitDayCounts, totalEverEnrolled, benefitFirstStamp, activeFcs, inactiveFcs, convDen, convNum, ADVI, dayCounts, ngoWin, villageFirst, enrolledWinTotal, livN, endN, sumBase, sumEnd, upliftBase, upliftAdded, overdue, stage, byInt, byNgoLiv, overdueNgo, suspects, uName, newVillages, statusCount, stuckByScheme, schemeStats, stuckTotal, advTotal, latestRows, bById, inWin, fcs, allTime: ALL_TIME, benefitsFellBack, officeAll };
 }
 
 // ── V12: FC Performance tab ─────────────────────────────────────────────────
@@ -28238,9 +28420,11 @@ function _rptRenderFc(A, nowMs, rowScope) {
   // V12.6: the Benefits heading changes when that column fell back to all-time.
   // The label carries it, not just the tooltip — a heading is read by everyone,
   // a tooltip only by whoever taps it.
-  const RPT_FC_COLS = ['Coordinator','Enrollments','Applied',
+  // V24.6: two programmes, three columns each. Enrollments (all households)
+  // and Data quality are gone, at Guru's request.
+  const RPT_FC_COLS = ['Coordinator','Surveyed','Applied',
                        A.benefitsFellBack ? 'Benefits received (all-time)' : 'Benefits received',
-                       'Livelihood','Data quality','Last active'];
+                       'Enrolled','Intervention','Endline','Last active'];
   const scope = A.allTime ? 'in total, across all time' : 'inside the selected date window';
 
   // V20.5: the four cards below are TOTALS, so they count every row the page
@@ -28257,11 +28441,12 @@ function _rptRenderFc(A, nowMs, rowScope) {
   // the active/inactive split and the #1 marker are statements about PEOPLE,
   // and this bucket is not one. A total counts the work; a ranking counts the
   // workers.
-  const _v206AllRows = fcList.concat(A.officeRows || []);
+  const _v206AllRows = fcList.concat(A.officeAll || A.officeRows || []);   // V24.6: Need-to-Apply office work counts in Surveyed
   const sum = k => _v206AllRows.reduce((s2, a) => s2 + (a[k] || 0), 0);
   const RPT_FC_TIPS = [
     '',
-    'Beneficiaries this coordinator enrolled ' + scope + '.',
+    'Scheme entries this coordinator logged ' + scope + ' — every status: Need to Apply, Applied, Received or Rejected. Dated by when the entry was logged.'
+      + ' All-time total: ' + sum('surveyed').toLocaleString('en-IN') + '.',
     'Scheme applications filed ' + scope + ' — every entry past "Need to Apply".'
       + (A.allTime ? '' : ' Applications filed from 30 July 2026 onward carry their own exact filing date; older ones fall back to the date the beneficiary’s advocacy record was created, which can place a late addition outside the window it was really filed in. That approximation shrinks as new applications replace old ones.')
       + ' All-time total: ' + sum('applied').toLocaleString('en-IN') + '.',
@@ -28269,8 +28454,9 @@ function _rptRenderFc(A, nowMs, rowScope) {
       ? 'ALL-TIME, not the selected window. This app only began recording the DATE a benefit was received on 30 July 2026, and no benefit carries one yet — so a windowed figure would be nothing but zeros. Every benefit ever recorded is shown instead, and this column will start following the date filter on its own as soon as dated benefits exist.'
       : 'Benefits that arrived ' + scope + '.'
         + (A.allTime ? '' : ' ⚠ This app only began recording the DATE a benefit was received on 30 July 2026, so benefits from before then cannot appear here — they still count in the all-time total of ' + sum('benefits').toLocaleString('en-IN') + '.')),
-    'Beneficiaries enrolled ' + scope + ' who have at least one REAL livelihood activity — goat rearing, tailoring, a shop. The "Advocacy (Govt. Schemes)" entry is not a livelihood activity and is deliberately excluded, which is why a coordinator doing only advocacy work shows 0. All-time total: ' + sum('livelihood').toLocaleString('en-IN') + '.',
-    'How complete their records are: the average of three checks — % of their beneficiaries with a phone number, % with a GPS location, and % with at least one photo. All-time, across every record they hold. A low score means paperwork is missing, not that the fieldwork was poor.',
+    'Livelihood households enrolled ' + scope + ' — at least one REAL livelihood activity (goat rearing, tailoring, a shop). "Advocacy (Govt. Schemes)" is not a livelihood activity, which is why a coordinator doing only advocacy work shows 0. All-time total: ' + sum('livelihood').toLocaleString('en-IN') + '.',
+    'Livelihood households marked "Intervention In Progress" ' + scope + ', dated by that step; households that have since completed still count. All-time total: ' + sum('intervention').toLocaleString('en-IN') + '.',
+    'Livelihood households whose endline income was recorded ' + scope + ', dated by the endline. All-time total: ' + sum('endline').toLocaleString('en-IN') + '.',
     'The most recent day they enrolled someone or logged an advocacy update. Red means 30+ days with nothing at all. Not affected by the date filter.'
   ];
   // V12.3: every count column now reads the WINDOWED figure, so the date chip
@@ -28278,11 +28464,12 @@ function _rptRenderFc(A, nowMs, rowScope) {
   // eye sees, or the ranking silently disagrees with the numbers beside it.
   const fcKeys = [
     a => (a.u.fullName || a.u.username || ''),
-    a => a.enrolledWin,
+    a => a.advWin,
     a => a.appliedWin,
     a => a.benefitsWin,
     a => a.livelihoodWin,
-    a => (a.tot ? ((a.phone / a.tot + a.gps / a.tot + a.photo / a.tot) / 3) * 100 : 0),
+    a => a.interventionWin,
+    a => a.endlineWin,
     a => a.last || 0
   ];
   // ⛔ V21.5: AN INACTIVE COORDINATOR KEEPS THEIR ROW HERE TOO, even at zero -
@@ -28307,7 +28494,6 @@ function _rptRenderFc(A, nowMs, rowScope) {
   const bestFc = rptFcSort === 0 ? null : board[0];
 
   const rows = board.map(a => {
-    const q = a.tot ? ((a.phone / a.tot + a.gps / a.tot + a.photo / a.tot) / 3) * 100 : 0;
     const nm = a.u.fullName || a.u.username || '\u2014';
     const inits = nm.split(/\s+/).map(w => w[0] || '').join('').slice(0, 2).toUpperCase();
     const stale = a.last && (now - a.last) > 30 * 86400000;
@@ -28317,11 +28503,12 @@ function _rptRenderFc(A, nowMs, rowScope) {
     const _off = !!(a.u && _v215Inactive(a.u));
     return `<tr class="${(a === bestFc && !_off) ? 'rpt-top' : ''}" style="cursor:pointer" onclick="${fcClick}" title="Click to see ${esc(nm)}'s beneficiaries">
       <td><div class="rpt-person"><span class="rpt-av" style="background:${_rptNgoColor(a.u.ngo)}">${esc(inits)}</span><span><span class="rpt-pname" style="${_off ? _V215_FADE : ''}">${esc(nm)}${_off ? _V215_CHIP : ''}</span><span class="rpt-psub">${esc(a.u.ngo || '\u2014')}</span></span></div></td>
-      <td class="rpt-strong">${a.enrolledWin.toLocaleString('en-IN')}</td>
+      <td class="rpt-strong">${a.advWin.toLocaleString('en-IN')}</td>
       <td>${a.appliedWin.toLocaleString('en-IN')}</td>
       <td>${a.benefitsWin.toLocaleString('en-IN')}</td>
-      <td>${a.livelihoodWin.toLocaleString('en-IN')}</td>
-      <td><span class="rpt-qual"><span class="rpt-qtrack"><span class="rpt-qfill" style="width:${Math.round(q)}%"></span></span><span class="rpt-mini">${Math.round(q)}%</span></span></td>
+      <td class="rpt-strong">${a.livelihoodWin.toLocaleString('en-IN')}</td>
+      <td>${a.interventionWin.toLocaleString('en-IN')}</td>
+      <td>${a.endlineWin.toLocaleString('en-IN')}</td>
       <td>${stale ? `<span class="rpt-warn">${_rptAgoLabelPlain(a.last)}</span>` : `<span class="rpt-mini">${_rptAgoLabelPlain(a.last)}</span>`}</td>
     </tr>`;
   }).join('');
@@ -28331,14 +28518,15 @@ function _rptRenderFc(A, nowMs, rowScope) {
   // this page; before this it sat in no row at all, so the column was short of
   // the figure above it with nothing on screen to explain the difference.
   // Guru asked for it by name: "Recorded by office staff".
-  const officeTr = (A.officeRows || []).filter(a => a.filed > 0).map(a => `<tr
+  const officeTr = (A.officeAll || A.officeRows || []).map(a => `<tr
       style="background:var(--gray4)" title="Scheme work saved by an admin or partner login rather than by a field coordinator. It counts in the totals above; it simply belongs to no one coordinator.">
       <td><div class="rpt-person"><span class="rpt-av" style="background:var(--gray2)">\u2699</span><span><span class="rpt-pname" style="font-style:italic">Recorded by office staff</span><span class="rpt-psub">${esc(a.u.ngo || '\u2014')}</span></span></div></td>
-      <td class="rpt-strong">\u2014</td>
+      <td class="rpt-strong">${a.advWin.toLocaleString('en-IN')}</td>
       <td>${a.appliedWin.toLocaleString('en-IN')}</td>
       <td>${a.benefitsWin.toLocaleString('en-IN')}</td>
       <td>\u2014</td>
-      <td><span class="rpt-mini">\u2014</span></td>
+      <td>\u2014</td>
+      <td>\u2014</td>
       <td><span class="rpt-mini">\u2014</span></td>
     </tr>`).join('');
 
@@ -28364,24 +28552,25 @@ function _rptRenderFc(A, nowMs, rowScope) {
   // which reads as a broken card, not as reassurance. Suppressed, on every
   // card, exactly as it is for a measure that fell back.
   const allT = v => A.allTime ? null : v;
-  return _rptKpiRow([
-    ['Enrollments',       'users',  enrolledWinTotal,     win, allT(A.totalEverEnrolled)],
-    ['Schemes applied',   'file',   sum('appliedWin'),    win, allT(sum('applied'))],
-    ['Benefits received', 'gift',   sum('benefitsWin'),
-      // "dated from" explains why a WINDOW looks short. At all time nothing is
-      // excluded for want of a date, so the caveat would only raise a doubt
-      // that does not apply.
-      bWin + (!A.allTime && !A.benefitsFellBack && A.benefitFirstStamp ? ' · dated from ' + A.benefitFirstStamp : ''),
-      A.benefitsFellBack ? null : allT(sum('benefits'))],
-    ['Livelihood',        'sprout', sum('livelihoodWin'), win, allT(sum('livelihood'))]
+  // V24.6: two programmes, three cards each, each card the sum of its column
+  // (office work included) so the cards and the table cannot disagree.
+  const _bSub246 = bWin + (!A.allTime && !A.benefitsFellBack && A.benefitFirstStamp ? ' · dated from ' + A.benefitFirstStamp : '');
+  return _v246KpiGroups([
+    ['Surveyed',          'clip',   sum('advWin'),        win, allT(sum('surveyed'))],
+    ['Applied',           'file',   sum('appliedWin'),    win, allT(sum('applied'))],
+    ['Benefits received', 'gift',   sum('benefitsWin'),   _bSub246, A.benefitsFellBack ? null : allT(sum('benefits'))]
+  ], [
+    ['Enrolled',          'users',  sum('livelihoodWin'),   win, allT(sum('livelihood'))],
+    ['Intervention',      'sprout', sum('interventionWin'), win, allT(sum('intervention'))],
+    ['Endline',           'check',  sum('endlineWin'),      win, allT(sum('endline'))]
   ])
   + `<div class="rpt-card">
       <div class="rpt-card-h rpt-card-h-row">
         <div class="rpt-hg">
           <h3>Coordinator leaderboard \u2014 ${esc(_rptWinLabel())}</h3>
           <div class="rpt-note">Click any column heading to re-rank; click again to flip. The green-edged row is the current #1 for whichever column you sorted by. ${A.allTime
-            ? '<b>Every count is a lifetime total</b> — pick a date chip above to narrow all four to a window.'
-            : '<b>Every count is for the selected date window</b> — the chip above applies to all four.'} Data quality and Last active are always all-time. Each column’s ⓘ carries its all-time total and any caveat.${A.benefitsFellBack
+            ? '<b>Every count is a lifetime total</b> — pick a date chip above to narrow all six to a window.'
+            : '<b>Every count is for the selected date window</b> — the chip above applies to all six.'} Last active is always all-time. Advocacy columns count scheme entries; Livelihood columns count households. Each column’s ⓘ carries its all-time total and any caveat.${A.benefitsFellBack
             ? ' <b>Benefits received is showing all-time</b>, because no benefit carries a date yet — it will start following the filter on its own once dated benefits exist.'
             : ''}</div>
         </div>
@@ -28389,7 +28578,8 @@ function _rptRenderFc(A, nowMs, rowScope) {
       </div>
       <div class="rpt-tblwrap">
         <table class="rpt-tbl">
-          <thead><tr>${_rptTh(RPT_FC_COLS, rptFcSort, rptFcDir, 'rptSortFc', RPT_FC_TIPS)}</tr></thead>
+          <thead><tr class="v246-grp"><th></th><th colspan="3" class="adv">Advocacy</th><th colspan="3" class="liv">Livelihood</th><th></th></tr>
+            <tr>${_rptTh(RPT_FC_COLS, rptFcSort, rptFcDir, 'rptSortFc', RPT_FC_TIPS)}</tr></thead>
           <tbody>${(rows + officeTr) || `<tr><td colspan="${RPT_FC_COLS.length}" class="rpt-empty">No FC activity found for the current filters.</td></tr>`}</tbody>
         </table>
       </div>
@@ -28567,9 +28757,8 @@ window.rptExportFc = function () {
   // were the all-time ones, so exporting while sorted by Applied produced a
   // different row order than the screen it was exported from.
   const keyFns = [
-    a => (a.u.fullName || a.u.username || ''), a => a.enrolledWin, a => a.appliedWin,
-    a => a.benefitsWin, a => a.livelihoodWin,
-    a => (a.tot ? ((a.phone / a.tot + a.gps / a.tot + a.photo / a.tot) / 3) * 100 : 0),
+    a => (a.u.fullName || a.u.username || ''), a => a.advWin, a => a.appliedWin,
+    a => a.benefitsWin, a => a.livelihoodWin, a => a.interventionWin, a => a.endlineWin,
     a => a.last || 0
   ];
   // ⛔ V21.6: THE SAME ROWS AS THE SCREEN, IN THE SAME ORDER. The export kept
@@ -28583,11 +28772,13 @@ window.rptExportFc = function () {
   // each measure. The table can only show one; a spreadsheet has no such limit,
   // and someone opening it later should not have to know which the screen was
   // set to when it was made.
+  // V24.6: the screen's six columns, then the same six all-time, then the
+  // household total that used to be the Enrollments column.
   const rows = sorted.map(a => [
     a.u.fullName || a.u.username || '', a.u.ngo || '',
-    a.enrolledWin, a.appliedWin, a.benefitsWin, a.livelihoodWin,
-    a.tot, a.applied, a.benefits, a.livelihood,
-    a.tot ? Math.round(((a.phone / a.tot + a.gps / a.tot + a.photo / a.tot) / 3) * 100) : 0,
+    a.advWin, a.appliedWin, a.benefitsWin, a.livelihoodWin, a.interventionWin, a.endlineWin,
+    a.surveyed, a.applied, a.benefits, a.livelihood, a.intervention, a.endline,
+    a.tot,
     a.last ? _istDate(a.last) : '',
     // ⛔ APPENDED, NOT INSERTED. A spreadsheet has no colour and outlives the
     // screen, so the state has to be a column - but v205fctotal addresses these
@@ -28599,15 +28790,15 @@ window.rptExportFc = function () {
   // to be in the file. It is appended after the sorted coordinators rather
   // than sorted among them, matching the table, and it carries a dash in the
   // columns that only mean something for a person.
-  (A.officeRows || []).filter(a => a.filed > 0).forEach(a => rows.push([
+  (A.officeAll || A.officeRows || []).forEach(a => rows.push([
     'Recorded by office staff', a.u.ngo || '',
-    '\u2014', a.appliedWin, a.benefitsWin, '\u2014',
+    a.advWin, a.appliedWin, a.benefitsWin, '\u2014', '\u2014', '\u2014',
     // V20.6: a dash here too. An office bucket can never carry a livelihood
     // activity - only the beneficiary pass increments that, and it has no
     // office fallback - so writing the literal 0 beside the dash in the
     // window column stated the same non-applicable measure two ways, and a
     // filter for "no livelihood work" picked this row up as a real zero.
-    '\u2014', a.applied, a.benefits, '\u2014',
+    a.surveyed, a.applied, a.benefits, '\u2014', '\u2014', '\u2014',
     '\u2014', '',
     '\u2014'
   ]));
@@ -28619,10 +28810,11 @@ window.rptExportFc = function () {
   const BW = A.benefitsFellBack ? ' (all-time — no dated benefits yet)' : W;
   _rptExportRows(
     ['Coordinator', 'NGO',
-     'Enrollments' + W, 'Schemes applied' + W, 'Benefits received' + BW, 'Livelihood' + W,
-     'Total beneficiaries (all-time)', 'Schemes applied (all-time)',
-     'Benefits received (all-time)', 'Livelihood (all-time)',
-     'Data quality %', 'Last active', 'Status'],
+     'Surveyed' + W, 'Applied' + W, 'Benefits received' + BW,
+     'Livelihood enrolled' + W, 'Intervention' + W, 'Endline' + W,
+     'Surveyed (all-time)', 'Applied (all-time)', 'Benefits received (all-time)',
+     'Livelihood enrolled (all-time)', 'Intervention (all-time)', 'Endline (all-time)',
+     'Total beneficiaries (all-time)', 'Last active', 'Status'],
     rows, 'coordinators');
 };
 
@@ -28656,6 +28848,164 @@ window.rptExportNgo = function () {
      'Schemes applied (all-time)', 'Benefits received (all-time)', 'Livelihood (all-time)',
      'Share of enrollments %'],
     rows, 'partners');
+};
+
+// ── V24.6: Scheme-wise - surveyed, applied, benefits received ─────────────
+// Every scheme on the scheme list, plus ONE row for the names coordinators
+// typed in themselves (955 different ones in the 26 Sep data - "Manrega job
+// card" alone ten ways). By scheme or by partner, with its own date window:
+// the rest of this tab is all-time, so the chips above do not appear here.
+// Counted from the SAME de-duplicated rows as every other advocacy figure
+// (A.latestRows), dated the same way as the leaderboard: Surveyed by when the
+// entry was logged, Applied by its applied date, Benefits by its received date.
+let rptSchMode = 'scheme', rptSchWin = 0, rptSchSort = 1, rptSchDir = -1, rptSchOpen = {};
+window.rptSchSet = function (k, v) {
+  _rptDismissTip();
+  if (k === 'mode') { rptSchMode = v; rptSchOpen = {}; }
+  else if (k === 'win') rptSchWin = v;
+  else if (k === 'sort') { if (rptSchSort === v) rptSchDir = -rptSchDir; else { rptSchSort = v; rptSchDir = v === 0 ? 1 : -1; } }
+  renderReports();
+};
+window.rptSchToggle = function (key) { key = decodeURIComponent(key); rptSchOpen[key] = !rptSchOpen[key]; renderReports(); };
+function _v246SchemeAgg(rows, bById, days, nowMs) {
+  const now = nowMs || Date.now(), winMs = days > 0 ? days * 86400000 : 0;
+  const inW = iso => { if (!winMs) return true; if (!iso) return false; const t = new Date(iso).getTime(); return !isNaN(t) && (now - t) <= winMs; };
+  const out = new Map();   // partner -> Map(scheme name -> [surveyed, applied, received])
+  (rows || []).forEach(r => {
+    if (!r || r._deleted) return;
+    const b = bById.get(r.__bid);
+    if (!b) return;
+    const st = _advNormStatus(r);
+    const sv = inW(r.__createdAt);
+    let ap = false, rc = false;
+    if (st !== 'Need to Apply') {
+      const aAt = _rptStampOk(r._aAt);
+      ap = !winMs || (aAt ? inW(aAt) : sv);
+      if (st === 'Benefits Received') { const bAt = _rptStampOk(r._bAt); rc = !winMs || (!!bAt && inW(bAt)); }
+    }
+    if (!sv && !ap && !rc) return;
+    const p = b.ngo || '\u2014', name = r.scheme || '\u2014';
+    let m = out.get(p);
+    if (!m) { m = new Map(); out.set(p, m); }
+    const c = m.get(name) || [0, 0, 0];
+    if (sv) c[0]++;
+    if (ap) c[1]++;
+    if (rc) c[2]++;
+    m.set(name, c);
+  });
+  return out;
+}
+// one partner's (or every partner's) names folded onto the scheme list
+function _v246Fold(maps, official) {
+  const out = new Map(), other = { v: [0, 0, 0], names: new Map() };
+  maps.forEach(m => m.forEach((c, name) => {
+    if (official.has(name)) {
+      const t = out.get(name) || [0, 0, 0];
+      t[0] += c[0]; t[1] += c[1]; t[2] += c[2]; out.set(name, t);
+    } else {
+      other.v[0] += c[0]; other.v[1] += c[1]; other.v[2] += c[2];
+      const t = other.names.get(name) || [0, 0, 0];
+      t[0] += c[0]; t[1] += c[1]; t[2] += c[2]; other.names.set(name, t);
+    }
+  }));
+  return { out, other };
+}
+function _v246SchemeCard(A) {
+  const esc = v => escHtml(String(v == null ? '' : v));
+  // a name inside an onclick: encoded, and the apostrophe too (encodeURIComponent leaves it)
+  const enc = v => encodeURIComponent(String(v)).replace(/'/g, '%27');
+  const n = v => v ? v.toLocaleString('en-IN') : '<span class="v246-zero">0</span>';
+  const pct = (a, b) => b ? Math.round(a / b * 100) : 0;
+  const rec = (r, sv) => `${n(r)}<span class="v246-bar" title="${pct(r, sv)}% of surveyed"><i style="width:${pct(r, sv)}%"></i></span>`;
+  const official = new Set((typeof getSchemes === 'function' ? getSchemes() : []) || []);
+  const agg = _v246SchemeAgg(A.latestRows, A.bById, rptSchWin, _v19ServerNow());
+  const partners = Array.from(agg.keys()).sort((a, b) => a.localeCompare(b));
+  const sortList = list => list.sort((x, y) => {
+    const k = rptSchSort, a = k === 0 ? x[0].toLowerCase() : x[1][k - 1], b = k === 0 ? y[0].toLowerCase() : y[1][k - 1];
+    return (a < b ? -1 : a > b ? 1 : 0) * rptSchDir || x[0].localeCompare(y[0]);
+  });
+  const schemeRows = (fold, cls, key) => {
+    let h = '';
+    sortList(Array.from(fold.out.entries())).forEach(([name, v]) => {
+      const drill = cls ? '' : ` style="cursor:pointer" onclick="advStageF='';advSchemeFilter=decodeURIComponent('${enc(name)}');advBCurrentPage=1;currentView='advocacy';nav('advocacy')" title="Click to see every ${esc(name)} entry"`;
+      h += `<tr class="${cls}"${drill}><td>${esc(name)}</td><td>${n(v[0])}</td><td>${n(v[1])}</td><td>${rec(v[2], v[0])}</td></tr>`;
+    });
+    const o = fold.other;
+    if (o.names.size) {
+      const ok = key + '::other', open = !!rptSchOpen[ok];
+      h += `<tr class="${cls}" style="cursor:pointer" onclick="rptSchToggle('${enc(ok)}')" title="Names typed in by coordinators instead of picked from the scheme list"><td><span class="v246-chev">${open ? '\u25bc' : '\u25b6'}</span>Other schemes typed by coordinators <span class="rpt-mini">(${o.names.size.toLocaleString('en-IN')} different name${o.names.size === 1 ? '' : 's'})</span></td><td>${n(o.v[0])}</td><td>${n(o.v[1])}</td><td>${rec(o.v[2], o.v[0])}</td></tr>`;
+      if (open) Array.from(o.names.entries()).sort((a, b) => b[1][0] - a[1][0] || a[0].localeCompare(b[0])).slice(0, 50).forEach(([name, v]) => {
+        h += `<tr class="${cls ? 'v246-sub2' : 'v246-sub'}"><td>${esc(name)}</td><td>${n(v[0])}</td><td>${n(v[1])}</td><td>${n(v[2])}</td></tr>`;
+      });
+    }
+    return h;
+  };
+  let body = '';
+  const tot = [0, 0, 0];
+  agg.forEach(m => m.forEach(c => { tot[0] += c[0]; tot[1] += c[1]; tot[2] += c[2]; }));
+  if (rptSchMode === 'scheme') {
+    body = schemeRows(_v246Fold(Array.from(agg.values()), official), '', 'all');
+  } else {
+    const one = partners.length === 1;
+    partners.map(p => { const v = [0, 0, 0]; agg.get(p).forEach(c => { v[0] += c[0]; v[1] += c[1]; v[2] += c[2]; }); return [p, v]; })
+      .sort((a, b) => b[1][0] - a[1][0] || a[0].localeCompare(b[0]))
+      .forEach(([p, v]) => {
+        const open = one || !!rptSchOpen[p];
+        body += `<tr class="v246-prow" onclick="rptSchToggle('${enc(p)}')"><td><span class="v246-chev">${open ? '\u25bc' : '\u25b6'}</span>${esc(p)}</td><td>${n(v[0])}</td><td>${n(v[1])}</td><td>${rec(v[2], v[0])}</td></tr>`;
+        if (open) body += schemeRows(_v246Fold([agg.get(p)], official), 'v246-sub', p);
+      });
+  }
+  const th = (i, label) => rptSchMode === 'scheme'
+    ? `<th class="rpt-th${rptSchSort === i ? ' rpt-sorted' : ''}" role="button" tabindex="0" onclick="rptSchSet('sort',${i})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();rptSchSet('sort',${i})}">${label}<span class="rpt-arr">${rptSchSort === i ? (rptSchDir === -1 ? '\u25bc' : '\u25b2') : '\u25bc'}</span></th>`
+    : `<th class="rpt-th" style="cursor:default">${label}</th>`;
+  const winBtn = d => `<button class="${rptSchWin === d ? 'on' : ''}" onclick="rptSchSet('win',${d})" aria-pressed="${rptSchWin === d}">${d ? d + ' days' : 'All time'}</button>`;
+  const modeBtn = (k, l) => `<button class="${rptSchMode === k ? 'on' : ''}" onclick="rptSchSet('mode','${k}')" aria-pressed="${rptSchMode === k}">${l}</button>`;
+  const scopeNote = partners.length === 1 ? 'Showing <b>' + esc(partners[0]) + '</b> only.' : 'Pick a partner in the NGO filter above, or switch to "By partner".';
+  return `<div class="rpt-card">
+      <div class="rpt-card-h rpt-card-h-row">
+        <div class="rpt-hg">
+          <h3>Scheme-wise \u2014 surveyed, applied, benefits received</h3>
+          <div class="rpt-note">Every scheme on your scheme list, plus one row for names coordinators typed in themselves. <b>Surveyed</b> = every entry logged, whatever its status · <b>Applied</b> = filed, including those later received or rejected · <b>Benefits received</b> = marked received. The bar shows benefits received as a share of surveyed. ${scopeNote}</div>
+        </div>
+        <button class="rpt-export" onclick="rptExportSchemes()" title="Every partner and every scheme name, one row each"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export CSV</button>
+      </div>
+      <div class="v246-ctrls">
+        <div class="rpt-mode" role="group" aria-label="View">${modeBtn('scheme', 'By scheme')}${modeBtn('partner', 'By partner')}</div>
+        <div class="rpt-mode" role="group" aria-label="Date window">${winBtn(0)}${winBtn(90)}${winBtn(30)}${winBtn(7)}</div>
+      </div>
+      <div class="rpt-tblwrap">
+        <table class="rpt-tbl" id="v246-schemes" style="min-width:600px">
+          <thead><tr>${th(0, rptSchMode === 'scheme' ? 'Scheme' : 'Partner / scheme')}${th(1, 'Surveyed')}${th(2, 'Applied')}${th(3, 'Benefits received')}</tr></thead>
+          <tbody>${body || '<tr><td colspan="4" class="rpt-empty">Nothing logged in this window for the current filters.</td></tr>'}
+          ${body ? `<tr class="v246-tot"><td>Total</td><td>${tot[0].toLocaleString('en-IN')}</td><td>${tot[1].toLocaleString('en-IN')}</td><td>${tot[2].toLocaleString('en-IN')}</td></tr>` : ''}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+// The CSV: one row per partner and scheme NAME, typed names included, for the
+// card's own window - so one file answers the whole partner-by-scheme question.
+window.rptExportSchemes = function () {
+  if (!_rptCanView()) return;
+  const A = _rptAggregate(filteredAll(), loadAdv(), _rptScopedUsers(), _v19ServerNow(), Infinity, null);
+  const agg = _v246SchemeAgg(A.latestRows, A.bById, rptSchWin, _v19ServerNow());
+  const official = new Set((typeof getSchemes === 'function' ? getSchemes() : []) || []);
+  const rows = [];
+  Array.from(agg.keys()).sort((a, b) => a.localeCompare(b)).forEach(p => {
+    Array.from(agg.get(p).entries()).sort((a, b) => b[1][0] - a[1][0] || a[0].localeCompare(b[0]))
+      .forEach(([name, c]) => rows.push([p, name, official.has(name) ? 'Scheme list' : 'Typed by coordinator', c[0], c[1], c[2]]));
+  });
+  if (!rows.length) { if (typeof toast === 'function') toast('Nothing to export for the current filters.', 'info', 3000); return; }
+  const W = rptSchWin ? ' (last ' + rptSchWin + ' days)' : ' (all time)';
+  const lines = [['Partner', 'Scheme', 'Source', 'Surveyed' + W, 'Applied' + W, 'Benefits received' + W].map(_csvEsc).join(',')];
+  rows.forEach(r => lines.push(r.map(_csvEsc).join(',')));
+  const scope = [];
+  try {
+    if (typeof stateFilter !== 'undefined' && stateFilter) scope.push(_fileSlug(stateFilter));
+    if (typeof ngoFilter !== 'undefined' && ngoFilter) scope.push(_fileSlug(ngoFilter));
+  } catch (_) {}
+  const name = ['KRSF', 'schemes', scope.join('-'), rptSchWin ? rptSchWin + 'd' : 'alltime', _istDate()].filter(Boolean).join('_') + '.csv';
+  _downloadCsv(name, lines.join('\r\n'));
+  if (typeof toast === 'function') toast('Exported all ' + rows.length.toLocaleString('en-IN') + ' partner-scheme rows to ' + name, 'success', 4500);
 };
 
 // ── V12: NGO comparison tab ─────────────────────────────────────────────────
@@ -28755,6 +29105,8 @@ function _rptRenderNgo(A) {
 // V12: the four headline cards. Inline SVG, never emoji — an emoji renders as a
 // different glyph on every platform and cannot be recoloured.
 const _RPT_ICONS = {
+  clip:   '<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/>',   // V24.6: Surveyed
+  check:  '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',   // V24.6: Endline
   users:  '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
   file:   '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="m9 15 2 2 4-4"/>',
   gift:   '<polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5"/><line x1="12" y1="22" x2="12" y2="7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/>',
@@ -28764,6 +29116,23 @@ const _RPT_ICONS = {
 // own line below the window figure so nothing is hidden — the complaint was not
 // that all-time was wrong, it was that all-time was shown while a 7-day chip
 // was selected, with no way to tell which you were looking at.
+// V24.6: the same cards as _rptKpiRow, in two labelled groups of three.
+function _v246KpiGroups(adv, liv) {
+  const one = c => {
+    const [label, icon, val, sub, allTime] = c;
+    const fmt = v => typeof v === 'number' ? v.toLocaleString('en-IN') : v;
+    return `<div class="rpt-kpi">
+      <div class="rpt-kpi-lab"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${_RPT_ICONS[icon] || ''}</svg>${escHtml(label)}</div>
+      <div class="rpt-kpi-val">${fmt(val)}</div>
+      <div class="rpt-kpi-sub">${escHtml(sub || '')}</div>
+      ${allTime == null ? '' : `<div class="rpt-kpi-all">All-time <b>${fmt(allTime)}</b></div>`}
+    </div>`;
+  };
+  return `<div class="v246-kgroups">
+    <div class="v246-kg adv"><div class="v246-kg-lab">Advocacy <span>· scheme entries</span></div><div class="v246-kcards">${adv.map(one).join('')}</div></div>
+    <div class="v246-kg liv"><div class="v246-kg-lab">Livelihood <span>· households</span></div><div class="v246-kcards">${liv.map(one).join('')}</div></div>
+  </div>`;
+}
 function _rptKpiRow(cards) {
   return '<div class="rpt-kpis">' + cards.map(c => {
     const [label, icon, val, sub, allTime] = c;
@@ -29109,6 +29478,7 @@ function renderReports() {
           <tr><th style="${TH}">Scheme</th><th style="${THR}">Stuck</th><th style="${THR}">Avg days since logged</th><th style="${TH}">Most affected NGO</th></tr>
           ${stuckRows || `<tr><td colspan="4" style="${TD};text-align:center;color:var(--green)">Nothing stuck 60+ days.</td></tr>`}
         </table>`)) +
+      _v246SchemeCard(_A) +   // V24.6
       card('Scheme success rates', 'Ordered by estimated benefits, largest first; schemes with no value set follow, ordered by how many were filed. Top 15 schemes; those with fewer than 10 filed entries are hidden. Of entries filed (applied / received / rejected), how many reached benefits. Estimated benefits use each scheme\'s standard value from the admin scheme settings; a dash means no value is set yet.',
         tblWrap(`<table style="width:100%;border-collapse:collapse">
           <tr><th style="${TH}">Scheme</th><th style="${THR}">Filed</th><th style="${THR}">Received</th><th style="${THR}">Rejected</th><th style="${THR}">Est. benefits${_rptTip('Entries that reached Benefits Received, multiplied by the scheme\'s standard benefit value. It is an ESTIMATE — coordinators never enter rupee amounts. A dash means no standard value has been set for that scheme yet.')}</th><th style="${THR}">Success${_rptTip('Of entries filed for this scheme (Applied + Received + Rejected), the % that reached Benefits Received.')}</th></tr>
