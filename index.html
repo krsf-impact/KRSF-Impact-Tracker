@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V24.6-LIVE
+  KRSF Beneficiary Impact Tracker  -  V24.9-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,70 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V24.9-LIVE (2026-10-02 - a waiting enrolment never overwrites a later correction).
+
+    + Found by the V24.8 review: a household enrolled on a weak signal waits
+      on the phone and is sent later. If it had in fact already reached the
+      database, and the coordinator corrected it meanwhile (a phone number,
+      an income entry), the waiting copy - the oldest version - was written
+      over the correction, which vanished from the database and the phone.
+      Now a waiting household already in the database under the same
+      coordinator is not sent again; its scheme plan and photo still are.
+      No extra download: the question it uses was already asked.
+    + Three small points from the review of V24.8: Restore checks again
+      after its question, as Delete does; with two identical entries the one
+      tapped is the one changed; a household re-sent from an old copy is not
+      treated as brand new by the check.
+    + Tests: 107 files. v249 is new.
+
+  V24.8-LIVE (2026-10-02 - coordinators correct their own income entries).
+
+    + GURU: coordinators edit and delete income entries too - only the ones
+      they typed, on their own households. An entry typed by the partner or
+      the office shows "Locked" on their phone and stays theirs to change.
+    + Same rules as partners: a reason for every edit and delete, shown under
+      the entry; a deleted entry is kept under "Deleted entries", out of
+      every total, and the coordinator can put back what they deleted.
+    + On the phone, a pencil and a bin sit at the end of each entry's second
+      line - no extra row - and editing stays on the phone layout.
+    + The check before saving now covers coordinators: a save from an older
+      copy on the phone is stopped and the latest comes on screen, so a
+      partner's or the office's newer work is never wiped. About 0.6 MB a day
+      for all coordinators together. A save with no signal is refused as
+      before, so no work typed offline is ever dropped by the check. A
+      scheme plan for a household this device has just created is not
+      looked up first, so enrolments are no slower.
+    + Edit, Delete and Restore find their entry again just before saving; a
+      sync arriving while the person types can no longer move the change
+      onto a different entry. An entry being edited keeps its own
+      interventions on offer, even one since taken off the household.
+    + Tests: 104 files. v248 is new.
+
+  V24.7-LIVE (2026-10-02 - Refresh for every login that reads; check before save).
+
+    + GURU: an edit made from an old copy erased newer work. Proved on V24.6:
+      a partner correcting one income entry wiped a coordinator's Rs 6,000
+      entry saved after the partner's copy; a phone-number change wiped a
+      Rs 2,000 one. Before a partner or the admin saves, the app now reads
+      those records from the database (about 0.5 KB each) and stops when
+      somebody else saved one after this copy: nothing is written, the latest
+      replaces the copy on screen, and a message says who, when, and what to
+      type again. A record last saved by the same login is never stopped.
+      Coordinators are not checked in this release.
+    + Refresh for donors and team leaders, and a daily limit shown on the
+      button: partner 2, team leader 1, donor 2 ("2 left today"). Opening the
+      app still downloads nothing.
+    + A Refresh never costs more than the login's own data: everyone's
+      changes since the last Refresh, or the own data again when that is
+      smaller (team leaders: always their own). A fresh login sets the
+      starting point; the first Refresh after one took 53 MB for a quiet
+      partner. A full download is built beside the old copy, so a Refresh
+      that fails changes nothing.
+    + Partner Refresh keeps scheme records typed by another partner's staff
+      for this partner's households; Refresh on the dashboard works.
+    + "Data saved on <date, time>" under the list titles for those roles.
+    + Tests: 101 files. v247 is new.
+
   V24.6-LIVE (2026-10-01 - Reports: two programmes on the leaderboard; scheme-wise).
 
     + Coordinator leaderboard and its cards: ADVOCACY Surveyed / Applied /
@@ -629,83 +693,7 @@
       record - ten minutes for 885 - the same trap V22.1 took out of the
       importer.
 
-  V22.1-LIVE (2026-09-18 - an import that finishes, and a screen that opens).
-
-    + ⛔ THE BULK IMPORT WALKED THE WHOLE DATABASE TWICE PER ROW. saveData()
-      at the top of each iteration, which during an import rebuilds the
-      146,000-entry cache and rewrites the pantry to publish ONE record; and
-      genId() cloning all 146,000 records to read their ids. Measured: 1,424 ms
-      a row, 2.8 GB, and Guru’s 3,553-row Navchetana file would have taken 85
-      minutes with the tab locked. Now the new record goes straight into the
-      cache and genId reads it there: 137 ms a row, the whole file in 4m17s,
-      ids unique, undo still removes every one. Nothing about what is written
-      changed - the same records, the same single write at the end.
-
-    + ALERTS & FLAGS HUNG THE TAB. Guru sent Chrome’s own "Page Unresponsive"
-      box: 105,669 alerts, and 100,981 of them were ONE rule - a scheme nobody
-      has applied for yet, which is most of the database. That rule is now
-      counted and said once under the heading instead of listed 100,981 times,
-      the 4,688 real flags stay (4,449 of them benefits marked received with no
-      amount), the answer is remembered until the data changes, and the screen
-      draws 200 at a time. ⛔ THE BADGE was the worse half: it computed the
-      whole thing on every render of several screens - 1.9 s each - and now
-      costs a millisecond.
-
-    + Tests: 73 files. v221.js is new - 31 checks on the real 146,395-record
-      export: the per-row database walks are COUNTED, not timed, so a loaded
-      machine cannot turn it red. V22.0 fails 15 of them; 8 mutants, all
-      killed. ⛔ One lived at first: removing the cache insert did not produce
-      duplicate ids, because the id reservation already stops that - so the
-      check now watches genId see each record as it is made.
-
-  V22.0-LIVE (2026-09-18 - a hundred staff accounts from one file).
-
-    + GURU: "I have to manually add 100s of users in the user management."
-      Import Users now sits beside Add User. One row per person - name,
-      username (a phone number for 499 of the 626 people already in the app),
-      password, role, partner - and for a Team Leader, the usernames of the
-      coordinators they oversee.
-
-    + NOTHING IS CREATED UNTIL THE CHECK HAS BEEN READ. Per row: create, skip
-      because that username already exists, or refused with the reason on the
-      row. ⛔ A TEAM LEADER’S ROW SHOWS THE NAMES IT RESOLVED, not the numbers
-      typed - a number that belongs to the wrong person is the one mistake no
-      check can catch, so it is put where an eye can catch it.
-
-    + ⛔ AN EXISTING ACCOUNT IS NEVER TOUCHED. A repeated import skips it
-      rather than resetting a working coordinator’s password, and the names are
-      read again at the moment of writing - somebody adding a user by hand
-      while the file is open no longer ends in two accounts on one username,
-      which the server login would resolve by picking one of them.
-
-    + One write per person, to that person alone. Undo removes exactly what
-      the import created and KEEPS anyone who has since enrolled somebody or
-      logged a scheme, and refuses to run at all before the records have
-      finished arriving - on a half-synced device every ownership count reads
-      zero. 98 accounts: 99 writes, no reads, about a tenth of a second.
-
-    + ⛔ THE REVIEW FOUND SEVEN, TWO OF THEM SERIOUS. The admin tab cache -
-      on for admins only, which is everyone who can reach this screen - would
-      have replayed the preview after a trip to another tab, with its Create
-      button live: every account a second time, under a second batch id.
-      And the template the app itself handed out carried example people that
-      nothing filtered on the way back in, so an admin who typed their staff
-      underneath imported two signable accounts with published passwords.
-      Also: a stale user list, undo cloning 139,000 records to count
-      ownership, undo blind to advocacy, a Team Leader created without a
-      coordinator whose write had failed, and a Viewer row with an empty
-      partner column silently seeing all 146,000 records.
-
-    + Tests: 72 files. v220users.js and v412state.js are new - 49 checks and
-      23, the first driven as an admin through the real screen with a 100-row
-      file, every password verified by the app’s own login check, the second
-      pinning down the per-state scheme filter nothing had ever tested.
-      V21.9 has no import at all; 18 mutants of this build, all killed.
-      ⛔ My own bug, found by the test’s arithmetic
-      rather than by me: the result screen counted the preview after clearing
-      it, so it said "0 skipped, 0 refused" whatever the file held.
-
-  ============================================================================
+  ============================================================================
   Everything before this point lives in CHANGELOG.md, beside this file.
 -->
 <html lang="en">
@@ -1248,6 +1236,21 @@ body[data-role="coordinator"] #sync-pill { display: none !important; }
   .topbar-right #state-filter, .topbar-right #ngo-filter { display: none; }
   #btn-enroll-text { display: none; }  /* hide text, show + only */
   #topbar-enroll-btn { display: none; }  /* FAB at bottom-right replaces it on mobile */
+  /* V24.7: limited roles see "↻ 2 left" on a phone; the word Refresh and
+     "today" return on a wider screen. */
+  body[data-role="ngo"] #topbar-refresh-label,
+  body[data-role="scopedViewer"] #topbar-refresh-label,
+  body[data-role="scopedViewerByFc"] #topbar-refresh-label { display: none; }
+  #topbar-refresh-left .v247-dot, #topbar-refresh-left .v247-today { display: none; }
+  #topbar-refresh-left { margin-left: 0; }
+  #topbar-refresh-btn.v247-off #topbar-refresh-left { display: inline; }
+  /* V24.7: on a phone the fixed "Synced" pill sat exactly on top of the
+     Refresh button (the right-most thing in the top bar), so it could be
+     neither read nor tapped. For these three roles it moves to the bottom-left
+     corner; the Enroll button keeps the bottom-right. */
+  body[data-role="ngo"] #sync-pill,
+  body[data-role="scopedViewer"] #sync-pill,
+  body[data-role="scopedViewerByFc"] #sync-pill { top: auto; right: auto; left: 12px; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
   /* V5: the two Dashboard KPI cards were hard-locked to a 2-column grid
      with no mobile override, squeezing each card's title into a ~170px
      column and wrapping it into a vertical stack of single words. Stack
@@ -1715,6 +1718,15 @@ body[data-role="scopedViewerByFc"] .btn-enroll,
 body[data-role="scopedViewerByFc"] #topbar-enroll-btn,
 body[data-role="scopedViewerByFc"] #enroll-btn-mobile,
 body[data-role="scopedViewerByFc"] .nav-btn[data-v="enroll"] { display: none !important; }
+/* V24.7: the one admin-only control donors and team leaders now get - the
+   top-bar Refresh, with its daily limit. The id outranks the hide rule above. */
+body[data-role="scopedViewer"] #topbar-refresh-btn[data-admin-only],
+body[data-role="scopedViewerByFc"] #topbar-refresh-btn[data-admin-only] { display: inline-block !important; }
+#topbar-refresh-left{vertical-align:middle;font-weight:500;margin-left:4px}
+#topbar-refresh-left:empty{display:none}
+#topbar-refresh-btn.v247-off{background:#F3F4F6 !important;color:#6B7280 !important;border-color:#E5E7EB !important;cursor:not-allowed !important}
+#topbar-refresh-btn.v247-off #topbar-refresh-left{display:none}
+.v247-saved{font-size:11.5px;font-weight:400;color:var(--gray2);margin-top:3px}
 
 /* Coordinator simplification: hide everything in the sidebar except
    All Beneficiaries and Enroll (policy per spec — coordinators have a
@@ -2664,6 +2676,23 @@ body[data-shell="coord"] .coord-card {
 #logincome-overlay.v229-card .v229-hist { background: #fff; border: 1px solid var(--gray3); border-radius: 12px; padding: 2px 14px; margin-bottom: 12px; }
 #logincome-overlay.v229-card .v229-hrow { display: flex; justify-content: space-between; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--gray3); font-size: 13px; }
 #logincome-overlay.v229-card .v229-hrow:last-child { border-bottom: 0; }
+/* V24.8: an entry keeps its two lines - the date and amount, then what it came
+   from - and the pencil and bin sit at the end of the second line. Their tap
+   area is 32px tall; the negative margin keeps the line its normal height. */
+#logincome-overlay.v229-card .v229-hrow.v248-hrow { flex-direction: column; justify-content: flex-start; gap: 1px; }
+#logincome-overlay.v229-card .v229-hrow.v248-on { background: #FFF7E6; margin: 0 -14px; padding: 9px 14px 9px 11px; border-left: 3px solid #FBD38D; }
+#logincome-overlay.v229-card .v229-form.v248-editing { border: 2px solid #FBD38D; }
+.v248-l1, .v248-l2 { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.v248-l2 { min-height: 16px; }
+.v248-src { min-width: 0; font-size: 12px; color: var(--gray2); }
+.v248-ed { font-size: 11px; color: #8A4B08; margin-top: 3px; }
+.v248-acts { display: inline-flex; align-items: center; gap: 2px; flex: none; margin: -8px -6px -8px 0; }
+.v248-ic { border: 0; background: none; width: 34px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; color: var(--navy); cursor: pointer; }
+.v248-ic.v248-del { color: var(--red); }
+.v248-ic:active { background: #E8EDFB; }
+.v248-lock { border: 0; background: none; font-family: var(--font); font-size: 11px; color: var(--gray2); display: inline-flex; gap: 4px; align-items: center; padding: 8px 6px; margin: -8px -6px -8px 0; cursor: pointer; flex: none; }
+.v248-cell { margin-top: 4px; }
+.v248-cell .v248-acts, .v248-cell .v248-lock { margin: 0 0 0 -8px; }
 #logincome-overlay.v229-card .v229-form { background: #fff; border: 1px solid var(--gray3); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
 #logincome-overlay.v229-card .v229-ft { font-size: 14px; font-weight: 700; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 #logincome-overlay.v229-card .v229-will { font-size: 11px; font-weight: 600; color: #065F46; background: #D1FAE5; padding: 3px 9px; border-radius: 999px; }
@@ -3624,7 +3653,7 @@ body[data-shell="coord"] .coord-card {
            _applyRoleVisibility sets style.display = '' which reverts to browser
            default. Without a flex-providing CSS class, align-items + gap would be
            ignored and icon/label would mis-align. Inline-block + margin avoids that. -->
-      <button data-admin-only id="topbar-refresh-btn" onclick="_v373AdminRefresh()" title="Refresh: fetch any new records since last sync" style="display:none;padding:5px 11px;background:#DBEAFE;color:#1E40AF;border:1px solid #93C5FD;border-radius:18px;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font);transition:all .15s;margin-right:6px;vertical-align:middle;white-space:nowrap"><span id="topbar-refresh-icon" style="display:inline-block;font-size:14px;line-height:1;margin-right:5px;vertical-align:middle">↻</span><span id="topbar-refresh-label" style="vertical-align:middle">Refresh</span></button>
+      <button data-admin-only id="topbar-refresh-btn" onclick="_v373AdminRefresh()" title="Refresh: fetch any new records since last sync" style="display:none;padding:5px 11px;background:#DBEAFE;color:#1E40AF;border:1px solid #93C5FD;border-radius:18px;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font);transition:all .15s;margin-right:6px;vertical-align:middle;white-space:nowrap"><span id="topbar-refresh-icon" style="display:inline-block;font-size:14px;line-height:1;margin-right:5px;vertical-align:middle">↻</span><span id="topbar-refresh-label" style="vertical-align:middle">Refresh</span><span id="topbar-refresh-left"></span></button>
       <select class="fsel" id="state-filter" onchange="_v13RptForgetReturn();stateFilter=this.value;renderCurrent()">
         <option value="">All States</option>
         <option>Andhra Pradesh</option><option>Arunachal Pradesh</option><option>Assam</option><option>Bihar</option><option>Chhattisgarh</option><option>Goa</option><option>Gujarat</option><option>Haryana</option><option>Himachal Pradesh</option><option>Jharkhand</option><option>Karnataka</option><option>Kerala</option><option>Madhya Pradesh</option><option>Maharashtra</option><option>Manipur</option><option>Meghalaya</option><option>Mizoram</option><option>Nagaland</option><option>Odisha</option><option>Punjab</option><option>Rajasthan</option><option>Sikkim</option><option>Tamil Nadu</option><option>Telangana</option><option>Tripura</option><option>Uttar Pradesh</option><option>Uttarakhand</option><option>West Bengal</option><option>Andaman & Nicobar Islands</option><option>Chandigarh</option><option>Dadra & Nagar Haveli and Daman & Diu</option><option>Delhi</option><option>Jammu & Kashmir</option><option>Ladakh</option><option>Lakshadweep</option><option>Puducherry</option>
@@ -4653,7 +4682,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V24.6-LIVE';
+const APP_VERSION = 'V24.9-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -4768,6 +4797,8 @@ class SaveError extends Error {
       // V383 fix: 'tombstone-cap' previously fell through to the generic
       // 'Save failed.' fallback, hiding the actual reason from the user.
       'tombstone-cap': 'Save blocked by the mass-delete safety cap. Use the bulk-delete tool for large deletions, or refresh the app and try again.',
+      // V24.7: see _v247CheckFresh. Not a network error, so it is never queued.
+      'stale-copy':   'Not saved: someone changed this record after the copy on this device was saved. The latest version is now on screen \u2014 please make your change again.',
     })[reason] || 'Save failed. Please try again.';
     super(msg);
     this.name = 'SaveError';
@@ -5912,6 +5943,60 @@ async function _v196Pump() {
           + 'another record. Nothing was overwritten. Tell the administrator.');
         continue;
       }
+      // ⛔ V24.9: ALREADY THERE UNDER THE SAME COORDINATOR = ALREADY ARRIVED.
+      // The number is reserved for this phone, so a household holding it can
+      // only be this enrolment - landed on an earlier try whose answer was too
+      // slow - and whatever was saved to it since. The queued copy is the
+      // OLDEST version there is: sending it rewrote the household as it was at
+      // enrolment, and a correction made meanwhile (a phone number, an income
+      // entry) vanished from the database and the phone.
+      // ⛔ BUT ONLY WHEN THE ANSWER CAME FROM THE DATABASE. Firebase answers a
+      // read from this phone's own UNSENT save of the same household, so while
+      // any save of this page is unconfirmed (FB.pendingWrites, which only
+      // falls when the database confirms or refuses) or the connection is not
+      // confirmed, "it is there" may mean "this phone wants it there" - and
+      // dropping the item then loses the enrolment if the app is closed before
+      // the signal returns. In that case the queue behaves exactly as before.
+      // When it does apply, the database's copy is read once (about 0.6 KB,
+      // rare) and replaces the phone's - in the list and the change map - so
+      // the old copy on the phone cannot go up later through an ordinary save.
+      // ⛔ AND WHILE IT CANNOT TELL, IT WAITS. Sending the old copy then would
+      // write it over a correction still on its way (review, 3 Oct); dropping
+      // the item could lose an enrolment. The item stays on the phone and the
+      // next pass (40 s) asks again: a save still on its way either lands
+      // (then it is seen as arrived) or is lost with the app (then the owner
+      // reads empty and the enrolment is sent as before).
+      if (owner && owner === item.benef.createdBy && !item.benefSent) {
+        if (!(FB.pendingWrites === 0 && _v196LastConnected === true)) {
+          console.log('[V24.9] ' + bid + ' - a save is still on its way; asking again on the next pass');
+          continue;
+        }
+        let srv = null;
+        try {
+          const g2 = await _v196Guard(fbRef('beneficiaries/' + bid).once('value'), _v196WaitMs());
+          if (g2.timedOut) break;                    // no answer - try again later
+          srv = g2.value && g2.value.val();
+        } catch (e) { break; }
+        if (srv && srv.createdBy === item.benef.createdBy && FB.pendingWrites === 0) {
+          const rec = Object.assign({}, srv, { id: srv.id || bid });
+          RecordCache.benef.set(bid, rec);
+          if (!FB.lastBenef) FB.lastBenef = {};
+          FB.lastBenef[bid] = fbHash(rec);
+          // the screens' remembered totals follow, as every other swap does
+          try { _v357DataVersion = (_v357DataVersion || 0) + 1; } catch (_) {}
+          try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch (_) {}
+          try { if (typeof _v367InvalidateIndex === 'function') _v367InvalidateIndex(); } catch (_) {}
+          try { if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache(); } catch (_) {}
+          item.benefSent = true;
+          // on the phone's own store at once, so a reload or a records refresh
+          // does not put the old copy back as "not yet sent"
+          await _idbSet(_v196ItemKey(u.userId, iid), item);
+          console.log('[V24.9] ' + bid + ' is already in the database - the queued copy is not sent over it');
+        } else if (srv) {
+          continue;                                  // changed under us during the read - ask again next pass
+        }
+        // srv empty: it is not there after all - sent below, as before
+      }
 
       // the person, through the targeted write that cannot delete anything.
       // ⛔ ONCE. `benefSent` was written and never read, so an item held back
@@ -6691,6 +6776,343 @@ function _v184MaxSeen(val, floor) {
   return m;
 }
 
+// ── V24.7: REFRESH FOR PARTNERS, DONORS AND TEAM LEADERS ─────────────────
+// Since V22.4 none of the three catches up on its own: opening the app shows
+// the copy saved on the device and downloads nothing. The top-bar Refresh is
+// how they bring the latest, and Guru set a daily limit per login: partner 2,
+// team leader 1, donor 2 (counted on this device, by India-time day).
+// A Refresh never costs more than the login's own data: everyone's changes
+// since the last Refresh when that is expected to be smaller, otherwise the
+// own data again (a team leader's own data is always the smaller one).
+const _V247_LIMITS = { ngo: 2, scopedViewerByFc: 1, scopedViewer: 2 };
+// What one day of everyone's changes costs, for choosing. Measured on the
+// 26 Sep export: 3.8 MB on an average day, 12.8 MB on the heaviest. Set above
+// the average so a heavy day rarely hits the cap below.
+const _V247_FLEET_BYTES_PER_DAY = 6 * 1048576;
+let _v247Busy = false;
+// the result ("+3 updated", "Failed") stays on the button for 2.5 s; nothing repaints over it
+let _v247Showing = false, _v247ResetTimer = null;
+function _v247Now() {
+  return (typeof _v19ServerNow === 'function') ? _v19ServerNow() : Date.now();
+}
+function _v247Limit(u) { return (u && _V247_LIMITS[u.role]) || 0; }
+function _v247DayKey(u) { return 'krsf_v247_rf_' + _istDate() + '_' + ((u && u.userId) || ''); }
+function _v247Used(u) {
+  try { return parseInt(localStorage.getItem(_v247DayKey(u)) || '0', 10) || 0; } catch (_) { return 0; }
+}
+function _v247Left(u) {
+  const L = _v247Limit(u);
+  return L ? Math.max(0, L - _v247Used(u)) : 0;
+}
+function _v247SetUsed(u, n) {
+  try {
+    const k = _v247DayKey(u);
+    localStorage.setItem(k, String(Math.max(0, n)));
+    // one counter a day would otherwise pile up for ever
+    const tail = '_' + ((u && u.userId) || '');
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const kk = localStorage.key(i);
+      if (kk && kk !== k && kk.indexOf('krsf_v247_rf_') === 0
+          && kk.slice(-tail.length) === tail) localStorage.removeItem(kk);
+    }
+  } catch (_) {}
+}
+// "Data saved on": when this device last brought its records up to date - a
+// full download or a Refresh. Never the saved copy's own time: a local save
+// rewrites the copy too, and would make old data look fresh.
+function _v247AsOfKey(kind, uid) { return 'krsf_v247_asof_' + kind + '_' + (uid || ''); }
+function _v247SetAsOf(kind, uid, ms) {
+  if (!uid || !(ms > 0)) return;
+  try {
+    const p = parseInt(localStorage.getItem(_v247AsOfKey(kind, uid)) || '0', 10) || 0;
+    if (ms > p) localStorage.setItem(_v247AsOfKey(kind, uid), String(Math.round(ms)));
+  } catch (_) {}
+}
+function _v247GetAsOf(uid) {
+  try {
+    const b = parseInt(localStorage.getItem(_v247AsOfKey('benef', uid)) || '0', 10) || 0;
+    const a = parseInt(localStorage.getItem(_v247AsOfKey('adv', uid)) || '0', 10) || 0;
+    return (b > 0 && a > 0) ? Math.min(a, b) : 0;
+  } catch (_) { return 0; }
+}
+function _v247FmtWhen(ms) {
+  const d = new Date(ms + _IST_OFFSET_MS);   // read back with getUTC* = India time on any phone
+  const M = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  let h = d.getUTCHours();
+  const ap = h < 12 ? 'am' : 'pm';
+  h = h % 12 || 12;
+  return d.getUTCDate() + ' ' + M[d.getUTCMonth()] + ', ' + h + ':' + String(d.getUTCMinutes()).padStart(2, '0') + ' ' + ap;
+}
+function _v247SavedLine() {
+  try {
+    const u = (typeof currentUser === 'function') ? currentUser() : null;
+    if (!_v247Limit(u)) return '';
+    const t = _v247GetAsOf(u.userId);
+    return '<div class="v247-saved">' + (t ? ('Data saved on ' + _v247FmtWhen(t))
+      : 'Press Refresh to bring the latest data') + '</div>';
+  } catch (_) { return ''; }
+}
+function _v247PaintRefresh() {
+  const btn = document.getElementById('topbar-refresh-btn');
+  if (!btn || _v247Busy || _v247Showing) return;
+  const u = (typeof currentUser === 'function') ? currentUser() : null;
+  const label = document.getElementById('topbar-refresh-label');
+  const left = document.getElementById('topbar-refresh-left');
+  if (!_v247Limit(u)) {   // admin: exactly as before
+    if (left) left.innerHTML = '';
+    btn.classList.remove('v247-off');
+    btn.removeAttribute('aria-disabled');
+    return;
+  }
+  const n = _v247Left(u);
+  if (label) label.textContent = n > 0 ? 'Refresh' : 'No refresh left today';
+  if (left) left.innerHTML = '<span class="v247-dot">\u00b7 </span>' + n + ' left<span class="v247-today"> today</span>';
+  btn.classList.toggle('v247-off', n <= 0);
+  btn.setAttribute('aria-disabled', n <= 0 ? 'true' : 'false');
+  btn.title = n > 0 ? ('Bring the latest data (' + n + ' left today)')
+    : 'Used for today. The next refresh is available tomorrow, after 12 midnight.';
+}
+function _v247NewestStamp(map) {
+  let m = 0;
+  try { for (const r of map.values()) { const t = _v19SaneStamp(r && r._lastEditedAt); if (t > m) m = t; } } catch (_) {}
+  return m;
+}
+// Whose records a catch-up keeps - the same rule as the first download.
+// Partners: their partner. Donors: every partner assigned to them. Team
+// leaders: their coordinators' households. A scheme record also belongs when
+// its household is held: typed by somebody from elsewhere, the first download
+// fetches those household by household ("stragglers").
+function _v247DeltaScope(u) {
+  if (!u) return null;
+  let set = null, f = null;
+  if (u.role === 'ngo' && u.ngo) { set = new Set([u.ngo]); f = 'ngo'; }
+  else if (u.role === 'scopedViewer' && Array.isArray(u.assignedNgos) && u.assignedNgos.length) { set = new Set(u.assignedNgos); f = 'ngo'; }
+  else if (u.role === 'scopedViewerByFc' && Array.isArray(u.assignedFcIds) && u.assignedFcIds.length) { set = new Set(u.assignedFcIds); f = 'createdBy'; }
+  if (!set) return null;
+  return {
+    b: function (r) { return !!r && set.has(r[f]); },
+    a: function (raw) { return !!raw && (set.has(raw[f]) || !!(raw.bid && RecordCache.benef.has(raw.bid))); },
+  };
+}
+// Is there a saved copy on this device to load? (Counted, not read: the
+// largest is 150 MB.) One older than the 30 days it is kept for is none.
+async function _v247HasCopy(uid) {
+  try {
+    const db = await _idbOpen();
+    const n = await new Promise(function (res) {
+      try {
+        const q = db.transaction([_IDB_STORE], 'readonly').objectStore(_IDB_STORE).count('benef-pantry-' + uid);
+        q.onsuccess = function () { res(q.result || 0); };
+        q.onerror = function () { res(0); };
+      } catch (_) { res(0); }
+    });
+    if (!n) return false;
+    const t = _v247GetAsOf(uid);
+    return !t || (_v247Now() - t) < 29 * 86400000;
+  } catch (_) { return false; }
+}
+function _v247Bytes() {
+  try { return (window._bwTracker && window._bwTracker.sessionBytes) || 0; } catch (_) { return 0; }
+}
+// ⛔ A SAVE DURING A FULL DOWNLOAD MUST WIN. The download was read before the
+// save; trading it in afterwards would put the old version back on screen and
+// a later edit would be made from it. Every write bumps this counter, and the
+// trade-in is refused if it moved (or a save is still going through).
+window._v247WriteSeq = 0;
+// a save is "open" from the moment saveData/saveAdv/fbWriteChangedRecords start
+// until the cache and saved copy are rebuilt from it - not only while sending
+function _v247SaveOpen() { return (FB.pendingWrites > 0) || ((FB._v247Saving || 0) > 0); }
+async function _v247QuietForSwap(seq0, uid) {
+  for (let i = 0; i < 50 && _v247SaveOpen(); i++) {
+    await new Promise(function (r) { setTimeout(r, 200); });
+  }
+  // ⛔ AND THE SAME PERSON. Signing out cannot stop a download already running;
+  // on a shared laptop the next person's session must not receive it.
+  const cu = (typeof currentUser === 'function') ? currentUser() : null;
+  return !_v247SaveOpen() && window._v247WriteSeq === seq0 && !!cu && cu.userId === uid;
+}
+function _v247CountChanged(oldMap, newMap) {
+  let n = 0;
+  try {
+    for (const k in newMap) if (!oldMap || oldMap[k] !== newMap[k]) n++;
+    if (oldMap) for (const k in oldMap) if (!(k in newMap)) n++;
+  } catch (_) {}
+  return n;
+}
+async function _v247FullReload(u, why) {
+  let scopes, field;
+  if (u.role === 'scopedViewerByFc') {
+    scopes = Array.from(new Set(Array.isArray(u.assignedFcIds) ? u.assignedFcIds : []));
+    field = 'createdBy';
+  } else {
+    scopes = (Array.isArray(u.assignedNgos) && u.assignedNgos.length) ? u.assignedNgos.slice() : (u.ngo ? [u.ngo] : []);
+    field = 'ngo';
+  }
+  if (!scopes.length) return { ok: true, how: 'full', n: 0 };
+  console.log('[V24.7] Refresh: own data again (' + why + ')');
+  const oldB = FB.lastBenef, oldA = FB.lastAdv;
+  window._v247SwapBusy = true;
+  try {
+    const okB = await _v375ScopedBenefMultiFetch(scopes, { field: field, force: true, swap: true });
+    if (okB !== true) return { ok: false, reason: 'fetch' };
+    const okA = await _v375ScopedAdvMultiFetch(scopes, { field: field, force: true, topUp: true, swap: true });
+    if (okA !== true) return { ok: false, reason: 'fetch' };
+  } finally {
+    window._v247SwapBusy = false;
+  }
+  return { ok: true, how: 'full', n: _v247CountChanged(oldB, FB.lastBenef) + _v247CountChanged(oldA, FB.lastAdv) };
+}
+async function _v247DoRefresh(u) {
+  const t0 = _v247Now();
+  // A partner or donor on the dashboard holds no list yet. With a saved copy on
+  // this device it is loaded (nothing downloaded) and brought up to date below.
+  // ⛔ WITHOUT ONE, NOTHING IS DOWNLOADED. The lists download when one is opened,
+  // exactly as before; a Refresh never starts that download on its own - for
+  // the largest donor it is about 150 MB. Not counted.
+  if (typeof _v224WorkingFromFigures === 'function' && _v224WorkingFromFigures()) {
+    if (!(await _v247HasCopy(u.userId))) return { ok: true, how: 'figures', n: 0, free: true };
+    let _miss0 = 0;
+    try { _miss0 = window._v192Counters.pantryMiss; } catch (_) {}
+    await _v224EnsureRecords();
+    if (!_v224HasRecords()) return _v224BenefFetchOk ? { ok: true, how: 'first', n: 0 } : { ok: false, reason: 'load' };
+    if (_v247GetAsOf(u.userId) >= t0) return { ok: true, how: 'first', n: 0 };
+    // the saved copy was not there after all and a download ran that did not
+    // finish whole: no catch-up from a partial list
+    let _miss1 = 0;
+    try { _miss1 = window._v192Counters.pantryMiss; } catch (_) {}
+    if (_miss1 !== _miss0) return { ok: false, reason: 'load' };
+  }
+  const nb = RecordCache.benef.size, na = RecordCache.adv.size;
+  const own = nb * 560 + na * 550;   // bytes per record, measured on the 26 Sep export
+  // where each catch-up would start - the same point the catch-up itself uses
+  const hb = Math.max(_v247NewestStamp(RecordCache.benef), await _v184GetSeen('benef', u.userId));
+  const ha = Math.max(_v247NewestStamp(RecordCache.adv), await _v184GetSeen('adv', u.userId));
+  const from = (hb && ha) ? Math.min(hb, ha) : 0;
+  const est = from ? Math.max(0, t0 - from) / 86400000 * _V247_FLEET_BYTES_PER_DAY : Infinity;
+  if (!(est <= own)) {
+    // brought up to date less than ten minutes ago: already the latest - the
+    // own data again would be paid twice in a row (a team leader who has just
+    // signed in, say). Nothing downloaded, not counted.
+    const a = _v247GetAsOf(u.userId);
+    if (a && t0 - a < 10 * 60000) return { ok: true, how: 'recent', n: 0, free: true, at: a };
+    return _v247FullReload(u, 'expected smaller');
+  }
+  // ⛔ CAPPED. If everyone's changes turn out bigger than the own data after
+  // all (a very heavy day), the download stops at that size, nothing is used,
+  // and the own data is taken instead.
+  const cap = Math.max(1, nb + na);
+  // (no starting point at all - a copy saved before V24.7 holding no scheme
+  // records - is answered the same way: the own data again)
+  const rb = await _ngoIncrementalSync({ cap: cap });
+  if (!rb.ok) return (rb.reason === 'too-big' || rb.reason === 'no-watermark') ? _v247FullReload(u, rb.reason) : rb;
+  const ra = await _advNgoIncrementalSync({ cap: Math.max(1, cap - (rb.got || 0)) });
+  if (!ra.ok) return (ra.reason === 'too-big' || ra.reason === 'no-watermark') ? _v247FullReload(u, ra.reason) : ra;
+  return { ok: true, how: 'changes', n: (rb.added + rb.removed) + (ra.added + ra.removed) };
+}
+async function _v247Refresh() {
+  const u = (typeof currentUser === 'function') ? currentUser() : null;
+  if (!u || !_v247Limit(u) || _v247Busy) return;
+  const L = _v247Limit(u);
+  const say = function (m, k, ms) { try { if (typeof toast === 'function') toast(m, k || 'info', ms || 6000); } catch (_) {} };
+  if (_v247Left(u) <= 0) {
+    say('You have used today\u2019s ' + (L === 1 ? 'refresh' : L + ' refreshes')
+      + '. The next one is available tomorrow, after 12 midnight. Saving still works as normal.', 'info', 7000);
+    _v247PaintRefresh();
+    return;
+  }
+  // Nothing is counted for a Refresh that cannot run.
+  if (!FB || !FB.db || !FB.online || (typeof _v196CanReachServer === 'function' && !_v196CanReachServer())) {
+    say('No internet connection. Refresh needs the internet \u2014 try again when you are online. Nothing was used.', 'warn');
+    return;
+  }
+  if (_v247SaveOpen()) { say('A save is still going through. Try Refresh again in a moment. Nothing was used.', 'warn'); return; }
+  let _waiting = true;
+  try { const ids = await _v196OutboxIds(u.userId); _waiting = (ids === null) || ids.length > 0; } catch (_) { _waiting = true; }
+  if (_waiting) {
+    say('Some work on this device is still waiting to upload. Refresh once it has been sent. Nothing was used.', 'warn', 8000);
+    return;
+  }
+  if (_v375ScopedBenefMultiFetch._inFlight || _v375ScopedAdvMultiFetch._inFlight || _v224EnsurePromise
+      || _ngoIncrementalSync_inFlight || _advNgoIncrementalSync_inFlight || _v247Busy) {
+    say('Your records are still loading. Try Refresh again in a moment. Nothing was used.', 'warn');
+    return;
+  }
+  _v247Busy = true;
+  if (_v247ResetTimer) { clearTimeout(_v247ResetTimer); _v247ResetTimer = null; }
+  _v247Showing = false;
+  const used0 = _v247Used(u);
+  _v247SetUsed(u, used0 + 1);   // counted first so a double tap cannot slip in an extra one; given back on failure
+  const btn = document.getElementById('topbar-refresh-btn');
+  const icon = document.getElementById('topbar-refresh-icon');
+  const label = document.getElementById('topbar-refresh-label');
+  const left = document.getElementById('topbar-refresh-left');
+  let res = null;
+  try {
+    if (btn) { btn.disabled = true; btn.style.opacity = '0.7'; btn.style.cursor = 'wait'; }
+    if (icon) { icon.style.display = 'inline-block'; icon.style.animation = 'syncSpin 0.9s linear infinite'; }
+    if (label) label.textContent = 'Syncing\u2026';
+    if (left) left.innerHTML = '';
+    const _bw0 = _v247Bytes();
+    try { res = await _v247DoRefresh(u); }
+    catch (e) { console.warn('[V24.7] Refresh failed:', e); res = { ok: false, reason: 'error' }; }
+    // Counted only when it brought data. One that downloaded nothing is given
+    // back; one that failed AFTER downloading stays counted, or the same
+    // megabytes could be paid again and again.
+    let refunded = false;
+    if (res && res.ok && res.free) { _v247SetUsed(u, used0); refunded = true; }
+    else if (!res || !res.ok) {
+      if (_v247Bytes() - _bw0 < 51200) { _v247SetUsed(u, used0); refunded = true; }
+    }
+    try { if (typeof _v357DataVersion !== 'undefined') _v357DataVersion = (_v357DataVersion || 0) + 1; } catch (_) {}
+    try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch (_) {}
+    try { if (typeof _v367InvalidateIndex === 'function') _v367InvalidateIndex(); } catch (_) {}
+    try { if (typeof renderCurrent === 'function') renderCurrent(); } catch (_) {}
+    // partners: Recent Updates comes along, as it always has with their Refresh
+    // (the newest 50 entries, about 15-20 KB)
+    if (res && res.ok && !res.free && u.role === 'ngo') {
+      try {
+        if (typeof fbRef === 'function' && typeof _auditCacheAppend === 'function') {
+          const a = (await fbRef('audit').limitToLast(50).once('value')).val() || {};
+          for (const k in a) { if (a[k] && a[k].id) _auditCacheAppend(a[k]); }
+          try { if (typeof renderCurrent === 'function') renderCurrent(); } catch (_) {}
+        }
+      } catch (e) { console.warn('[V24.7] Recent Updates refresh failed:', e && e.message); }
+    }
+    const n = _v247Left(u);
+    if (icon) icon.style.animation = '';
+    if (res && res.ok) {
+      if (label) label.textContent = res.n > 0 ? ('+' + res.n.toLocaleString('en-IN') + ' updated') : 'Up to date';
+      if (left) left.innerHTML = '<span class="v247-dot">\u00b7 </span>' + n + ' left<span class="v247-today"> today</span>';
+      if (btn) { btn.style.background = '#D1FAE5'; btn.style.color = '#065F46'; btn.style.borderColor = '#A7F3D0'; }
+      if (res.how === 'figures') {
+        say('The dashboard already shows the office\u2019s latest figures. Open a list to load the households; after that, Refresh brings their latest. Nothing was used.', 'info', 8000);
+      } else if (res.how === 'recent') {
+        say('Already up to date \u2014 brought at ' + _v247FmtWhen(res.at).split(', ')[1] + '. Nothing was used.', 'info', 6000);
+      } else {
+        say('Brought the latest data. ' + (n > 0 ? (n + (n === 1 ? ' refresh' : ' refreshes') + ' left today.')
+          : 'That was today\u2019s last refresh \u2014 the next one is tomorrow.'), 'success', 5000);
+      }
+    } else {
+      if (label) label.textContent = 'Failed \u2014 try again';
+      if (btn) { btn.style.background = '#FEE2E2'; btn.style.color = '#991B1B'; btn.style.borderColor = '#FCA5A5'; }
+      say('Refresh did not finish. Your data is as it was' + (refunded ? ' and nothing was used' : '') + ' \u2014 try again.', 'error', 7000);
+    }
+  } finally {
+    _v247Busy = false;
+    _v247Showing = true;
+    _v247ResetTimer = setTimeout(function () {
+      _v247ResetTimer = null;
+      _v247Showing = false;
+      if (btn) {
+        btn.style.background = '#DBEAFE'; btn.style.color = '#1E40AF'; btn.style.borderColor = '#93C5FD';
+        btn.disabled = false; btn.style.opacity = ''; btn.style.cursor = '';
+      }
+      try { _v247PaintRefresh(); } catch (_) {}
+    }, 2500);
+  }
+}
+try { window._v247Refresh = _v247Refresh; } catch (_) {}
+
 // ⛔ V18.5: after a save, make FB.last* match the cache EXACTLY.
 //
 // fbSyncCollection publishes FB[lastMapRef] = diff.newMap BEFORE it awaits the
@@ -6856,10 +7278,14 @@ async function _v347FetchTombstones(coll, sinceTs) {
 // V8.7 removed that safety net, so a silent failure could strand an NGO admin on
 // a cache up to the 30-day TTL old with no way to tell. The Refresh button now
 // reports this.
-async function _ngoIncrementalSync() {
-  if (_ngoIncrementalSync_inFlight) return { ok: false, reason: 'in-flight' };
+async function _ngoIncrementalSync(opts) {
+  opts = opts || {};
+  if (_ngoIncrementalSync_inFlight || window._v247SwapBusy) return { ok: false, reason: 'in-flight' };
+  if ((FB._v247Saving || 0) > 0) return { ok: false, reason: 'save-in-flight' };   // V24.7: see _v247SaveOpen
   const u = (typeof currentUser === 'function') ? currentUser() : null;
-  if (!u || u.role !== 'ngo' || !u.ngo) return { ok: false, reason: 'not-ngo' };
+  // V24.7: donors and team leaders catch up the same way, over their own scope.
+  const _v247Scope = _v247DeltaScope(u);
+  if (!_v247Scope) return { ok: false, reason: 'not-ngo' };
   if (!FB.db || RecordCache.benef.size === 0) return { ok: false, reason: 'empty-cache' };
   // ⛔ V18.5: never fold a delta into the cache while a save is mid-flight.
   // The save rebuilds RecordCache from its own array when it returns, which
@@ -6887,8 +7313,21 @@ async function _ngoIncrementalSync() {
     const _seenB = await _v184GetSeen('benef', u.userId);
     if (_seenB > highWater) highWater = _seenB;
     if (highWater === 0) return { ok: false, reason: 'no-watermark' };
-    const snap = await fbRef('beneficiaries').orderByChild('_lastEditedAt').startAt(highWater + 1).once('value');
+    const _v247T0 = _v247Now();
+    // V24.7: the Refresh passes a cap - the own data's size in records. The
+    // database stops sending at that many, and if it reached the cap the own
+    // data again is the cheaper answer: stop before anything is touched.
+    let _v247Q = fbRef('beneficiaries').orderByChild('_lastEditedAt').startAt(highWater + 1);
+    if (opts.cap > 0) _v247Q = _v247Q.limitToFirst(opts.cap);
+    const snap = await _v247Q.once('value');
     const val = snap.val() || {};
+    const _v247Got = Object.keys(val).length;
+    if (opts.cap > 0 && _v247Got >= opts.cap) return { ok: false, reason: 'too-big', got: _v247Got };
+    // ⛔ V24.7: a save that opened while this was downloading rebuilds the cache
+    // and saved copy from its own older list when it finishes - folding in now
+    // would put these records where that rebuild drops them, with the bookmark
+    // already past them. Nothing is folded and the bookmark stays.
+    if (_v247SaveOpen()) return { ok: false, reason: 'save-in-flight' };
     // V18.4: record it BEFORE the loop below starts discarding other partners'
     // records - they were paid for and they are what makes the watermark
     // fleet-wide. Written after the loop so a throw cannot advance it.
@@ -6901,7 +7340,7 @@ async function _ngoIncrementalSync() {
     for (const id in val) {
       const r = val[id];
       if (!r || !r.id) continue;
-      if (r.ngo !== u.ngo) {
+      if (!_v247Scope.b(r)) {   // V24.7: the scope rule, partners, donors and team leaders
         // V8.7: this record was REASSIGNED to another partner. Skipping it was
         // only safe while the NGO pantry was wiped on logout (the next cold
         // fetch dropped it). Now that the pantry survives, we must evict it, or
@@ -6971,6 +7410,7 @@ async function _ngoIncrementalSync() {
     // hide them from every future window.
     if (_pantryOkB) {
       await _v184SetSeen('benef', u.userId, _newSeenB);
+      _v247SetAsOf('benef', u.userId, _v247T0);   // V24.7: "Data saved on"
       // V19 [2]: ⛔ AND THE TOMBSTONE WATERMARK MOVES WITH IT, for exactly
       // the same reason. If the pantry write did not land, the next cold boot
       // rehydrates the deleted record while the watermark has already passed
@@ -6984,7 +7424,7 @@ async function _ngoIncrementalSync() {
     console.log('[V347] NGO benef sync: +' + added + ' / -' + removed +
                 (reassignedOut ? ' / reassigned-out ' + reassignedOut : '') +
                 (_pantryOkB ? ' [V18.4 seen ' + _newSeenB + ']' : ' [V18.4 watermark held back]'));
-    return { ok: true, added: added, removed: removed + reassignedOut };
+    return { ok: true, added: added, removed: removed + reassignedOut, got: _v247Got };
   } catch (e) { console.warn('[V347] NGO benef sync failed:', e);
     return { ok: false, reason: 'error', error: (e && e.message) || String(e) };
   } finally { _ngoIncrementalSync_inFlight = false; }
@@ -7108,11 +7548,16 @@ async function _adminIncrementalSync() {
   } finally { _adminIncrementalSync_inFlight = false; }
 }
 
-async function _advNgoIncrementalSync() {
-  if (_advNgoIncrementalSync_inFlight) return { ok: false, reason: 'in-flight' };
+async function _advNgoIncrementalSync(opts) {
+  opts = opts || {};
+  if (_advNgoIncrementalSync_inFlight || window._v247SwapBusy) return { ok: false, reason: 'in-flight' };
+  if ((FB._v247Saving || 0) > 0) return { ok: false, reason: 'save-in-flight' };   // V24.7: see _v247SaveOpen
   const u = (typeof currentUser === 'function') ? currentUser() : null;
-  if (!u || u.role !== 'ngo' || !u.ngo) return { ok: false, reason: 'not-ngo' };
-  if (!FB.db || RecordCache.adv.size === 0) return { ok: false, reason: 'empty-cache' };
+  const _v247Scope = _v247DeltaScope(u);   // V24.7: see the household sync
+  if (!_v247Scope) return { ok: false, reason: 'not-ngo' };
+  // V24.7: a partner can hold no scheme records at all; the households being
+  // loaded is what matters (their saved first download set the bookmark).
+  if (!FB.db || (RecordCache.adv.size === 0 && RecordCache.benef.size === 0)) return { ok: false, reason: 'empty-cache' };
   if (FB.pendingWrites > 0) return { ok: false, reason: 'save-in-flight' };   // see the benef sync
   _advNgoIncrementalSync_inFlight = true;
   try {
@@ -7127,8 +7572,18 @@ async function _advNgoIncrementalSync() {
     const _seenA = await _v184GetSeen('adv', u.userId);
     if (_seenA > highWater) highWater = _seenA;
     if (highWater === 0) return { ok: false, reason: 'no-watermark' };
-    const snap = await fbRef('advocacy').orderByChild('_lastEditedAt').startAt(highWater + 1).once('value');
+    const _v247T0 = _v247Now();
+    let _v247Q = fbRef('advocacy').orderByChild('_lastEditedAt').startAt(highWater + 1);   // V24.7: see the household sync
+    if (opts.cap > 0) _v247Q = _v247Q.limitToFirst(opts.cap);
+    const snap = await _v247Q.once('value');
     const val = snap.val() || {};
+    const _v247Got = Object.keys(val).length;
+    if (opts.cap > 0 && _v247Got >= opts.cap) return { ok: false, reason: 'too-big', got: _v247Got };
+    // ⛔ V24.7: a save that opened while this was downloading rebuilds the cache
+    // and saved copy from its own older list when it finishes - folding in now
+    // would put these records where that rebuild drops them, with the bookmark
+    // already past them. Nothing is folded and the bookmark stays.
+    if (_v247SaveOpen()) return { ok: false, reason: 'save-in-flight' };
     const _newSeenA = Math.max(highWater,
       Math.min(_v184MaxSeen(val, highWater), Date.now() - _V184_CLOCK_MARGIN_MS));
     let added = 0;
@@ -7136,7 +7591,10 @@ async function _advNgoIncrementalSync() {
     for (const fbKey in val) {
       const raw = val[fbKey];
       if (!raw) continue;
-      if (raw.ngo !== u.ngo) {
+      // V24.7: a scheme record typed by somebody from another partner still
+      // belongs here when its household does - the first download keeps those
+      // ("stragglers"), and this sync used to throw them away again.
+      if (!_v247Scope.a(raw)) {
         // V8.7: reassigned to another partner — evict it (see the beneficiary
         // sync for why). Cache and lastAdv are dropped TOGETHER.
         const moved = fbStampAdvKey({ ...raw });
@@ -7204,6 +7662,7 @@ async function _advNgoIncrementalSync() {
     }
     if (_pantryOkA) {
       await _v184SetSeen('adv', u.userId, _newSeenA);
+      _v247SetAsOf('adv', u.userId, _v247T0);   // V24.7: "Data saved on"
       // V19 [2]: ⛔ AND THE TOMBSTONE WATERMARK MOVES WITH IT, for exactly
       // the same reason. If the pantry write did not land, the next cold boot
       // rehydrates the deleted record while the watermark has already passed
@@ -7217,7 +7676,7 @@ async function _advNgoIncrementalSync() {
     console.log('[V347] NGO adv sync: +' + added + ' / -' + removed +
                 (reassignedOut ? ' / reassigned-out ' + reassignedOut : '') +
                 (_pantryOkA ? ' [V18.4 seen ' + _newSeenA + ']' : ' [V18.4 watermark held back]'));
-    return { ok: true, added: added, removed: removed + reassignedOut };
+    return { ok: true, added: added, removed: removed + reassignedOut, got: _v247Got };
   } catch (e) { console.warn('[V347] NGO adv sync failed:', e);
     return { ok: false, reason: 'error', error: (e && e.message) || String(e) };
   } finally { _advNgoIncrementalSync_inFlight = false; }
@@ -9876,7 +10335,7 @@ async function _v337AdvOneShotFetch(query, opts) {
 //   - Compared to admin's full fetch: significantly LESS egress per donor
 async function _v375ScopedBenefMultiFetch(ngos, opts) {
   opts = opts || {};
-  if (_v375ScopedBenefMultiFetch._inFlight) return;
+  if (_v375ScopedBenefMultiFetch._inFlight) return opts.swap ? false : undefined;
   _v375ScopedBenefMultiFetch._inFlight = true;
   // V22.3: the advocacy top-up needs to know which households are in scope,
   // and the two fetches are started side by side.
@@ -9906,10 +10365,23 @@ async function _v375ScopedBenefMultiFetch(ngos, opts) {
       }
     }
 
-    RecordCache.benef.clear();
-    FB.lastBenef = {};
-    FB.benefReplayComplete = false;
-    try { window._v192Counters.pantryMiss += 1; } catch (_) {}
+    // V24.7: a Refresh downloads the new copy BESIDE the old one ('swap') and
+    // trades them in one step at the end: the screen never shows an empty
+    // list, and a failed download leaves the old copy exactly as it was.
+    const _v247Swap = !!opts.swap;
+    const _v247C = _v247Swap ? new Map() : RecordCache.benef;
+    let _v247L;
+    if (_v247Swap) {
+      _v247L = {};
+    } else {
+      RecordCache.benef.clear();
+      FB.lastBenef = {};
+      _v247L = FB.lastBenef;
+      FB.benefReplayComplete = false;
+      try { window._v192Counters.pantryMiss += 1; } catch (_) {}
+    }
+    const _v247D0 = Date.now();   // this device's clock at the start - see the bookmark below
+    const _v247Seq0 = window._v247WriteSeq;
 
     // Parallel fetches across assigned NGOs. Promise.all means total wall
     // time = slowest single NGO fetch (not sum of all). Firebase RTDB's
@@ -9940,12 +10412,24 @@ async function _v375ScopedBenefMultiFetch(ngos, opts) {
       let count = 0;
       for (const id in val) {
         const rec = val[id];
-        if (rec && rec.id) { RecordCache.benef.set(rec.id, rec); FB.lastBenef[rec.id] = fbHash(rec); count++; }
+        if (rec && rec.id) { _v247C.set(rec.id, rec); _v247L[rec.id] = fbHash(rec); count++; }
       }
       console.log('[V375] benef fetch ngo=' + r.ngo + ':', count, 'records');
       total += count;
     }
 
+    if (_v247Swap) {
+      _v224BenefFetchOk = (_failed === 0);
+      if (_failed || !(await _v247QuietForSwap(_v247Seq0, u && u.userId))) {
+        console.warn('[V24.7] fresh households not taken (' + (_failed ? _failed + ' queries failed' : 'a save happened meanwhile') + ') - the old copy stays');
+        return false;
+      }
+      // one synchronous step: the cache and the last-map move together
+      RecordCache.benef.clear();
+      for (const [k, r] of _v247C) RecordCache.benef.set(k, r);
+      FB.lastBenef = _v247L;
+      FB.benefCachePartial = false;   // the whole scope, every query answered
+    }
     FB.benefReplayComplete = true;
     _v224BenefFetchOk = (_failed === 0);
     fbUpdatePill();
@@ -9958,8 +10442,22 @@ async function _v375ScopedBenefMultiFetch(ngos, opts) {
     // ⛔ A PARTIAL SET MUST NOT BECOME THE SAVED COPY. It would be served as
     // fresh for thirty days, and a short copy does not read as stale.
     if (u && u.userId && _failed === 0) {
-      await _v192VerifiedPantryWrite('benef', u.userId,
+      const _v247Saved = await _v192VerifiedPantryWrite('benef', u.userId,
         function () { return _pantryWrite(u.userId, Array.from(RecordCache.benef.values())); });
+      // V24.7: everything up to this download is held AND saved, so the next
+      // Refresh starts here - not at this login's own newest record, which for
+      // a quiet partner was weeks back (Kartavya: 53 MB on the first Refresh).
+      // ⛔ ONLY ON THE DATABASE'S CLOCK. Until the connection has reported how
+      // far this device's clock is out, a laptop running fast would set the
+      // bookmark past records it never received, and they would be skipped for
+      // good. Without it the next Refresh starts where it always did.
+      if (_v247Saved && typeof _v19ServerOffsetMs === 'number') {
+        const _t0s = _v247D0 + _v19ServerOffsetMs;
+        await _v184SetSeen('benef', u.userId, _t0s - _V184_CLOCK_MARGIN_MS);
+        _v247SetAsOf('benef', u.userId, _t0s);
+      } else if (_v247Saved) {
+        _v247SetAsOf('benef', u.userId, _v247D0);   // the "Data saved on" line only
+      }
     } else if (_failed) {
       FB.benefCachePartial = true;
       if (typeof toast === 'function') {
@@ -9967,10 +10465,12 @@ async function _v375ScopedBenefMultiFetch(ngos, opts) {
       }
     }
     try { renderCurrentView(); } catch(_){}
+    if (_v247Swap) return true;
   } catch (e) {
     console.warn('[V375 scoped] benef multi-fetch failed:', e);
     FB.benefReplayComplete = true;
     fbUpdatePill();
+    if (opts.swap) return false;
   } finally {
     _v375ScopedBenefMultiFetch._inFlight = false;
     _v224BenefFetchDone = true;
@@ -10351,7 +10851,7 @@ function _v223TlScopeSettled(u) {
 // V375: advocacy multi-NGO fetch — symmetric to the beneficiary version.
 async function _v375ScopedAdvMultiFetch(ngos, opts) {
   opts = opts || {};
-  if (_v375ScopedAdvMultiFetch._inFlight) return;
+  if (_v375ScopedAdvMultiFetch._inFlight) return opts.swap ? false : undefined;
   _v375ScopedAdvMultiFetch._inFlight = true;
   try {
     const u = (typeof currentUser === 'function') ? currentUser() : null;
@@ -10375,11 +10875,23 @@ async function _v375ScopedAdvMultiFetch(ngos, opts) {
       }
     }
 
-    RecordCache.adv.clear();
-    FB.lastAdv = {};
-    FB.advReplayComplete = false;
+    // V24.7: 'swap' - see the household download.
+    const _v247Swap = !!opts.swap;
+    const _v247C = _v247Swap ? new Map() : RecordCache.adv;
+    let _v247L;
+    if (_v247Swap) {
+      _v247L = {};
+    } else {
+      RecordCache.adv.clear();
+      FB.lastAdv = {};
+      _v247L = FB.lastAdv;
+      FB.advReplayComplete = false;
+    }
+    const _v247D0 = Date.now();   // this device's clock at the start - see the bookmark below
+    const _v247Seq0 = window._v247WriteSeq;
 
     let total = 0, _advFailed = 0;
+    let _v247TopFail = 0;   // V24.7: scheme records looked up one by one that did not arrive
     const _field = opts.field || 'ngo';
     const results = await Promise.all(
       ngos.map(ngo => fbRef('advocacy').orderByChild(_field).equalTo(ngo).once('value')
@@ -10399,8 +10911,8 @@ async function _v375ScopedAdvMultiFetch(ngos, opts) {
         if (!raw) continue;
         const record = fbStampAdvKey({ ...raw });
         const key = record.__fbk || fbKey;
-        RecordCache.adv.set(key, record);
-        FB.lastAdv[key] = fbHash(record);
+        _v247C.set(key, record);
+        _v247L[key] = fbHash(record);
         count++;
       }
       console.log('[V375] adv fetch ngo=' + r.ngo + ':', count, 'records');
@@ -10433,7 +10945,7 @@ async function _v375ScopedAdvMultiFetch(ngos, opts) {
         console.warn('[V22.3] households never finished loading - skipping the scheme-record top-up');
       } else {
       const _have = new Set();
-      RecordCache.adv.forEach(function (r) { if (r && r.bid) _have.add(r.bid); });
+      _v247C.forEach(function (r) { if (r && r.bid) _have.add(r.bid); });
       // ⛔ A HOUSEHOLD WITH NO SCHEME PLAN IS NOT MISSING ONE. Counting those
       // as stragglers pushed the number past the fallback threshold, and the
       // fallback cannot return what the top-up exists for - those records carry
@@ -10453,9 +10965,9 @@ async function _v375ScopedAdvMultiFetch(ngos, opts) {
           if (!raw) continue;
           const record = fbStampAdvKey({ ...raw });
           const key = record.__fbk || fbKey;
-          if (RecordCache.adv.has(key)) continue;
-          RecordCache.adv.set(key, record);
-          FB.lastAdv[key] = fbHash(record);
+          if (_v247C.has(key)) continue;
+          _v247C.set(key, record);
+          _v247L[key] = fbHash(record);
           n++;
         }
         return n;
@@ -10466,7 +10978,7 @@ async function _v375ScopedAdvMultiFetch(ngos, opts) {
         try {
           const _snap = await fbRef('advocacy').orderByChild('ngo').equalTo(u.ngo).once('value');
           total += _absorb(_snap.val());
-        } catch (e) { console.warn('[V22.3] whole-partner top-up failed:', e && e.message); }
+        } catch (e) { _v247TopFail++; console.warn('[V22.3] whole-partner top-up failed:', e && e.message); }
       } else if (_missing.length) {
         let _at = 0, _got = 0;
         const _worker = async function () {
@@ -10475,7 +10987,7 @@ async function _v375ScopedAdvMultiFetch(ngos, opts) {
             try {
               const s = await fbRef('advocacy').orderByChild('bid').equalTo(bid).once('value');
               _got += _absorb(s.val());
-            } catch (e) { console.warn('[V22.3] top-up failed for ' + bid + ':', e && e.message); }
+            } catch (e) { _v247TopFail++; console.warn('[V22.3] top-up failed for ' + bid + ':', e && e.message); }
           }
         };
         const _lanes = [];
@@ -10487,13 +10999,35 @@ async function _v375ScopedAdvMultiFetch(ngos, opts) {
       }
       }
     }
+    if (_v247Swap) {
+      // ⛔ every scheme record looked up one by one must have arrived too, or the
+      // team leader's figures would drop by those records (2.8%)
+      if (_advFailed || _v247TopFail || !(await _v247QuietForSwap(_v247Seq0, u && u.userId))) {
+        console.warn('[V24.7] fresh scheme records not taken (' + (_advFailed || _v247TopFail ? (_advFailed + _v247TopFail) + ' queries failed' : 'a save happened meanwhile') + ') - the old copy stays');
+        return false;
+      }
+      RecordCache.adv.clear();
+      for (const [k, r] of _v247C) RecordCache.adv.set(k, r);
+      FB.lastAdv = _v247L;
+      FB.advCachePartial = false;
+    }
     FB.advReplayComplete = true;
     fbUpdatePill();
     console.log('[V375 scoped] adv multi-fetch complete:', total, 'records across', ngos.length, 'NGOs');
 
     if (u && u.userId && _advFailed === 0) {
-      await _v192VerifiedPantryWrite('adv', u.userId,
+      const _v247Saved = await _v192VerifiedPantryWrite('adv', u.userId,
         function () { return _advPantryWrite(u.userId, Array.from(RecordCache.adv.values())); });
+      // V24.7: the bookmark - see the household download. Not when a scheme
+      // record looked up household by household failed to arrive: a later
+      // catch-up must still be able to bring it.
+      if (_v247Saved && !_v247TopFail && typeof _v19ServerOffsetMs === 'number') {
+        const _t0s = _v247D0 + _v19ServerOffsetMs;
+        await _v184SetSeen('adv', u.userId, _t0s - _V184_CLOCK_MARGIN_MS);
+        _v247SetAsOf('adv', u.userId, _t0s);
+      } else if (_v247Saved) {
+        _v247SetAsOf('adv', u.userId, _v247D0);
+      }
       // ⛔ T2: AND ONLY NOW DOES THE SCOPE MARKER MOVE. Written when the
       // households merely reached memory, it sealed a saved copy that the
       // scheme records had not yet joined - so a tab closed mid-fetch left the
@@ -10507,10 +11041,12 @@ async function _v375ScopedAdvMultiFetch(ngos, opts) {
     try { _v235ApplyRenames(); } catch (_) {}   // V23.5
     try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
     try { renderCurrentView(); } catch(_){}
+    if (_v247Swap) return true;
   } catch (e) {
     console.warn('[V375 scoped] adv multi-fetch failed:', e);
     FB.advReplayComplete = true;
     fbUpdatePill();
+    if (opts.swap) return false;
   } finally {
     _v375ScopedAdvMultiFetch._inFlight = false;
   }
@@ -10786,6 +11322,284 @@ function fbDiff(newArr, lastMap, idField) {
   return { writes, deletes, newMap };
 }
 
+// ── V24.7: CHECK BEFORE SAVE ─────────────────────────────────────────────
+// Every save sends the WHOLE record from this device's copy. Since V22.4 a
+// partner's copy is only as new as their last Refresh, so an edit made from an
+// older copy erased work saved after it - proved on 2 Oct on the live build: a
+// coordinator's Rs 6,000 income entry wiped by a partner correcting a
+// different entry, and a Rs 2,000 one by an ordinary phone-number change. The
+// admin laptop between Refreshes has the same exposure.
+// So before a partner or the admin saves, the app reads each record it is
+// about to send from the database (about 0.6 KB each; an ordinary save sends
+// one or two) and stops when it changed after this copy. Nothing is written:
+// the latest replaces the copy here and the person makes their change again.
+// "Changed after this copy" means one of:
+//   - a newer save time, from anything but this copy's own last save. The copy
+//     holds this device's ESTIMATE of its own last save time and the database
+//     the time it ARRIVED, a moment later: the same login arriving within two
+//     minutes of the copy's stamp is that save. The same login alone is NOT
+//     enough - partner logins are shared by two or three laptops, and an edit
+//     from one laptop's older copy is exactly the loss that was proved;
+//   - a field the office tools change without a save time (partner, owner,
+//     photo, household link) that differs from this copy's own version;
+//   - a scheme record this copy does not hold, already in the database at that
+//     place: a coordinator created it after this copy, and a new record written
+//     there would replace every row they entered;
+//   - a household gone from the database: saving would bring it back.
+// V24.8: coordinators are checked too - they now correct and delete their own
+// income entries, and a coordinator's save from an older copy on the phone
+// erased a partner's Rs 9,000 entry in the V24.7 test. A save made with no
+// signal is refused before this point ("offline"), exactly as before, so the
+// check never stands between a coordinator and work typed in a village.
+// Not checked: more than 20 records in one save (the bulk tools), and a check
+// that gets no answer within 3 seconds - the save then goes ahead as before.
+const _V247_CHECK_MAX = 20;
+// Short, because a phone's save has its own 8-second limit (_v196Guard).
+const _V247_CHECK_WAIT_MS = 3000;
+const _V247_UNSTAMPED = { beneficiaries: ['ngo', 'createdBy', 'photoUrl'], advocacy: ['ngo', 'createdBy', 'bid'] };
+const _V247_FIELD_LABELS = {
+  name: 'Name', phone: 'Phone', gender: 'Gender', village: 'Village', taluka: 'Taluka',
+  district: 'District', category: 'Category', ngo: 'Partner', coord: 'Coordinator',
+  baseIncome: 'Baseline income', endIncome: 'Endline income', incomeLog: 'Income entries',
+  interventions: 'Interventions', status: 'Stage', hhSize: 'Household size', land: 'Land',
+  livestock: 'Livestock', sources: 'Income sources', photos: 'Photos', relation: 'Relation',
+};
+function _v247CheckApplies(coll) {
+  if (coll !== 'beneficiaries' && coll !== 'advocacy') return false;
+  const u = (typeof currentUser === 'function') ? currentUser() : null;
+  return !!(u && (u.role === 'admin' || u.role === 'ngo' || u.role === 'coordinator'));   // V24.8: + coordinator
+}
+// this copy's own version of a record, as the database last confirmed it
+function _v247Prev(lastMap, id) {
+  try { return (lastMap && lastMap[id]) ? JSON.parse(lastMap[id]) : null; } catch (_) { return null; }
+}
+// writes: [{id, value}]. Resolves to the stale ones; [] when the save may go ahead.
+// V24.8: a household this device has just created has a number nobody else
+// holds, so a scheme record made for it within ten minutes cannot already be in
+// the database. Without this, every coordinator enrolment with a scheme plan
+// waited for a look-up that could only come back empty.
+const _v248Fresh = Object.create(null);
+function _v248IsFresh(bid) {
+  const t = bid ? _v248Fresh[bid] : 0;
+  return !!t && Date.now() - t < 600000;
+}
+async function _v247FindStale(coll, writes, lastMap) {
+  if (!_v247CheckApplies(coll)) return [];
+  const isB = coll === 'beneficiaries';
+  if (isB) {   // V24.8: note the new ones
+    const t0 = Date.now();
+    // V24.9: only a household the database has never stamped - one re-sent
+    // from a stale copy carries the database's save time and stays checked
+    for (const w of (writes || [])) if (w && w.id && !(lastMap && (w.id in lastMap)) && !(w.value && w.value._lastEditedAt)) _v248Fresh[w.id] = t0;
+  }
+  // households: those the database already holds (a new one has a new number);
+  // scheme records: every one, new ones included (see above) - except a new one
+  // for a household this device has just created (V24.8)
+  const todo = (writes || []).filter(function (w) {
+    if (!w || !w.id) return false;
+    if (isB) return !!(lastMap && (w.id in lastMap));
+    return !!(lastMap && (w.id in lastMap)) || !_v248IsFresh(w.value && w.value.bid);
+  });
+  if (!todo.length) return [];
+  if (todo.length > _V247_CHECK_MAX) {
+    console.warn('[V24.7] ' + todo.length + ' ' + coll + ' records in one save - bulk, not checked');
+    return [];
+  }
+  const u = currentUser();
+  const me = u.username || u.userId || 'unknown';
+  const reads = await Promise.all(todo.map(function (w) {
+    return Promise.race([
+      fbRef(coll + '/' + w.id).once('value').then(function (s) { return { w: w, ok: true, srv: s.val() }; }),
+      new Promise(function (r) { setTimeout(function () { r({ w: w, ok: false }); }, _V247_CHECK_WAIT_MS); }),
+    ]).catch(function () { return { w: w, ok: false }; });
+  }));
+  const stale = [];
+  for (const r of reads) {
+    if (!r.ok) { console.warn('[V24.7] could not check ' + coll + '/' + r.w.id + ' in time - saving as before'); continue; }
+    const id = r.w.id, mine = r.w.value, srv = r.srv;
+    const prev = _v247Prev(lastMap, id);
+    if (!prev) {   // a scheme record this copy does not hold
+      if (srv != null) stale.push({ id: id, mine: mine, srv: srv, why: 'exists' });
+      continue;
+    }
+    if (srv == null) {
+      // a household gone from the database. (A scheme record's place is made on
+      // the device, so an absent one proves nothing: save as before.)
+      if (isB) stale.push({ id: id, mine: mine, srv: null, why: 'removed' });
+      continue;
+    }
+    const tS = Number(srv._lastEditedAt) || 0;
+    const tL = Number(prev._lastEditedAt) || 0;
+    const ownLast = srv._lastEditedBy === me && tS - tL < 120000;
+    if (tS > tL + 2000 && !ownLast) { stale.push({ id: id, mine: mine, srv: srv, why: 'newer' }); continue; }
+    const norm = function (v) { return JSON.stringify(v == null ? null : v); };
+    const f = (_V247_UNSTAMPED[coll] || []).find(function (k) { return norm(srv[k]) !== norm(prev[k]); });
+    if (f) stale.push({ id: id, mine: mine, srv: srv, why: 'field:' + f });
+  }
+  return stale;
+}
+// The database's version replaces this device's - cache and last-map together.
+function _v247TakeServerCopies(coll, stale) {
+  const u = (typeof currentUser === 'function') ? currentUser() : null;
+  const isB = coll === 'beneficiaries';
+  const cache = isB ? RecordCache.benef : RecordCache.adv;
+  const lk = isB ? 'lastBenef' : 'lastAdv';
+  if (!FB[lk]) FB[lk] = {};
+  for (const s of stale) {
+    if (s.srv === null) { cache.delete(s.id); delete FB[lk][s.id]; continue; }
+    const rec = isB ? s.srv : fbStampAdvKey(Object.assign({}, s.srv));
+    const key = isB ? (rec.id || s.id) : (rec.__fbk || s.id);
+    // moved to another partner: no longer this partner's to hold
+    const gone = (!!(u && u.role === 'ngo') && (isB ? rec.ngo !== u.ngo
+      : (rec.ngo !== u.ngo && !(rec.bid && RecordCache.benef.has(rec.bid)))))
+      // V24.8: a coordinator holds the households they own and those households' scheme records
+      || (!!(u && u.role === 'coordinator') && (isB ? rec.createdBy !== u.userId
+      : (rec.createdBy !== u.userId && !(rec.bid && RecordCache.benef.has(rec.bid)))));
+    if (gone) { cache.delete(key); delete FB[lk][key]; continue; }
+    cache.set(key, rec);
+    FB[lk][key] = fbHash(rec);
+  }
+  try { _v357DataVersion = (_v357DataVersion || 0) + 1; } catch (_) {}
+  try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch (_) {}
+  try { if (typeof _v367InvalidateIndex === 'function') _v367InvalidateIndex(); } catch (_) {}
+  try { if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache(); } catch (_) {}
+  if (!isB) {
+    try { _advLatestRowsCache = null; _advLatestRowsCacheLen = -1; } catch (_) {}
+    try { _v202FullRowsCache = null; _v202FullRowsCacheLen = -1; } catch (_) {}
+  }
+  // the saved copy follows (whole, so a removal sticks; merged when this
+  // session holds only part of the scope, as every other save does)
+  try {
+    if (u && u.userId) {
+      const all = Array.from(cache.values());
+      if (isB) { if (FB.benefCachePartial) _pantryMerge(u.userId, all); else _pantryWrite(u.userId, all); }
+      else { if (FB.advCachePartial) _advPantryMerge(u.userId, all); else _advPantryWrite(u.userId, all); }
+    }
+  } catch (_) {}
+}
+function _v247WhoName(by) {
+  if (!by) return 'Someone';
+  try {
+    for (const x of RecordCache.users.values()) {
+      if (x && (x.username === by || x.id === by || x.userId === by)) return x.fullName || x.name || by;
+    }
+  } catch (_) {}
+  return by;
+}
+function _v247ChangedFields(mine, before) {
+  const out = [];
+  if (!mine || !before) return out;
+  const show = function (v) {
+    if (v == null || v === '') return '(blank)';
+    if (typeof v === 'object') return null;
+    const t = String(v);
+    return t.length > 40 ? t.slice(0, 40) + '…' : t;
+  };
+  for (const k in _V247_FIELD_LABELS) {
+    if (JSON.stringify(mine[k] == null ? null : mine[k]) === JSON.stringify(before[k] == null ? null : before[k])) continue;
+    const v = show(mine[k]);
+    out.push(_V247_FIELD_LABELS[k] + (v === null ? '' : ' → ' + v));
+  }
+  return out;
+}
+// the one-button message; the save has already been stopped when it shows
+function _v247ShowStale(coll, stale, changed) {
+  const s = stale[0];
+  const srv = s.srv || null;
+  const isB = coll === 'beneficiaries';
+  let hh = s.id;
+  try {
+    if (isB) hh = (srv && srv.name) || (s.mine && s.mine.name) || s.id;
+    else {
+      const bid = (srv && srv.bid) || (s.mine && s.mine.bid);
+      const b = RecordCache.benef.get(bid);
+      hh = (b && b.name) || (srv && srv.bname) || bid || s.id;
+    }
+  } catch (_) {}
+  const t = Number(srv && srv._lastEditedAt) || 0;
+  const when = t ? ((_istDate(t) === _istDate()) ? 'today at ' + _v247FmtWhen(t).split(', ')[1] : 'on ' + _v247FmtWhen(t)) : 'recently';
+  const who = _v247WhoName(srv && srv._lastEditedBy);
+  let msg;
+  if (s.why === 'removed') {
+    msg = hh + ' was removed from the database after the copy on this device was saved.\n'
+      + 'To keep it removed, your change was not saved.';
+  } else if (/^field:/.test(s.why)) {
+    msg = 'The office changed ' + hh + ' after the copy on this device was saved.\n'
+      + 'To protect that change, yours was not saved. The latest version is now on screen.\n'
+      + 'Please make your change again.';
+  } else if (isB) {
+    msg = who + ' changed ' + hh + ' ' + when + ', after the copy on this device was saved.\n'
+      + 'To protect their work, your change was not saved. The latest version is now on screen.\n'
+      + (changed && changed.length
+        ? 'Please make your change again: ' + changed.slice(0, 5).join(', ') + (changed.length > 5 ? ', …' : '') + '.'
+        : 'Please make your change again.');
+  } else {
+    msg = who + ' changed the scheme entries of ' + hh + ' ' + when + ', after the copy on this device was saved.\n'
+      + 'To protect their work, your scheme changes were not saved. The latest scheme entries are now on screen.\n'
+      + 'Please make your change again.';
+  }
+  if (stale.length > 1) msg += '\n(' + stale.length + ' records were affected.)';
+  try {
+    if (typeof showConfirmModal === 'function') {
+      showConfirmModal(msg, { okLabel: 'OK, show the latest', cancelLabel: 'Close', title: 'Not saved — someone changed this record' });
+    } else if (typeof toast === 'function') toast(msg, 'warn', 12000);
+  } catch (_) {}
+}
+// After the copies are replaced, the latest goes on screen. An open Edit
+// Details form for that household is filled again from the latest (the
+// caller's "not saved" banner follows); an open income screen forgets the
+// entry it was editing, so a retry cannot change a different entry that now
+// sits at that place; a scheme form is closed, so nothing older is sent from it.
+function _v247ShowLatest(coll, stale) {
+  const ids = new Set(stale.map(function (s) {
+    return coll === 'beneficiaries' ? s.id : ((s.srv && s.srv.bid) || (s.mine && s.mine.bid));
+  }));
+  try {
+    const ov = document.getElementById('enroll-overlay');
+    if (ov && ov.classList.contains('open') && editingId && ids.has(editingId)) {
+      const id = editingId;
+      if (RecordCache.benef.has(id)) openEdit(id); else closeEnroll();
+    }
+  } catch (e) {
+    console.warn('[V24.7] could not refill the form - closing it:', e);
+    try { closeEnroll(); } catch (_) {}
+  }
+  try {
+    if (_currentLogIncomeBid && ids.has(_currentLogIncomeBid)) {
+      _editingLogIdx = -1;
+      _v248EditKey = null;
+      const b = RecordCache.benef.get(_currentLogIncomeBid);
+      if (b) _renderLogIncomeBody(b); else closeLogIncome();
+    }
+  } catch (_) {}
+  try {
+    const am = document.getElementById('adv-overlay');
+    if (am && am.classList.contains('open') && typeof closeAdvModal === 'function') closeAdvModal();
+  } catch (_) {}
+  try { if (typeof renderCurrentView === 'function') renderCurrentView(); } catch (_) {}
+}
+// the whole step, for a save about to be sent: throws SaveError('stale-copy')
+async function _v247CheckBeforeSave(coll, writes, lastMap, quiet) {
+  if (!_v247CheckApplies(coll)) return;
+  // counted as a save in flight, so no Refresh or catch-up folds in meanwhile
+  FB.pendingWrites++;
+  let stale;
+  try { stale = await _v247FindStale(coll, writes, lastMap); }
+  finally { FB.pendingWrites--; try { fbUpdatePill(); } catch (_) {} }
+  if (!stale.length) return;
+  console.warn('[V24.7] save stopped - ' + coll + ' changed after this copy:',
+    stale.map(function (s) { return s.id + ' (' + s.why + ')'; }).join(', '));
+  // what the person changed: their record against this copy's own version
+  let changed = [];
+  try { if (coll === 'beneficiaries') changed = _v247ChangedFields(stale[0].mine, _v247Prev(lastMap, stale[0].id)); } catch (_) {}
+  _v247TakeServerCopies(coll, stale);
+  if (!quiet) {
+    _v247ShowLatest(coll, stale);
+    _v247ShowStale(coll, stale, changed);
+  }
+  throw new SaveError('stale-copy');
+}
+
 // Push a per-collection diff to Firebase. Queues on failure for retry.
 async function fbSyncCollection(coll, newArr, idField, lastMapRef) {
   // V310-S2: throws SaveError on any failure. Caller (the save* function)
@@ -10927,6 +11741,9 @@ async function fbSyncCollection(coll, newArr, idField, lastMapRef) {
     console.warn('[V371 GUARD-1] Cap bypass active: allowing '
       + diff.deletes.length + ' deletes via window._v371BulkDeleteOk flag.');
   }
+  // V24.7: stop here if somebody else saved one of these records after this
+  // copy (partners and admin; nothing is written, the latest replaces the copy).
+  await _v247CheckBeforeSave(coll, diff.writes, FB[lastMapRef], false);
   // Stamp metadata
   const u = (typeof currentUser === 'function') ? currentUser() : null;
   const now = Date.now();
@@ -10979,6 +11796,7 @@ async function fbSyncCollection(coll, newArr, idField, lastMapRef) {
   FB[lastMapRef] = diff.newMap;
   try {
     FB.pendingWrites++;
+    window._v247WriteSeq = (window._v247WriteSeq || 0) + 1;   // V24.7: see _v247QuietForSwap
     fbUpdatePill();
     await FB.db.ref().update(updates);
   } catch(e) {
@@ -11033,11 +11851,18 @@ function _v242Payload(rec) {
 //
 // Throws SaveError on failure, like fbSyncCollection. On failure FB[lastMapRef]
 // is left untouched for the changed ids so a later sync can still correct them.
-async function fbWriteChangedRecords(coll, changed, idField, lastMapRef, cacheSet) {
+async function fbWriteChangedRecords(coll, changed, idField, lastMapRef, cacheSet, opts) {
   if (FB.initFailed) throw new SaveError('init-failed');
   if (!FB.online)    throw new SaveError('offline');
   if (!FB.db)        throw new SaveError('no-db');
   if (!changed || changed.length === 0) return 0;
+  // V24.7: a caller writing from this device's copy without the person having
+  // saved anything (the income-log tidy-up on opening Log Income) asks for the
+  // check too, quietly: a newer database version simply wins.
+  if (opts && opts.v247Check) {
+    await _v247CheckBeforeSave(coll, changed.map(function (r) { return { id: r && r[idField], value: r }; }),
+      FB[lastMapRef], !!opts.quiet);
+  }
   const u = (typeof currentUser === 'function') ? currentUser() : null;
   const now = Date.now();
   const updates = {};
@@ -11058,6 +11883,7 @@ async function fbWriteChangedRecords(coll, changed, idField, lastMapRef, cacheSe
   if (ids.length === 0) return 0;
   try {
     FB.pendingWrites++;
+    window._v247WriteSeq = (window._v247WriteSeq || 0) + 1;   // V24.7: see _v247QuietForSwap
     fbUpdatePill();
     await FB.db.ref().update(updates);
   } catch (e) {
@@ -11485,9 +12311,13 @@ async function saveData(arr) {
       if (rec && rec.createdBy) _v101OwnersBefore.add(rec.createdBy);
     }
   } catch (_) {}
-  await fbSyncCollection('beneficiaries', arr || [], 'id', 'lastBenef');
-  _hydrateBenefCache(Array.isArray(arr) ? arr : []);
-  _v185ReseatLastMap('benef');   // ⛔ see the note on _v185ReseatLastMap
+  // V24.7: open from here until the cache is rebuilt - see _v247SaveOpen
+  FB._v247Saving = (FB._v247Saving || 0) + 1;
+  try {
+    await fbSyncCollection('beneficiaries', arr || [], 'id', 'lastBenef');
+    _hydrateBenefCache(Array.isArray(arr) ? arr : []);
+    _v185ReseatLastMap('benef');   // ⛔ see the note on _v185ReseatLastMap
+  } finally { FB._v247Saving--; }
   // V362: queue a summary write (debounced 2 sec) so viewer's numbers stay
   // current within seconds of any save. Admin role only — others can't
   // compute global+per-NGO summaries without full data access.
@@ -16919,12 +17749,14 @@ function openEdit(id) {
     capturedLat = b.lat || null;
     capturedLng = b.lng || null;
     capturedGpsAccuracy = b.gpsAccuracy || null;
+    // V24.7: these elements left the form in V408/V410 - skip them when absent
+    // (writing to a missing one threw, and the form opened half-filled)
     const thumb = document.getElementById('photo-thumb');
-    thumb.src = existingPhotoSrc; thumb.style.display = 'block';
-    document.getElementById('photo-section').classList.add('has-photo');
-    document.getElementById('photo-instructions').style.display = 'none';
-    document.getElementById('btn-open-cam').style.display = 'none';
-    document.getElementById('btn-retake').style.display = 'inline-block';
+    if (thumb) { thumb.src = existingPhotoSrc; thumb.style.display = 'block'; }
+    const _v247ps = document.getElementById('photo-section'); if (_v247ps) _v247ps.classList.add('has-photo');
+    const _v247pi = document.getElementById('photo-instructions'); if (_v247pi) _v247pi.style.display = 'none';
+    const _v247oc = document.getElementById('btn-open-cam'); if (_v247oc) _v247oc.style.display = 'none';
+    const _v247rt = document.getElementById('btn-retake'); if (_v247rt) _v247rt.style.display = 'inline-block';
     const gpsDiv = document.getElementById('gps-status');
     if (b.lat) gpsDiv.innerHTML = '<span class="gps-badge">✓ GPS: ' + b.lat + ', ' + b.lng + ' (±' + (b.gpsAccuracy||'?') + 'm)</span>';
   }
@@ -20165,7 +20997,8 @@ async function submitEndline() {
 //
 // Permissions:
 //   - All roles can ADD a new log entry
-//   - Only admin can EDIT or DELETE existing entries
+//   - Admin and the household's partner EDIT or DELETE any entry (V24.5); a
+//     coordinator only the entries they typed, on their own households (V24.8)
 // On first entry added: status auto-flips Enrolled/InProgress → Completed
 // (mirrors the original single-shot endline behavior).
 
@@ -20207,8 +21040,17 @@ function openLogIncomeFor(id, opts) {
     // Fire-and-forget — the modal opens regardless; the migration is
     // idempotent and retries next time the modal opens.
     const cacheSet = rec => { if (rec && rec.id) RecordCache.benef.set(rec.id, rec); };
-    fbWriteChangedRecords('beneficiaries', [b], 'id', 'lastBenef', cacheSet)
-      .catch(e => console.warn('[V320] income_log_migrate Firebase write failed:', e));
+    // V24.7: checked first - from an old copy this tidy-up rewrote the whole
+    // household and could erase income entries added since. If the database
+    // is newer, its version is shown instead and nothing is written.
+    fbWriteChangedRecords('beneficiaries', [b], 'id', 'lastBenef', cacheSet, { v247Check: true, quiet: true })
+      .catch(e => {
+        if (e && e.reason === 'stale-copy') {
+          try { if (_currentLogIncomeBid === b.id && RecordCache.benef.get(b.id)) _renderLogIncomeBody(RecordCache.benef.get(b.id)); } catch (_) {}
+          return;
+        }
+        console.warn('[V320] income_log_migrate Firebase write failed:', e);
+      });
     auditLog('income_log_migrate', 'beneficiary', b.id, b.name,
       `Migrated previous endline entry (₹${(b.incomeLog[0].amount||0).toLocaleString('en-IN')}) into income log`,
       null);
@@ -20233,11 +21075,86 @@ function closeLogIncome() {
 
 // V24.5: WHO MAY CORRECT OR DELETE AN INCOME ENTRY. Admin, and the partner
 // login of the household's OWN partner - taken from the household itself,
-// never from a filter or from who typed the entry. Coordinators still only add.
+// never from a filter or from who typed the entry. Coordinators: see V24.8 below.
 function _v245CanManageIncome(b) {
   const u = (typeof currentUser === 'function' ? currentUser() : null) || {};
   if (u.role === 'admin') return true;
   return u.role === 'ngo' && !!u.ngo && !!b && b.ngo === u.ngo;
+}
+// V24.8: A COORDINATOR CORRECTS ONLY WHAT THEY TYPED. On a household they own
+// (createdBy), an entry they added themselves (addedBy). An entry typed by the
+// partner or the office shows "Locked" and stays theirs to change. A
+// coordinator puts back only an entry they deleted. Admin and the household's
+// partner keep every entry, as in V24.5.
+function _v248IsMyHousehold(b) {
+  const u = (typeof currentUser === 'function' ? currentUser() : null) || {};
+  return u.role === 'coordinator' && !!u.userId && !!b && b.createdBy === u.userId;
+}
+function _v248CanChangeEntry(b, e) {
+  if (_v245CanManageIncome(b)) return true;
+  const u = (typeof currentUser === 'function' ? currentUser() : null) || {};
+  return _v248IsMyHousehold(b) && !!e && e.addedBy === u.userId;
+}
+function _v248CanRestoreEntry(b, d) {
+  if (_v245CanManageIncome(b)) return true;
+  const u = (typeof currentUser === 'function' ? currentUser() : null) || {};
+  return _v248IsMyHousehold(b) && !!d && d.deletedBy === u.userId;
+}
+function _v248NoMsg(b, verb) {
+  if (_v248IsMyHousehold(b)) {
+    return verb === 'restore'
+      ? 'You can put back only the entries you deleted yourself.'
+      : 'You can ' + verb + ' only the income entries you typed yourself. Ask your partner or the office to ' + verb + ' this one.';
+  }
+  return 'Only admins and this household\'s partner can ' + verb + ' income entries.';
+}
+// ⛔ THE ENTRY, FOUND AGAIN AFTER A PAUSE. Edit and Delete remember a position
+// in the list, and a person takes their time: a sync arriving between the tap
+// and the save can move that position, and the change would land on the WRONG
+// entry. So the entry is remembered by what it is, and looked up again.
+let _v248EditKey = null;
+function _v248EntryKey(e) {
+  return e ? [e.addedAt || '', e.addedBy || '', e.date || '', String(e.amount)].join('|') : '';
+}
+// an entry's own interventions stay offered while it is edited, even one no
+// longer on the household - otherwise saving would quietly drop it
+function _v248Pool(pool, extra) {
+  return pool.concat((extra || []).filter(function (s) { return pool.indexOf(s) < 0; }));
+}
+const _V248_PEN = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+const _V248_BIN = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>';
+const _V248_X = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+const _V248_LOCK = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>';
+function _v248IconBtns(i, on) {
+  return '<span class="v248-acts">'
+    + '<button type="button" class="v248-ic" aria-label="' + (on ? 'Cancel the change' : 'Edit this entry') + '" title="' + (on ? 'Cancel' : 'Edit') + '" onclick="_startEditLogEntry(' + i + ')">' + (on ? _V248_X : _V248_PEN) + '</button>'
+    + '<button type="button" class="v248-ic v248-del" aria-label="Delete this entry" title="Delete" onclick="_deleteLogEntry(' + i + ')">' + _V248_BIN + '</button>'
+    + '</span>';
+}
+function _v248LockHtml() {
+  return '<button type="button" class="v248-lock" onclick="_v248LockedInfo()">' + _V248_LOCK + 'Locked</button>';
+}
+function _v248LockedInfo() {
+  toast('Typed by your partner or the office. Only they can change it.', 'warn', 5000);
+}
+// one entry on the phone layout: the date and amount, then what it came from
+// with the pencil and bin (or "Locked") at the end of that line
+function _v248CardRow(b, e, i) {
+  const amt = parseFloat(e.amount) || 0;
+  const on = _editingLogIdx === i;
+  const src = (Array.isArray(e.sources) && e.sources.length ? e.sources.map(escHtml).join(' + ') : '—')
+    + (e.note ? ' · ' + escHtml(e.note) : '');
+  const right = _v248CanChangeEntry(b, e) ? _v248IconBtns(i, on) : (_v248IsMyHousehold(b) ? _v248LockHtml() : '');
+  const ed = e.editedAt
+    ? '<div class="v248-ed">Changed by ' + escHtml(e.editedByName || e.editedBy || '?') + ' · '
+      + fmtD(String(e.editedAt).split('T')[0]) + (e.editReason ? ' · ' + escHtml(e.editReason) : '') + '</div>'
+    : '';
+  return '<div class="v229-hrow v248-hrow' + (on ? ' v248-on' : '') + '">'
+    + '<div class="v248-l1"><span style="font-weight:600">' + fmtD(e.date) + '</span>'
+    + '<span style="font-weight:700;color:' + (amt < 0 ? 'var(--red)' : 'var(--green)') + ';white-space:nowrap">'
+    + (amt >= 0 ? '+' : '') + '₹' + amt.toLocaleString('en-IN') + '</span></div>'
+    + '<div class="v248-l2"><span class="v248-src">' + src + '</span>' + right + '</div>' + ed
+    + '</div>';
 }
 // V24.5: ⛔ A DELETED ENTRY IS NOT THROWN AWAY. It moves to
 // _v245DeletedIncome on the same household - outside incomeLog, so no total,
@@ -20253,19 +21170,31 @@ function _v245DeletedHtml(b) {
         <div style="flex:1;min-width:0">${fmtD(e.date)} \u00b7 <b>${(parseFloat(e.amount) || 0) >= 0 ? '+' : ''}\u20b9${(parseFloat(e.amount) || 0).toLocaleString('en-IN')}</b>${Array.isArray(e.sources) && e.sources.length ? ' \u00b7 ' + e.sources.map(escHtml).join(' + ') : ''}
           <div style="font-size:10.5px;color:var(--gray2);margin-top:2px">Deleted by ${escHtml(e.deletedByName || e.deletedBy || '?')}${e.deletedAt ? ' \u00b7 ' + fmtD(String(e.deletedAt).split('T')[0]) : ''}${e.deleteReason ? ' \u00b7 ' + escHtml(e.deleteReason) : ''}</div>
         </div>
-        <button class="btn btn-sm" data-v245-restore="${i}" style="font-size:11px;padding:3px 8px;color:var(--green);border-color:var(--green2)" onclick="_v245RestoreLogEntry(${i})">\u21ba Restore</button>
+        ${_v248CanRestoreEntry(b, e) ? `<button class="btn btn-sm" data-v245-restore="${i}" style="font-size:11px;padding:3px 8px;color:var(--green);border-color:var(--green2)" onclick="_v245RestoreLogEntry(${i})">\u21ba Restore</button>` : ''}
       </div>`).join('')}
     </div>`;
 }
 async function _v245RestoreLogEntry(i) {
+  // V24.8: the entry is read from the copy itself before the question and found
+  // again after it, so the whole list is copied once (loadData copies every record)
+  const _b0 = RecordCache.benef.get(_currentLogIncomeBid);
+  if (!_b0) return;
+  const _del0 = Array.isArray(_b0._v245DeletedIncome) ? _b0._v245DeletedIncome : [];
+  // V24.8: a coordinator puts back only an entry they deleted
+  if (!_v248CanRestoreEntry(_b0, _del0[i])) { toast(_v248NoMsg(_b0, 'restore'), 'error'); return; }
+  if (!(i >= 0 && i < _del0.length)) return;
+  let d = _del0[i];
+  const _k248 = _v248EntryKey(d) + '|' + (d.deletedAt || '');
+  if (!await showConfirmModal(`Restore this income entry?\n\n${fmtD(d.date)} \u2014 \u20b9${(parseFloat(d.amount) || 0).toLocaleString('en-IN')}\n\nIt goes back into this household's total.`, { okLabel: 'Restore', title: 'Restore income entry' })) return;
+  // V24.8: found again after the question - a sync while it was open may have moved it
   const data = loadData();
   const b = data.find(x => x.id === _currentLogIncomeBid);
-  if (!b) return;
-  if (!_v245CanManageIncome(b)) { toast('Only admins and this household\'s partner can restore income entries.', 'error'); return; }
-  const del = Array.isArray(b._v245DeletedIncome) ? b._v245DeletedIncome : [];
-  if (!(i >= 0 && i < del.length)) return;
-  const d = del[i];
-  if (!await showConfirmModal(`Restore this income entry?\n\n${fmtD(d.date)} \u2014 \u20b9${(parseFloat(d.amount) || 0).toLocaleString('en-IN')}\n\nIt goes back into this household's total.`, { okLabel: 'Restore', title: 'Restore income entry' })) return;
+  const del = (b && Array.isArray(b._v245DeletedIncome)) ? b._v245DeletedIncome : [];
+  i = (del[i] && (_v248EntryKey(del[i]) + '|' + (del[i].deletedAt || '')) === _k248) ? i
+    : del.findIndex(x => (_v248EntryKey(x) + '|' + (x.deletedAt || '')) === _k248);   // V24.9: the tapped place first
+  if (!b || i < 0) { toast('This entry was changed on another device meanwhile. Nothing was restored.', 'error'); return; }
+  d = del[i];
+  if (!_v248CanRestoreEntry(b, d)) { toast(_v248NoMsg(b, 'restore'), 'error'); return; }   // V24.9: as Delete does
   const entry = {};
   Object.keys(d).forEach(k => { if (k !== 'deletedBy' && k !== 'deletedByName' && k !== 'deletedAt' && k !== 'deleteReason') entry[k] = d[k]; });
   if (!Array.isArray(b.incomeLog)) b.incomeLog = [];
@@ -20307,6 +21236,7 @@ function _renderLogIncomeBody(b) {
   const pct = _v213PctText(additionalTotal, b.baseIncome);   // V21.3
   const isAdmin = (currentUser() || {}).role === 'admin';
   const canManage = _v245CanManageIncome(b);   // V24.5: admin, or this household's own partner
+  const _mine248 = _v248IsMyHousehold(b);       // V24.8: the coordinator who owns it
   const today = _istDate();
   // Source chips pool: this beneficiary's own livelihood interventions
   // (excludes the Advocacy tag — that's a different programme). Matches
@@ -20349,6 +21279,7 @@ function _renderLogIncomeBody(b) {
                  ${escHtml(e.addedByName||e.addedBy||'?')}<br>
                  <span style="font-size:10px">${e.addedAt ? fmtD(e.addedAt.split('T')[0]) : ''}</span>
                  ${editedSuffix}
+                 ${(!canManage && _mine248) ? `<div class="v248-cell">${_v248CanChangeEntry(b, e) ? _v248IconBtns(i, isEditing) : _v248LockHtml()}</div>` : ''}
                </td>
                ${canManage ? `<td style="padding:8px;text-align:right;white-space:nowrap">
                  <button class="btn btn-sm" style="font-size:11px;padding:3px 8px" onclick="_startEditLogEntry(${i})">${isEditing?'Cancel':'Edit'}</button>
@@ -20370,12 +21301,18 @@ function _renderLogIncomeBody(b) {
   const submitLabel = editing ? 'Save Changes' : '+ Add Entry';
   // Form is hidden in edit mode for anyone who may not edit (shouldn't be
   // reachable anyway since the edit buttons are not drawn, defence-in-depth).
-  const formVisible = !editing || canManage;
+  const formVisible = !editing || _v248CanChangeEntry(b, editing);   // V24.8
 
   // V22.9: from a card - the same fields, the same ids, the same two submit
-  // buttons, laid out for a phone. Editing an entry keeps the full form below.
-  if (_v229LiCard && !editing) {
-    const _first = log.length === 0 && b.status !== 'Completed';
+  // buttons, laid out for a phone.
+  // V24.8: editing an entry stays in this layout (it used to switch to the long
+  // form), and each entry keeps its two lines - the date and amount, then what
+  // it came from - with a pencil and a bin at the end of the second line for
+  // whoever may change it. Someone else's entry on a coordinator's household
+  // says "Locked" instead.
+  if (_v229LiCard) {
+    const _first = !editing && log.length === 0 && b.status !== 'Completed';
+    const _pool = _v248Pool(chipPool, formSources);
     const _tip = 'Enter ADDITIONAL income only: how much MORE the family earns now because of this intervention. Do NOT enter the total income.<br>Example: earned 35,000 before, 40,000 now, so enter 5,000.';
     document.getElementById('li-body').innerHTML = `
     <div class="v229-sum">
@@ -20384,33 +21321,41 @@ function _renderLogIncomeBody(b) {
       <div><div class="v229-sk">New total</div><div class="v229-sv" style="color:${log.length ? (additionalTotal < 0 ? 'var(--red)' : 'var(--green)') : 'var(--gray2)'}">${log.length ? '₹' + grandTotal.toLocaleString('en-IN') : '—'}</div></div>
       <div class="v229-cnt">${log.length} entr${log.length === 1 ? 'y' : 'ies'}</div>
     </div>
-    ${log.length ? `<div class="v229-hist">${log.map(e => `<div class="v229-hrow"><div><div style="font-weight:600">${fmtD(e.date)}</div><div style="font-size:12px;color:var(--gray2)">${Array.isArray(e.sources) && e.sources.length ? e.sources.map(escHtml).join(' + ') : '—'}${e.note ? ' · ' + escHtml(e.note) : ''}</div></div><div style="font-weight:700;color:${(parseFloat(e.amount)||0) < 0 ? 'var(--red)' : 'var(--green)'};white-space:nowrap">${(parseFloat(e.amount)||0) >= 0 ? '+' : ''}₹${(parseFloat(e.amount)||0).toLocaleString('en-IN')}</div></div>`).join('')}</div>` : ''}
-    <div class="v229-form">
-      <div class="v229-ft">New entry ${_first ? '<span class="v229-will">Marks endline completed</span>' : ''}</div>
+    ${log.length ? `<div class="v229-hist">${log.map((e, i) => _v248CardRow(b, e, i)).join('')}</div>` : ''}
+    ${(canManage || _mine248) ? _v245DeletedHtml(b) : ''}
+    ${(editing && !_v248CanChangeEntry(b, editing)) ? '' : `
+    <div class="v229-form${editing ? ' v248-editing' : ''}">
+      <div class="v229-ft">${editing ? 'Change the entry from ' + fmtD(editing.date) : 'New entry'} ${_first ? '<span class="v229-will">Marks endline completed</span>' : ''}</div>
       <div>
         <div class="v229-fl">Which intervention is this income from? *</div>
         <div id="li-src-chips">
-          ${chipPool.map(s => `<div class="ichip li-src-chip" data-src="${escHtml(s)}" onclick="toggleLiSourceChip(this)"><span class="ichip-box"></span><span>${escHtml(s)}</span></div>`).join('')}
+          ${_pool.map(s => `<div class="ichip li-src-chip${formSources.includes(s) ? ' on' : ''}" data-src="${escHtml(s)}" onclick="toggleLiSourceChip(this)"><span class="ichip-box">${formSources.includes(s) ? '✓' : ''}</span><span>${escHtml(s)}</span></div>`).join('')}
         </div>
       </div>
       <div class="v229-two">
         <div>
           <label class="v229-fl" for="li-amount">Additional income * <button type="button" class="v229-tip" aria-label="Additional income, not total income" onclick="event.preventDefault();this.classList.toggle('open')">i<span class="v229-tipbox">${_tip}</span></button></label>
-          <div class="v229-rupee"><span>₹</span><input type="number" id="li-amount" min="0" inputmode="numeric" placeholder="3000" value=""></div>
+          <div class="v229-rupee"><span>₹</span><input type="number" id="li-amount" min="0" inputmode="numeric" placeholder="3000" value="${editing ? escHtml(String(formAmount)) : ''}"></div>
         </div>
         <div>
           <label class="v229-fl" for="li-date">Date *</label>
-          <input type="date" id="li-date" value="${today}" max="${today}">
+          <input type="date" id="li-date" value="${formDate}" max="${today}">
         </div>
       </div>
       <div>
         <label class="v229-fl" for="li-note">Note <span style="font-weight:400;color:var(--gray2)">(optional)</span></label>
-        <input type="text" id="li-note" placeholder="Monthly milk sales" value="" maxlength="200">
+        <input type="text" id="li-note" placeholder="Monthly milk sales" value="${escHtml(formNote || '')}" maxlength="200">
       </div>
+      ${editing ? `<div>
+        <label class="v229-fl" for="li-reason" style="color:#8A4B08">Why are you changing it?${isAdmin ? ' (optional)' : ' *'}</label>
+        <input type="text" id="li-reason" placeholder="e.g. Typed 18,000 instead of 8,000" value="" maxlength="200">
+      </div>` : ''}
       <div class="error-msg" id="li-err"></div>
-      <button class="btn btn-primary" style="width:100%;height:46px;font-size:15px" onclick="_submitNewLogEntry()">Save entry</button>
-      ${_first ? '<button type="button" class="v229-zero" onclick="_submitZeroIncomeEntry()">No additional income &mdash; record ₹0</button>' : ''}
-    </div>`;
+      ${editing
+        ? `<div style="display:flex;gap:8px"><button type="button" class="btn" style="height:46px;font-size:14px" onclick="_cancelEditLogEntry()">Cancel</button><button class="btn btn-primary" style="flex:1;height:46px;font-size:15px" onclick="_submitEditLogEntry()">Save changes</button></div>`
+        : `<button class="btn btn-primary" style="width:100%;height:46px;font-size:15px" onclick="_submitNewLogEntry()">Save entry</button>
+      ${_first ? '<button type="button" class="v229-zero" onclick="_submitZeroIncomeEntry()">No additional income &mdash; record ₹0</button>' : ''}`}
+    </div>`}`;
     const _fb = document.getElementById('save-income-btn');
     if (_fb) _fb.style.display = 'none';
     return;
@@ -20463,7 +21408,7 @@ function _renderLogIncomeBody(b) {
       </div>
     ` : ''}
     ${entriesHtml}
-    ${canManage ? _v245DeletedHtml(b) : ''}
+    ${(canManage || _mine248) ? _v245DeletedHtml(b) : ''}
 
     ${formVisible ? `
     <!-- Fix 3: Add/edit form now has a tinted background + accent left-border
@@ -20475,7 +21420,7 @@ function _renderLogIncomeBody(b) {
       ${(!editing && log.length === 0 && b.status !== 'Completed') ? `<div style="font-size:12px;color:var(--navy);margin-top:6px;display:flex;align-items:flex-start;gap:6px;line-height:1.4"><span style="font-weight:700">&#9432;</span><span>Saving will mark this beneficiary <b>Completed</b>.</span></div>` : ''}
       <label style="font-size:12px;font-weight:600;color:var(--gray1);display:block;margin-bottom:6px;margin-top:6px">Which intervention(s)? (tap one or more) *</label>
       <div id="li-src-chips" style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:12px">
-        ${chipPool.map(s => `<div class="ichip li-src-chip${formSources.includes(s)?' on':''}" data-src="${escHtml(s)}" onclick="toggleLiSourceChip(this)"><span class="ichip-box">${formSources.includes(s)?'✓':''}</span><span>${escHtml(s)}</span></div>`).join('')}
+        ${_v248Pool(chipPool, formSources).map(s => `<div class="ichip li-src-chip${formSources.includes(s)?' on':''}" data-src="${escHtml(s)}" onclick="toggleLiSourceChip(this)"><span class="ichip-box">${formSources.includes(s)?'✓':''}</span><span>${escHtml(s)}</span></div>`).join('')}
       </div>
       <div class="frow">
         <div class="fg">
@@ -20703,27 +21648,37 @@ async function _submitZeroIncomeEntry() {
 
 // ── Edit existing entry (admin, and - V24.5 - the household's partner) ──
 function _startEditLogEntry(idx) {
-  if (!_v245CanManageIncome(RecordCache.benef.get(_currentLogIncomeBid))) {
-    toast('Only admins and this household\'s partner can edit income entries.', 'error');
+  const _b248 = RecordCache.benef.get(_currentLogIncomeBid);
+  const _e248 = (_b248 && Array.isArray(_b248.incomeLog)) ? _b248.incomeLog[idx] : null;
+  if (!_v248CanChangeEntry(_b248, _e248)) {   // V24.8: per entry
+    toast(_v248NoMsg(_b248, 'edit'), 'error');
     return;
   }
   // Toggle: clicking Edit on the currently-edited row cancels.
-  if (_editingLogIdx === idx) { _editingLogIdx = -1; }
-  else { _editingLogIdx = idx; }
+  if (_editingLogIdx === idx) { _editingLogIdx = -1; _v248EditKey = null; }
+  else { _editingLogIdx = idx; _v248EditKey = _v248EntryKey(_e248); }
   const b = loadData().find(x => x.id === _currentLogIncomeBid);
   if (b) _renderLogIncomeBody(b);
 }
 
 function _cancelEditLogEntry() {
   _editingLogIdx = -1;
+  _v248EditKey = null;
   const b = loadData().find(x => x.id === _currentLogIncomeBid);
   if (b) _renderLogIncomeBody(b);
 }
 
 async function _submitEditLogEntry() {
-  if (!_v245CanManageIncome(RecordCache.benef.get(_currentLogIncomeBid))) {
-    toast('Only admins and this household\'s partner can edit income entries.', 'error');
-    return;
+  {
+    // V24.8: per entry - the one chosen at Edit, wherever a sync has since moved
+    // it (when it is gone altogether, the look-up below says so)
+    const _b248 = RecordCache.benef.get(_currentLogIncomeBid);
+    const _log248 = (_b248 && Array.isArray(_b248.incomeLog)) ? _b248.incomeLog : [];
+    const _e248 = _v248EditKey ? _log248.find(e => _v248EntryKey(e) === _v248EditKey) : _log248[_editingLogIdx];
+    if ((_e248 || !_v248EditKey) && !_v248CanChangeEntry(_b248, _e248)) {
+      toast(_v248NoMsg(_b248, 'edit'), 'error');
+      return;
+    }
   }
   const dateRaw = document.getElementById('li-date')?.value;
   const amountRaw = document.getElementById('li-amount')?.value;
@@ -20745,7 +21700,17 @@ async function _submitEditLogEntry() {
   if (!reasonRaw && (currentUser() || {}).role !== 'admin') { showErr('Please write why this entry is being changed.'); return; }
   const data = loadData();
   const b = data.find(x => x.id === _currentLogIncomeBid);
-  if (!b || !Array.isArray(b.incomeLog) || _editingLogIdx < 0 || _editingLogIdx >= b.incomeLog.length) return;
+  if (!b || !Array.isArray(b.incomeLog)) return;
+  // V24.8: the entry chosen at Edit, found again - never whatever now sits at
+  // its old position
+  if (_v248EditKey) {
+    // V24.9: the tapped place first - with two identical entries, the tapped one
+    const j = (_v248EntryKey(b.incomeLog[_editingLogIdx]) === _v248EditKey) ? _editingLogIdx : b.incomeLog.findIndex(e => _v248EntryKey(e) === _v248EditKey);
+    if (j < 0) { showErr('This entry was changed on another device meanwhile. Nothing was saved. Close this screen and open it again.'); return; }
+    _editingLogIdx = j;
+  }
+  if (_editingLogIdx < 0 || _editingLogIdx >= b.incomeLog.length) return;
+  if (!_v248CanChangeEntry(b, b.incomeLog[_editingLogIdx])) { toast(_v248NoMsg(b, 'edit'), 'error'); return; }
   const oldEntry = {...b.incomeLog[_editingLogIdx]};
   const me = currentUser() || {};
   b.incomeLog[_editingLogIdx] = {
@@ -20773,21 +21738,29 @@ async function _submitEditLogEntry() {
     {amount: [oldEntry.amount, amount], date: [oldEntry.date, dateRaw], note: [oldEntry.note||'', noteRaw], reason: reasonRaw});
   toast('Entry updated. New total: ₹' + b.endIncome.toLocaleString('en-IN'), 'success');
   _editingLogIdx = -1;
+  _v248EditKey = null;
   _renderLogIncomeBody(b);
   renderCurrent();
   updateAlertBadge();
 }
 
-// ── Delete entry (admin, and - V24.5 - the household's partner) ─────────
+// ── Delete entry (admin, the household's partner - V24.5 - and the
+//    coordinator who typed it - V24.8) ────────────────────────────────────
 async function _deleteLogEntry(idx) {
-  if (!_v245CanManageIncome(RecordCache.benef.get(_currentLogIncomeBid))) {
-    toast('Only admins and this household\'s partner can delete income entries.', 'error');
-    return;
+  {
+    const _b248 = RecordCache.benef.get(_currentLogIncomeBid);
+    const _e248 = (_b248 && Array.isArray(_b248.incomeLog)) ? _b248.incomeLog[idx] : null;
+    if (!_v248CanChangeEntry(_b248, _e248)) {   // V24.8: per entry
+      toast(_v248NoMsg(_b248, 'delete'), 'error');
+      return;
+    }
   }
-  const data = loadData();
-  const b = data.find(x => x.id === _currentLogIncomeBid);
-  if (!b || !Array.isArray(b.incomeLog) || idx < 0 || idx >= b.incomeLog.length) return;
-  const removed = b.incomeLog[idx];
+  // V24.8: the entry is read from the copy itself before the question and found
+  // again after it, so the whole list is copied once (loadData copies every record)
+  const _b0 = RecordCache.benef.get(_currentLogIncomeBid);
+  if (!_b0 || !Array.isArray(_b0.incomeLog) || idx < 0 || idx >= _b0.incomeLog.length) return;
+  let removed = _b0.incomeLog[idx];
+  const _k248 = _v248EntryKey(removed);
   // V24.5: the reason is asked in the same step as the confirmation. Cancel
   // keeps the entry. A partner must give one; admin may leave it blank.
   const _isAdmin245 = (currentUser() || {}).role === 'admin';
@@ -20797,6 +21770,15 @@ async function _deleteLogEntry(idx) {
   if (_ans245 == null) return;
   const reason = String(_ans245).trim();
   if (!reason && !_isAdmin245) { toast('Please write why this entry is being deleted. Nothing was deleted.', 'error'); return; }
+  // V24.8: found again after the question - a sync while it was open may have
+  // moved it, and the wrong entry must never be the one removed
+  const data = loadData();
+  const b = data.find(x => x.id === _currentLogIncomeBid);
+  idx = (b && Array.isArray(b.incomeLog))
+    ? ((_v248EntryKey(b.incomeLog[idx]) === _k248) ? idx : b.incomeLog.findIndex(e => _v248EntryKey(e) === _k248)) : -1;   // V24.9: the tapped place first
+  if (idx < 0) { toast('This entry was changed on another device meanwhile. Nothing was deleted.', 'error'); return; }
+  if (!_v248CanChangeEntry(b, b.incomeLog[idx])) { toast(_v248NoMsg(b, 'delete'), 'error'); return; }
+  removed = b.incomeLog[idx];
   b.incomeLog.splice(idx, 1);
   const _me245 = currentUser() || {};
   const _kept245 = Object.assign({}, removed, {
@@ -20820,7 +21802,7 @@ async function _deleteLogEntry(idx) {
     b.endlineDate = earliest.date;
   }
   // If editing this entry, clear the edit cursor.
-  if (_editingLogIdx === idx) _editingLogIdx = -1;
+  if (_editingLogIdx === idx) { _editingLogIdx = -1; _v248EditKey = null; }
   // If the deleted index was before the editing cursor, shift the cursor.
   else if (_editingLogIdx > idx) _editingLogIdx--;
   // V310-S2: await Firebase.
@@ -21321,7 +22303,7 @@ function renderNGO() {
   document.getElementById('content').innerHTML = `
     <div class="card">
       <div class="card-head">
-        <div class="card-title">${_isFcMode ? `Field Coordinator Performance — ${u.ngo}` : 'NGO Partner Performance'}${filtLabel}</div>
+        <div class="card-title">${_isFcMode ? `Field Coordinator Performance — ${u.ngo}` : 'NGO Partner Performance'}${filtLabel}${_v247SavedLine()}</div>
         <div style="font-size:11px;color:var(--gray2)">${rows.length} ${_isFcMode ? ('coordinator' + (rows.length!==1?'s':'')) : ('partner' + (rows.length!==1?'s':''))} · click any column to sort · click a row to drill into beneficiaries</div>
       </div>
       ${!hasRows ? '<div class="empty">No beneficiaries match the current filters.</div>' : `
@@ -22878,9 +23860,12 @@ async function saveAdv(arr) {
     _hydrateAdvCache(stamped);
     return;
   }
-  await fbSyncCollection('advocacy', stamped, '__fbk', 'lastAdv');
-  _hydrateAdvCache(stamped);
-  _v185ReseatLastMap('adv');   // ⛔ see the note on _v185ReseatLastMap
+  FB._v247Saving = (FB._v247Saving || 0) + 1;   // V24.7: see _v247SaveOpen
+  try {
+    await fbSyncCollection('advocacy', stamped, '__fbk', 'lastAdv');
+    _hydrateAdvCache(stamped);
+    _v185ReseatLastMap('adv');   // ⛔ see the note on _v185ReseatLastMap
+  } finally { FB._v247Saving--; }
   // V362: queue a summary write (debounced) so viewer reflects new advocacy
   // amounts within seconds.
   try { if (typeof _v362QueueSummaryWrite === 'function') _v362QueueSummaryWrite(); } catch(_) {}
@@ -26370,7 +27355,7 @@ function _livBenTabFull(allB) {
     + '</div>';
 
   return chips+`<div class="card"><div class="card-head">
-    <div class="card-title">${escHtml(livInterv||'All Beneficiaries')}${livStage?' · '+stageLabel(livStage):''} <span style="font-size:12px;font-weight:400;color:var(--gray2)">${_livTotal} records</span></div>
+    <div class="card-title">${escHtml(livInterv||'All Beneficiaries')}${livStage?' · '+stageLabel(livStage):''} <span style="font-size:12px;font-weight:400;color:var(--gray2)">${_livTotal} records</span>${_v247SavedLine()}</div>
     <div class="filters"><input id="liv-search-input" class="fsearch" placeholder="Search name, ID, village..." value="${escHtml(livSearch)}" oninput="_searchDebounce('liv', this.value, () => { livSearch = _searchDebounceVal.liv; renderLivelihood(); })">
     <button class="btn btn-primary btn-sm" onclick="openEnroll()">+ Enroll</button></div></div>
     ${_livTotal===0?'<div class="empty">No beneficiaries match.</div>':`<table class="tbl"><thead><tr><th style="width:52px;text-align:center">Sr. No.</th><th>Beneficiary</th><th>Location</th><th>Partner</th><th>Intervention</th><th>Baseline</th><th>Stage</th><th>Income Delta</th></tr></thead><tbody>${rows}</tbody></table>${_livPaginator}`}
@@ -26772,7 +27757,7 @@ function _advBenTab2(allAdv, allB) {
     + '</div>';
 
   return `<div class="card"><div class="card-head">
-    <div class="card-title">Beneficiaries${advStageF?' · '+(advStageF==='ALL_SUBMITTED_FILTER'?'All Applications Submitted':advStageF):''}${advSchemeFilter&&advSchemeFilter!=='__other__'?' · '+advSchemeFilter:advSchemeFilter==='__other__'?' · Other Schemes':''} <span style="font-size:12px;font-weight:400;color:var(--gray2)">${_advBTotal} beneficiar${_advBTotal===1?'y':'ies'}</span></div>
+    <div class="card-title">Beneficiaries${advStageF?' · '+(advStageF==='ALL_SUBMITTED_FILTER'?'All Applications Submitted':advStageF):''}${advSchemeFilter&&advSchemeFilter!=='__other__'?' · '+advSchemeFilter:advSchemeFilter==='__other__'?' · Other Schemes':''} <span style="font-size:12px;font-weight:400;color:var(--gray2)">${_advBTotal} beneficiar${_advBTotal===1?'y':'ies'}</span>${_v247SavedLine()}</div>
     <div class="filters"><input id="adv-search-input" class="fsearch" placeholder="Search name or ID..." value="${advSearch2}" oninput="_searchDebounce('adv', this.value, () => { advSearch2 = _searchDebounceVal.adv; advBCurrentPage=1; renderAdvocacy('beneficiaries'); })">
     ${_canExport()?`<button class="btn btn-sm" onclick="exportAdvocacyCsv()" title="Download as CSV (opens in Excel)">📥 Export to Excel</button>`:''}
     <button class="btn btn-primary btn-sm" onclick="openAdvModal()">+ Log Advocacy</button></div></div>
@@ -26933,12 +27918,12 @@ function renderIntegrated(sub) {
 
   const tableCard = list.length===0
     ? `<div class="card"><div class="card-head">
-         <div class="card-title">${filterLabel} <span style="font-size:12px;font-weight:400;color:var(--gray2)">0 records</span></div>
+         <div class="card-title">${filterLabel} <span style="font-size:12px;font-weight:400;color:var(--gray2)">0 records</span>${_v247SavedLine()}</div>
          <div class="filters"><input id="int-search-input" class="fsearch" placeholder="Search name, ID, or village..." value="${escHtml(intSearch2)}" oninput="_searchDebounce('int', this.value, () => { intSearch2 = _searchDebounceVal.int; intCurrentPage = 1; renderIntegrated(); })">
          <button class="btn btn-primary btn-sm" onclick="openAdvModal()">+ Log Advocacy</button></div>
        </div><div class="empty">No beneficiaries match the current filter.</div></div>`
     : `<div class="card"><div class="card-head">
-         <div class="card-title">${filterLabel} <span style="font-size:12px;font-weight:400;color:var(--gray2)">${list.length.toLocaleString('en-IN')} records</span></div>
+         <div class="card-title">${filterLabel} <span style="font-size:12px;font-weight:400;color:var(--gray2)">${list.length.toLocaleString('en-IN')} records</span>${_v247SavedLine()}</div>
          <div class="filters"><input id="int-search-input" class="fsearch" placeholder="Search name, ID, or village..." value="${escHtml(intSearch2)}" oninput="_searchDebounce('int', this.value, () => { intSearch2 = _searchDebounceVal.int; intCurrentPage = 1; renderIntegrated(); })">
          <button class="btn btn-primary btn-sm" onclick="openAdvModal()">+ Log Advocacy</button></div>
        </div>
@@ -26959,6 +27944,12 @@ function renderIntegrated(sub) {
 // delete via the V371-guarded sync paths).
 let _v373AdminRefreshInFlight = false;
 async function _v373AdminRefresh() {
+  // V24.7: partners, donors and team leaders have their own Refresh - a daily
+  // limit, and never more than their own data. The admin path below is as it was.
+  {
+    const _u247 = (typeof currentUser === 'function') ? currentUser() : null;
+    if (_u247 && _v247Limit(_u247)) return _v247Refresh();
+  }
   if (_v373AdminRefreshInFlight) return;  // Prevent double-fire from rapid clicks
   _v373AdminRefreshInFlight = true;
   const btn = document.getElementById('topbar-refresh-btn');
@@ -27273,7 +28264,7 @@ function renderAllBeneficiaries() {
       ${cardHtml('advOnly', 'Advocacy Only',     advOnlyList.length, '#5B21B6', '#5B21B6')}
     </div>
     <div class="card"><div class="card-head">
-      <div class="card-title">All Beneficiaries${allBProgFilter==='livOnly'?' · Livelihood Only':allBProgFilter==='dual'?' · Dual':allBProgFilter==='advOnly'?' · Advocacy Only':''}${allBPhotoFilter?' · With a photo':''} <span style="font-size:12px;font-weight:400;color:var(--gray2)">${list.length} records</span></div>
+      <div class="card-title">All Beneficiaries${allBProgFilter==='livOnly'?' · Livelihood Only':allBProgFilter==='dual'?' · Dual':allBProgFilter==='advOnly'?' · Advocacy Only':''}${allBPhotoFilter?' · With a photo':''} <span style="font-size:12px;font-weight:400;color:var(--gray2)">${list.length} records</span>${_v247SavedLine()}</div>
       <div class="filters">
         <input id="allb-search-input" class="fsearch" placeholder="Search name, ID, village, NGO..." value="${escHtml(allBSearch)}" oninput="_searchDebounce('allb', this.value, () => { allBSearch = _searchDebounceVal.allb; allBSelected = new Set(); allBCurrentPage = 1; renderAllBeneficiaries(); })">
         <button class="btn btn-sm" onclick="allBPhotoFilter=!allBPhotoFilter;allBSelected=new Set();allBCurrentPage=1;renderAllBeneficiaries()"
@@ -40739,7 +41730,13 @@ function _applyRoleVisibility() {
     // so without a Refresh they had no way to pull new records at all, and a
     // silently-failed background sync could leave them stale for up to the
     // 30-day pantry TTL with nothing on screen to say so.
-    if (el.id === 'topbar-refresh-btn') { el.style.display = (isAdm || isNgo) ? '' : 'none'; return; }
+    // V24.7: donors and team leaders get it too, with a daily limit (the CSS
+    // rule beside the read-only hide list makes it win for those two roles).
+    if (el.id === 'topbar-refresh-btn') {
+      el.style.display = (isAdm || isNgo || isSV || isTL) ? '' : 'none';
+      try { _v247PaintRefresh(); } catch (_) {}
+      return;
+    }
     // V12.7: data-ngo-ok marks a control an NGO admin may also use — currently
     // the Reports nav entries. It only unhides the BUTTON; renderReports()
     // re-checks the role itself, so this attribute can never be the only thing
