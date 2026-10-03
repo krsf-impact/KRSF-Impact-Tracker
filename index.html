@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V24.9-LIVE
+  KRSF Beneficiary Impact Tracker  -  V25.0-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,37 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V25.0-LIVE (2026-10-03 - one livelihood name everywhere; Reports per partner).
+
+    + Livelihood Name Audit (Admin, Livelihood Types): every livelihood name
+      on households that is not on the official list - 14 names on 163
+      households on the 2 Oct data. Fix changes a name on those households
+      AND in their income entries; Make official adds it to the list as it
+      is, to rename later. Renaming a type now changes the income entries
+      too (it changed the household's list only), reads each household
+      fresh before writing it (it saved this screen's copy, which could
+      write newer work away), and reaches partners' saved copies as well as
+      donors' and team leaders' through the rename list. Baseline sources
+      are never touched.
+    + Schemes: the audit's Fix and the Rename button change each scheme
+      record in one step on the database (they saved this screen's copy,
+      which could undo a status changed meanwhile and bring back a deleted
+      record), and reach partners, donors and team leaders. The audit's
+      "Benefits Received" count read 0 always; it now counts.
+    + Enrolment: the state is filled in when the partner has one state
+      (18 of 20); two or more states keep the empty pick.
+    + Reports, Partners: the FC Performance table per partner - surveyed,
+      applied, benefits received, enrolled, intervention, endline, last
+      active - with the date chips. Share of enrolment is gone.
+    + Reports, Advocacy Pipeline: only the scheme-wise table, now with
+      Amount and the top date chips (7 days, a month ...).
+    + Reports, Livelihood Impact: a partner funnel on top; Endline overdue
+      and Endline backlog gone; income by intervention at the bottom.
+    + No extra download: Reports count what is loaded; the state comes from
+      the partner list already held. A rename reads each household it
+      changes once (about 1 KB each, admin only).
+    + Tests: 108 files. v25 is new.
+
   V24.9-LIVE (2026-10-02 - a waiting enrolment never overwrites a later correction).
 
     + Found by the V24.8 review: a household enrolled on a weak signal waits
@@ -652,46 +683,6 @@
     + Tests: 77 files. v223.js (44 checks) and v224.js (43) are new, and
       fakepage.js checks the harness database pages the way the real one does
       - the fake has been kinder than Firebase before. 22 mutants.
-
-  V22.2-LIVE (2026-09-19 - the scheme records that stayed behind, and a
-  template that says what to type).
-
-    + ⛔ 885 SCHEME RECORDS ARE FILED UNDER A PARTNER THEIR PEOPLE HAVE LEFT.
-      A scheme record carries its own partner name; when people were moved the
-      beneficiaries were rewritten and these were not - 838 of them one Vadali
-      → Idar migration carrying Rs 1.28 crore. That is why three partners’
-      weekly bars disagree with their own totals, and why nine partner
-      summaries added together do not equal counting those nine partners’
-      records. Partner Management → Scheme records by partner scans, shows
-      exactly what moves with the money attached, and writes only after you
-      say so: 885 records in 76 ms, six writes, 0.115 MB.
-
-    + ⛔ THE WAY BACK GOES IN THE AUDIT ENTRY. The review caught it: the
-      database rules deny every child not on their allowlist, and the new node
-      this first wrote was not on it - so the undo record would have been
-      refused AFTER the 885 records had changed, leaving no way back at all.
-      ⛔ And the change map is re-seated: an admin reads advocacy over REST
-      with no listener, so a stale map would have let the next whole-list save
-      rewrite all 885 from the copy that session started with, reverting any
-      field edit made since.
-
-    + Moving a coordinator no longer starts the drift again - both move tools
-      already re-tag scheme records, and there is now a check that drives a
-      real move and counts what is left behind.
-
-    + THE IMPORT TEMPLATE now carries three worked examples - a coordinator, a
-      team leader, a scoped viewer - on their own sheet, which the import never
-      reads, plus a hover note on every column heading. Guru: "there is no
-      tooltip in excel. So we dont know what to write." ⛔ And the reader no
-      longer falls back to whatever sheet comes first, which would have made
-      those examples importable by renaming one sheet.
-
-    + Tests: 74 files. v222.js is new - 23 checks on the real export, including
-      a real coordinator move, a half-synced device, a coordinator trying to
-      run it, and a record that moves again mid-run. 7 mutants. ⛔ The suite
-      caught my own bug first: the tool read the whole database once per
-      record - ten minutes for 885 - the same trap V22.1 took out of the
-      importer.
 
   ============================================================================
   Everything before this point lives in CHANGELOG.md, beside this file.
@@ -3172,6 +3163,10 @@ body[data-shell="coord"] .coord-card {
 .v246-bar{display:inline-block;width:56px;height:5px;border-radius:3px;background:#EDF0F5;overflow:hidden;vertical-align:middle;margin-left:8px}
 .v246-bar i{display:block;height:100%;background:var(--green);border-radius:3px}
 .v246-zero{color:var(--ink3)}
+/* V25: Livelihood Impact keeps three cards (Endline overdue removed) */
+.rpt-kpis.v25-k3{grid-template-columns:repeat(3,1fr)}
+@media(max-width:760px){ .rpt-kpis.v25-k3{grid-template-columns:1fr} }
+.v25-pct{font-size:11px;color:var(--ink3);margin-left:6px;font-weight:500}
 @media(max-width:900px){ .v246-kgroups{grid-template-columns:1fr} }
 @media(max-width:480px){ .v246-kcards{gap:6px} .v246-kcards .rpt-kpi{padding:10px} .v246-kcards .rpt-kpi-val{font-size:18px} .v246-kcards .rpt-kpi-lab{font-size:9.5px} }
 
@@ -4682,7 +4677,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V24.9-LIVE';
+const APP_VERSION = 'V25.0-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -13145,9 +13140,14 @@ function _v235AdoptRenames(raw) {
 function _v235ApplyRenames() {
   let u = null;
   try { u = (typeof currentUser === 'function') ? currentUser() : null; } catch (_) {}
-  // ⛔ THE TWO READ-ONLY ROLES ONLY. Every other role syncs the renamed
-  // records anyway, and a record changed in a role that saves would be sent.
-  if (!u || (u.role !== 'scopedViewer' && u.role !== 'scopedViewerByFc')) return 0;
+  // ⛔ THE TWO READ-ONLY ROLES, AND (V25) PARTNERS. A partner works from a saved
+  // copy too since V22.4 and saw a rename only after Refresh. Changing the
+  // copy is safe for a role that saves: each record's "last sent" mark moves
+  // with it (below), so nothing is sent for it; its save time is NOT moved, so
+  // a partner editing that household is still stopped by the V24.7 check
+  // (the database copy is newer) exactly as before. Coordinators and admin
+  // fetch the renamed households themselves and are left alone.
+  if (!u || (u.role !== 'scopedViewer' && u.role !== 'scopedViewerByFc' && u.role !== 'ngo')) return 0;
   const list = _v235Renames();
   if (!list.length) return 0;
   const liv = list.filter(function (r) { return r.kind === 'liv'; });
@@ -13155,19 +13155,17 @@ function _v235ApplyRenames() {
   let changed = 0;
   if (liv.length && RecordCache.benef && RecordCache.benef.size) {
     RecordCache.benef.forEach(function (b, id) {
-      if (!b || !Array.isArray(b.interventions) || !b.interventions.length) return;
+      if (!b) return;
       const t = Number(b._lastEditedAt) || 0;
-      let arr = null;
+      // V25: the office rule - interventions AND income entries, two names
+      // joined into one kept once (_v25LivRenameRec)
+      let nb = null;
       for (const r of liv) {
         if (t >= r.at) continue;
-        const src = arr || b.interventions;
-        const j = src.indexOf(r.from);   // the office rename changes the first one too
-        if (j < 0) continue;
-        if (!arr) arr = src.slice();
-        arr[j] = r.to;
+        const x = _v25LivRenameRec(nb || b, r.from, r.to);
+        if (x) nb = x;
       }
-      if (!arr) return;
-      const nb = Object.assign({}, b, { interventions: arr });
+      if (!nb) return;
       RecordCache.benef.set(id, nb);
       if (FB.lastBenef) FB.lastBenef[id] = fbHash(nb);
       changed++;
@@ -13205,9 +13203,12 @@ function _v235ApplyRenames() {
 }
 // The list as it will be with one more rename - read fresh (a few hundred
 // bytes), newest kept, so two admin tabs cannot drop each other's entries.
+// V25: an entry older than 31 days is dropped - no saved copy is that old
+const _V25_RENAMES_KEEP_MS = 31 * 86400000;
+function _v25Recent(list, at) { return list.filter(function (r) { return (at - r.at) <= _V25_RENAMES_KEEP_MS; }); }
 async function _v235RenamesWithNew(kind, from, to, at) {
   const snap = await fbRef('config/renames').once('value');
-  const list = _v235NormRenames(snap.val());
+  const list = _v25Recent(_v235NormRenames(snap.val()), at);
   list.push({ kind: kind, from: from, to: to, at: at });
   return list.slice(-_V235_RENAMES_MAX);
 }
@@ -13228,6 +13229,459 @@ async function _v235RecordRename(kind, from, to) {
   } catch (e) {
     console.warn('[V23.5] rename not added to the list for donors/team leaders:', e && e.message);
   }
+}
+
+// ── V25: A LIVELIHOOD RENAME REACHES EVERY PLACE THE NAME IS KEPT ─────────────
+// A livelihood name sits in more than one place on a household: its list of
+// interventions, the sources of each income entry, the deleted entries kept
+// for undo (V24.5) and the two endline undo copies. The Rename button changed
+// the list only, so income entries kept the old name. _v25LivRenameRec is now
+// the one rule for all of them, used by the office write, the audit's Fix and
+// the saved copies partners, donors and team leaders hold - so all agree.
+// Returns a NEW record, or null when the household does not carry the name.
+// ⛔ The baseline "sources of livelihood" (b.sources: Farming, Animal
+// Husbandry, Daily Labour ...) are a different, fixed list and are never
+// touched - "Animal Husbandry" there is on 12,000 households and is not a
+// livelihood intervention.
+function _v25SwapIn(arr, from, to) {
+  if (!Array.isArray(arr) || arr.indexOf(from) < 0) return null;
+  const out = [];
+  let seenTo = false;
+  for (const x of arr) {
+    const y = (x === from) ? to : x;
+    if (y === to) { if (seenTo) continue; seenTo = true; }   // two names joined: kept once
+    out.push(y);
+  }
+  return out;
+}
+function _v25SwapLog(log, from, to) {
+  if (!Array.isArray(log)) return null;
+  let out = null;
+  for (let i = 0; i < log.length; i++) {
+    const e = log[i];
+    const s = (e && typeof e === 'object') ? _v25SwapIn(e.sources, from, to) : null;
+    if (!s) continue;
+    if (!out) out = log.slice();
+    out[i] = Object.assign({}, e, { sources: s });
+  }
+  return out;
+}
+const _V25_SNAPS = ['_preBulkEndlineSnapshot', '_revertedEndline'];
+function _v25LivRenameRec(b, from, to) {
+  if (!b || typeof b !== 'object' || !from || !to || from === to) return null;
+  let nb = null;
+  const own = function () { if (!nb) nb = Object.assign({}, b); return nb; };
+  const iv = _v25SwapIn(b.interventions, from, to);
+  if (iv) own().interventions = iv;
+  const lg = _v25SwapLog(b.incomeLog, from, to);
+  if (lg) own().incomeLog = lg;
+  const dl = _v25SwapLog(b._v245DeletedIncome, from, to);
+  if (dl) own()._v245DeletedIncome = dl;
+  for (const k of _V25_SNAPS) {
+    const snap = b[k];
+    const sl = (snap && typeof snap === 'object') ? _v25SwapLog(snap.incomeLog, from, to) : null;
+    if (sl) own()[k] = Object.assign({}, snap, { incomeLog: sl });
+  }
+  return nb;
+}
+// Every livelihood name a household carries, in any of those places.
+function _v25LivNames(b, out) {
+  out = out || new Set();
+  if (!b || typeof b !== 'object') return out;
+  const add = function (arr) { if (Array.isArray(arr)) for (const x of arr) if (x && typeof x === 'string' && x !== 'Advocacy (Govt. Schemes)') out.add(x); };
+  const addLog = function (log) { if (Array.isArray(log)) for (const e of log) if (e && typeof e === 'object') add(e.sources); };
+  add(b.interventions);
+  addLog(b.incomeLog);
+  addLog(b._v245DeletedIncome);
+  for (const k of _V25_SNAPS) if (b[k] && typeof b[k] === 'object') addLog(b[k].incomeLog);
+  return out;
+}
+
+// Several renames to one name, added to config/renames in ONE read and ONE
+// write. ⛔ Written BEFORE the households, so every household rewritten is
+// stamped later than the rename, and only an older saved copy is renamed on
+// a device. Unlike _v235RecordRename this answers whether it worked: the
+// Fix stops when it did not, because partners, donors and team leaders would
+// otherwise keep the old name.
+async function _v25RecordRenames(kind, froms, to) {
+  try {
+    if (!FB || !FB.db || !FB.online) return false;
+    // a millisecond early, so no record changed after it can share its time
+    const at = ((typeof _v19ServerNow === 'function') ? _v19ServerNow() : Date.now()) - 1;
+    let ok = false;
+    await Promise.race([
+      (async function () {
+        const snap = await fbRef('config/renames').once('value');
+        const list = _v25Recent(_v235NormRenames(snap.val()), at);
+        froms.forEach(function (f) { if (f && f !== to) list.push({ kind: kind, from: f, to: to, at: at }); });
+        const out = list.slice(-_V235_RENAMES_MAX);
+        await fbRef('config/renames').set(out);
+        _v235AdoptRenames(out);
+        ok = true;
+      })(),
+      new Promise(function (_, rej) { setTimeout(function () { rej(new Error('timed out')); }, 8000); })
+    ]);
+    return ok;
+  } catch (e) {
+    console.warn('[V25] rename list not written:', e && e.message);
+    return false;
+  }
+}
+
+// ⛔ EACH HOUSEHOLD IS CHANGED IN ONE STEP ON THE DATABASE.
+// The Rename button used to save from this screen's copy, and a copy older than
+// the database writes a coordinator's newer work away (proved 2 Oct); it also
+// wrote back a household deleted meanwhile. Each household is now changed by a
+// database transaction: the database hands over what it holds this moment, the
+// name is changed on THAT, and if anybody saves the household in between, the
+// database refuses and the change is made again on the newer version. So no
+// save is lost however long a rename runs, and a deleted household stays
+// deleted. Cost: the household once (~1 KB), admin only, once per rename.
+// A household that did not answer is left as it is and counted, so pressing
+// Fix again finishes it.
+async function _v25WriteLivRename(froms, to, ids) {
+  const res = { changed: 0, failed: 0, gone: 0, error: null };
+  const u = (typeof currentUser === 'function') ? currentUser() : null;
+  const who = u ? (u.username || u.userId || 'admin') : 'admin';
+  const queue = ids.slice();
+  const one = async function (id) {
+    let r = null;
+    FB.pendingWrites++;
+    window._v247WriteSeq = (window._v247WriteSeq || 0) + 1;   // V24.7: see _v247QuietForSwap
+    try {
+      r = await Promise.race([
+        fbRef('beneficiaries/' + id).transaction(function (cur) {
+          // ⛔ The first call gets what THIS device holds for the path -
+          // nothing. Returning undefined would abort for good, so null is
+          // returned and the database answers with what it really holds.
+          if (cur == null) return null;
+          if (typeof cur !== 'object') return;   // not a household: abort, nothing written
+          let nb = cur, touched = false;
+          for (const f of froms) { const x = _v25LivRenameRec(nb, f, to); if (x) { nb = x; touched = true; } }
+          if (!touched) return;   // the name is no longer there: abort, nothing written
+          return Object.assign({}, nb, {
+            _lastEditedAt: (typeof _v19ServerNow === 'function') ? _v19ServerNow() : Date.now(),
+            _lastEditedBy: who
+          });
+        }, undefined, false),
+        new Promise(function (r2) { setTimeout(function () { r2(null); }, 15000); })
+      ]);
+    } catch (e) { r = null; res.error = e; }
+    finally { FB.pendingWrites--; }
+    if (!r) { res.failed++; return; }
+    if (!r.committed) return;   // nothing to change
+    let v = null;
+    try { v = r.snapshot ? r.snapshot.val() : null; } catch (_) { v = null; }
+    if (!v || typeof v !== 'object') { res.gone++; return; }
+    if (!v.id) v.id = id;
+    // the screen's copy and its saved-records memory move together
+    RecordCache.benef.set(id, v);
+    if (!FB.lastBenef) FB.lastBenef = {};
+    FB.lastBenef[id] = fbHash(v);
+    res.changed++;
+  };
+  const workers = [];
+  for (let k = 0; k < 8; k++) workers.push((async function () { while (queue.length) await one(queue.shift()); })());
+  await Promise.all(workers);
+  try { fbUpdatePill(); } catch (_) {}
+  if (res.changed) {
+    try { if (typeof _v367InvalidateIndex === 'function') _v367InvalidateIndex(); } catch (_) {}
+    try { if (typeof _v357DataVersion !== 'undefined') _v357DataVersion = (_v357DataVersion || 0) + 1; } catch (_) {}
+    try { if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache(); } catch (_) {}
+    try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch (_) {}
+  }
+  return res;
+}
+
+// ── V25: A SCHEME NAME CHANGES ON THE DATABASE'S COPY OF EACH RECORD ───────
+// The scheme audit's Fix and the scheme Rename button saved this screen's copy
+// of every scheme record carrying the name. A record a coordinator changed
+// after this screen loaded (a status, a benefit) was put back to the older
+// version, and a record deleted meanwhile came back. Each record is now
+// changed by a database transaction, exactly as livelihood names are: the
+// database hands over what it holds, the name is changed on THAT, and a save
+// made in between makes the database ask again. Cost: each record it changes,
+// once (~1 KB), admin only.
+function _v25AdvLoaded() {
+  if (FB && FB.advReplayComplete && !FB.advCachePartial) return true;
+  toast('The scheme records are still loading. Please wait until they have all loaded, then try again. Nothing was changed.', 'error', 7000);
+  return false;
+}
+function _v25SchemeKeys(name) {
+  const keys = [];
+  RecordCache.adv.forEach(function (a, k) {
+    if (a && Array.isArray(a.schemeRows) && a.schemeRows.some(function (r) { return r && r.scheme === name; })) keys.push(k);
+  });
+  return keys;
+}
+async function _v25WriteSchemeRename(oldName, newName, keys) {
+  const res = { records: 0, rows: 0, failed: 0, gone: 0 };
+  const u = (typeof currentUser === 'function') ? currentUser() : null;
+  const who = u ? (u.username || u.userId || 'admin') : 'admin';
+  const queue = keys.slice();
+  const one = async function (key) {
+    let r = null, rows = 0;
+    FB.pendingWrites++;
+    window._v247WriteSeq = (window._v247WriteSeq || 0) + 1;   // V24.7: see _v247QuietForSwap
+    try {
+      r = await Promise.race([
+        fbRef('advocacy/' + key).transaction(function (cur) {
+          // the first call gets what this device holds for the path - nothing
+          if (cur == null) return null;
+          if (typeof cur !== 'object' || !Array.isArray(cur.schemeRows)) return;   // abort
+          rows = 0;
+          const next = cur.schemeRows.map(function (row) {
+            if (row && row.scheme === oldName) { rows++; return Object.assign({}, row, { scheme: newName }); }
+            return row;
+          });
+          if (!rows) return;   // the name is no longer there: abort, nothing written
+          return Object.assign({}, cur, {
+            schemeRows: next,
+            _lastEditedAt: (typeof _v19ServerNow === 'function') ? _v19ServerNow() : Date.now(),
+            _lastEditedBy: who
+          });
+        }, undefined, false),
+        new Promise(function (r2) { setTimeout(function () { r2(null); }, 15000); })
+      ]);
+    } catch (e) { r = null; }
+    finally { FB.pendingWrites--; }
+    if (!r) { res.failed++; return; }
+    if (!r.committed) return;
+    let v = null;
+    try { v = r.snapshot ? r.snapshot.val() : null; } catch (_) { v = null; }
+    if (!v || typeof v !== 'object') { res.gone++; return; }
+    if (!v.__fbk) v.__fbk = key;
+    // the screen's copy and its saved-records memory move together
+    RecordCache.adv.set(key, v);
+    if (!FB.lastAdv) FB.lastAdv = {};
+    FB.lastAdv[key] = fbHash(v);
+    res.records++;
+    res.rows += rows;
+  };
+  const workers = [];
+  for (let k = 0; k < 8; k++) workers.push((async function () { while (queue.length) await one(queue.shift()); })());
+  await Promise.all(workers);
+  try { fbUpdatePill(); } catch (_) {}
+  if (res.records) {
+    try { if (typeof _v357DataVersion !== 'undefined') _v357DataVersion = (_v357DataVersion || 0) + 1; } catch (_) {}
+    try { if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache(); } catch (_) {}
+    try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch (_) {}
+  }
+  return res;
+}
+
+// The one way a livelihood name changes on households: the Rename button and
+// the audit's Fix both come here. List first, then the households.
+async function _v25RunLivRename(froms, to, why, listDone) {
+  froms = froms.filter(function (f) { return f && f !== to; });
+  if (!froms.length) return null;
+  if (!FB || !FB.db || !FB.online) {
+    toast('You are offline. Nothing was changed - please try again when connected.', 'error', 6000);
+    return null;
+  }
+  if (!_v25AllLoaded()) return null;
+  const want = new Set(froms);
+  const ids = [];
+  _readCacheDirect().forEach(function (b) {
+    if (!b || !b.id) return;
+    for (const n of _v25LivNames(b)) if (want.has(n)) { ids.push(b.id); return; }
+  });
+  if (!listDone && !(await _v25RecordRenames('liv', froms, to))) {
+    toast('Could not reach the database to record the new name. Nothing was changed - please try again.', 'error', 7000);
+    return null;
+  }
+  if (ids.length) toast('Updating ' + ids.length.toLocaleString('en-IN') + ' household' + (ids.length === 1 ? '' : 's') + '...', '', 4000);
+  const res = ids.length ? await _v25WriteLivRename(froms, to, ids) : { changed: 0, failed: 0, gone: 0, error: null };
+  const fromTxt = froms.length === 1 ? '"' + froms[0] + '"' : froms.length + ' names';
+  try {
+    auditLog('update', 'livelihood_type', to, to,
+      (why || 'Livelihood name changed') + ': ' + froms.map(function (f) { return '"' + f + '"'; }).join(', ') + ' -> "' + to + '"'
+        + ' on ' + res.changed + ' household' + (res.changed === 1 ? '' : 's')
+        + (res.failed ? ' (' + res.failed + ' not reached)' : ''),
+      { name: [froms.join(' | '), to] });
+  } catch (_) {}
+  if (res.failed) {
+    toast(fromTxt + ' -> "' + to + '": ' + res.changed + ' updated, ' + res.failed + ' could not be reached. Please press it again to finish them.', 'error', 9000);
+  } else {
+    toast(fromTxt + ' -> "' + to + '"' + (res.changed ? ' (updated ' + res.changed + ' household' + (res.changed === 1 ? '' : 's') + ')' : ''), 'success', 5000);
+  }
+  return res;
+}
+
+// ── V25: Livelihood Name Audit ───────────────────────────────────────────────
+// Every livelihood name on a household that is not on the official list - names
+// typed in the form's "Other" box, other spellings, old names. Opening it only
+// reads what this screen already holds; nothing changes until Fix is confirmed.
+// The audit and a rename look at this screen's copy, so it must hold every
+// household first (the partner-move tools wait the same way).
+function _v25AllLoaded() {
+  if (FB && FB.benefReplayComplete && !FB.benefCachePartial) return true;
+  toast('The households are still loading. Please wait until they have all loaded, then try again. Nothing was changed.', 'error', 7000);
+  return false;
+}
+function _v25LivNorm(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ''); }
+function _v25LivAuditScan() {
+  const types = getLivTypes();
+  const official = new Set(types);
+  const byNorm = {};
+  types.forEach(function (t) { byNorm[_v25LivNorm(t)] = t; });
+  // an old name the office already renamed: follow the list to today's name
+  const renames = _v235Renames().filter(function (r) { return r.kind === 'liv'; });
+  const follow = function (n) {
+    let cur = n;
+    for (let hop = 0; hop < 20 && !official.has(cur); hop++) {
+      let next = null;
+      for (const r of renames) if (r.from === cur) next = r.to;
+      if (!next || next === cur) break;
+      cur = next;
+    }
+    return official.has(cur) ? cur : null;
+  };
+  const tally = new Map();
+  _readCacheDirect().forEach(function (b) {
+    if (!b) return;
+    for (const n of _v25LivNames(b)) {
+      if (official.has(n)) continue;
+      let t = tally.get(n);
+      if (!t) { t = { name: n, hh: 0, ngos: new Map() }; tally.set(n, t); }
+      t.hh++;
+      const p = b.ngo || '—';
+      t.ngos.set(p, (t.ngos.get(p) || 0) + 1);
+    }
+  });
+  return Array.from(tally.values()).map(function (t) {
+    const ngos = Array.from(t.ngos.entries()).sort(function (a, b) { return b[1] - a[1]; });
+    return { name: t.name, hh: t.hh, ngo: ngos.length ? ngos[0][0] : '—', more: Math.max(0, ngos.length - 1),
+             suggested: follow(t.name) || byNorm[_v25LivNorm(t.name)] || '' };
+  }).sort(function (a, b) { return b.hh - a.hh || a.name.localeCompare(b.name); });
+}
+function adminAuditLivNames() {
+  if (!_v25AllLoaded()) return;
+  const rows = _v25LivAuditScan();
+  window._v25LivAudit = rows;
+  document.querySelectorAll('[data-v25-liv-audit]').forEach(function (el) { el.remove(); });
+  const types = getLivTypes();
+  const esc = function (v) { return escHtml(String(v == null ? '' : v)); };
+  const opts = function (pick) {
+    return '<option value="">— pick a type —</option>' + types.map(function (t) {
+      return '<option value="' + esc(t) + '"' + (t === pick ? ' selected' : '') + '>' + esc(t) + '</option>';
+    }).join('');
+  };
+  const total = rows.reduce(function (s, r) { return s + r.hh; }, 0);
+  const body = rows.length ? rows.map(function (r, i) {
+    return '<tr>'
+      + '<td style="padding:7px 8px;text-align:center"><input type="checkbox" data-v25a-pick="' + i + '" checked aria-label="Select ' + esc(r.name) + '"></td>'
+      + '<td style="padding:7px 8px;font-size:12.5px;color:var(--red);word-break:break-word">' + esc(r.name) + '</td>'
+      + '<td style="padding:7px 8px;text-align:center;font-size:12.5px">' + r.hh.toLocaleString('en-IN') + '</td>'
+      + '<td style="padding:7px 8px;font-size:12px;color:var(--gray)">' + esc(r.ngo) + (r.more ? ' <span style="color:var(--gray2)">+' + r.more + '</span>' : '') + '</td>'
+      + '<td style="padding:7px 8px;white-space:nowrap">'
+      +   (r.suggested ? '<span style="color:var(--green);font-size:11px;display:block">Auto-matched</span>' : '')
+      +   '<select data-v25a-to="' + i + '" style="padding:4px 6px;border:1px solid var(--gray3);border-radius:5px;font-size:12px;font-family:var(--font);max-width:190px">' + opts(r.suggested) + '</select>'
+      + '</td>'
+      + '<td style="padding:7px 8px;text-align:right;white-space:nowrap">'
+      +   '<button class="btn btn-sm btn-primary" data-v25a-fix="' + i + '">Fix</button> '
+      +   '<button class="btn btn-sm" data-v25a-official="' + i + '" title="Add this name to the official list as it is. Nothing on the households changes; you can rename it later from the Livelihood Types list and the new name reaches every household.">Make official</button>'
+      + '</td></tr>';
+  }).join('') : '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--green);font-size:12.5px">Every livelihood name on households is on the official list.</td></tr>';
+  const overlay = document.createElement('div');
+  overlay.setAttribute('data-v25-liv-audit', '1');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(17,24,39,0.55);z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px;font-family:var(--font)';
+  overlay.innerHTML = '<div style="background:#fff;border-radius:10px;max-width:880px;width:100%;max-height:86vh;display:flex;flex-direction:column;box-shadow:0 12px 32px rgba(0,0,0,0.25);overflow:hidden">'
+    + '<div style="padding:16px 20px 10px;border-bottom:1px solid var(--gray3)">'
+    +   '<div style="font-weight:700;font-size:15px;color:var(--text)">Livelihood Name Audit</div>'
+    +   '<div style="font-size:12px;color:var(--gray2);margin-top:3px;line-height:1.5">Livelihood names on households that are not on your official list'
+    +   (rows.length ? ' - ' + rows.length + ' name' + (rows.length === 1 ? '' : 's') + ' on ' + total.toLocaleString('en-IN') + ' household entr' + (total === 1 ? 'y' : 'ies') : '')
+    +   '. <b>Fix</b> changes the name on those households and in their income entries; partners, team leaders and donors see the new name too. <b>Make official</b> adds the name to the list as it is - rename it later from the list and it changes everywhere.</div>'
+    + '</div>'
+    + '<div style="padding:10px 20px;overflow:auto;flex:1">'
+    +   '<table style="width:100%;border-collapse:collapse;font-size:12.5px;min-width:640px">'
+    +   '<thead><tr style="border-bottom:1px solid var(--gray3);text-align:left">'
+    +     '<th style="padding:6px 8px;width:30px;text-align:center"><input type="checkbox" data-v25a-all checked aria-label="Select all"></th>'
+    +     '<th style="padding:6px 8px;font-size:11px;color:var(--gray2)">Name on households</th>'
+    +     '<th style="padding:6px 8px;font-size:11px;color:var(--gray2);text-align:center">Households</th>'
+    +     '<th style="padding:6px 8px;font-size:11px;color:var(--gray2)">Partner</th>'
+    +     '<th style="padding:6px 8px;font-size:11px;color:var(--gray2)">Fix to</th><th></th>'
+    +   '</tr></thead><tbody>' + body + '</tbody></table>'
+    + '</div>'
+    + '<div style="display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;background:#F9FAFB;border-top:1px solid var(--gray3);flex-wrap:wrap">'
+    +   (rows.length ? '<button class="btn btn-sm btn-primary" data-v25a-fixall>Fix all selected</button>' : '')
+    +   '<button class="btn btn-sm" data-v25a-close>Close</button>'
+    + '</div></div>';
+  document.body.appendChild(overlay);
+  const close = function () { try { overlay.remove(); } catch (_) {} };
+  overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+  overlay.querySelector('[data-v25a-close]').onclick = close;
+  const all = overlay.querySelector('[data-v25a-all]');
+  if (all) all.onchange = function () { overlay.querySelectorAll('[data-v25a-pick]').forEach(function (c) { c.checked = all.checked; }); };
+  const target = function (i) { const s = overlay.querySelector('[data-v25a-to="' + i + '"]'); return s ? s.value : ''; };
+  overlay.querySelectorAll('[data-v25a-fix]').forEach(function (btn) {
+    btn.onclick = function () {
+      const i = Number(btn.getAttribute('data-v25a-fix'));
+      const to = target(i);
+      if (!to) { toast('Pick the official type first.', 'error'); return; }
+      _v25AuditFix([[rows[i].name, to, rows[i].hh]], close);
+    };
+  });
+  overlay.querySelectorAll('[data-v25a-official]').forEach(function (btn) {
+    btn.onclick = function () { const i = Number(btn.getAttribute('data-v25a-official')); _v25MakeOfficial(rows[i].name, close); };
+  });
+  const fixAll = overlay.querySelector('[data-v25a-fixall]');
+  if (fixAll) fixAll.onclick = function () {
+    const picks = [], missing = [];
+    overlay.querySelectorAll('[data-v25a-pick]').forEach(function (c) {
+      if (!c.checked) return;
+      const i = Number(c.getAttribute('data-v25a-pick'));
+      const to = target(i);
+      if (to) picks.push([rows[i].name, to, rows[i].hh]); else missing.push(rows[i].name);
+    });
+    if (missing.length) { toast('Pick an official type for every selected name first (' + missing.length + ' without one).', 'error', 6000); return; }
+    if (!picks.length) { toast('Select at least one name.', 'error'); return; }
+    _v25AuditFix(picks, close);
+  };
+}
+async function _v25AuditFix(picks, close) {
+  const hh = picks.reduce(function (s, p) { return s + p[2]; }, 0);
+  const groups = new Map();
+  picks.forEach(function (p) { const g = groups.get(p[1]) || []; g.push(p[0]); groups.set(p[1], g); });
+  const lines = Array.from(groups.entries()).map(function (g) {
+    return (g[1].length === 1 ? '"' + g[1][0] + '"' : g[1].length + ' names') + ' -> "' + g[0] + '"';
+  }).join('\n');
+  const ok = await showConfirmModal(
+    'Change these livelihood names on about ' + hh.toLocaleString('en-IN') + ' household' + (hh === 1 ? '' : 's') + '?\n\n' + lines
+      + '\n\nTheir income entries change too, and partners, team leaders and donors see the new name. Each household is changed in one step on the database, so a save made meanwhile is kept.',
+    { okLabel: 'Fix now', title: 'Fix livelihood names' });
+  if (!ok) return;
+  if (!(await _v236LivFresh())) return;
+  const official = new Set(getLivTypes());
+  for (const [to] of groups) {
+    if (!official.has(to)) { toast('"' + to + '" is no longer on the official list. Nothing was changed.', 'error', 6000); return; }
+  }
+  try { close(); } catch (_) {}
+  for (const [to, froms] of groups) await _v25RunLivRename(froms, to, 'Livelihood name audit');
+  try { renderCurrentView(); } catch (_) {}
+  setTimeout(function () { adminAuditLivNames(); }, 150);
+}
+async function _v25MakeOfficial(name, close) {
+  if (!(await _v236LivFresh())) return;
+  if (_v235BarRefused(name)) return;
+  if (String(name).trim().toLowerCase() === 'other') {
+    toast('"Other" is the name of the free-text option on the enrolment form - please Fix it to a type instead.', 'error', 6000);
+    return;
+  }
+  const types = getLivTypes();
+  const same = types.find(function (t) { return t.toLowerCase() === String(name).toLowerCase(); });
+  if (same) { toast('"' + same + '" is already on the list - use Fix to change these households to it.', 'error', 6000); return; }
+  const ok = await showConfirmModal('Add "' + name + '" to the official livelihood list as it is?\n\nNothing on the households changes. You can rename it later from the Livelihood Types list, and the new name will reach every household.',
+    { okLabel: 'Add to list', title: 'Make official' });
+  if (!ok) return;
+  types.push(name);
+  const saved = await saveLivTypes(types);
+  if (saved === false) { toast('Could not save the list to the database. Please try again.', 'error', 6000); return; }
+  auditLog('create', 'livelihood_type', name, name, 'Added livelihood type from the audit: ' + name, null);
+  toast('Added to the list: ' + name, 'success');
+  try { close(); } catch (_) {}
+  try { renderCurrentView(); } catch (_) {}
+  setTimeout(function () { adminAuditLivNames(); }, 150);
 }
 
 // ⛔ V23.6: A LIVELIHOOD BUTTON ON AN OUT-OF-DATE TAB PUT THE OLD LIST BACK.
@@ -15000,6 +15454,30 @@ function onStateChange() {
 }
 
 function onDistrictChange() { /* taluka/village remain free-text — nothing to cascade */ }
+
+// ── V25: THE STATE STARTS ON THE PARTNER'S STATE ────────────────────────────
+// Guru, 3 Oct: a coordinator picked the same state on every enrolment. When the
+// partner has exactly ONE state it is filled in, with its districts loaded,
+// and can still be changed. A partner with two or more states keeps the empty
+// pick, as before. A NEW enrolment only, a coordinator or partner login only
+// (their partner is fixed; admin picks any partner), and never over a state
+// already on the form - a family member takes the head's state after this.
+// Reads the partner list already on the device: nothing is downloaded.
+function _v25DefaultState() {
+  try {
+    if (editingId) return;
+    const u = (typeof currentUser === 'function') ? currentUser() : null;
+    if (!u || (u.role !== 'coordinator' && u.role !== 'ngo') || !u.ngo) return;
+    const el = document.getElementById('f-state');
+    if (!el || el.value) return;
+    const p = (loadPartners() || []).find(x => x && x.name === u.ngo);
+    const states = p ? _partnerStatesFrom(p) : [];
+    if (states.length !== 1) return;
+    el.value = states[0];
+    if (el.value !== states[0]) return;   // not on this form's list: leave it empty
+    onStateChange();
+  } catch (e) { console.warn('[V25] state not filled in:', e && e.message); }
+}
 
 // Build the composite district string stored in data: "DistrictName, StateName"
 function getDistrictValue() {
@@ -16861,6 +17339,7 @@ function openEnroll() {
   // V4.1: ensure Section 2 title resets to "Programme" (not "Programme Planning")
   _checkProgrammePlanning();
   _applyEnrollFieldLocks();
+  _v25DefaultState();   // V25: one state on the partner = filled in
   // Apply current language to the enroll modal (and its just-injected dynamic
   // chips, scheme rows, district placeholder). Safe no-op in English.
   try { _applyLanguage(document.getElementById('enroll-overlay')); } catch(_){}
@@ -17030,6 +17509,11 @@ function openEnrollAsFamilyMember(headId) {
       // Verify it actually stuck (browsers reject select.value if the
       // option isn't present).
       if (stateEl.value === headState) _pushFilled('State', headState);
+    } else if (stateEl && stateEl.value) {
+      // V25: empty, as before V25 - not the partner's state, which the
+      // family lock below would lock
+      stateEl.value = '';
+      if (typeof onStateChange === 'function') onStateChange();
     }
     const headDistrict = recoverHeadDistrict(actualHead, headState);
     if (distEl && headDistrict) {
@@ -25022,7 +25506,7 @@ function adminAuditSchemeNames() {
       if (!r || !r.scheme || schemeSet.has(r.scheme)) return; // canonical — not our concern
       const t = tally[r.scheme] || (tally[r.scheme] = { rows: 0, benefitsReceived: 0 });
       t.rows++;
-      if (r.status === 'Benefits Received') t.benefitsReceived++;
+      if (_advNormStatus(r) === 'Benefits Received') t.benefitsReceived++;   // V25: was always 0
     });
   });
 
@@ -25040,7 +25524,7 @@ function adminAuditSchemeNames() {
   // amount configured — those rows silently contribute ₹0 too.
   const unconfigured = schemes.filter(s => {
     if (getSchemeDefaultAmount(s) > 0) return false;
-    return adv.some(rec => (rec.schemeRows||[]).some(r => r && r.scheme === s && r.status === 'Benefits Received'));
+    return adv.some(rec => (rec.schemeRows||[]).some(r => r && r.scheme === s && _advNormStatus(r) === 'Benefits Received'));   // V25
   });
 
   window._schemeAuditReport = { legacy, unconfigured, totalAdvRecords: adv.length };
@@ -25135,36 +25619,32 @@ function _renderSchemeAuditModal(report) {
 // didn't know about.
 async function adminFixLegacySchemeName(oldName, newName) {
   const ok = await showConfirmModal(
-    `Rename every advocacy record using "${oldName}" to "${newName}"?\n\nThis updates the underlying data, not just the schemes list — it cannot be undone from here.`,
+    `Rename every advocacy record using "${oldName}" to "${newName}"?\n\nThis updates the underlying data, not just the schemes list — it cannot be undone from here. Each record is changed in one step on the database, so a change made meanwhile is kept.`,
     { okLabel: 'Fix now', title: 'Fix legacy scheme name' });
   if (!ok) return;
-  const adv = loadAdv();
-  const changedRecs = [];
-  adv.forEach(rec => {
-    let recChanged = false;
-    (rec.schemeRows || []).forEach(r => {
-      if (r && r.scheme === oldName) { r.scheme = newName; recChanged = true; }
-    });
-    if (recChanged) changedRecs.push(rec);
-  });
-  if (!changedRecs.length) { toast('Nothing to fix — no matching rows found.', ''); return; }
-  const stampedChanged = changedRecs.map(fbStampAdvKey);
-  const cacheSet = rec => { if (rec && rec.__fbk) RecordCache.adv.set(rec.__fbk, rec); };
-  try {
-    const n = await fbWriteChangedRecords('advocacy', stampedChanged, '__fbk', 'lastAdv', cacheSet);
-    if (n > 0) {
-      auditLog('migration', 'advocacy', 'batch',
-        'Admin scheme-name fix',
-        `Renamed legacy scheme name "${oldName}" → "${newName}" on ${n} advocacy record(s)`,
-        null);
-      try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
-      toast(`Fixed: "${oldName}" → "${newName}" (${n} row${n===1?'':'s'})`, 'success');
-      try { renderCurrentView(); } catch(_){}
-      setTimeout(() => adminAuditSchemeNames(), 150); // re-run so the list reflects the fix
-    }
-  } catch (e) {
-    toast('Fix failed: ' + (e && e.message || e), 'error', 6000);
+  if (!FB || !FB.db || !FB.online) { toast('You are offline. Nothing was changed - please try again when connected.', 'error', 6000); return; }
+  if (!_v25AdvLoaded()) return;
+  const keys = _v25SchemeKeys(oldName);
+  if (!keys.length) { toast('Nothing to fix — no matching rows found.', ''); return; }
+  // V25: on the rename list FIRST (donors, team leaders and partners read it),
+  // and nothing is changed when it cannot be written
+  if (!(await _v25RecordRenames('scheme', [oldName], newName))) {
+    toast('Could not reach the database to record the new name. Nothing was changed - please try again.', 'error', 7000);
+    return;
   }
+  toast('Updating ' + keys.length.toLocaleString('en-IN') + ' scheme record' + (keys.length === 1 ? '' : 's') + '...', '', 4000);
+  const res = await _v25WriteSchemeRename(oldName, newName, keys);
+  auditLog('migration', 'advocacy', 'batch',
+    'Admin scheme-name fix',
+    `Renamed legacy scheme name "${oldName}" → "${newName}" on ${res.records} advocacy record(s)` + (res.failed ? ` (${res.failed} not reached)` : ''),
+    null);
+  if (res.failed) {
+    toast(`"${oldName}" → "${newName}": ${res.rows} row${res.rows === 1 ? '' : 's'} fixed, ${res.failed} record${res.failed === 1 ? '' : 's'} could not be reached. Please press Fix again to finish them.`, 'error', 9000);
+  } else {
+    toast(`Fixed: "${oldName}" → "${newName}" (${res.rows} row${res.rows === 1 ? '' : 's'})`, 'success');
+  }
+  try { renderCurrentView(); } catch(_){}
+  setTimeout(() => adminAuditSchemeNames(), 150); // re-run so the list reflects the fix
 }
 
 // ── PATCH 2: All Beneficiaries view (master list with multi-select delete) ─
@@ -28582,7 +29062,7 @@ function _v216ZeroRowOk(u, scope) {
 // control re-renders into a cache HIT — the click appears to do nothing at all.
 // The same bug had to be fixed once already, for rptTab itself.
 let rptFcSort = 1, rptFcDir = -1;      // default: Surveyed (V24.6; was Enrollments), descending
-let rptNgoSort = 2, rptNgoDir = -1;    // default: Enrollments, descending
+let rptNgoSort = 1, rptNgoDir = -1;    // default: Surveyed, descending (V25; was Enrollments)
 let rptNgoMode = 'raw';                // 'raw' | 'pfc'
 
 // V12: one stable comparator for both tables. The index tiebreak matters —
@@ -29021,7 +29501,25 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs, ceilMs) {
       const _byName = fcByName.get(b.coord);
       if (_byName && !(_byName.u && _v215Inactive(_byName.u))) a = _byName;
     }
-    if (!a) return;
+    if (!a) {
+      // V25: no coordinator - the livelihood work goes to the partner's
+      // office row, by the same three rules as below, so every livelihood
+      // total on Reports agrees. Nothing else is counted for the office.
+      if (!(b.interventions || []).some(i => i && i !== ADVI)) return;
+      const o = _v187OfficeFor(b.ngo);
+      o.livelihood++;
+      if (inWin(b.enrollDate)) o.livelihoodWin++;
+      const _st25 = _v174Stage(b);
+      if (_st25 === 'Intervention In Progress' || _st25 === 'Completed') {
+        o.intervention++;
+        if (inWin(b.inProgressDate)) o.interventionWin++;
+      }
+      if (_v19HasEndline(b)) {
+        o.endline++;
+        if (inWin(b.endlineDate)) o.endlineWin++;
+      }
+      return;
+    }
     a.tot++;
     if (inWin(b.enrollDate)) a.enrolledWin++;
     // V12: livelihood = at least one REAL intervention. The Advocacy pseudo-
@@ -29215,7 +29713,7 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs, ceilMs) {
   // V24.6: the leaderboard's office rows now include entries still at "Need to
   // Apply", because Surveyed counts them. officeRows itself is unchanged: the
   // partner table below is built from it.
-  const officeAll = Array.from(_v187OfficeByNgo.values()).filter(a => a.surveyed > 0);
+  const officeAll = Array.from(_v187OfficeByNgo.values()).filter(a => a.surveyed > 0 || a.livelihood > 0);   // V25: + livelihood
   if (benefitsFellBack) fcList.concat(officeRows)
     .forEach(a => { a.benefitsWin = a.benefits; });
 
@@ -29510,14 +30008,14 @@ function _rptRenderFc(A, nowMs, rowScope) {
   // the figure above it with nothing on screen to explain the difference.
   // Guru asked for it by name: "Recorded by office staff".
   const officeTr = (A.officeAll || A.officeRows || []).map(a => `<tr
-      style="background:var(--gray4)" title="Scheme work saved by an admin or partner login rather than by a field coordinator. It counts in the totals above; it simply belongs to no one coordinator.">
+      style="background:var(--gray4)" title="Scheme work saved by an admin or partner login, and households enrolled by one, rather than by a field coordinator. It counts in the totals above; it simply belongs to no one coordinator.">
       <td><div class="rpt-person"><span class="rpt-av" style="background:var(--gray2)">\u2699</span><span><span class="rpt-pname" style="font-style:italic">Recorded by office staff</span><span class="rpt-psub">${esc(a.u.ngo || '\u2014')}</span></span></div></td>
       <td class="rpt-strong">${a.advWin.toLocaleString('en-IN')}</td>
       <td>${a.appliedWin.toLocaleString('en-IN')}</td>
       <td>${a.benefitsWin.toLocaleString('en-IN')}</td>
-      <td>\u2014</td>
-      <td>\u2014</td>
-      <td>\u2014</td>
+      <td>${a.livelihoodWin.toLocaleString('en-IN')}</td>
+      <td>${a.interventionWin.toLocaleString('en-IN')}</td>
+      <td>${a.endlineWin.toLocaleString('en-IN')}</td>
       <td><span class="rpt-mini">\u2014</span></td>
     </tr>`).join('');
 
@@ -29783,13 +30281,13 @@ window.rptExportFc = function () {
   // columns that only mean something for a person.
   (A.officeAll || A.officeRows || []).forEach(a => rows.push([
     'Recorded by office staff', a.u.ngo || '',
-    a.advWin, a.appliedWin, a.benefitsWin, '\u2014', '\u2014', '\u2014',
+    a.advWin, a.appliedWin, a.benefitsWin, a.livelihoodWin, a.interventionWin, a.endlineWin,   // V25
     // V20.6: a dash here too. An office bucket can never carry a livelihood
     // activity - only the beneficiary pass increments that, and it has no
     // office fallback - so writing the literal 0 beside the dash in the
     // window column stated the same non-applicable measure two ways, and a
     // filter for "no livelihood work" picked this row up as a real zero.
-    a.surveyed, a.applied, a.benefits, '\u2014', '\u2014', '\u2014',
+    a.surveyed, a.applied, a.benefits, a.livelihood, a.intervention, a.endline,   // V25
     '\u2014', '',
     '\u2014'
   ]));
@@ -29816,28 +30314,22 @@ window.rptExportNgo = function () {
   if (!_rptIsFleet()) return;
   const _w212 = _v212Win();   // V21.2: month or day-window, decided in one place
   const A = _rptAggregate(filteredAll(), loadAdv(), _rptScopedUsers(), _w212.now, _w212.win, _w212.ceil);
-  const totE = (A.ngoRows || []).reduce((s, r) => s + r.enrolled, 0);
-  // Export always carries BOTH lenses, whichever the screen is showing — the
-  // per-FC average is the whole point of the tab and a spreadsheet that dropped
-  // it would need the reader to recompute it by hand.
-  const rows = _rptSortRows(A.ngoRows || [], r => r.enrolled, -1).map(r => [
-    r.ngo, r.activeFcs,
-    r.enrolled, r.applied, r.benefits, r.livelihood,
-    r.activeFcs ? Math.round((r.enrolled / r.activeFcs) * 10) / 10 : '',
-    r.activeFcs ? Math.round((r.applied / r.activeFcs) * 10) / 10 : '',
-    r.activeFcs ? Math.round((r.benefits / r.activeFcs) * 10) / 10 : '',
-    r.activeFcs ? Math.round((r.livelihood / r.activeFcs) * 10) / 10 : '',
-    r.appliedAll, r.benefitsAll, r.livelihoodAll,
-    totE ? Math.round((r.enrolled / totE) * 1000) / 10 : 0
+  // V25: the screen's rows in the screen's order - the same keys
+  const rows = _rptSortRows(_v25PartnerAgg(A), _V25_NGO_KEYS[rptNgoSort] || _V25_NGO_KEYS[1], rptNgoDir).map(r => [
+    r.ngo,
+    r.advWin, r.appliedWin, r.benefitsWin, r.livelihoodWin, r.interventionWin, r.endlineWin,
+    r.surveyed, r.applied, r.benefits, r.livelihood, r.intervention, r.endline,
+    r.last ? _istDate(r.last) : ''
   ]);
   const W = ' (' + _rptWinLabel() + ')';   // V21.2: names the month when one is chosen
   const BW = A.benefitsFellBack ? ' (all-time — no dated benefits yet)' : W;
   _rptExportRows(
-    ['NGO', 'Active FCs',
-     'Enrollments' + W, 'Schemes applied' + W, 'Benefits received' + BW, 'Livelihood' + W,
-     'Enrollments per FC' + W, 'Applied per FC' + W, 'Benefits per FC' + BW, 'Livelihood per FC' + W,
-     'Schemes applied (all-time)', 'Benefits received (all-time)', 'Livelihood (all-time)',
-     'Share of enrollments %'],
+    ['Partner',
+     'Surveyed' + W, 'Applied' + W, 'Benefits received' + BW,
+     'Livelihood enrolled' + W, 'Intervention' + W, 'Endline' + W,
+     'Surveyed (all-time)', 'Applied (all-time)', 'Benefits received (all-time)',
+     'Livelihood enrolled (all-time)', 'Intervention (all-time)', 'Endline (all-time)',
+     'Last active'],
     rows, 'partners');
 };
 
@@ -29858,45 +30350,50 @@ window.rptSchSet = function (k, v) {
   renderReports();
 };
 window.rptSchToggle = function (key) { key = decodeURIComponent(key); rptSchOpen[key] = !rptSchOpen[key]; renderReports(); };
-function _v246SchemeAgg(rows, bById, days, nowMs) {
-  const now = nowMs || Date.now(), winMs = days > 0 ? days * 86400000 : 0;
-  const inW = iso => { if (!winMs) return true; if (!iso) return false; const t = new Date(iso).getTime(); return !isNaN(t) && (now - t) <= winMs; };
-  const out = new Map();   // partner -> Map(scheme name -> [surveyed, applied, received])
+// V25: the window is the date chips at the top of Reports - the same inWin,
+// the same dates and the same all-time fallback for undated benefits as the
+// coordinator and partner tables, so a column here and there agree. The fourth
+// figure is the AMOUNT of the benefits counted, valued by the dashboard's rule
+// (_v18RowBenefit: the amount typed on the entry, else the scheme's default).
+function _v246SchemeAgg(rows, bById, A) {
+  const ALL = !A || !!A.allTime;
+  const inW = (A && typeof A.inWin === 'function') ? A.inWin : function () { return true; };
+  const fell = !!(A && A.benefitsFellBack);
+  const out = new Map();   // partner -> Map(scheme name -> [surveyed, applied, received, amount])
   (rows || []).forEach(r => {
     if (!r || r._deleted) return;
     const b = bById.get(r.__bid);
     if (!b) return;
     const st = _advNormStatus(r);
-    const sv = inW(r.__createdAt);
+    const sv = ALL || inW(r.__createdAt);
     let ap = false, rc = false;
     if (st !== 'Need to Apply') {
       const aAt = _rptStampOk(r._aAt);
-      ap = !winMs || (aAt ? inW(aAt) : sv);
-      if (st === 'Benefits Received') { const bAt = _rptStampOk(r._bAt); rc = !winMs || (!!bAt && inW(bAt)); }
+      ap = ALL || (aAt ? inW(aAt) : inW(r.__createdAt));
+      if (st === 'Benefits Received') { const bAt = _rptStampOk(r._bAt); rc = ALL || fell || (!!bAt && inW(bAt)); }
     }
     if (!sv && !ap && !rc) return;
-    const p = b.ngo || '\u2014', name = r.scheme || '\u2014';
+    const p = b.ngo || '—', name = r.scheme || '—';
     let m = out.get(p);
     if (!m) { m = new Map(); out.set(p, m); }
-    const c = m.get(name) || [0, 0, 0];
+    const c = m.get(name) || [0, 0, 0, 0];
     if (sv) c[0]++;
     if (ap) c[1]++;
-    if (rc) c[2]++;
+    if (rc) { c[2]++; c[3] += _v18RowBenefit(r); }
     m.set(name, c);
   });
   return out;
 }
+function _v25Add(t, c) { t[0] += c[0]; t[1] += c[1]; t[2] += c[2]; t[3] += c[3]; return t; }
 // one partner's (or every partner's) names folded onto the scheme list
 function _v246Fold(maps, official) {
-  const out = new Map(), other = { v: [0, 0, 0], names: new Map() };
+  const out = new Map(), other = { v: [0, 0, 0, 0], names: new Map() };
   maps.forEach(m => m.forEach((c, name) => {
     if (official.has(name)) {
-      const t = out.get(name) || [0, 0, 0];
-      t[0] += c[0]; t[1] += c[1]; t[2] += c[2]; out.set(name, t);
+      out.set(name, _v25Add(out.get(name) || [0, 0, 0, 0], c));
     } else {
-      other.v[0] += c[0]; other.v[1] += c[1]; other.v[2] += c[2];
-      const t = other.names.get(name) || [0, 0, 0];
-      t[0] += c[0]; t[1] += c[1]; t[2] += c[2]; other.names.set(name, t);
+      _v25Add(other.v, c);
+      other.names.set(name, _v25Add(other.names.get(name) || [0, 0, 0, 0], c));
     }
   }));
   return { out, other };
@@ -29908,95 +30405,89 @@ function _v246SchemeCard(A) {
   const n = v => v ? v.toLocaleString('en-IN') : '<span class="v246-zero">0</span>';
   const pct = (a, b) => b ? Math.round(a / b * 100) : 0;
   const rec = (r, sv) => `${n(r)}<span class="v246-bar" title="${pct(r, sv)}% of surveyed"><i style="width:${pct(r, sv)}%"></i></span>`;
+  const money = v => v ? `<span title="₹${Math.round(v).toLocaleString('en-IN')}">${_rptMoney(v)}</span>` : '<span class="v246-zero">—</span>';
   const official = new Set((typeof getSchemes === 'function' ? getSchemes() : []) || []);
-  const agg = _v246SchemeAgg(A.latestRows, A.bById, rptSchWin, _v19ServerNow());
+  const agg = _v246SchemeAgg(A.latestRows, A.bById, A);
   const partners = Array.from(agg.keys()).sort((a, b) => a.localeCompare(b));
   const sortList = list => list.sort((x, y) => {
     const k = rptSchSort, a = k === 0 ? x[0].toLowerCase() : x[1][k - 1], b = k === 0 ? y[0].toLowerCase() : y[1][k - 1];
     return (a < b ? -1 : a > b ? 1 : 0) * rptSchDir || x[0].localeCompare(y[0]);
   });
+  const cells = (v, sub) => `<td>${n(v[0])}</td><td>${n(v[1])}</td><td>${sub ? n(v[2]) : rec(v[2], v[0])}</td><td>${money(v[3])}</td>`;
   const schemeRows = (fold, cls, key) => {
     let h = '';
     sortList(Array.from(fold.out.entries())).forEach(([name, v]) => {
       const drill = cls ? '' : ` style="cursor:pointer" onclick="advStageF='';advSchemeFilter=decodeURIComponent('${enc(name)}');advBCurrentPage=1;currentView='advocacy';nav('advocacy')" title="Click to see every ${esc(name)} entry"`;
-      h += `<tr class="${cls}"${drill}><td>${esc(name)}</td><td>${n(v[0])}</td><td>${n(v[1])}</td><td>${rec(v[2], v[0])}</td></tr>`;
+      h += `<tr class="${cls}"${drill}><td>${esc(name)}</td>${cells(v)}</tr>`;
     });
     const o = fold.other;
     if (o.names.size) {
       const ok = key + '::other', open = !!rptSchOpen[ok];
-      h += `<tr class="${cls}" style="cursor:pointer" onclick="rptSchToggle('${enc(ok)}')" title="Names typed in by coordinators instead of picked from the scheme list"><td><span class="v246-chev">${open ? '\u25bc' : '\u25b6'}</span>Other schemes typed by coordinators <span class="rpt-mini">(${o.names.size.toLocaleString('en-IN')} different name${o.names.size === 1 ? '' : 's'})</span></td><td>${n(o.v[0])}</td><td>${n(o.v[1])}</td><td>${rec(o.v[2], o.v[0])}</td></tr>`;
+      h += `<tr class="${cls}" style="cursor:pointer" onclick="rptSchToggle('${enc(ok)}')" title="Names typed in by coordinators instead of picked from the scheme list"><td><span class="v246-chev">${open ? '▼' : '▶'}</span>Other schemes typed by coordinators <span class="rpt-mini">(${o.names.size.toLocaleString('en-IN')} different name${o.names.size === 1 ? '' : 's'})</span></td>${cells(o.v)}</tr>`;
       if (open) Array.from(o.names.entries()).sort((a, b) => b[1][0] - a[1][0] || a[0].localeCompare(b[0])).slice(0, 50).forEach(([name, v]) => {
-        h += `<tr class="${cls ? 'v246-sub2' : 'v246-sub'}"><td>${esc(name)}</td><td>${n(v[0])}</td><td>${n(v[1])}</td><td>${n(v[2])}</td></tr>`;
+        h += `<tr class="${cls ? 'v246-sub2' : 'v246-sub'}"><td>${esc(name)}</td>${cells(v, true)}</tr>`;
       });
     }
     return h;
   };
   let body = '';
-  const tot = [0, 0, 0];
-  agg.forEach(m => m.forEach(c => { tot[0] += c[0]; tot[1] += c[1]; tot[2] += c[2]; }));
+  const tot = [0, 0, 0, 0];
+  agg.forEach(m => m.forEach(c => _v25Add(tot, c)));
   if (rptSchMode === 'scheme') {
     body = schemeRows(_v246Fold(Array.from(agg.values()), official), '', 'all');
   } else {
     const one = partners.length === 1;
-    partners.map(p => { const v = [0, 0, 0]; agg.get(p).forEach(c => { v[0] += c[0]; v[1] += c[1]; v[2] += c[2]; }); return [p, v]; })
+    partners.map(p => { const v = [0, 0, 0, 0]; agg.get(p).forEach(c => _v25Add(v, c)); return [p, v]; })
       .sort((a, b) => b[1][0] - a[1][0] || a[0].localeCompare(b[0]))
       .forEach(([p, v]) => {
         const open = one || !!rptSchOpen[p];
-        body += `<tr class="v246-prow" onclick="rptSchToggle('${enc(p)}')"><td><span class="v246-chev">${open ? '\u25bc' : '\u25b6'}</span>${esc(p)}</td><td>${n(v[0])}</td><td>${n(v[1])}</td><td>${rec(v[2], v[0])}</td></tr>`;
+        body += `<tr class="v246-prow" onclick="rptSchToggle('${enc(p)}')"><td><span class="v246-chev">${open ? '▼' : '▶'}</span>${esc(p)}</td>${cells(v)}</tr>`;
         if (open) body += schemeRows(_v246Fold([agg.get(p)], official), 'v246-sub', p);
       });
   }
   const th = (i, label) => rptSchMode === 'scheme'
-    ? `<th class="rpt-th${rptSchSort === i ? ' rpt-sorted' : ''}" role="button" tabindex="0" onclick="rptSchSet('sort',${i})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();rptSchSet('sort',${i})}">${label}<span class="rpt-arr">${rptSchSort === i ? (rptSchDir === -1 ? '\u25bc' : '\u25b2') : '\u25bc'}</span></th>`
+    ? `<th class="rpt-th${rptSchSort === i ? ' rpt-sorted' : ''}" role="button" tabindex="0" onclick="rptSchSet('sort',${i})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();rptSchSet('sort',${i})}">${label}<span class="rpt-arr">${rptSchSort === i ? (rptSchDir === -1 ? '▼' : '▲') : '▼'}</span></th>`
     : `<th class="rpt-th" style="cursor:default">${label}</th>`;
-  const winBtn = d => `<button class="${rptSchWin === d ? 'on' : ''}" onclick="rptSchSet('win',${d})" aria-pressed="${rptSchWin === d}">${d ? d + ' days' : 'All time'}</button>`;
   const modeBtn = (k, l) => `<button class="${rptSchMode === k ? 'on' : ''}" onclick="rptSchSet('mode','${k}')" aria-pressed="${rptSchMode === k}">${l}</button>`;
-  const scopeNote = partners.length === 1 ? 'Showing <b>' + esc(partners[0]) + '</b> only.' : 'Pick a partner in the NGO filter above, or switch to "By partner".';
+  const scopeNote = partners.length === 1 ? 'Showing <b>' + esc(partners[0]) + '</b> only.' : 'Switch to "By partner" to see each partner\'s schemes.';
+  const fellNote = A.benefitsFellBack ? ' <b>Benefits received and Amount are all-time</b>, because no benefit carries a date yet.' : '';
   return `<div class="rpt-card">
       <div class="rpt-card-h rpt-card-h-row">
         <div class="rpt-hg">
-          <h3>Scheme-wise \u2014 surveyed, applied, benefits received</h3>
-          <div class="rpt-note">Every scheme on your scheme list, plus one row for names coordinators typed in themselves. <b>Surveyed</b> = every entry logged, whatever its status · <b>Applied</b> = filed, including those later received or rejected · <b>Benefits received</b> = marked received. The bar shows benefits received as a share of surveyed. ${scopeNote}</div>
+          <h3>Scheme-wise — surveyed, applied, benefits received, amount — ${esc(_rptWinLabel())}</h3>
+          <div class="rpt-note">Every scheme on your scheme list, plus one row for names coordinators typed in themselves. <b>Surveyed</b> = every entry logged, whatever its status · <b>Applied</b> = filed, including those later received or rejected · <b>Benefits received</b> = marked received · <b>Amount</b> = the benefit typed on each received entry, or the scheme's default amount where none was typed (the dashboard's rule). The date chips above apply to every column.${fellNote} ${scopeNote}</div>
         </div>
         <button class="rpt-export" onclick="rptExportSchemes()" title="Every partner and every scheme name, one row each"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export CSV</button>
       </div>
       <div class="v246-ctrls">
         <div class="rpt-mode" role="group" aria-label="View">${modeBtn('scheme', 'By scheme')}${modeBtn('partner', 'By partner')}</div>
-        <div class="rpt-mode" role="group" aria-label="Date window">${winBtn(0)}${winBtn(90)}${winBtn(30)}${winBtn(7)}</div>
       </div>
       <div class="rpt-tblwrap">
-        <table class="rpt-tbl" id="v246-schemes" style="min-width:600px">
-          <thead><tr>${th(0, rptSchMode === 'scheme' ? 'Scheme' : 'Partner / scheme')}${th(1, 'Surveyed')}${th(2, 'Applied')}${th(3, 'Benefits received')}</tr></thead>
-          <tbody>${body || '<tr><td colspan="4" class="rpt-empty">Nothing logged in this window for the current filters.</td></tr>'}
-          ${body ? `<tr class="v246-tot"><td>Total</td><td>${tot[0].toLocaleString('en-IN')}</td><td>${tot[1].toLocaleString('en-IN')}</td><td>${tot[2].toLocaleString('en-IN')}</td></tr>` : ''}</tbody>
+        <table class="rpt-tbl" id="v246-schemes" style="min-width:680px">
+          <thead><tr>${th(0, rptSchMode === 'scheme' ? 'Scheme' : 'Partner / scheme')}${th(1, 'Surveyed')}${th(2, 'Applied')}${th(3, 'Benefits received')}${th(4, 'Amount')}</tr></thead>
+          <tbody>${body || '<tr><td colspan="5" class="rpt-empty">Nothing logged in this window for the current filters.</td></tr>'}
+          ${body ? `<tr class="v246-tot"><td>Total</td><td>${tot[0].toLocaleString('en-IN')}</td><td>${tot[1].toLocaleString('en-IN')}</td><td>${tot[2].toLocaleString('en-IN')}</td><td>${money(tot[3])}</td></tr>` : ''}</tbody>
         </table>
       </div>
     </div>`;
 }
 // The CSV: one row per partner and scheme NAME, typed names included, for the
-// card's own window - so one file answers the whole partner-by-scheme question.
+// window chosen at the top - so one file answers the whole partner-by-scheme
+// question, and the file says which window it holds.
 window.rptExportSchemes = function () {
   if (!_rptCanView()) return;
-  const A = _rptAggregate(filteredAll(), loadAdv(), _rptScopedUsers(), _v19ServerNow(), Infinity, null);
-  const agg = _v246SchemeAgg(A.latestRows, A.bById, rptSchWin, _v19ServerNow());
+  const _w = _v212Win();
+  const A = _rptAggregate(filteredAll(), loadAdv(), _rptScopedUsers(), _w.now, _w.win, _w.ceil);
+  const agg = _v246SchemeAgg(A.latestRows, A.bById, A);
   const official = new Set((typeof getSchemes === 'function' ? getSchemes() : []) || []);
   const rows = [];
   Array.from(agg.keys()).sort((a, b) => a.localeCompare(b)).forEach(p => {
     Array.from(agg.get(p).entries()).sort((a, b) => b[1][0] - a[1][0] || a[0].localeCompare(b[0]))
-      .forEach(([name, c]) => rows.push([p, name, official.has(name) ? 'Scheme list' : 'Typed by coordinator', c[0], c[1], c[2]]));
+      .forEach(([name, c]) => rows.push([p, name, official.has(name) ? 'Scheme list' : 'Typed by coordinator', c[0], c[1], c[2], Math.round(c[3])]));
   });
-  if (!rows.length) { if (typeof toast === 'function') toast('Nothing to export for the current filters.', 'info', 3000); return; }
-  const W = rptSchWin ? ' (last ' + rptSchWin + ' days)' : ' (all time)';
-  const lines = [['Partner', 'Scheme', 'Source', 'Surveyed' + W, 'Applied' + W, 'Benefits received' + W].map(_csvEsc).join(',')];
-  rows.forEach(r => lines.push(r.map(_csvEsc).join(',')));
-  const scope = [];
-  try {
-    if (typeof stateFilter !== 'undefined' && stateFilter) scope.push(_fileSlug(stateFilter));
-    if (typeof ngoFilter !== 'undefined' && ngoFilter) scope.push(_fileSlug(ngoFilter));
-  } catch (_) {}
-  const name = ['KRSF', 'schemes', scope.join('-'), rptSchWin ? rptSchWin + 'd' : 'alltime', _istDate()].filter(Boolean).join('_') + '.csv';
-  _downloadCsv(name, lines.join('\r\n'));
-  if (typeof toast === 'function') toast('Exported all ' + rows.length.toLocaleString('en-IN') + ' partner-scheme rows to ' + name, 'success', 4500);
+  const W = ' (' + _rptWinLabel() + ')';
+  const BW = A.benefitsFellBack ? ' (all-time — no dated benefits yet)' : W;
+  _rptExportRows(['Partner', 'Scheme', 'Source', 'Surveyed' + W, 'Applied' + W, 'Benefits received' + BW, 'Amount Rs' + BW], rows, 'schemes');
 };
 
 // ── V12: NGO comparison tab ─────────────────────────────────────────────────
@@ -30004,94 +30495,217 @@ window.rptExportSchemes = function () {
 // "whose team works hardest". Showing only raw would let a 30-coordinator
 // partner beat a 3-coordinator one automatically, which is not a judgement the
 // data supports — so both are offered and the admin decides.
+// ── V25: one row per PARTNER, the FC Performance table's columns ────────────
+// Guru, 3 Oct: "the same table for partners tab (surveyed and livelihood and
+// everything). You can remove share of enrolment." Counted by the HOUSEHOLD's
+// partner - a scheme record's own copy of the partner goes stale when a
+// household moves - from the same de-duplicated scheme rows (A.latestRows),
+// with the same dates and the same rules as the coordinator table, so the
+// advocacy figures equal FC Performance's. Livelihood counts EVERY household of
+// the partner, including those enrolled under an office login that the
+// coordinator table has no row for, so those can read a little higher there.
+// Computed once per aggregate and reused by the Livelihood funnel, so the two
+// tabs cannot disagree. Nothing is downloaded: it reads what is loaded.
+function _v25PartnerAgg(A) {
+  if (A._v25p) return A._v25p;
+  const ADVI = 'Advocacy (Govt. Schemes)';
+  const ALL = !!A.allTime, inWin = A.inWin, fell = !!A.benefitsFellBack;
+  const real = (typeof _v19ServerNow === 'function') ? _v19ServerNow() : Date.now();
+  const m = new Map();
+  const g = ngo => {
+    const k = ngo || '—';
+    let r = m.get(k);
+    if (!r) {
+      r = { ngo: k, surveyed: 0, applied: 0, benefits: 0, livelihood: 0, intervention: 0, endline: 0,
+            advWin: 0, appliedWin: 0, benefitsWin: 0, livelihoodWin: 0, interventionWin: 0, endlineWin: 0, last: 0 };
+      m.set(k, r);
+    }
+    return r;
+  };
+  // Last active is the LATEST date only, so a date whose day is before the
+  // day ahead of the latest found so far cannot win and is not read at all -
+  // the same answer as reading every one, in a third of the time on 1.5 lakh
+  // households (measured, 2 Oct data). Only for a 'YYYY-MM-DD...' string;
+  // anything else is read as before.
+  const bump = (r, v) => {
+    if (!v) return;
+    if (r.lastDay && typeof v === 'string' && v.length >= 10 && v[4] === '-' && v[7] === '-' && v.slice(0, 10) < r.lastDay) return;
+    const t = _rptActiveAt(v, real);
+    if (t > r.last) { r.last = t; r.lastDay = new Date(t - 86400000).toISOString().slice(0, 10); }
+  };
+  A.bById.forEach(b => {
+    if (!b) return;
+    const r = g(b.ngo);
+    if ((b.interventions || []).some(i => i && i !== ADVI)) {
+      r.livelihood++;
+      if (inWin(b.enrollDate)) r.livelihoodWin++;
+      const st = _v174Stage(b);
+      if (st === 'Intervention In Progress' || st === 'Completed') {
+        r.intervention++;
+        if (inWin(b.inProgressDate)) r.interventionWin++;
+      }
+      if (_v19HasEndline(b)) {
+        r.endline++;
+        if (inWin(b.endlineDate)) r.endlineWin++;
+      }
+    }
+    bump(r, b.enrollDate);
+    bump(r, b.updatedAt);
+  });
+  (A.latestRows || []).forEach(x => {
+    if (!x || x._deleted) return;
+    const b = A.bById.get(x.__bid);
+    if (!b) return;
+    const r = g(b.ngo);
+    r.surveyed++;
+    if (inWin(x.__createdAt)) r.advWin++;
+    const s = _advNormStatus(x);
+    const aAt = _rptStampOk(x._aAt), bAt = _rptStampOk(x._bAt);
+    if (s !== 'Need to Apply') {
+      r.applied++;
+      if (ALL || (aAt ? inWin(aAt) : inWin(x.__createdAt))) r.appliedWin++;
+      if (s === 'Benefits Received') {
+        r.benefits++;
+        if (ALL || fell || (bAt && inWin(bAt))) r.benefitsWin++;
+      }
+    }
+    bump(r, x.__createdAt);
+    if (aAt) bump(r, aAt);
+    if (bAt) bump(r, bAt);
+  });
+  A._v25p = Array.from(m.values()).filter(r => r.surveyed || r.livelihood || r.ngo !== '—');
+  return A._v25p;
+}
+// The sort keys, indexed to the columns EXACTLY (screen and CSV share them).
+const _V25_NGO_KEYS = [
+  r => r.ngo, r => r.advWin, r => r.appliedWin, r => r.benefitsWin,
+  r => r.livelihoodWin, r => r.interventionWin, r => r.endlineWin, r => r.last || 0
+];
 function _rptRenderNgo(A) {
   const esc = s => escHtml(String(s == null ? '' : s));
-  const rowsIn = A.ngoRows || [];
-  const totE = rowsIn.reduce((s, r) => s + r.enrolled, 0);
-  const pfc = rptNgoMode === 'pfc';
-
-  // ⚠️ activeFcs is the divisor and CAN legitimately be 0 — a partner whose
-  // whole team was idle for the selected window. Dividing would print NaN or
-  // Infinity into a report used to judge partners, so those cells show a dash.
-  const per = (n, fcs) => pfc ? (fcs ? Math.round((n / fcs) * 10) / 10 : null) : n;
-
-  const rows = rowsIn.map(r => ({
-    ngo: r.ngo,
-    activeFcs: r.activeFcs,
-    enrolled:   per(r.enrolled, r.activeFcs),
-    applied:    per(r.applied, r.activeFcs),
-    benefits:   per(r.benefits, r.activeFcs),
-    livelihood: per(r.livelihood, r.activeFcs),
-    share: totE ? r.enrolled / totE : 0
-  }));
-
-  const COLS = ['NGO','Active FCs','Enrollments','Applied',
+  const enc = v => encodeURIComponent(String(v)).replace(/'/g, '%27');
+  const rowsIn = _v25PartnerAgg(A);
+  const now = (typeof _v19ServerNow === 'function') ? _v19ServerNow() : Date.now();
+  const COLS = ['Partner', 'Surveyed', 'Applied',
                 A.benefitsFellBack ? 'Benefits received (all-time)' : 'Benefits received',
-                'Livelihood','Share of enrollments'];
-  const scope = A.allTime ? 'in total, across all time' : 'inside the selected window';
+                'Enrolled', 'Intervention', 'Endline', 'Last active'];
+  const scope = A.allTime ? 'in total, across all time' : 'inside the selected date window';
+  const sum = k => rowsIn.reduce((s2, r) => s2 + (r[k] || 0), 0);
   const TIPS = [
     '',
-    'Coordinators from this partner who enrolled someone or logged an advocacy update ' + scope + '. This is also the number the per-FC average divides by — so a partner is not penalised for staff on leave or a vacant post.',
-    'Beneficiaries enrolled ' + scope + '.',
-    'Scheme applications filed ' + scope + ' — every entry past "Need to Apply".'
-      + (A.allTime ? '' : ' Applications filed from 30 July 2026 onward carry their own exact filing date; older ones fall back to the advocacy record’s creation date.'),
+    'Scheme entries for this partner\'s households ' + scope + ' — every status. Dated by when the entry was logged. All-time total: ' + sum('surveyed').toLocaleString('en-IN') + '.',
+    'Scheme applications filed ' + scope + ' — every entry past "Need to Apply". All-time total: ' + sum('applied').toLocaleString('en-IN') + '.',
     (A.benefitsFellBack
-      ? 'ALL-TIME, not the selected window. The date a benefit was received has only been recorded since 30 July 2026, and no benefit carries one yet — so a windowed figure would be nothing but zeros. Every benefit ever recorded is shown instead, and this column will start following the date filter on its own as soon as dated benefits exist.'
-      : 'Benefits that arrived ' + scope + '.'
-        + (A.allTime ? '' : ' ⚠ The date a benefit was received has only been recorded since 30 July 2026, so earlier benefits cannot appear here — they are still counted in the all-time column of the CSV export.')),
-    'Beneficiaries enrolled ' + scope + ' who have at least one REAL livelihood activity. The "Advocacy (Govt. Schemes)" entry is excluded, so a partner doing only advocacy work shows 0 here.',
-    "This partner's share of all enrollments " + (A.allTime ? 'ever recorded' : 'in the window') + ', across every partner currently shown.'
+      ? 'ALL-TIME, not the selected window: no benefit carries a date yet, so a windowed figure would be nothing but zeros.'
+      : 'Benefits that arrived ' + scope + '.' + (A.allTime ? '' : ' Benefits from before 30 July 2026 carry no date and count only in the all-time total of ' + sum('benefits').toLocaleString('en-IN') + '.')),
+    'Households with at least one real livelihood activity, enrolled ' + scope + '. Every household of the partner counts, including those enrolled under an office login. All-time total: ' + sum('livelihood').toLocaleString('en-IN') + '.',
+    'Livelihood households marked "Intervention In Progress" ' + scope + ', dated by that step; households that have since completed still count. All-time total: ' + sum('intervention').toLocaleString('en-IN') + '.',
+    'Livelihood households whose endline income was recorded ' + scope + ', dated by the endline. All-time total: ' + sum('endline').toLocaleString('en-IN') + '.',
+    'The most recent day anyone enrolled a household or logged a scheme update for this partner. Red means 30+ days with nothing. Not affected by the date filter.'
   ];
-  // A dash sorts as "lowest", never as 0 — otherwise an idle partner would
-  // outrank a real one whose average happens to be 0.
-  const K = [ r => r.ngo, r => r.activeFcs,
-              r => r.enrolled   == null ? -1 : r.enrolled,
-              r => r.applied    == null ? -1 : r.applied,
-              r => r.benefits   == null ? -1 : r.benefits,
-              r => r.livelihood == null ? -1 : r.livelihood,
-              r => r.share ];
-  const sorted = _rptSortRows(rows, K[rptNgoSort] || K[2], rptNgoDir);
+  const sorted = _rptSortRows(rowsIn, _V25_NGO_KEYS[rptNgoSort] || _V25_NGO_KEYS[1], rptNgoDir);
   const best = rptNgoSort === 0 ? null : sorted[0];
-  const num = n => n == null ? '<span class="rpt-mini">—</span>' : n.toLocaleString('en-IN');
-
   const body = sorted.map(r => {
-    const inits = String(r.ngo || '—').split(/\s+/).map(w => w[0] || '').join('').slice(0, 2).toUpperCase();
-    return `<tr class="${r === best ? 'rpt-top' : ''}">
+    const inits = String(r.ngo || '—').replace(/^KRSF\./, '').split(/[\s.()]+/).filter(Boolean).map(w => w[0] || '').join('').slice(0, 2).toUpperCase();
+    const stale = r.last && (now - r.last) > 30 * 86400000;
+    return `<tr class="${r === best ? 'rpt-top' : ''}" style="cursor:pointer" onclick="_v13RptDrill('', decodeURIComponent('${enc(r.ngo)}'))" title="Click to see ${esc(r.ngo)}'s beneficiaries">
       <td><div class="rpt-person"><span class="rpt-av" style="background:${_rptNgoColor(r.ngo)}">${esc(inits)}</span><span class="rpt-pname">${esc(r.ngo)}</span></div></td>
-      <td>${r.activeFcs.toLocaleString('en-IN')}</td>
-      <td class="rpt-strong">${num(r.enrolled)}</td>
-      <td>${num(r.applied)}</td>
-      <td>${num(r.benefits)}</td>
-      <td>${num(r.livelihood)}</td>
-      <td><span class="rpt-share"><span class="rpt-strack"><span class="rpt-sfill" style="width:${Math.round(r.share * 100)}%"></span></span><span class="rpt-mini">${Math.round(r.share * 100)}%</span></span></td>
+      <td class="rpt-strong">${r.advWin.toLocaleString('en-IN')}</td>
+      <td>${r.appliedWin.toLocaleString('en-IN')}</td>
+      <td>${r.benefitsWin.toLocaleString('en-IN')}</td>
+      <td class="rpt-strong">${r.livelihoodWin.toLocaleString('en-IN')}</td>
+      <td>${r.interventionWin.toLocaleString('en-IN')}</td>
+      <td>${r.endlineWin.toLocaleString('en-IN')}</td>
+      <td>${stale ? `<span class="rpt-warn">${_rptAgoLabelPlain(r.last)}</span>` : `<span class="rpt-mini">${_rptAgoLabelPlain(r.last)}</span>`}</td>
     </tr>`;
   }).join('');
-
-  return `<div class="rpt-card">
+  const win = _rptWinLabel();
+  const bWin = A.benefitsFellBack ? 'all-time — no dated benefits yet' : win;
+  const allT = v => A.allTime ? null : v;
+  return _v246KpiGroups([
+    ['Surveyed',          'clip',   sum('advWin'),      win,  allT(sum('surveyed'))],
+    ['Applied',           'file',   sum('appliedWin'),  win,  allT(sum('applied'))],
+    ['Benefits received', 'gift',   sum('benefitsWin'), bWin, A.benefitsFellBack ? null : allT(sum('benefits'))]
+  ], [
+    ['Enrolled',          'users',  sum('livelihoodWin'),   win, allT(sum('livelihood'))],
+    ['Intervention',      'sprout', sum('interventionWin'), win, allT(sum('intervention'))],
+    ['Endline',           'check',  sum('endlineWin'),      win, allT(sum('endline'))]
+  ])
+  + `<div class="rpt-card">
     <div class="rpt-card-h rpt-card-h-row">
       <div class="rpt-hg">
-        <h3>Which partners are doing the best work</h3>
-        <div class="rpt-note"><b>Raw totals</b> shows scale; <b>Per-FC average</b> shows how hard each team works, dividing by the coordinators who were active in this window. Click any heading to re-rank. ${A.allTime
-          ? '<b>Every figure is a lifetime total.</b> Pick a date chip above to narrow them to a window.'
-          : '<b>Every figure is for the selected date window.</b>'}${A.benefitsFellBack
+        <h3>Partner leaderboard — ${esc(win)}</h3>
+        <div class="rpt-note">The FC Performance table, one row per partner. Click any column heading to re-rank; click again to flip. Click a partner to see its beneficiaries. ${A.allTime
+          ? '<b>Every count is a lifetime total</b> — pick a date chip above to narrow all six to a window.'
+          : '<b>Every count is for the selected date window</b> — the chip above applies to all six.'} Last active is always all-time. Advocacy columns count scheme entries; Livelihood columns count households.${A.benefitsFellBack
           ? ' <b>Benefits received is showing all-time</b>, because no benefit carries a date yet.'
           : ''}</div>
       </div>
       ${_rptExportBtn('rptExportNgo')}
     </div>
-    <div class="rpt-mode" role="group" aria-label="Comparison mode">
-      <button class="${pfc ? '' : 'on'}" onclick="rptSetNgoMode('raw')">Raw totals</button>
-      <button class="${pfc ? 'on' : ''}" onclick="rptSetNgoMode('pfc')">Per-FC average</button>
-    </div>
     <div class="rpt-tblwrap">
       <table class="rpt-tbl">
-        <thead><tr>${_rptTh(COLS, rptNgoSort, rptNgoDir, 'rptSortNgo', TIPS)}</tr></thead>
+        <thead><tr class="v246-grp"><th></th><th colspan="3" class="adv">Advocacy</th><th colspan="3" class="liv">Livelihood</th><th></th></tr>
+          <tr>${_rptTh(COLS, rptNgoSort, rptNgoDir, 'rptSortNgo', TIPS)}</tr></thead>
         <tbody>${body || `<tr><td colspan="${COLS.length}" class="rpt-empty">No partner activity found for the current filters.</td></tr>`}</tbody>
       </table>
     </div>
-    ${pfc && rowsIn.some(r => !r.activeFcs) ? `<div class="rpt-note" style="padding:0 18px 14px">A dash means no coordinator from that partner was active in this window, so there is nothing to average.</div>` : ''}
   </div>`;
 }
+
+// ── V25: Livelihood Impact's partner funnel ─────────────────────────────────
+// Guru: "at the top I want NGO wise funnel - NGO name | Enrolled | Intervention
+// in Progress | Endline Completed." The same partner figures as the Partners
+// tab's Livelihood columns (_v25PartnerAgg), so the two can never disagree.
+// Intervention counts households in progress OR since completed - a funnel,
+// as everywhere else in Reports.
+function _v25FunnelCard(A) {
+  const esc = s => escHtml(String(s == null ? '' : s));
+  const enc = v => encodeURIComponent(String(v)).replace(/'/g, '%27');
+  const fleet = _rptIsFleet();
+  const rows = _v25PartnerAgg(A).filter(r => r.livelihoodWin || r.interventionWin || r.endlineWin)
+    .slice().sort((a, b) => b.livelihoodWin - a.livelihoodWin || a.ngo.localeCompare(b.ngo));
+  const tot = rows.reduce((t, r) => { t[0] += r.livelihoodWin; t[1] += r.interventionWin; t[2] += r.endlineWin; return t; }, [0, 0, 0]);
+  // a share only means something when both figures cover the same households
+  const showPct = !!A.allTime;
+  const pct = (a, b) => (showPct && b) ? `<span class="v25-pct">${Math.round(a / b * 100)}%</span>` : '';
+  const bar = (a, b) => `<span class="v246-bar" style="margin-left:0" title="${b ? Math.round(a / b * 100) : 0}% of enrolled have an endline"><i style="width:${b ? Math.min(100, Math.round(a / b * 100)) : 0}%"></i></span>`;
+  const body = rows.map(r => `<tr${fleet ? ` style="cursor:pointer" onclick="_v13RptDrill('', decodeURIComponent('${enc(r.ngo)}'))" title="Click to see ${esc(r.ngo)}'s beneficiaries"` : ''}>
+      <td><b>${esc(r.ngo)}</b></td>
+      <td class="rpt-strong">${r.livelihoodWin.toLocaleString('en-IN')}</td>
+      <td>${r.interventionWin.toLocaleString('en-IN')}${pct(r.interventionWin, r.livelihoodWin)}</td>
+      <td>${r.endlineWin.toLocaleString('en-IN')}${pct(r.endlineWin, r.livelihoodWin)}</td>
+      ${showPct ? `<td>${bar(r.endlineWin, r.livelihoodWin)}</td>` : ''}
+    </tr>`).join('');
+  const cols = showPct ? 5 : 4;
+  return `<div class="rpt-card">
+    <div class="rpt-card-h rpt-card-h-row">
+      <div class="rpt-hg">
+        <h3>Partner funnel — enrolled, intervention, endline — ${esc(_rptWinLabel())}</h3>
+        <div class="rpt-note">Households with a livelihood intervention, partner by partner. <b>Enrolled</b> is dated by enrolment, <b>Intervention in progress</b> by the day the intervention started (households that have since completed still count), <b>Endline completed</b> by the endline survey. The date chips above apply to this table; the rest of this page is all time.</div>
+      </div>
+      ${_rptExportBtn('rptExportFunnel')}
+    </div>
+    <div class="rpt-tblwrap">
+      <table class="rpt-tbl" style="min-width:${showPct ? 560 : 460}px">
+        <thead><tr><th class="rpt-th" style="cursor:default">Partner</th><th class="rpt-th" style="cursor:default">Enrolled</th><th class="rpt-th" style="cursor:default">Intervention in progress</th><th class="rpt-th" style="cursor:default">Endline completed</th>${showPct ? '<th class="rpt-th" style="cursor:default">Endline / enrolled</th>' : ''}</tr></thead>
+        <tbody>${body || `<tr><td colspan="${cols}" class="rpt-empty">No livelihood households in this window for the current filters.</td></tr>`}
+        ${body ? `<tr class="v246-tot"><td>All partners</td><td>${tot[0].toLocaleString('en-IN')}</td><td>${tot[1].toLocaleString('en-IN')}</td><td>${tot[2].toLocaleString('en-IN')}</td>${showPct ? '<td></td>' : ''}</tr>` : ''}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+window.rptExportFunnel = function () {
+  if (!_rptCanView()) return;
+  const _w = _v212Win();
+  const A = _rptAggregate(filteredAll(), loadAdv(), _rptScopedUsers(), _w.now, _w.win, _w.ceil);
+  const rows = _v25PartnerAgg(A).filter(r => r.livelihood)
+    .slice().sort((a, b) => b.livelihoodWin - a.livelihoodWin || a.ngo.localeCompare(b.ngo))
+    .map(r => [r.ngo, r.livelihoodWin, r.interventionWin, r.endlineWin, r.livelihood, r.intervention, r.endline]);
+  const W = ' (' + _rptWinLabel() + ')';
+  _rptExportRows(['Partner', 'Enrolled' + W, 'Intervention in progress' + W, 'Endline completed' + W,
+                  'Enrolled (all-time)', 'Intervention in progress (all-time)', 'Endline completed (all-time)'], rows, 'livelihood-funnel');
+};
 
 // V12: the four headline cards. Inline SVG, never emoji — an emoji renders as a
 // different glyph on every platform and cannot be recoloured.
@@ -30241,8 +30855,9 @@ function _rptChrome(body) {
   const chipBtn = d =>
     `<button class="${!_mOn212 && rptRange === d ? 'on' : ''}" onclick="rptSetRange(${d})" aria-pressed="${!_mOn212 && rptRange === d}">${_rptWinChip(d)}</button>`;
   // The NGO tab is driven by the same window as FC + Trends, so it gets the
-  // range chips too. Advocacy and Livelihood remain all-time views.
-  const showChips = (rptTab === 'fc' || rptTab === 'ngo' || rptTab === 'trend');
+  // range chips too. V25: so do Advocacy (its scheme table) and Livelihood
+  // (its partner funnel) - Guru asked for the FC Performance filters there.
+  const showChips = (rptTab === 'fc' || rptTab === 'ngo' || rptTab === 'trend' || rptTab === 'adv' || rptTab === 'liv');
   // V12.7: Partners compares partners against each other — a fleet view. An
   // NGO admin sees only their own partner, so for them the tab would be a
   // one-row table titled "which partners are doing the best work". It is
@@ -30401,89 +31016,10 @@ function renderReports() {
   }
 
   // ══ TAB 3 : ADVOCACY PIPELINE ════════════════════════════════════════════
-  if (rptTab === 'adv') {
-    const maxStatus = Math.max(1, ...Object.values(statusCount));
-    const frow = (label, n, color) =>
-      `<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-        <div style="width:150px;font-size:12.5px;font-weight:500;flex-shrink:0">${label}</div>
-        <div style="flex:1;background:var(--gray4);border-radius:8px;height:32px">
-          <div style="height:100%;border-radius:8px;display:flex;align-items:center;padding:0 10px;color:#fff;font-weight:600;font-size:12px;white-space:nowrap;background:${color};width:${Math.max(7, Math.round(n / maxStatus * 100))}%">${n.toLocaleString('en-IN')}</div>
-        </div>
-      </div>`;
-    // V4.9: click-through to the Advocacy view, pre-filtered to this scheme
-    // (and, for the stuck table, to the "Applied" stage) — reuses the same
-    // advSchemeFilter/advStageF + renderAdvocacy() plumbing already used by
-    // the live Advocacy view's own clickable KPI cards.
-    const stuckRows = Array.from(stuckByScheme.entries()).sort((a, b) => b[1].n - a[1].n).slice(0, 10)
-      .map(([sch, g]) => {
-        let topNgo = '—', topN = 0;
-        g.ngos.forEach((n, k) => { if (n > topN) { topN = n; topNgo = k; } });
-        const schEsc = sch.replace(/'/g, "\\'");
-        return `<tr style="cursor:pointer" onclick="advStageF='Applied';advSchemeFilter='${schEsc}';advBCurrentPage=1;currentView='advocacy';nav('advocacy')" title="Click to see these stuck ${esc(sch)} applications">
-          <td style="${TD}">${esc(sch)}</td>
-          <td style="${TDR}"><b>${g.n.toLocaleString('en-IN')}</b></td>
-          <td style="${TDR}">${Math.round(g.daysSum / g.n)}</td>
-          <td style="${TD}">${esc(topNgo)}</td>
-        </tr>`;
-      }).join('');
-    // V17.9: the same rows are needed twice - once for the body, once for the
-    // totals row - so materialise the list instead of rebuilding it.
-    // V18: ORDERED BY MONEY, not by volume. Ranking on filed count put
-    // Vrudhdha Pension Yojana 14th on 382 filed and the top-12 cut then hid it
-    // - along with Rs 61.9 L, the second-largest verified sum in the whole
-    // programme. Schemes carrying no value fall to the bottom and order by
-    // volume among themselves, so the high-traffic document schemes (i Khedut,
-    // Suraksha, MANREGA) are still visible rather than dropped. 15 rows, not
-    // 12, so every scheme that currently carries money fits above the fold.
-    const succList = Array.from(schemeStats.entries()).filter(([, s]) => s.filed >= 10)
-      .sort((a, b) => ((b[1].amt || 0) - (a[1].amt || 0)) || (b[1].filed - a[1].filed))
-      .slice(0, 15);
-    const succTot = succList.reduce((a, [, s]) => ({
-      filed: a.filed + s.filed, recd: a.recd + s.recd,
-      rej: a.rej + s.rej, amt: a.amt + (s.amt || 0),
-    }), { filed: 0, recd: 0, rej: 0, amt: 0 });
-    const succRows = succList
-      .map(([sch, s]) => `<tr style="cursor:pointer" onclick="advStageF='';advSchemeFilter='${sch.replace(/'/g, "\\'")}';advBCurrentPage=1;currentView='advocacy';nav('advocacy')" title="Click to see all ${esc(sch)} applications">
-        <td style="${TD}">${esc(sch)}</td>
-        <td style="${TDR}">${s.filed.toLocaleString('en-IN')}</td>
-        <td style="${TDR}">${s.recd.toLocaleString('en-IN')}</td>
-        <td style="${TDR}">${s.rej.toLocaleString('en-IN')}</td>
-        <td style="${TDR}"${s.amt ? ` title="₹${Math.round(s.amt).toLocaleString('en-IN')} — ${s.valued.toLocaleString('en-IN')} of ${s.recd.toLocaleString('en-IN')} received entries carry a value"` : ' title="No standard benefit value is configured for this scheme"'}>${s.amt ? _rptMoney(s.amt) : '<span style="color:var(--gray2)">—</span>'}</td>
-        <td style="${TDR}">${pctPill(s.filed ? s.recd / s.filed * 100 : null)}</td>
-      </tr>`).join('');
-    body =
-      `<div class="rpt-kpis">
-        ${kpi('Scheme records', advTotal.toLocaleString('en-IN'), 'latest status per beneficiary-scheme', null, 'One row per beneficiary-scheme pair, counting only its latest status — not every status change along the way.')}
-        ${kpi('Benefits received', statusCount['Benefits Received'].toLocaleString('en-IN'), advTotal ? Math.round(statusCount['Benefits Received'] / advTotal * 100) + '% of all' : '', 'var(--green)', 'Scheme applications that reached the final "Benefits Received" stage.')}
-        ${kpi('Stuck 60+ days', stuckTotal.toLocaleString('en-IN'), 'applied, no status change since logging', stuckTotal ? 'var(--amber)' : 'var(--green)', 'Marked "Applied" and logged 60 or more days ago, with no status update since. Tap a row below to see which beneficiaries.')}
-        ${kpi('Rejected', statusCount['Rejected'].toLocaleString('en-IN'), advTotal ? Math.round(statusCount['Rejected'] / advTotal * 100) + '% of all' : '', 'var(--red)', 'Scheme applications marked "Rejected".')}
-      </div>` +
-      card('The pipeline — where every scheme application stands', 'Counts of beneficiary-scheme records at each stage right now (latest status only, respecting the State/NGO filters above).',
-        frow('Need to Apply', statusCount['Need to Apply'], '#9CA3AF') +
-        frow('Applied', statusCount['Applied'], 'var(--navy2)') +
-        frow('Benefits Received', statusCount['Benefits Received'], '#146B38') +
-        frow('Rejected', statusCount['Rejected'], '#B91C1C')) +
-      card('⏳ Stuck applications — "Applied" logged 60+ days ago, still no outcome',
-        'Age is measured from when the entry was logged (the app does not store per-status-change dates). Follow up with the FC or the block office.',
-        tblWrap(`<table style="width:100%;border-collapse:collapse">
-          <tr><th style="${TH}">Scheme</th><th style="${THR}">Stuck</th><th style="${THR}">Avg days since logged</th><th style="${TH}">Most affected NGO</th></tr>
-          ${stuckRows || `<tr><td colspan="4" style="${TD};text-align:center;color:var(--green)">Nothing stuck 60+ days.</td></tr>`}
-        </table>`)) +
-      _v246SchemeCard(_A) +   // V24.6
-      card('Scheme success rates', 'Ordered by estimated benefits, largest first; schemes with no value set follow, ordered by how many were filed. Top 15 schemes; those with fewer than 10 filed entries are hidden. Of entries filed (applied / received / rejected), how many reached benefits. Estimated benefits use each scheme\'s standard value from the admin scheme settings; a dash means no value is set yet.',
-        tblWrap(`<table style="width:100%;border-collapse:collapse">
-          <tr><th style="${TH}">Scheme</th><th style="${THR}">Filed</th><th style="${THR}">Received</th><th style="${THR}">Rejected</th><th style="${THR}">Est. benefits${_rptTip('Entries that reached Benefits Received, multiplied by the scheme\'s standard benefit value. It is an ESTIMATE — coordinators never enter rupee amounts. A dash means no standard value has been set for that scheme yet.')}</th><th style="${THR}">Success${_rptTip('Of entries filed for this scheme (Applied + Received + Rejected), the % that reached Benefits Received.')}</th></tr>
-          ${succRows || `<tr><td colspan="6" style="${TD};text-align:center;color:var(--gray2)">Not enough data yet.</td></tr>`}
-          ${succRows ? `<tr style="background:var(--gray4)">
-            <td style="${TD};font-weight:700;border-top:2px solid var(--gray3)">Total <span style="font-weight:400;color:var(--gray2);font-size:11px">(${succList.length} scheme${succList.length === 1 ? '' : 's'} shown)</span></td>
-            <td style="${TDR};font-weight:700;border-top:2px solid var(--gray3)">${succTot.filed.toLocaleString('en-IN')}</td>
-            <td style="${TDR};font-weight:700;border-top:2px solid var(--gray3)">${succTot.recd.toLocaleString('en-IN')}</td>
-            <td style="${TDR};font-weight:700;border-top:2px solid var(--gray3)">${succTot.rej.toLocaleString('en-IN')}</td>
-            <td style="${TDR};font-weight:700;border-top:2px solid var(--gray3)" title="₹${Math.round(succTot.amt).toLocaleString('en-IN')} across the schemes shown">${succTot.amt ? _rptMoney(succTot.amt) : '<span style="color:var(--gray2)">—</span>'}</td>
-            <td style="${TDR};font-weight:700;border-top:2px solid var(--gray3)">${pctPill(succTot.filed ? succTot.recd / succTot.filed * 100 : null)}</td>
-          </tr>` : ''}
-        </table>`));
-  }
+  // V25: Guru, 3 Oct - "I want only the attached table", with the FC
+  // Performance date chips and the benefit amount. The pipeline bars, stuck
+  // applications, the cards and the success-rate table are gone.
+  if (rptTab === 'adv') { body = _v246SchemeCard(_A); }
 
   // ══ TAB 4 : LIVELIHOOD IMPACT ════════════════════════════════════════════
   if (rptTab === 'liv') {
@@ -30524,18 +31060,13 @@ function renderReports() {
           <td style="${TDR}">${pctPill(up)}</td>
         </tr>`;
       }).join('');
-    const odRows = Array.from(overdueNgo.entries()).sort((a, b) => b[1].n - a[1].n).slice(0, 10)
-      .map(([ngo, g]) => `<tr>
-        <td style="${TD}"><b>${esc(ngo || '—')}</b></td>
-        <td style="${TDR}"><b>${g.n.toLocaleString('en-IN')}</b></td>
-        <td style="${TDR}">${Math.round(g.oldest / 30)} months ago</td>
-      </tr>`).join('');
-    body =
-      `<div class="rpt-kpis">
+    // V25: the Endline overdue card and the Endline backlog table are gone
+    // (Guru, 3 Oct); the partner funnel opens the tab instead.
+    body = _v25FunnelCard(_A) +
+      `<div class="rpt-kpis v25-k3">
         ${kpi('Livelihood beneficiaries', livN.toLocaleString('en-IN'), 'enrolled in a program', null, 'Beneficiaries enrolled in at least one livelihood intervention (Advocacy-only records are excluded).')}
         ${kpi('Avg income increase', avgInc == null ? '—' : (avgInc >= 0 ? '+' : '') + _rptMoney(avgInc), avgInc == null ? 'no endlines yet' : 'per year ≈ ' + _rptMoney(avgInc / 12) + ' / month', 'var(--green)', 'Average of (endline income − baseline income), across everyone with both a baseline and a completed endline survey. This is the ADDITIONAL income logged, per V4.8 — never the household\'s total income.')}
         ${kpi('Avg uplift', uplift == null ? '—' : (uplift >= 0 ? '+' : '') + Math.round(uplift) + '%', 'baseline → endline', 'var(--green)', 'Average income increase as a % of baseline, across the same completed-endline group.')}
-        ${kpi('Endline overdue', overdue.toLocaleString('en-IN'), 'enrolled 12+ months, no endline', overdue ? 'var(--amber)' : 'var(--green)', 'Enrolled 12+ months ago but still no endline survey on file — their income impact can\'t be counted until one is done.')}
       </div>` +
       (endN ? `<div style="background:var(--green2);border:1px solid #A7F3D0;border-radius:12px;padding:16px;margin-bottom:14px">
         <div style="font-size:15px;font-weight:700;color:var(--green)">Total measured income added: ${_rptMoney(added)} / year</div>
@@ -30560,22 +31091,17 @@ function renderReports() {
         frow('Baseline Completed', stage['Enrolled'] || 0, 'var(--navy2)') +
         frow('Intervention In Progress', stage['Intervention In Progress'] || 0, '#7C3AED') +
         frow('Endline Completed', stage['Completed'] || 0, '#146B38')) +
+      card('Income uplift by NGO — completed endlines only', '',
+        tblWrap(`<table style="width:100%;border-collapse:collapse">
+          <tr><th style="${TH}">NGO</th><th style="${THR}">Endlines</th><th style="${THR}">Avg increase / yr</th><th style="${THR}">≈ / month</th><th style="${THR}">Avg uplift${_rptTip('Average income increase as a % of baseline, for this NGO\'s beneficiaries.')}</th></tr>
+          ${ngoRows || `<tr><td colspan="5" style="${TD};text-align:center;color:var(--gray2)">No completed endlines under the current filters.</td></tr>`}
+        </table>`)) +
+      // V25: moved to the bottom (Guru, 3 Oct)
       card('Income impact by intervention — completed endlines only',
         'A household income is one number — if someone has 2+ interventions the gain cannot honestly be split between them, so they get their own row. ₹ figures are real survey data.',
         tblWrap(`<table style="width:100%;border-collapse:collapse">
           <tr><th style="${TH}">Intervention</th><th style="${THR}">Endlines</th><th style="${THR}">Avg increase / yr</th><th style="${THR}">≈ / month</th><th style="${THR}">Uplift${_rptTip('Average income increase as a % of baseline, for beneficiaries with this intervention only.')}</th></tr>
           ${intRows || `<tr><td colspan="5" style="${TD};text-align:center;color:var(--gray2)">No completed endlines under the current filters.</td></tr>`}
-        </table>`)) +
-      card('⏰ Endline backlog — enrolled 12+ months ago, still no endline survey',
-        'Without the endline, their income impact can never be counted. Assign FCs to close these out.',
-        tblWrap(`<table style="width:100%;border-collapse:collapse">
-          <tr><th style="${TH}">NGO</th><th style="${THR}">Overdue endlines</th><th style="${THR}">Oldest enrollment</th></tr>
-          ${odRows || `<tr><td colspan="3" style="${TD};text-align:center;color:var(--green)">No overdue endlines.</td></tr>`}
-        </table>`)) +
-      card('Income uplift by NGO — completed endlines only', '',
-        tblWrap(`<table style="width:100%;border-collapse:collapse">
-          <tr><th style="${TH}">NGO</th><th style="${THR}">Endlines</th><th style="${THR}">Avg increase / yr</th><th style="${THR}">≈ / month</th><th style="${THR}">Avg uplift${_rptTip('Average income increase as a % of baseline, for this NGO\'s beneficiaries.')}</th></tr>
-          ${ngoRows || `<tr><td colspan="5" style="${TD};text-align:center;color:var(--gray2)">No completed endlines under the current filters.</td></tr>`}
         </table>`));
   }
 
@@ -32216,6 +32742,9 @@ function renderAdminLivelihoods() {
     <div class="card">
       <div class="card-head">
         <div class="card-title">Livelihood Intervention Types <span style="font-size:12px;font-weight:400;color:var(--gray2)">${types.length} total</span></div>
+        <div class="filters">
+          <button class="btn btn-sm" id="v25-livaudit-btn" onclick="adminAuditLivNames()" title="Find livelihood names on households that are not on this list">🔍 Audit Livelihood Names${_rptTip("Finds livelihood names on households that are not on the list below - typed in the form's Other box, other spellings, old names - and how many households carry each. Pick the type each one belongs to and press Fix: the name changes on those households and in their income entries, and partners, team leaders and donors see it too. Opening it only reads what this screen has already loaded; nothing changes until you press Fix and confirm.")}</button>
+        </div>
       </div>
       <div style="padding:14px 16px;border-bottom:1px solid var(--gray3);background:#FAFAFA">
         <div style="display:flex;gap:8px;align-items:center">
@@ -32268,24 +32797,21 @@ async function adminRenameLivType(idx) {
   if (types.some((t, i) => i !== idx && t.toLowerCase() === trimmed.toLowerCase())) {
     return toast('That name is already used', 'error');
   }
-  types[idx] = trimmed;
-  saveLivTypes(types);
-  await _v235RecordRename('liv', oldName, trimmed);   // V23.5 - before the records
-  // V310-S2: Cascade rename — await Firebase. saveLivTypes is config (LS-only).
-  const data = loadData();
-  let changed = 0;
-  data.forEach(b => {
-    const arr = b.interventions || [];
-    const j = arr.indexOf(oldName);
-    if (j >= 0) { arr[j] = trimmed; changed++; }
-  });
-  if (changed > 0) {
-    if (!await _trySave(() => saveData(data), 'cascade rename livelihood type')) return;
+  // ⛔ V25: the rename list first (it must reach partners, donors and team
+  // leaders), then the official list, then each household read fresh and
+  // changed in every place the name is kept - see _v25RunLivRename. It used to
+  // save this tab's whole copy, which could write a coordinator's newer work
+  // away, and it left the old name on every income entry.
+  if (!FB || !FB.db || !FB.online) return toast('You are offline. Nothing was renamed - please try again when connected.', 'error', 6000);
+  if (!_v25AllLoaded()) return;
+  if (!(await _v25RecordRenames('liv', [oldName], trimmed))) {
+    return toast('Could not reach the database to record the new name. Nothing was renamed - please try again.', 'error', 7000);
   }
-  auditLog('update', 'livelihood_type', trimmed, trimmed,
-    `Renamed livelihood type: ${oldName} → ${trimmed}${changed?` (cascaded to ${changed} record${changed===1?'':'s'})`:''}`,
-    {name:[oldName, trimmed]});
-  toast(`Renamed: ${oldName} → ${trimmed}${changed?` (updated ${changed} record${changed===1?'':'s'})`:''}`, 'success');
+  types[idx] = trimmed;
+  if ((await saveLivTypes(types)) === false) {
+    return toast('Could not save the livelihood list to the database. No household was changed - please try again.', 'error', 7000);
+  }
+  await _v25RunLivRename([oldName], trimmed, 'Renamed livelihood type', true);
   renderAdminLivelihoods();
 }
 
@@ -33238,6 +33764,9 @@ async function adminMoveSchemeToTop(idx) {
 
 async function adminRenameScheme(idx) {
   if (!(await _v234SchemesFresh())) return;   // V23.4 - see _v234SchemesFresh
+  // V25: online, and every scheme record loaded, before anything changes
+  if (!FB || !FB.db || !FB.online) return toast('You are offline. Nothing was renamed - please try again when connected.', 'error', 6000);
+  if (!_v25AdvLoaded()) return;
   const schemes = getSchemes();
   const oldName = schemes[idx];
   if (!oldName) return;
@@ -33267,29 +33796,22 @@ async function adminRenameScheme(idx) {
     delete meta[oldName];
     _metaCloudOk = await saveSchemesMeta(meta);
   }
-  // V310-S2: Cascade rename — await Firebase. saveSchemes is config (LS-only).
-  let changed = 0;
-  if (typeof loadAdv === 'function' && typeof saveAdv === 'function') {
-    const adv = loadAdv();
-    adv.forEach(rec => {
-      (rec.schemeRows||[]).forEach(r => {
-        if (r.scheme === oldName) { r.scheme = trimmed; changed++; }
-      });
-    });
-    if (changed > 0) {
-      if (!await _trySave(() => saveAdv(adv), 'cascade rename scheme')) return;
-    }
-    if (_schemesCloudOk && _metaCloudOk) {
-      toast(`Renamed: ${oldName} → ${trimmed}${changed?` (updated ${changed} row${changed===1?'':'s'})`:''}`, 'success');
-    } else {
-      toast(`Renamed "${oldName}" → "${trimmed}" locally, but the schemes config did not reach the cloud and may revert on reload. Please retry.`, 'error', 7000);
-    }
+  // ⛔ V25: each scheme record is changed in one step on the database
+  // (_v25WriteSchemeRename). It used to save this screen's whole copy, which
+  // could put back an older version of a record a coordinator had changed
+  // meanwhile, and bring back a record deleted meanwhile.
+  let changed = 0, _res25 = null;
+  const _keys25 = _v25SchemeKeys(oldName);
+  if (_keys25.length) {
+    _res25 = await _v25WriteSchemeRename(oldName, trimmed, _keys25);
+    changed = _res25.rows;
+  }
+  if (_res25 && _res25.failed) {
+    toast(`Renamed "${oldName}" → "${trimmed}", but ${_res25.failed} scheme record${_res25.failed === 1 ? '' : 's'} could not be reached. Use Audit Scheme Names to fix the rest.`, 'error', 9000);
+  } else if (_schemesCloudOk && _metaCloudOk) {
+    toast(`Renamed: ${oldName} → ${trimmed}${changed?` (updated ${changed} row${changed===1?'':'s'})`:''}`, 'success');
   } else {
-    if (_schemesCloudOk && _metaCloudOk) {
-      toast(`Renamed: ${oldName} → ${trimmed}`, 'success');
-    } else {
-      toast(`Renamed "${oldName}" → "${trimmed}" locally, but the schemes config did not reach the cloud and may revert on reload. Please retry.`, 'error', 7000);
-    }
+    toast(`Renamed "${oldName}" → "${trimmed}" locally, but the schemes config did not reach the cloud and may revert on reload. Please retry.`, 'error', 7000);
   }
   auditLog('update', 'scheme', trimmed, trimmed,
     `Renamed scheme: ${oldName} → ${trimmed}${changed?` (cascaded to ${changed} row${changed===1?'':'s'})`:''}`,
