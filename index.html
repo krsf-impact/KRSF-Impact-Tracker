@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V25.0-LIVE
+  KRSF Beneficiary Impact Tracker  -  V25.2-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,37 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V25.2-LIVE (2026-10-04 - every household the import calls Ready is saved).
+
+    + Household import: a state written in other capitals ("maharashtra")
+      passed the preview as Ready and was then dropped at import with no
+      message (the ID is made from the state with exact capitals); the
+      household's family members went with it. A partner name in other
+      capitals was saved as typed. The preview now takes the official
+      spelling of both, says so on the row, and the import uses it.
+    + A row the import still cannot save is named with the reason in a box
+      after the import, and in the audit log; the message says "Imported 6
+      of 7".
+    + No extra download; admin import screen only.
+    + Tests: 110 files. v252 is new.
+
+  V25.1-LIVE (2026-10-04 - no more logging out on a slow signal).
+
+    + Swipe down to refresh, or opening the app, on a weak signal put the
+      coordinator back on the login screen. Firebase confirms a saved
+      sign-in only after checking it with Google (two round trips when the
+      phone was idle over an hour); the app gave up after 4 seconds and
+      replaced the sign-in with an anonymous one, which the real-session
+      setting then signed out. Live, 18 Sep - 2 Oct: 1,318 coordinator
+      sign-ins against 112 presses of Logout.
+    + Now a phone that is signed in waits for Firebase's answer (up to a
+      minute, then tries again) and is never switched to anonymous. A phone
+      with no saved Firebase sign-in still asks for one login, as before.
+    + With no signal to renew an hour-old pass, the app reads the KRSF mark
+      from the pass it holds instead of treating the person as signed out.
+    + No extra download; fewer repeat logins.
+    + Tests: 109 files. v251 is new.
+
   V25.0-LIVE (2026-10-03 - one livelihood name everywhere; Reports per partner).
 
     + Livelihood Name Audit (Admin, Livelihood Types): every livelihood name
@@ -609,80 +640,6 @@
       19 September export as well as the sample - which is what exposed five
       of the six faults above. 30 mutants, all 30 caught, including the
       daily-refresh guard that survived two earlier attempts at a check.
-
-  V22.4-LIVE (2026-09-19 - the sessions that download nothing).
-
-    + A DONOR LOGIN COST 140.9 MB AT EVERY COLD SIGN-IN AND A PARTNER LOGIN
-      36.9 MB, TO PRINT FIGURES THAT WERE ALREADY COUNTED AND STORED. They
-      now read the stored figures: a donor sign-in is 214 KB, a partner
-      sign-in 150 KB. The records are not gone, only postponed - open a list,
-      the map, the alerts or the enrolment form and the app fetches your
-      scope exactly as before. A session that only looks at figures never
-      pays for them at all.
-
-    + ⛔ AND NOTHING ON SCREEN CHANGES. The counting moved out of the
-      dashboard into three shared functions, so the screen and the summary
-      writer are the same arithmetic on the same records rather than two
-      implementations that drift. The suite draws the dashboard both ways in
-      one session and fails if they differ by a character: 26,367 characters,
-      identical.
-
-    + ⛔ FOUR DEFECTS THE TESTS FOUND, NOT THE READING. The one-scope
-      summary writer de-duplicated scheme rows INSIDE a partner instead of
-      across the database, putting Idar’s stored figure Rs 1.28 crore above
-      the tile on the same data. A daily auto-refresh ran before sign-in had
-      decided anything and downloaded the whole partner a second later. A
-      partner login has its own partner locked into the filter bar, and the
-      rule "a filter means fetch the records" fired on the session’s own
-      scope. And the advocacy saved copy had no partial-cache guard at all -
-      the beneficiary side has had one since V8.6 - so a partner login saving
-      one scheme record before opening a list would have replaced their whole
-      saved copy with it, for thirty days.
-
-    + ⛔ TWO SAFETY BELTS. Stored figures older than a day are not used at
-      all; the records are fetched instead, because stale figures look
-      exactly like fresh ones and nothing on the screen says how old they
-      are. And a session whose records only half arrived will not publish
-      figures - that is the V19.5 disaster with fewer records.
-
-    + A TEAM LEADER STOPS DOWNLOADING THE WHOLE PARTNER (the V22.3 work,
-      shipped here). They oversee a few coordinators and the app has always
-      shown them only those coordinators’ households, but it downloaded the
-      partner first and threw the rest away - 42.7 MB to look at 8.0 MB. All
-      thirty of them, one session each: 550 MB before, 132 MB after.
-      ⛔ A scheme record is not always typed by whoever enrolled the
-      household: 2.8% of what a team leader must see was written by somebody
-      from another partner, and one would have lost 1,195 of his 5,308 with
-      nothing on screen to say so. The stragglers are fetched household by
-      household. ⛔ And the saved copy must not outlive the team, or a
-      coordinator added to one would be invisible to their leader for a month.
-
-    + ⛔ MOVE FC REFUSES TO RUN BEFORE THE SCHEME RECORDS HAVE ARRIVED. It
-      re-tags only the scheme records the session can see and skipped the step
-      entirely when it could see none - moving the people, leaving every
-      scheme record behind, reporting that it had moved 0 of them. That is the
-      shape of the 838 records V22.2 had to correct.
-
-    + The correction screen says what it just did instead of going blank, and
-      every admin screen has a title rather than its route name. Guru: "i
-      clicked nothing happened". It had happened - 885 records.
-
-    + ⛔ AND THE INDEPENDENT REVIEW FOUND TWENTY-TWO MORE, one of them a
-      release blocker: a partner login logging a scheme before the records
-      arrived would have found no existing record, built a new one holding
-      only the rows just typed, and written it to the key the household’s
-      real record already occupied - a whole-node replace, destroying every
-      status, benefit amount and tombstone it held, silently. Also: signing
-      out left the figures on screen for the next person on a shared laptop;
-      a fetch that failed declared itself finished and locked the person out
-      of enrolling for the rest of the session; one failed coordinator query
-      was written into the thirty-day saved copy as though it were the whole
-      set; and the tool named Move Records Between Partners had no arrival
-      guard at all. Every one has a check.
-
-    + Tests: 77 files. v223.js (44 checks) and v224.js (43) are new, and
-      fakepage.js checks the harness database pages the way the real one does
-      - the fake has been kinder than Firebase before. 22 mutants.
 
   ============================================================================
   Everything before this point lives in CHANGELOG.md, beside this file.
@@ -4677,7 +4634,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V25.0-LIVE';
+const APP_VERSION = 'V25.2-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -8594,6 +8551,41 @@ let _fbLastAttemptAt = 0;
 // at boot. Resolves with the restored user, or null if there is none (or if
 // restoration takes longer than the cap — in which case the caller falls back
 // to an anonymous sign-in, exactly as before V10).
+// V25.1: as _v10WaitForAuthRestore, but says whether the wait RAN OUT
+// ({ timedOut: true }) or Firebase answered (user, or null for nobody). Only a
+// run-out wait on a phone that holds a session is treated differently.
+var _V251_RESTORE_MAX_MS = 60000;
+function _v251WaitForAuthRestore(timeoutMs) {
+  return new Promise(function(resolve) {
+    var settled = false;
+    var unsub = null;
+    var t = setTimeout(function() {
+      if (settled) return;
+      settled = true;
+      try { if (unsub) unsub(); } catch (_) {}
+      console.warn('[V25.1] auth-restore wait ran out after ' + timeoutMs + ' ms');
+      resolve({ user: null, timedOut: true });
+    }, timeoutMs || 4000);
+    try {
+      unsub = FB.auth.onAuthStateChanged(function(u) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(t);
+        try { if (unsub) unsub(); } catch (_) {}
+        resolve({ user: u || null, timedOut: false });
+      }, function(err) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(t);
+        console.warn('[V10] auth-restore listener error:', err && err.message);
+        resolve({ user: null, timedOut: false });
+      });
+    } catch (e) {
+      if (!settled) { settled = true; clearTimeout(t); resolve({ user: null, timedOut: false }); }
+    }
+  });
+}
+
 function _v10WaitForAuthRestore(timeoutMs) {
   return new Promise(function(resolve) {
     var settled = false;
@@ -8644,12 +8636,41 @@ function _fbSignInAnon() {
   // only persisted user was the anonymous one that had just overwritten the
   // real one. Wait for the first onAuthStateChanged instead, which fires once
   // restoration has actually settled.
+  //
+  // ⛔ V25.1: A PHONE THAT IS ALREADY SIGNED IN IS NEVER GIVEN UP ON AFTER 4 s.
+  // Firebase reports a saved sign-in only after checking it with Google: one
+  // round trip, two when the phone was idle for over an hour (the pass is
+  // renewed first). On a village 2G/3G signal that took longer than 4 s, and
+  // this fell through to an anonymous sign-in that REPLACED the real one;
+  // with requireRealSession on, _v11GateInitialSync then put the coordinator
+  // back on the login screen. Swipe down to refresh, or simply open the app,
+  // and you were logged out. Measured on the real SDK (9.23.0) with Google's
+  // replies held 2.5 s each: 5,045 ms. Live, 18 Sep - 2 Oct: 1,318
+  // coordinator sign-ins against 112 presses of Logout.
+  // So, when this phone holds a session, wait for Firebase's answer. It
+  // always comes - Google's reply, or a network error, on which Firebase
+  // KEEPS the saved sign-in. If even _V251_RESTORE_MAX_MS passes, do NOT
+  // sign in anonymously: fail this attempt, fbAttemptConnect tries again,
+  // and the person stays signed in. Unchanged: no session on the phone (the
+  // login screen) waits 4 s then signs in anonymously; a saved Firebase
+  // sign-in that is missing or anonymous answers at once and still asks for
+  // one login (the stranded case in _v11GateInitialSync).
+  // ⛔ Read the saved session straight from storage: this runs from fbInit()
+  // while the page is still loading, BEFORE `const SESSION_KEY` further down
+  // has been reached, so currentUser() here always answers "nobody".
+  var _v251Held = false;
+  try { var _v251S = JSON.parse(localStorage.getItem('krsf_session_v1') || 'null'); _v251Held = !!(_v251S && _v251S.userId); } catch (_) {}
   try {
-    return _v10WaitForAuthRestore(4000).then(function(restored) {
+    return _v251WaitForAuthRestore(_v251Held ? _V251_RESTORE_MAX_MS : 4000).then(function(r) {
+      var restored = r.user;
       if (restored && !restored.isAnonymous) {
         FB.authUser = restored;
         console.log('[V10] kept restored real session, uid:', restored.uid);
         return { user: restored };
+      }
+      if (r.timedOut && _v251Held) {
+        console.warn('[V25.1] sign-in not confirmed yet - staying signed in, trying again');
+        throw new Error('auth-restore-slow');
       }
       return FB.auth.signInAnonymously()
         .then(function(cred) {
@@ -36424,8 +36445,27 @@ async function _v11HasKrsfSession() {
   try {
     if (!(FB && FB.auth && FB.auth.currentUser)) return false;
     if (FB.auth.currentUser.isAnonymous) return false;
-    const r = await FB.auth.currentUser.getIdTokenResult();
+    let r;
+    try { r = await FB.auth.currentUser.getIdTokenResult(); }
+    catch (e) {
+      // V25.1: a pass over an hour old is renewed here, which needs the
+      // network. No signal is not "not signed in" - read the KRSF mark from the
+      // pass the phone already holds. This only keeps a person signed in on
+      // this phone; the database still checks every read against a live pass.
+      if (e && e.code === 'auth/network-request-failed') return _v251SavedKrsfMark(FB.auth.currentUser);
+      return false;
+    }
     return !!(r && r.claims && r.claims.krsf === true);
+  } catch (_) { return false; }
+}
+function _v251SavedKrsfMark(u) {
+  try {
+    const j = u && typeof u.toJSON === 'function' ? u.toJSON() : null;
+    const tok = j && j.stsTokenManager && j.stsTokenManager.accessToken;
+    if (!tok || tok.split('.').length !== 3) return false;
+    const p = tok.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const claims = JSON.parse(atob(p + '==='.slice((p.length + 3) % 4)));
+    return !!(claims && claims.krsf === true && (!claims.user_id || claims.user_id === u.uid));
   } catch (_) { return false; }
 }
 
@@ -42983,6 +43023,18 @@ const _v188NumErr = (text, label) => {
   return parseFloat(text) < 0 ? label + ' cannot be negative' : null;
 };
 
+// V25.2: the official spelling of a name typed in other capitals or with
+// extra spaces; the text as typed when it matches nothing (the caller then
+// reports it as unknown, as before).
+function _v252Canon(typed, list) {
+  const t = String(typed == null ? '' : typed).trim();
+  if (!t) return t;
+  if (list.includes(t)) return t;
+  const k = t.replace(/\s+/g, ' ').toLowerCase();
+  const hit = list.find(x => String(x).replace(/\s+/g, ' ').trim().toLowerCase() === k);
+  return hit || t;
+}
+
 function _validateImportRows() {
   if (!_importState.rawRows) return;
   const partners = loadPartners().map(p => p.name);
@@ -43105,9 +43157,18 @@ function _validateImportRows() {
     const name = get('name*') || get('name');
     const gender = get('gender*') || get('gender');
     const village = get('village*') || get('village');
-    const state = get('state*') || get('state');
+    // ⛔ [V25.2] THE CHECK AND THE SAVE MUST AGREE. The checks below match the
+    // state and the partner ignoring capitals, but the save made the ID from
+    // the state with exact capitals (genId) and stored the partner as typed.
+    // So "maharashtra" showed Ready and was then dropped at import with only a
+    // console line, and "navchetana ..." was stored under a spelling no
+    // partner query finds. Take the official spelling here, once, and every
+    // later step uses it.
+    const _v252State = get('state*') || get('state');
+    const _v252Ngo = get('ngo*') || get('ngo');
+    const state = _v252Canon(_v252State, allStates);
     const district = get('district*') || get('district');
-    const ngo = get('ngo*') || get('ngo');
+    const ngo = _v252Canon(_v252Ngo, partners);
     const coord = get('coord*') || get('coord');
     const interventionsRaw = get('interventions*') || get('interventions');
     const sourcesRaw = get('sources*') || get('sources');
@@ -43212,6 +43273,10 @@ function _validateImportRows() {
                       'the enrolment form until one is entered.');
       }
     }
+
+    // V25.2: say when the spelling was corrected, so the sheet can be fixed too
+    if (state && state !== _v252State) warnings.push('State written as "' + _v252State + '" - saved as "' + state + '".');
+    if (ngo && ngo !== _v252Ngo) warnings.push('Partner written as "' + _v252Ngo + '" - saved as "' + ngo + '".');
 
     // Partner must exist — no on-the-fly creation per spec decision
     if (ngo && !partners.some(p => p.toLowerCase() === ngo.toLowerCase())) {
@@ -43713,6 +43778,8 @@ async function confirmBulkImport() {
   const rowIdxToId = {};
   // Stats for the audit message + post-import toast.
   let familyMemberCount = 0;
+  // V25.2: every Ready row the import could not save, with the reason
+  const _v252NotSaved = [];
 
   // V309: suppress per-row Firebase sync. saveData(data) is called once per
   // row inside the loop (for genId consistency — see V16.0.3 comment), but
@@ -43751,6 +43818,7 @@ async function confirmBulkImport() {
       id = await genId(fullDistrict);
     } catch (e) {
       console.warn('[bulk-import] Row ' + v.rowIdx + ' skipped — genId failed: ' + e.message);
+      _v252NotSaved.push({ row: v.rowIdx + 2, name: p.name, why: 'no ID could be made from the state "' + p.state + '"' });
       continue;
     }
     rowIdxToId[v.rowIdx] = id;
@@ -43769,6 +43837,7 @@ async function confirmBulkImport() {
         if (typeof console !== 'undefined') {
           console.warn(`[bulk-import] Family-member row ${v.rowIdx} skipped — head row ${v.headRowIdx} not in importable set`);
         }
+        _v252NotSaved.push({ row: v.rowIdx + 2, name: p.name, why: 'the head of the household (row ' + (v.headRowIdx + 2) + ') was not saved' });
         continue;
       }
       familyMemberCount++;
@@ -43971,11 +44040,28 @@ async function confirmBulkImport() {
   const fmToast = familyMemberCount > 0
     ? ` (${familyMemberCount} as family member${familyMemberCount === 1 ? '' : 's'})`
     : '';
-  toast(`Imported ${importedIds.length} beneficiaries successfully${fmToast}.`, 'success');
+  if (_v252NotSaved.length) {
+    toast(`Imported ${importedIds.length} of ${importable.length}${fmToast}. ${_v252NotSaved.length} not saved - see the list.`, 'warn', 10000);
+  } else {
+    toast(`Imported ${importedIds.length} beneficiaries successfully${fmToast}.`, 'success');
+  }
   // Reset state and re-render
   _importState = { fileName: null, rawRows: null, validated: null, activeRowIdx: null, dupeDecision: null };
   _rebuildStateFilterOptions();
   renderAdminImport();
+  // V25.2: a row the preview called Ready and the import could not save is
+  // named, with the reason - it used to vanish with a console line only
+  if (_v252NotSaved.length) {
+    try {
+      auditLog('bulk_import', 'beneficiary', batchId, _v252NotSaved.length + ' rows not saved',
+        'Not saved: ' + _v252NotSaved.map(x => 'row ' + x.row + ' ' + x.name + ' (' + x.why + ')').join('; '), null);
+    } catch (_) {}
+    const _lines = _v252NotSaved.slice(0, 12).map(x => 'Row ' + x.row + ': ' + x.name + ' - ' + x.why);
+    if (_v252NotSaved.length > 12) _lines.push('... and ' + (_v252NotSaved.length - 12) + ' more');
+    showConfirmModal(_v252NotSaved.length + (_v252NotSaved.length === 1 ? ' row was' : ' rows were') + ' not saved. Fix ' +
+      (_v252NotSaved.length === 1 ? 'it' : 'them') + ' in the sheet and upload just ' + (_v252NotSaved.length === 1 ? 'that row' : 'those rows') + ' again.\n' + _lines.join('\n'),
+      { title: 'Some rows were not imported', okLabel: 'OK', cancelLabel: 'Close' });
+  }
 
   // V383: closes the in-flight guard try opened after the early-return
   // gates. finally guarantees the flag clears on every exit path.
