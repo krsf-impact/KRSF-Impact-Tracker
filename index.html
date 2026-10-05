@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V25.2-LIVE
+  KRSF Beneficiary Impact Tracker  -  V25.4-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,37 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V25.4-LIVE (2026-10-05 - the dashboard's Today in the app's words).
+
+    + TODAY card and TODAY BY PARTNER table: ADVOCACY Surveyed / Applied /
+      Benefits received (people) and LIVELIHOOD Enrolled / Intervention /
+      Endline (households), the words Reports uses. The "Enrolled" line
+      at the top and the table's Enrolled column are gone: they counted
+      every new household and read like a third programme.
+    + Each figure by its own date, the Reports rules: Surveyed = the scheme
+      sheet was first made today; Intervention = the day it started;
+      Endline = the endline date. Livelihood used to count households
+      merely saved today, by the stage they stood at ("Completed 24" was
+      24 completed households touched, not 24 endlines).
+    + No extra download: the stored figures keep their size (Surveyed
+      takes the place of a figure no screen showed). Admin and partner
+      screens only.
+    + Tests: 112 files. v254 is new.
+
+  V25.3-LIVE (2026-10-05 - the whole coordinator app in Hindi or Gujarati).
+
+    + The EN / GJ / HI switch translated the forms only. Now every screen a
+      coordinator sees follows it: scheme names, statuses (आवेदन करना है,
+      लाभ मिल गया ...), stages, buttons, filters, cards, profile, Log
+      Income, Add scheme, Reports, Badges, Alerts and messages.
+    + On screen only. Every saved value stays English, so records, reports,
+      dashboards, imports and other logins are unchanged. English stays the
+      default; admin, partner, team-leader and donor screens stay English.
+    + Gujarati names beside the enrolment form's scheme and livelihood
+      chips (Hindi only until now).
+    + No extra download: the words are inside the app (about 45 KB).
+    + Tests: 111 files. v253 is new.
+
   V25.2-LIVE (2026-10-04 - every household the import calls Ready is saved).
 
     + Household import: a state written in other capitals ("maharashtra")
@@ -1049,6 +1080,13 @@ body.v244-hi #ichips .ichip[data-hi]{display:grid;grid-template-columns:auto min
 body.v244-hi #ichips .ichip[data-hi] .ichip-box{grid-column:1;grid-row:1 / span 2}
 body.v244-hi #ichips .ichip[data-hi]::before{content:attr(data-hi);grid-column:2;grid-row:1;font-size:12px}
 body.v244-hi .adv-enroll-toggle{flex-shrink:0;white-space:nowrap}
+/* V25.3: the same for Gujarati */
+body.v244-gu .adv-enroll-name[data-gu]{font-size:11px!important;color:var(--gray2);line-height:1.3}
+body.v244-gu .adv-enroll-name[data-gu]::before{content:attr(data-gu);display:block;font-size:13px;color:var(--ink)}
+body.v244-gu #ichips .ichip[data-gu]{display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:8px;align-items:center;font-size:10.5px;line-height:1.25}
+body.v244-gu #ichips .ichip[data-gu] .ichip-box{grid-column:1;grid-row:1 / span 2}
+body.v244-gu #ichips .ichip[data-gu]::before{content:attr(data-gu);grid-column:2;grid-row:1;font-size:12px}
+body.v244-gu .adv-enroll-toggle{flex-shrink:0;white-space:nowrap}
 .inline-warn-title{font-weight:700;margin-bottom:4px;font-size:13px}
 .inline-warn-actions{display:flex;gap:8px;margin-top:10px}
 .inline-warn-actions button{flex:1;padding:8px 12px;font-size:13px;font-weight:600;border-radius:7px;border:1px solid;cursor:pointer;font-family:var(--font)}
@@ -4634,7 +4672,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V25.2-LIVE';
+const APP_VERSION = 'V25.4-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -10574,7 +10612,7 @@ function _v224MergeToday(a, b) {
     enrolledToday: add('enrolledToday'), enrolledYest: add('enrolledYest'),
     livEnr: add('livEnr'), livProg: add('livProg'), livDone: add('livDone'),
     benefitsToday: add('benefitsToday'), appliedToday: add('appliedToday'),
-    advUpdatesToday: add('advUpdatesToday'),
+    surveyedToday: add('surveyedToday'),   // V25.4 (was advUpdatesToday)
   };
 }
 // ⛔ AND SIGNING OUT MUST TAKE THEM WITH IT. Nothing here was cleared on
@@ -12634,6 +12672,7 @@ function _applyLanguage(root) {
   });
   try { _v244NamePlaces(lang); } catch (_) {}
   try { document.body.classList.toggle('v244-hi', lang === 'hi'); } catch (_) {}
+  try { document.body.classList.toggle('v244-gu', lang === 'gu'); } catch (_) {}   // V25.3
 }
 // Set language to a specific value ('en' or 'gu'), persist, re-apply to any
 // open modal, and refresh the segmented-switch visual state. Called directly
@@ -12674,6 +12713,7 @@ function _refreshLangToggleLabel() {
     p[1].style.cssText = baseStyle + (cur === p[0] ? activeStyle : inactiveStyle);
     p[1].setAttribute('aria-selected', cur === p[0] ? 'true' : 'false');
   });
+  try { if (typeof _v253Start === 'function') _v253Start(); } catch (_) {}   // V25.3: the whole app follows
 }
 
 
@@ -19034,7 +19074,7 @@ function advEnrollAppendSchemeRow(schemeName, checked, status, isCustom, origina
       ${checkboxHtml}
       ${isCustom
         ? `<input type="text" class="adv-enroll-name" placeholder="Custom scheme name..." data-en-ph="Custom scheme name..." data-gu-ph="યોજનાનું નામ..." data-hi-ph="योजना का नाम..." value="${escHtml(schemeName||'')}" style="flex:1;padding:5px 9px;border:1px solid var(--gray3);border-radius:5px;font-size:13px;font-family:var(--font)">`
-        : `<span class="adv-enroll-name" style="flex:1;font-size:13px"${_v244HiName(schemeName) ? ' data-hi="' + escHtml(_v244HiName(schemeName)) + '"' : ''}>${escHtml(schemeName)}</span>`}
+        : `<span class="adv-enroll-name" style="flex:1;font-size:13px"${_v244HiName(schemeName) ? ' data-hi="' + escHtml(_v244HiName(schemeName)) + '"' : ''}${_v253GuName(schemeName) ? ' data-gu="' + escHtml(_v253GuName(schemeName)) + '"' : ''}>${escHtml(schemeName)}</span>`}
       ${pillHtml}
       ${isCustom ? `<button type="button" onclick="this.closest('.adv-enroll-row').remove()" style="background:none;border:none;color:var(--gray2);cursor:pointer;font-size:16px;padding:0 4px" title="Remove">×</button>` : ''}
     </div>
@@ -26782,7 +26822,8 @@ function _v401TodayStats(srcB, srcA) {
   const _v207For = function (n) {
     const k = n || '\u2014';
     let g = _v207ByNgo.get(k);
-    if (!g) { g = { ngo: k, enrolled: 0, liv: 0, ap: new Set(), br: new Set() };
+    if (!g) { g = { ngo: k, enrolled: 0, liv: 0, ap: new Set(), br: new Set(),
+                    sv: new Set(), lE: 0, lI: 0, lD: 0 };   // V25.4
               _v207ByNgo.set(k, g); }
     return g;
   };
@@ -26796,34 +26837,46 @@ function _v401TodayStats(srcB, srcA) {
   for (const b of _v224Src) {
     if (!b) continue;
     if (_filtered && !_inScope(b)) continue;   // V19.9
+    let _d254 = '';
     if (b.enrollDate) {
       const d = _v400IstDayMemo(b.enrollDate);
+      _d254 = d;
       if (d === todayIst) { enrolledToday++; _v207For(b.ngo).enrolled++; }   // V20.7
       else if (d === yestIst) enrolledYest++;
     }
-    // Livelihood status pulse: livelihood beneficiaries whose record was
-    // updated today, bucketed by CURRENT status. (The app stores no per-
-    // status-change timestamp, so this is "records updated today by status",
-    // not "status changed today" — good enough for a daily activity pulse.)
-    const bts = (typeof b._lastEditedAt === 'number') ? b._lastEditedAt : 0;
-    if (bts >= dayStartMs && bts < dayEndMs
+    // [V25.4] LIVELIHOOD TODAY - Enrolled / Intervention / Endline, each by its
+    // OWN date, the same three rules as the Reports leaderboard (V24.6):
+    //   Enrolled     - a livelihood household whose enrolment date is today
+    //   Intervention - the day its intervention started (inProgressDate, set
+    //                  when it moves to In progress) is today, and it is still
+    //                  at that step or past it
+    //   Endline      - the ONE endline rule, with its endline date today
+    // Until V25.3 this counted households whose record was merely SAVED today,
+    // by the stage they now stand at - so "Completed 24" meant 24 completed
+    // households touched today, not 24 endlines. The livelihood keys keep their
+    // names (livEnr / livProg / livDone) so the stored figures stay the same
+    // size; they now mean Enrolled / Intervention / Endline today.
+    // A household counts once per column it reached today; one that enrolled
+    // and started its intervention today is in both, as in Reports.
+    // ⛔ V20.9 still holds: every increment to the card is an increment to the
+    // household's partner row, inside the same branch.
+    const _eT254 = _d254 === todayIst;
+    const _iT254 = !!b.inProgressDate && _v400IstDayMemo(b.inProgressDate) === todayIst;
+    const _nT254 = !!b.endlineDate && _v400IstDayMemo(b.endlineDate) === todayIst;
+    if ((_eT254 || _iT254 || _nT254)
         && (b.interventions || []).some(function(i){ return i && i !== ADV_SENTINEL; })) {
-      // ⛔ V20.9: THE COLUMN MUST COUNT EXACTLY WHAT THE CARD COUNTS.
-      // The per-partner increment used to sit outside this chain, so a stage
-      // outside the three below added 1 to the row and 0 to the card, and the
-      // table would have totalled MORE than the figure above it. Nothing
-      // writes such a stage today; that is data hygiene, not a guarantee.
-      const _st = _v174Stage(b);
-      if (_st === 'Enrolled') { livEnr++; _v207For(b.ngo).liv++; }
-      else if (_st === 'Intervention In Progress') { livProg++; _v207For(b.ngo).liv++; }
-      else if (_st === 'Completed') { livDone++; _v207For(b.ngo).liv++; }
+      if (_eT254) { livEnr++; const g = _v207For(b.ngo); g.lE++; g.liv++; }
+      if (_iT254) {
+        const _st = _v174Stage(b);
+        if (_st === 'Intervention In Progress' || _st === 'Completed') { livProg++; const g = _v207For(b.ngo); g.lI++; g.liv++; }
+      }
+      if (_nT254 && _v19HasEndline(b)) { livDone++; const g = _v207For(b.ngo); g.lD++; g.liv++; }
     }
   }
   // V403: advocacy counts are UNIQUE PEOPLE, not scheme applications — one
   // beneficiary applying for 3 schemes today counts once. (Livelihood chips
   // were already per-person.) Dedup by beneficiary id via Sets.
-  const _brBids = new Set(), _apBids = new Set();
-  let advUpdatesToday = 0;
+  const _brBids = new Set(), _apBids = new Set(), _svBids = new Set();   // V25.4: + surveyed
   for (const a of (srcA || RecordCache.adv.values())) {
     if (!a) continue;
     // ⛔ V20.2: THE SAME RULE AS THE OTHER SIX SURFACES. This loop walks the
@@ -26848,8 +26901,17 @@ function _v401TodayStats(srcB, srcA) {
     // set for the card itself. Only records edited today reach this line.
     const _pb207 = _bLook ? _bLook.get(a.bid) : RecordCache.benef.get(a.bid);
     if (_filtered && !_inScope(_pb207)) continue;
-    advUpdatesToday++;
     const _pid = a.bid || a.__fbk;
+    // [V25.4] SURVEYED TODAY: this person's scheme sheet was first made today,
+    // whatever the status of its schemes - the Reports rule (the record's own
+    // createdAt; a household has one scheme record). A sheet made today was
+    // saved today, so the numeric gate above never drops one. People, not
+    // schemes, like Applied and Benefits received beside it. Same no-guard
+    // rule as V20.9: a sheet whose farmer is missing lands in the dash row.
+    if (a.createdAt && _v400IstDayMemo(a.createdAt) === todayIst
+        && (a.schemeRows || []).some(function (r) { return r && !r._deleted; })) {
+      _svBids.add(_pid); _v207For(_pb207 ? _pb207.ngo : null).sv.add(_pid);
+    }
     for (const r of (a.schemeRows || [])) {
       if (!r || r._deleted) continue;
       // ⛔ V18.5: read _aAt / _bAt, NOT createdAt.
@@ -26892,18 +26954,24 @@ function _v401TodayStats(srcB, srcA) {
   // dropped so the table shows the partners who worked today rather than a
   // column of zeros. Busiest first.
   const _v207Rows = Array.from(_v207ByNgo.values()).map(function (g) {
-    return { ngo: g.ngo, enrolled: g.enrolled, liv: g.liv,
-             applied: g.ap.size, benefits: g.br.size };
-  }).filter(function (g) { return g.enrolled || g.liv || g.applied || g.benefits; })
+    const o = { ngo: g.ngo, enrolled: g.enrolled, liv: g.liv,
+                applied: g.ap.size, benefits: g.br.size };
+    // ⛔ V25.4: THE SPLIT IS FOR THIS SCREEN ONLY. Figures counted for the
+    // stored summary (_override) keep exactly the five fields they always had,
+    // so a partner login downloads no more than before; a partner's own split
+    // is its scope's top-level figures (see _v207TodayByNgo).
+    if (!_override) { o.surveyed = g.sv.size; o.livEnr = g.lE; o.livInt = g.lI; o.livEnd = g.lD; }
+    return o;
+  }).filter(function (g) { return g.enrolled || g.liv || g.applied || g.benefits || g.surveyed; })
     .sort(function (x, y) {
-      return (y.enrolled + y.applied + y.benefits + y.liv)
-           - (x.enrolled + x.applied + x.benefits + x.liv);
+      return (y.enrolled + y.applied + y.benefits + y.liv + (y.surveyed || 0))
+           - (x.enrolled + x.applied + x.benefits + x.liv + (x.surveyed || 0));
     });
   const _out = { ver: ver, day: todayIst, ngoF: _ngoF, stF: _stF,
     byNgo: _v207Rows,
     enrolledToday: enrolledToday,
     enrolledYest: enrolledYest, livEnr: livEnr, livProg: livProg, livDone: livDone,
-    benefitsToday: _brBids.size, appliedToday: _apBids.size, advUpdatesToday: advUpdatesToday };
+    benefitsToday: _brBids.size, appliedToday: _apBids.size, surveyedToday: _svBids.size };   // V25.4: surveyedToday replaces advUpdatesToday (no screen showed it)
   if (_override) return _out;            // a scope's figures, not this session's
   _v401TodayCache = _out;
   return _v401TodayCache;
@@ -26926,10 +26994,28 @@ function _v207TodayByNgo(opts) {
   let s;
   try { s = _v401TodayStats(); } catch (_) { return ''; }
   let rows = (s.byNgo || []);
-  if (u.role === 'ngo') rows = rows.filter(function (r) { return r.ngo === u.ngo; });
+  if (u.role === 'ngo') {
+    // [V25.4] a partner's own row. Counted on this phone it carries the split.
+    // Read from the stored figures it does not - they keep their size - and
+    // the split is then the scope's own top-level figures: a partner's stored
+    // scope IS that partner, so its top line is its row.
+    const own = rows.filter(function (r) { return r.ngo === u.ngo; });
+    if (own.length && own[0].surveyed !== undefined) rows = own;
+    else if ([s.enrolledToday, s.surveyedToday, s.appliedToday, s.benefitsToday, s.livEnr, s.livProg, s.livDone]
+               .some(function (v) { return Number(v) > 0; })) {
+      const r0 = own[0] || {};
+      rows = [{ ngo: u.ngo,
+        enrolled: r0.enrolled != null ? r0.enrolled : (s.enrolledToday || 0),
+        applied: r0.applied != null ? r0.applied : (s.appliedToday || 0),
+        benefits: r0.benefits != null ? r0.benefits : (s.benefitsToday || 0),
+        surveyed: s.surveyedToday,   // undefined from an older build's figures: shown as a dash
+        livEnr: s.livEnr || 0, livInt: s.livProg || 0, livEnd: s.livDone || 0 }];
+    } else rows = [];
+  }
   const o = opts || {};
   const esc = function (x) { return escHtml(String(x == null ? '' : x)); };
-  const n = function (v) { return (v || 0).toLocaleString('en-IN'); };
+  // V25.4: a figure this build was not handed reads as a dash, never as 0
+  const n = function (v) { return v == null ? '\u2014' : (Number(v) || 0).toLocaleString('en-IN'); };
   const MON = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
   const dp = String(s.day || '').split('-');
   const dateLbl = parseInt(dp[2], 10) + ' ' + (MON[parseInt(dp[1], 10) - 1] || '');
@@ -26942,42 +27028,55 @@ function _v207TodayByNgo(opts) {
       + '<div style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--navy2);margin-bottom:6px">TODAY BY PARTNER · ' + esc(dateLbl) + '</div>'
       + '<div style="font-size:12px;color:var(--gray2)">Nothing recorded yet today.</div></div>';
   }
-  const tot = rows.reduce(function (a, r) {
-    return { enrolled: a.enrolled + r.enrolled, applied: a.applied + r.applied,
-             benefits: a.benefits + r.benefits, liv: a.liv + r.liv };
-  }, { enrolled: 0, applied: 0, benefits: 0, liv: 0 });
+  // V25.4: the columns, in the app's language - Advocacy then Livelihood
+  // (no Households enrolled column: Guru found it confusing beside the two
+  // programmes' own figures - the rows still carry it, for sorting)
+  const COLS = ['surveyed', 'applied', 'benefits', 'livEnr', 'livInt', 'livEnd'];
+  // a column with no figure on any row (older stored figures) totals to a dash
+  const tot = {};
+  COLS.forEach(function (k) {
+    const have = rows.filter(function (r) { return r[k] != null; });
+    tot[k] = have.length ? have.reduce(function (a, r) { return a + (Number(r[k]) || 0); }, 0) : null;
+  });
+  const GL = ';border-left:1px solid var(--gray3)';   // the line before each group
+  const cells = function (r, bold) {
+    const B = bold ? ';font-weight:700' : '';
+    return COLS.map(function (k) {
+      return '<td style="' + TD + B + ((k === 'surveyed' || k === 'livEnr') ? GL : '') + '">' + n(r[k]) + '</td>';
+    }).join('');
+  };
   const body = rows.map(function (r) {
     // V24.2: the dash row says which households it is
     const _v242Dash = r.ngo === '\u2014' && u.role === 'admin';
     return '<tr>'
       + '<td style="' + TDL + '">' + esc(r.ngo) + (_v242Dash ? ' <a href="#" id="v242-show" onclick="_v242ShowUnplaced();return false" style="font-size:11px;margin-left:6px;color:var(--blue,#1d4ed8)">which households?</a>' : '') + '</td>'
-      + '<td style="' + TD + '">' + n(r.enrolled) + '</td>'
-      + '<td style="' + TD + '">' + n(r.applied) + '</td>'
-      + '<td style="' + TD + '">' + n(r.benefits) + '</td>'
-      + '<td style="' + TD + '">' + n(r.liv) + '</td></tr>';
+      + cells(r, false) + '</tr>';
   }).join('');
   // The total row is shown even for a single partner: it is the line that
   // reconciles this table with the card above it.
   const totRow = '<tr style="border-top:2px solid var(--gray3)">'
     + '<td style="' + TDL + ';font-weight:700">Total</td>'
-    + '<td style="' + TD + ';font-weight:700">' + n(tot.enrolled) + '</td>'
-    + '<td style="' + TD + ';font-weight:700">' + n(tot.applied) + '</td>'
-    + '<td style="' + TD + ';font-weight:700">' + n(tot.benefits) + '</td>'
-    + '<td style="' + TD + ';font-weight:700">' + n(tot.liv) + '</td></tr>';
-  const note = 'Enrolments, applications and benefits carry a real date and are exact. '
-    + 'Livelihood counts records TOUCHED today - the app has never stored the day a '
-    + 'livelihood stage changed, so it cannot say which of them changed stage.';
+    + cells(tot, true) + '</tr>';
+  const note = 'Every figure carries its own date and follows the Reports rules. Advocacy counts people: '
+    + 'Surveyed = scheme sheet first made today (any status); Applied and Benefits received = the day '
+    + 'stamped on the scheme. Livelihood counts households: Enrolled = enrolment date; Intervention = '
+    + 'the day the intervention started; Endline = the endline date.';
   return '<div style="background:#fff;border:1px solid var(--gray3);border-radius:12px;padding:12px 14px;margin:' + (o.margin || '0 0 16px') + '">'
     + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;gap:10px;flex-wrap:wrap">'
     + '<span style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--navy2)">TODAY BY PARTNER · ' + esc(dateLbl) + '</span>'
     + '<span style="font-size:10px;color:var(--gray2)">' + (rows.length === 1 ? esc(rows[0].ngo) : rows.length + ' partners active today') + '</span></div>'
     + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">'
     + '<thead><tr>'
-    + '<th style="' + TH + ';text-align:left">Partner</th>'
-    + '<th style="' + TH + '">Enrolled</th>'
+    + '<th style="' + TH + ';text-align:left;vertical-align:bottom" rowspan="2">Partner</th>'
+    + '<th style="' + TH + ';text-align:center;color:var(--navy2);letter-spacing:.4px' + GL + '" colspan="3">ADVOCACY \u00b7 people</th>'
+    + '<th style="' + TH + ';text-align:center;color:var(--navy2);letter-spacing:.4px' + GL + '" colspan="3">LIVELIHOOD \u00b7 households</th>'
+    + '</tr><tr>'
+    + '<th style="' + TH + GL + '">Surveyed</th>'
     + '<th style="' + TH + '">Applied</th>'
     + '<th style="' + TH + '">Benefits received</th>'
-    + '<th style="' + TH + '">Livelihood touched</th>'
+    + '<th style="' + TH + GL + '">Enrolled</th>'
+    + '<th style="' + TH + '">Intervention</th>'
+    + '<th style="' + TH + '">Endline</th>'
     + '</tr></thead><tbody>' + body + totRow + '</tbody></table></div>'
     + '<div style="font-size:10px;color:var(--gray2);margin-top:8px;line-height:1.5">' + note + '</div></div>';
 }
@@ -27158,37 +27257,38 @@ function _v401TodayStrip() {
     </div>`;
 
   const sections = [];
-  if (_v185Live(s.livEnr, s.livProg, s.livDone)) {
-    sections.push(_v185Sect('\u{1F331}', 'Livelihood \u2014 status updates today',
-      chip('Enrolled', s.livEnr, '#E6F1FB', '#0C447C') +
-      chip('In progress', s.livProg, '#FAEEDA', '#633806') +
-      chip('Completed', s.livDone, '#E1F5EE', '#085041')));
-  }
-  if (_v185Live(s.appliedToday, s.benefitsToday)) {
+  // [V25.4] the app's words: ADVOCACY Surveyed / Applied / Benefits received
+  // (people), LIVELIHOOD Enrolled / Intervention / Endline (households), each
+  // by its own date - see _v401TodayStats. A figure an older build's stored
+  // summary does not carry reads as a dash.
+  const _nz254 = function (v) { return v == null ? '\u2014' : v; };
+  if (_v185Live(s.surveyedToday, s.appliedToday, s.benefitsToday)) {
     sections.push(_v185Sect('\u{1F4CB}', 'Advocacy \u2014 people today',
-      chip('Applied', s.appliedToday, '#E6F1FB', '#0C447C') +
-      chip('Benefits received', s.benefitsToday, '#E1F5EE', '#085041')));
+      chip('Surveyed', _nz254(s.surveyedToday), '#F1EFFE', '#4C3A9E') +
+      chip('Applied', _nz254(s.appliedToday), '#E6F1FB', '#0C447C') +
+      chip('Benefits received', _nz254(s.benefitsToday), '#E1F5EE', '#085041')));
+  }
+  if (_v185Live(s.livEnr, s.livProg, s.livDone)) {
+    sections.push(_v185Sect('\u{1F331}', 'Livelihood \u2014 households today',
+      chip('Enrolled', _nz254(s.livEnr), '#E6F1FB', '#0C447C') +
+      chip('Intervention', _nz254(s.livProg), '#FAEEDA', '#633806') +
+      chip('Endline', _nz254(s.livDone), '#E1F5EE', '#085041')));
   }
   // The gap that used to live on the first row's margin-bottom now sits on the
   // second row's margin-top, so one row alone leaves no dangling space.
-  const sectHtml = sections
-    .map((h, i) => (i === 0 ? h : h.replace('<div style="border-top',
-                                            '<div style="margin-top:9px;border-top')))
-    .join('');
-  // With no rows at all the enrolment line is the last thing in the card, so it
-  // must not carry a bottom margin.
-  const bigMb = sections.length ? '10px' : '0';
+  // [V25.4] The "Enrolled" line that sat above the sections is gone - Guru
+  // found it confusing beside the two programmes' own figures - so the first
+  // section has no rule above it either, and a day with nothing says so.
+  const sectHtml = sections.length ? sections
+    .map((h, i) => (i === 0 ? h.replace('<div style="border-top:1px solid var(--gray3);padding-top:9px">', '<div>')
+                            : h.replace('<div style="border-top',
+                                        '<div style="margin-top:9px;border-top')))
+    .join('') : '<div style="font-size:12px;color:var(--gray2)">Nothing recorded yet today.</div>';
 
   return `<div style="background:#fff;border:1px solid #BFDBFE;border-radius:12px;padding:12px 14px;margin:-6px 0 16px">
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
       <span style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--navy2)">TODAY · ${dateLbl}</span>
       <span style="font-size:10px;color:var(--gray2)">${escHtml(_v401TodayScopeLabel())}</span>
-    </div>
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:${bigMb};flex-wrap:wrap">
-      <span style="font-size:14px" aria-hidden="true">🧑‍🌾</span>
-      <span style="font-size:12px;color:var(--gray1)">Enrolled</span>
-      <span style="font-size:17px;font-weight:700;color:var(--navy)">${s.enrolledToday}</span>
-      <span style="font-size:11px;color:var(--gray2);margin-left:auto">yesterday ${s.enrolledYest}</span>
     </div>
     ${sectHtml}
   </div>`;
@@ -34705,15 +34805,691 @@ function _v244NamePlaces(lang) {
   });
 }
 
+// [V25.3]
+// ── V25.3: the words of the coordinator app in Hindi and Gujarati ─────────────
+// Display only. Every value the app SAVES stays English; these tables only
+// change what a coordinator READS. Keys are the English exactly as the app
+// shows it (spaces collapsed, an icon or arrow at either end left off).
+// [hindi, gujarati]. A word missing here simply stays English.
+
+// names: schemes, livelihoods, sources, statuses, stages, values in records
+const _V253_N = {
+  // scheme statuses (display) and the stored "Approved"
+  "Need to Apply": ["आवेदन करना है", "અરજી કરવી જરૂરી"],
+  "Applied": ["आवेदन किया", "અરજી કરેલી"],
+  "Benefits Received": ["लाभ मिल गया", "લાભ મળ્યો"],
+  "Rejected": ["अस्वीकृत", "નામંજૂર"],
+  "Approved": ["स्वीकृत", "મંજૂર"],
+  // livelihood stages
+  "Baseline": ["बेसलाइन", "બેઝલાઇન"],
+  "Intervention": ["इंटरवेंशन", "ઇન્ટરવેન્શન"],
+  "Endline": ["एंडलाइन", "એન્ડલાઇન"],
+  "Baseline Completed": ["बेसलाइन पूरी", "બેઝલાઇન પૂર્ણ"],
+  "Intervention In Progress": ["इंटरवेंशन चालू", "ઇન્ટરવેન્શન ચાલુ"],
+  "Endline Completed": ["एंडलाइन पूरी", "એન્ડલાઇન પૂર્ણ"],
+  "Enrolled": ["पंजीकृत", "નોંધાયેલ"],
+  "Completed": ["पूर्ण", "પૂર્ણ"],
+  // programmes
+  "Livelihood": ["आजीविका", "આજીવિકા"],
+  "Advocacy": ["सरकारी लाभ", "સરકારી લાભ"],
+  "Advocacy (Govt. Schemes)": ["सरकारी लाभ (योजनाएँ)", "સરકારી લાભ (યોજનાઓ)"],
+  "Advocacy only": ["सिर्फ़ सरकारी लाभ", "ફક્ત સરકારી લાભ"],
+  // schemes (Hindi as already on the enrolment form)
+  "Ayushman Bharat": ["आयुष्मान भारत", "આયુષ્માન ભારત"],
+  "Birth Certificate": ["जन्म प्रमाण पत्र", "જન્મ પ્રમાણપત્ર"],
+  "Caste Certificate": ["जाति प्रमाण पत्र", "જાતિ પ્રમાણપત્ર"],
+  "Income Certificate": ["आय प्रमाण पत्र", "આવકનો દાખલો"],
+  "E-Shram Card": ["ई-श्रम कार्ड", "ઈ-શ્રમ કાર્ડ"],
+  "Ration Card (NFSA)": ["राशन कार्ड (NFSA)", "રેશન કાર્ડ (NFSA)"],
+  "Aadhar Card": ["आधार कार्ड", "આધાર કાર્ડ"],
+  "Suraksha/Jivan Vima Yojana": ["सुरक्षा / जीवन बीमा योजना", "સુરક્ષા / જીવન વીમા યોજના"],
+  "i Khedut": ["आई-खेडूत", "આઈ-ખેડૂત"],
+  "PM-KISAN": ["पीएम-किसान", "પીએમ-કિસાન"],
+  "Ujjwala Yojana": ["उज्ज्वला योजना", "ઉજ્જ્વલા યોજના"],
+  "Vahali Dikari Yojana": ["वहाली दीकरी योजना", "વહાલી દીકરી યોજના"],
+  "Vrudhdha Pension Yojana": ["वृद्धावस्था पेंशन योजना", "વૃદ્ધ પેન્શન યોજના"],
+  "Vidhva Sahay": ["विधवा सहायता", "વિધવા સહાય"],
+  "Palak Mata-Pita Yojana": ["पालक माता-पिता योजना", "પાલક માતા-પિતા યોજના"],
+  "PAN Card": ["पैन कार्ड", "પાન કાર્ડ"],
+  "MANREGA": ["मनरेगा", "મનરેગા"],
+  "VBGRAMG (NREGA) Job Card": ["वीबी-जी राम जी (नरेगा) जॉब कार्ड", "વીબી-જી રામ જી (નરેગા) જોબ કાર્ડ"],
+  "Disability Cerificate": ["दिव्यांग प्रमाण पत्र", "દિવ્યાંગ પ્રમાણપત્ર"],
+  "Disability Certificate (UDID)": ["दिव्यांग प्रमाण पत्र (UDID)", "દિવ્યાંગ પ્રમાણપત્ર (UDID)"],
+  "PM Awas Yojana": ["पीएम आवास योजना", "પીએમ આવાસ યોજના"],
+  "Manav Kalyan Yojana Toolkit": ["मानव कल्याण योजना टूलकिट", "માનવ કલ્યાણ યોજના ટૂલકિટ"],
+  "Election Card": ["मतदाता पहचान पत्र (इलेक्शन कार्ड)", "ચૂંટણી કાર્ડ"],
+  "National Common Mobility Card": ["नेशनल कॉमन मोबिलिटी कार्ड", "નેશનલ કોમન મોબિલિટી કાર્ડ"],
+  "MahaDBT": ["महाडीबीटी", "મહાડીબીટી"],
+  "Non-Creamy layer Certificate": ["नॉन-क्रीमी लेयर प्रमाण पत्र", "નોન-ક્રીમી લેયર પ્રમાણપત્ર"],
+  "Disability Pension Scheme": ["दिव्यांग पेंशन योजना", "દિવ્યાંગ પેન્શન યોજના"],
+  // livelihood types
+  "Organic Farming": ["जैविक खेती", "સજીવ ખેતી"],
+  "Agriculture": ["कृषि", "ખેતી"],
+  "Dairy (Cow / Buffalo)": ["डेयरी (गाय / भैंस)", "ડેરી (ગાય / ભેંસ)"],
+  "Vermi-composting": ["केंचुआ खाद", "અળસિયાનું ખાતર"],
+  "Poultry / Duckery": ["मुर्गी / बत्तख पालन", "મરઘાં / બતક ઉછેર"],
+  "Fisheries": ["मत्स्य पालन", "મત્સ્યઉછેર"],
+  "Forest-based Livelihood": ["वन-आधारित आजीविका", "વન આધારિત આજીવિકા"],
+  "Artisan / Craftsmanship": ["कारीगरी / हस्तशिल्प", "કારીગરી / હસ્તકલા"],
+  "Handicraft": ["हस्तशिल्प", "હસ્તકલા"],
+  "Weaving": ["बुनाई", "વણાટ"],
+  "Bee-keeping": ["मधुमक्खी पालन", "મધમાખી ઉછેર"],
+  "Piggery / Goatery": ["सूअर / बकरी पालन", "ભૂંડ / બકરી ઉછેર"],
+  "Food Processing": ["खाद्य प्रसंस्करण", "ખાદ્ય પ્રક્રિયા"],
+  "Micro-enterprise": ["सूक्ष्म उद्यम", "સૂક્ષ્મ ઉદ્યોગ"],
+  // sources of livelihood (enrolment chips)
+  "Farming": ["खेती", "ખેતી"],
+  "Animal Husbandry": ["पशुपालन", "પશુપાલન"],
+  "Daily Labour": ["दिहाड़ी मज़दूरी", "રોજિંદી મજૂરી"],
+  "Poultry": ["मुर्गी पालन", "મરઘાં ઉછેર"],
+  "Forest-based": ["वन-आधारित", "વન આધારિત"],
+  "Artisan / Craft": ["कारीगरी / हस्तशिल्प", "કારીગરી / હસ્તકલા"],
+  "Remittance": ["बाहर से आने वाला पैसा", "બહારથી આવતા પૈસા"],
+  "Other": ["अन्य", "અન્ય"],
+  // values shown from a record
+  "Male": ["पुरुष", "પુરુષ"],
+  "Female": ["महिला", "સ્ત્રી"],
+  "General": ["सामान्य", "સામાન્ય"],
+  "Documents": ["दस्तावेज़", "દસ્તાવેજો"],
+  "Schemes": ["योजनाएँ", "યોજનાઓ"],
+  // months (dates and the monthly chart)
+  "Jan": ["जन", "જાન્યુ"], "Feb": ["फ़र", "ફેબ્રુ"], "Mar": ["मार्च", "માર્ચ"], "Apr": ["अप्रैल", "એપ્રિલ"],
+  "May": ["मई", "મે"], "Jun": ["जून", "જૂન"], "Jul": ["जुलाई", "જુલાઈ"], "Aug": ["अग", "ઑગ"],
+  "Sep": ["सित", "સપ્ટે"], "Sept": ["सित", "સપ્ટે"], "Oct": ["अक्टू", "ઑક્ટો"], "Nov": ["नव", "નવે"], "Dec": ["दिस", "ડિસે"]
+};
+
+// screen words
+const _V253_U = {
+  // header, account, alerts
+  "Beneficiary Tracker": ["लाभार्थी ट्रैकर", "લાભાર્થી ટ્રેકર"],
+  "Coordinator": ["कोऑर्डिनेटर", "કોઓર્ડિનેટર"],
+  "Field Coordinator": ["फ़ील्ड कोऑर्डिनेटर", "ફીલ્ડ કોઓર્ડિનેટર"],
+  "User": ["उपयोगकर्ता", "વપરાશકર્તા"],
+  "Alerts and flags": ["अलर्ट और सूचनाएँ", "એલર્ટ અને સૂચનાઓ"],
+  "Account and sign out": ["खाता और साइन आउट", "ખાતું અને સાઇન આઉટ"],
+  "My Account": ["मेरा खाता", "મારું ખાતું"],
+  "Sign out": ["साइन आउट", "સાઇન આઉટ"],
+  "Cancel": ["रद्द करें", "રદ કરો"],
+  "Close": ["बंद करें", "બંધ કરો"],
+  "OK": ["ठीक है", "ઠીક છે"],
+  "Save": ["सेव करें", "સેવ કરો"],
+  "Delete": ["हटाएँ", "કાઢી નાખો"],
+  "Edit": ["बदलें", "બદલો"],
+  "Please confirm": ["कृपया पुष्टि करें", "કૃપા કરીને ખાતરી કરો"],
+  "Confirm action": ["पुष्टि करें", "ખાતરી કરો"],
+  "Edit value": ["मान बदलें", "કિંમત બદલો"],
+  "Signed in as": ["इस नाम से साइन इन", "આ નામથી સાઇન ઇન"],
+  "Full Name": ["पूरा नाम", "પૂરું નામ"],
+  "Your name": ["आपका नाम", "તમારું નામ"],
+  "Phone": ["फ़ोन", "ફોન"],
+  "Contact number (optional)": ["संपर्क नंबर (वैकल्पिक)", "સંપર્ક નંબર (વૈકલ્પિક)"],
+  "Change Password": ["पासवर्ड बदलें", "પાસવર્ડ બદલો"],
+  "Current Password": ["मौजूदा पासवर्ड", "હાલનો પાસવર્ડ"],
+  "(required only if changing password)": ["(सिर्फ़ पासवर्ड बदलने पर ज़रूरी)", "(ફક્ત પાસવર્ડ બદલતી વખતે જરૂરી)"],
+  "New Password": ["नया पासवर्ड", "નવો પાસવર્ડ"],
+  "(leave blank to keep)": ["(वही रखने के लिए ख़ाली छोड़ें)", "(એ જ રાખવા ખાલી છોડો)"],
+  "Confirm New Password": ["नया पासवर्ड दोबारा लिखें", "નવો પાસવર્ડ ફરી લખો"],
+  "Save Changes": ["बदलाव सेव करें", "ફેરફાર સેવ કરો"],
+  "Your account was not found.": ["आपका खाता नहीं मिला।", "તમારું ખાતું મળ્યું નહીં."],
+  "Full name is required.": ["पूरा नाम ज़रूरी है।", "પૂરું નામ જરૂરી છે."],
+  "Enter your current password to change it.": ["पासवर्ड बदलने के लिए मौजूदा पासवर्ड लिखें।", "પાસવર્ડ બદલવા હાલનો પાસવર્ડ લખો."],
+  "Current password is incorrect.": ["मौजूदा पासवर्ड ग़लत है।", "હાલનો પાસવર્ડ ખોટો છે."],
+  "New password and confirmation do not match.": ["नया पासवर्ड और दोबारा लिखा पासवर्ड मेल नहीं खाते।", "નવો પાસવર્ડ અને ફરી લખેલો પાસવર્ડ મેળ ખાતા નથી."],
+  "New password must be at least 4 characters.": ["नया पासवर्ड कम से कम 4 अक्षर का होना चाहिए।", "નવો પાસવર્ડ ઓછામાં ઓછો 4 અક્ષરનો હોવો જોઈએ."],
+  "Profile and password updated.": ["प्रोफ़ाइल और पासवर्ड अपडेट हो गए।", "પ્રોફાઇલ અને પાસવર્ડ અપડેટ થયા."],
+  "Profile updated.": ["प्रोफ़ाइल अपडेट हो गई।", "પ્રોફાઇલ અપડેટ થઈ."],
+  "Work still waiting to send": ["काम अभी भेजा जाना बाकी है", "કામ હજી મોકલવાનું બાકી છે"],
+  "Sign out now?": ["अभी साइन आउट करें?", "હમણાં સાઇન આઉટ કરવું છે?"],
+  "Account inactive": ["खाता बंद है", "ખાતું બંધ છે"],
+  "Alerts & Flags": ["अलर्ट और सूचनाएँ", "એલર્ટ અને સૂચનાઓ"],
+  "Back to Beneficiaries": ["लाभार्थियों पर वापस", "લાભાર્થીઓ પર પાછા"],
+  "No active alerts. All your beneficiaries are on track.": ["कोई अलर्ट नहीं। आपके सभी लाभार्थियों का काम ठीक चल रहा है।", "કોઈ એલર્ટ નથી. તમારા બધા લાભાર્થીઓનું કામ બરાબર ચાલે છે."],
+  // sync pill
+  "Synced": ["सिंक हो गया", "સિંક થઈ ગયું"],
+  "Offline": ["ऑफ़लाइन", "ઓફલાઇન"],
+  "Connecting...": ["जुड़ रहा है...", "જોડાઈ રહ્યું છે..."],
+  "Initialising...": ["शुरू हो रहा है...", "શરૂ થઈ રહ્યું છે..."],
+  "Cloud unavailable": ["क्लाउड उपलब्ध नहीं", "ક્લાઉડ ઉપલબ્ધ નથી"],
+  "All changes synced to cloud.": ["सारे बदलाव क्लाउड पर पहुँच गए।", "બધા ફેરફાર ક્લાઉડ પર પહોંચી ગયા."],
+  "No internet. Saves will fail until reconnected.": ["इंटरनेट नहीं है। जुड़ने तक सेव नहीं होगा।", "ઇન્ટરનેટ નથી. જોડાય ત્યાં સુધી સેવ નહીં થાય."],
+  // home / list
+  "View my records": ["मेरे रिकॉर्ड देखें", "મારા રેકોર્ડ જુઓ"],
+  "Records load on demand to save bandwidth": ["डेटा बचाने के लिए रिकॉर्ड माँगने पर ही आते हैं", "ડેટા બચાવવા રેકોર્ડ માંગો ત્યારે જ આવે છે"],
+  "Loading your records…": ["आपके रिकॉर्ड आ रहे हैं…", "તમારા રેકોર્ડ આવી રહ્યા છે…"],
+  "Enroll": ["पंजीकरण", "નોંધણી"],
+  "Enroll new beneficiary": ["नया लाभार्थी पंजीकृत करें", "નવા લાભાર્થીની નોંધણી કરો"],
+  "Refresh data from server": ["सर्वर से ताज़ा डेटा लें", "સર્વરથી તાજો ડેટા લો"],
+  "Refresh — available tomorrow": ["रिफ़्रेश — कल फिर मिलेगा", "રિફ્રેશ — કાલે ફરી મળશે"],
+  "Checking…": ["जाँच हो रही है…", "તપાસ ચાલે છે…"],
+  "Daily refresh limit reached. Available again tomorrow.": ["आज के रिफ़्रेश पूरे हो गए। कल फिर कर सकेंगे।", "આજના રિફ્રેશ પૂરા થયા. કાલે ફરી કરી શકશો."],
+  "Already up to date": ["पहले से ताज़ा है", "પહેલેથી તાજું છે"],
+  "Search name, ID, village, scheme, status…": ["नाम, ID, गाँव, योजना, स्थिति खोजें…", "નામ, ID, ગામ, યોજના, સ્થિતિ શોધો…"],
+  "Scheme — All": ["योजना — सभी", "યોજના — બધી"],
+  "Status — All": ["स्थिति — सभी", "સ્થિતિ — બધી"],
+  "Intervention — All": ["इंटरवेंशन — सभी", "ઇન્ટરવેન્શન — બધા"],
+  "Stage — All": ["चरण — सभी", "તબક્કો — બધા"],
+  "Filter by scheme": ["योजना से छाँटें", "યોજના પ્રમાણે ગાળો"],
+  "Filter by status": ["स्थिति से छाँटें", "સ્થિતિ પ્રમાણે ગાળો"],
+  "Filter by intervention": ["इंटरवेंशन से छाँटें", "ઇન્ટરવેન્શન પ્રમાણે ગાળો"],
+  "Filter by stage": ["चरण से छाँटें", "તબક્કા પ્રમાણે ગાળો"],
+  "All Beneficiaries": ["सभी लाभार्थी", "બધા લાભાર્થીઓ"],
+  "Livelihood Only": ["सिर्फ़ आजीविका", "ફક્ત આજીવિકા"],
+  "Dual (Both)": ["दोनों", "બંને"],
+  "Advocacy Only": ["सिर्फ़ सरकारी लाभ", "ફક્ત સરકારી લાભ"],
+  "Showing your records": ["आपके रिकॉर्ड दिख रहे हैं", "તમારા રેકોર્ડ દેખાય છે"],
+  "Hide list": ["सूची छिपाएँ", "યાદી છુપાવો"],
+  "No beneficiaries yet": ["अभी कोई लाभार्थी नहीं", "હજી કોઈ લાભાર્થી નથી"],
+  "Tap + Enroll below to add your first one.": ["नीचे + पंजीकरण दबाकर पहला लाभार्थी जोड़ें।", "નીચે + નોંધણી દબાવીને પહેલો લાભાર્થી ઉમેરો."],
+  "No matches": ["कुछ नहीं मिला", "કંઈ મળ્યું નહીં"],
+  "Try a different search or filter.": ["दूसरा शब्द या फ़िल्टर आज़माएँ।", "બીજો શબ્દ કે ફિલ્ટર અજમાવો."],
+  "Prev": ["पिछला", "પાછળ"],
+  "Next": ["अगला", "આગળ"],
+  "Waiting to send": ["भेजना बाकी", "મોકલવાનું બાકી"],
+  "Saved on this phone, not yet sent": ["इस फ़ोन पर सेव, अभी भेजा नहीं गया", "આ ફોનમાં સેવ, હજી મોકલાયું નથી"],
+  "no baseline": ["बेसलाइन नहीं", "બેઝલાઇન નથી"],
+  "No schemes logged yet": ["अभी कोई योजना दर्ज नहीं", "હજી કોઈ યોજના નોંધાઈ નથી"],
+  "Tap to change status": ["स्थिति बदलने के लिए दबाएँ", "સ્થિતિ બદલવા દબાવો"],
+  "Add income": ["आय जोड़ें", "આવક ઉમેરો"],
+  "Add scheme": ["योजना जोड़ें", "યોજના ઉમેરો"],
+  "Updating…": ["अपडेट हो रहा है…", "અપડેટ થાય છે…"],
+  "Lifecycle complete": ["काम पूरा हो गया", "કામ પૂર્ણ થયું"],
+  "Only NGO Partners and Admins can revert status changes.": ["स्थिति वापस सिर्फ़ संस्था या एडमिन बदल सकते हैं।", "સ્થિતિ પાછી ફક્ત સંસ્થા કે એડમિન બદલી શકે."],
+  // status sheet, add scheme
+  "current": ["अभी यही", "હાલની"],
+  "No scheme changes to send.": ["भेजने के लिए कोई बदलाव नहीं।", "મોકલવા માટે કોઈ ફેરફાર નથી."],
+  "This phone could not store the change. Please try again.": ["यह फ़ोन बदलाव सेव नहीं कर पाया। फिर कोशिश करें।", "આ ફોન ફેરફાર સેવ કરી શક્યો નહીં. ફરી પ્રયાસ કરો."],
+  "Save failed. Please try again.": ["सेव नहीं हुआ। फिर कोशिश करें।", "સેવ ન થયું. ફરી પ્રયાસ કરો."],
+  "Record not found — reload the page.": ["रिकॉर्ड नहीं मिला — पेज दोबारा खोलें।", "રેકોર્ડ મળ્યો નહીં — પેજ ફરી ખોલો."],
+  "Row not found — reload the page.": ["पंक्ति नहीं मिली — पेज दोबारा खोलें।", "હરોળ મળી નહીં — પેજ ફરી ખોલો."],
+  "Log Advocacy — Scheme Linkage": ["सरकारी लाभ — योजना दर्ज करें", "સરકારી લાભ — યોજના નોંધો"],
+  "Scheme-wise Tracking": ["योजना-वार जानकारी", "યોજના પ્રમાણે માહિતી"],
+  "Add Scheme": ["योजना जोड़ें", "યોજના ઉમેરો"],
+  "Scheme": ["योजना", "યોજના"],
+  "Status": ["स्थिति", "સ્થિતિ"],
+  "Benefit Amount (₹)": ["लाभ की राशि (₹)", "લાભની રકમ (₹)"],
+  "Amount (₹)": ["राशि (₹)", "રકમ (₹)"],
+  "Remarks (per application)": ["टिप्पणी (हर आवेदन की)", "નોંધ (દરેક અરજીની)"],
+  "Remarks": ["टिप्पणी", "નોંધ"],
+  "New scheme": ["नई योजना", "નવી યોજના"],
+  "Remove this scheme": ["यह योजना हटाएँ", "આ યોજના કાઢો"],
+  "— Select scheme —": ["— योजना चुनें —", "— યોજના પસંદ કરો —"],
+  "Remarks (e.g. tractor, rotavator…)": ["टिप्पणी (जैसे ट्रैक्टर, रोटावेटर…)", "નોંધ (જેમ કે ટ્રેક્ટર, રોટાવેટર…)"],
+  "Notes (overall)": ["कुल टिप्पणी", "કુલ નોંધ"],
+  "Overall notes for this beneficiary's advocacy record...": ["इस लाभार्थी के सरकारी लाभ की कुल टिप्पणी...", "આ લાભાર્થીના સરકારી લાભની કુલ નોંધ..."],
+  "Save Record": ["रिकॉर्ड सेव करें", "રેકોર્ડ સેવ કરો"],
+  "Saving…": ["सेव हो रहा है…", "સેવ થાય છે…"],
+  "Please select a beneficiary first.": ["पहले लाभार्थी चुनें।", "પહેલાં લાભાર્થી પસંદ કરો."],
+  "Please add at least one scheme row.": ["कम से कम एक योजना जोड़ें।", "ઓછામાં ઓછી એક યોજના ઉમેરો."],
+  // log income
+  "Log Income": ["आय दर्ज करें", "આવક નોંધો"],
+  "Save Income": ["आय सेव करें", "આવક સેવ કરો"],
+  "New total": ["नया कुल", "નવો કુલ"],
+  "New entry": ["नई एंट्री", "નવી એન્ટ્રી"],
+  "Marks endline completed": ["एंडलाइन पूरी हो जाएगी", "એન્ડલાઇન પૂર્ણ થશે"],
+  "Which intervention is this income from? *": ["यह आय किस इंटरवेंशन से है? *", "આ આવક કયા ઇન્ટરવેન્શનથી છે? *"],
+  "Additional income *": ["अतिरिक्त आय *", "વધારાની આવક *"],
+  "Additional income, not total income": ["अतिरिक्त आय, कुल आय नहीं", "વધારાની આવક, કુલ આવક નહીં"],
+  "Date *": ["तारीख़ *", "તારીખ *"],
+  "Note (optional)": ["नोट (वैकल्पिक)", "નોંધ (વૈકલ્પિક)"],
+  "Monthly milk sales": ["महीने की दूध बिक्री", "મહિનાનું દૂધ વેચાણ"],
+  "Why are you changing it?": ["आप इसे क्यों बदल रहे हैं?", "તમે આ કેમ બદલો છો?"],
+  "e.g. Typed 18,000 instead of 8,000": ["जैसे 8,000 की जगह 18,000 लिख दिया था", "જેમ કે 8,000ને બદલે 18,000 લખાઈ ગયા"],
+  "Save changes": ["बदलाव सेव करें", "ફેરફાર સેવ કરો"],
+  "Save entry": ["एंट्री सेव करें", "એન્ટ્રી સેવ કરો"],
+  "No additional income — record ₹0": ["अतिरिक्त आय नहीं — ₹0 दर्ज करें", "વધારાની આવક નથી — ₹0 નોંધો"],
+  "Cancel the change": ["बदलाव रद्द करें", "ફેરફાર રદ કરો"],
+  "Edit this entry": ["यह एंट्री बदलें", "આ એન્ટ્રી બદલો"],
+  "Delete this entry": ["यह एंट्री हटाएँ", "આ એન્ટ્રી કાઢી નાખો"],
+  "Locked": ["लॉक", "લૉક"],
+  "Typed by your partner or the office. Only they can change it.": ["यह आपकी संस्था या ऑफ़िस ने लिखा है। सिर्फ़ वही बदल सकते हैं।", "આ તમારી સંસ્થા કે ઓફિસે લખ્યું છે. ફક્ત એ જ બદલી શકે."],
+  "You can put back only the entries you deleted yourself.": ["आप सिर्फ़ अपनी हटाई एंट्री ही वापस ला सकते हैं।", "તમે ફક્ત તમે કાઢેલી એન્ટ્રી જ પાછી લાવી શકો."],
+  "Restore": ["वापस लाएँ", "પાછું લાવો"],
+  "No income entries yet. Add the first one below.": ["अभी कोई आय दर्ज नहीं। नीचे पहली एंट्री जोड़ें।", "હજી કોઈ આવક નોંધાઈ નથી. નીચે પહેલી એન્ટ્રી ઉમેરો."],
+  "Date": ["तारीख़", "તારીખ"],
+  "Source(s)": ["स्रोत", "સ્ત્રોત"],
+  "Additional ₹": ["अतिरिक्त ₹", "વધારાના ₹"],
+  "Added by": ["किसने जोड़ा", "કોણે ઉમેર્યું"],
+  "Actions": ["काम", "ક્રિયા"],
+  "NGO:": ["संस्था:", "સંસ્થા:"],
+  "Existing (Baseline) Income": ["पहले की (बेसलाइन) आय", "પહેલાંની (બેઝલાઇન) આવક"],
+  "New Total Income": ["नई कुल आय", "નવી કુલ આવક"],
+  "Additional income logged": ["दर्ज अतिरिक्त आय", "નોંધાયેલી વધારાની આવક"],
+  "Add additional income": ["अतिरिक्त आय जोड़ें", "વધારાની આવક ઉમેરો"],
+  "Add Entry": ["एंट्री जोड़ें", "એન્ટ્રી ઉમેરો"],
+  "Which intervention(s)? (tap one or more) *": ["कौन-सा इंटरवेंशन? (एक या अधिक दबाएँ) *", "કયું ઇન્ટરવેન્શન? (એક કે વધુ દબાવો) *"],
+  "Additional Amount (₹) *": ["अतिरिक्त राशि (₹) *", "વધારાની રકમ (₹) *"],
+  "e.g. 3000": ["जैसे 3000", "જેમ કે 3000"],
+  "How much MORE does the family earn now, from the intervention(s) ticked above? Not the total — just the gain.": ["ऊपर चुने इंटरवेंशन से परिवार अब कितना ज़्यादा कमाता है? कुल नहीं — सिर्फ़ बढ़ोतरी।", "ઉપર પસંદ કરેલા ઇન્ટરવેન્શનથી પરિવાર હવે કેટલું વધારે કમાય છે? કુલ નહીં — ફક્ત વધારો."],
+  "e.g. Monthly milk sales, vermicompost batch 3, festival earnings…": ["जैसे महीने की दूध बिक्री, केंचुआ खाद, त्योहार की कमाई…", "જેમ કે મહિનાનું દૂધ વેચાણ, અળસિયાનું ખાતર, તહેવારની કમાણી…"],
+  "Reason for this change": ["बदलाव का कारण", "ફેરફારનું કારણ"],
+  "e.g. Coordinator typed 18,000 instead of 8,000": ["जैसे 8,000 की जगह 18,000 लिख दिया था", "જેમ કે 8,000ને બદલે 18,000 લખાઈ ગયા"],
+  "Cancel edit": ["बदलाव रद्द करें", "ફેરફાર રદ કરો"],
+  "Please pick a date.": ["तारीख़ चुनें।", "તારીખ પસંદ કરો."],
+  "Date cannot be in the future.": ["तारीख़ आगे की नहीं हो सकती।", "તારીખ ભવિષ્યની ન હોઈ શકે."],
+  "Please enter an amount.": ["राशि लिखें।", "રકમ લખો."],
+  "Amount must be a valid non-negative number.": ["राशि सही संख्या होनी चाहिए (0 या उससे ज़्यादा)।", "રકમ સાચી સંખ્યા હોવી જોઈએ (0 કે વધુ)."],
+  "Please tap at least one intervention this income came from.": ["यह आय जिस इंटरवेंशन से आई, उसे दबाएँ।", "આ આવક જે ઇન્ટરવેન્શનથી આવી તે દબાવો."],
+  "Please write why this entry is being changed.": ["लिखें कि यह एंट्री क्यों बदली जा रही है।", "આ એન્ટ્રી કેમ બદલાય છે તે લખો."],
+  "Could not save income entry": ["आय की एंट्री सेव नहीं हुई", "આવકની એન્ટ્રી સેવ ન થઈ"],
+  "Delete income entry": ["आय की एंट्री हटाएँ", "આવકની એન્ટ્રી કાઢી નાખો"],
+  "Reason (optional)": ["कारण (वैकल्पिक)", "કારણ (વૈકલ્પિક)"],
+  "Reason (required)": ["कारण (ज़रूरी)", "કારણ (જરૂરી)"],
+  "Please write why this entry is being deleted. Nothing was deleted.": ["लिखें कि यह एंट्री क्यों हटाई जा रही है। कुछ नहीं हटाया गया।", "આ એન્ટ્રી કેમ કાઢો છો તે લખો. કંઈ કાઢ્યું નથી."],
+  "Restore income entry": ["आय की एंट्री वापस लाएँ", "આવકની એન્ટ્રી પાછી લાવો"],
+  "Income log only applies to livelihood beneficiaries. This record is advocacy-only.": ["आय सिर्फ़ आजीविका वाले लाभार्थियों की दर्ज होती है। यह रिकॉर्ड सिर्फ़ सरकारी लाभ का है।", "આવક ફક્ત આજીવિકાવાળા લાભાર્થીઓની નોંધાય છે. આ રેકોર્ડ ફક્ત સરકારી લાભનો છે."],
+  // drawer
+  "family member": ["परिवार का सदस्य", "પરિવારના સભ્ય"],
+  "Family member": ["परिवार का सदस्य", "પરિવારના સભ્ય"],
+  "(no name)": ["(नाम नहीं)", "(નામ નથી)"],
+  "Programme": ["कार्यक्रम", "કાર્યક્રમ"],
+  "Baseline Income": ["बेसलाइन आय", "બેઝલાઇન આવક"],
+  "Endline Income": ["एंडलाइन आय", "એન્ડલાઇન આવક"],
+  "No income logged yet": ["अभी कोई आय दर्ज नहीं", "હજી કોઈ આવક નોંધાઈ નથી"],
+  "Household Profile": ["परिवार की जानकारी", "પરિવારની માહિતી"],
+  "Gender": ["लिंग", "લિંગ"],
+  "Village": ["गाँव", "ગામ"],
+  "Taluka / Block": ["तालुका / ब्लॉक", "તાલુકો / બ્લોક"],
+  "District & State": ["ज़िला और राज्य", "જિલ્લો અને રાજ્ય"],
+  "Social Category": ["सामाजिक वर्ग", "સામાજિક વર્ગ"],
+  "Family Members": ["परिवार के सदस्य", "પરિવારના સભ્યો"],
+  "Land Holding": ["ज़मीन", "જમીન"],
+  "acres": ["एकड़", "એકર"],
+  "Livestock": ["पशु", "પશુઓ"],
+  "(total)": ["(कुल)", "(કુલ)"],
+  "Current Sources of Livelihood": ["अभी आय के स्रोत", "હાલના આવકના સ્ત્રોત"],
+  "Interventions": ["इंटरवेंशन", "ઇન્ટરવેન્શન"],
+  "Programme:": ["कार्यक्रम:", "કાર્યક્રમ:"],
+  "Coordinator:": ["कोऑर्डिनेटर:", "કોઓર્ડિનેટર:"],
+  "Enrolled by:": ["पंजीकरण किया:", "નોંધણી કરનાર:"],
+  "View this family member's record": ["इस सदस्य का रिकॉर्ड देखें", "આ સભ્યનો રેકોર્ડ જુઓ"],
+  "Photos": ["फ़ोटो", "ફોટા"],
+  "Camera": ["कैमरा", "કેમેરા"],
+  "Gallery": ["गैलरी", "ગેલેરી"],
+  "Take a photo with the camera": ["कैमरे से फ़ोटो लें", "કેમેરાથી ફોટો લો"],
+  "Pick a photo from the gallery": ["गैलरी से फ़ोटो चुनें", "ગેલેરીમાંથી ફોટો પસંદ કરો"],
+  "No photos yet.": ["अभी कोई फ़ोटो नहीं।", "હજી કોઈ ફોટો નથી."],
+  "Remove photo": ["फ़ोटो हटाएँ", "ફોટો કાઢો"],
+  "Has GPS location": ["जगह (GPS) दर्ज है", "સ્થાન (GPS) નોંધાયેલું છે"],
+  "Uploading photo…": ["फ़ोटो भेजी जा रही है…", "ફોટો મોકલાય છે…"],
+  "Photo added": ["फ़ोटो जुड़ गई", "ફોટો ઉમેરાયો"],
+  "Photo limit reached (8 photos).": ["फ़ोटो की सीमा पूरी (8 फ़ोटो)।", "ફોટાની મર્યાદા પૂરી (8 ફોટા)."],
+  "Beneficiary not found.": ["लाभार्थी नहीं मिला।", "લાભાર્થી મળ્યો નહીં."],
+  "Timeline": ["समय-रेखा", "સમયરેખા"],
+  "Baseline Completed — Enrolled": ["बेसलाइन पूरी — पंजीकृत", "બેઝલાઇન પૂર્ણ — નોંધાયેલ"],
+  "In progress": ["चालू", "ચાલુ"],
+  "Pending": ["बाकी", "બાકી"],
+  "Update Progress": ["प्रगति अपडेट करें", "પ્રગતિ અપડેટ કરો"],
+  "Current stage:": ["अभी का चरण:", "હાલનો તબક્કો:"],
+  "Log Income to Complete": ["पूरा करने के लिए आय दर्ज करें", "પૂર્ણ કરવા આવક નોંધો"],
+  "Edit Details": ["जानकारी बदलें", "માહિતી બદલો"],
+  "Add Family Member": ["परिवार का सदस्य जोड़ें", "પરિવારના સભ્ય ઉમેરો"],
+  "Add Livelihood Intervention": ["आजीविका इंटरवेंशन जोड़ें", "આજીવિકા ઇન્ટરવેન્શન ઉમેરો"],
+  "View / Manage Income Log": ["आय की सूची देखें / बदलें", "આવકની યાદી જુઓ / બદલો"],
+  "Advocacy & Scheme Linkage": ["सरकारी लाभ और योजनाएँ", "સરકારી લાભ અને યોજનાઓ"],
+  "Log": ["दर्ज करें", "નોંધો"],
+  "No advocacy records yet.": ["अभी कोई सरकारी लाभ रिकॉर्ड नहीं।", "હજી કોઈ સરકારી લાભ રેકોર્ડ નથી."],
+  "Last Updated": ["आख़िरी बदलाव", "છેલ્લો ફેરફાર"],
+  "Benefit (₹)": ["लाभ (₹)", "લાભ (₹)"],
+  "Saved on phone": ["फ़ोन पर सेव", "ફોનમાં સેવ"],
+  "Saved": ["सेव हो गया", "સેવ થયું"],
+  // reports, badges, nav
+  "Home": ["होम", "હોમ"],
+  "Reports": ["रिपोर्ट", "રિપોર્ટ"],
+  "My Badges": ["मेरे बैज", "મારા બેજ"],
+  "ESTIMATED IMPACT": ["अनुमानित असर", "અંદાજિત અસર"],
+  "Estimated impact": ["अनुमानित असर", "અંદાજિત અસર"],
+  "LIVES IMPACTED": ["कितने जीवन बदले", "કેટલાં જીવન બદલાયાં"],
+  "Lives impacted": ["कितने जीवन बदले", "કેટલાં જીવન બદલાયાં"],
+  "Adding up your impact…": ["आपका असर जोड़ा जा रहा है…", "તમારી અસર ગણાય છે…"],
+  "Progress": ["प्रगति", "પ્રગતિ"],
+  "Applications progressed": ["आवेदन आगे बढ़े", "અરજીઓ આગળ વધી"],
+  "Beneficiaries progressed": ["लाभार्थी आगे बढ़े", "લાભાર્થીઓ આગળ વધ્યા"],
+  "Your Monthly Progress": ["आपकी महीने-वार प्रगति", "તમારી મહિના પ્રમાણે પ્રગતિ"],
+  "Advocacy progress": ["सरकारी लाभ की प्रगति", "સરકારી લાભની પ્રગતિ"],
+  "Livelihood progress": ["आजीविका की प्रगति", "આજીવિકાની પ્રગતિ"],
+  "Rejected applications are left out of both numbers, so a rejection never counts against you.": ["अस्वीकृत आवेदन दोनों गिनती में नहीं जुड़ते, इसलिए अस्वीकृति आपके ख़िलाफ़ नहीं गिनी जाती।", "નામંજૂર અરજીઓ બંને ગણતરીમાં નથી ગણાતી, એટલે નામંજૂરી તમારી વિરુદ્ધ નથી ગણાતી."],
+  "Anyone who has already completed their endline is included in that number — finishing counts as started.": ["जिनकी एंडलाइन पूरी हो गई, वे भी इसमें गिने जाते हैं — पूरा करना भी शुरू करना गिना जाता है।", "જેમની એન્ડલાઇન પૂર્ણ થઈ છે તે પણ ગણાય છે — પૂર્ણ કરવું પણ શરૂ કર્યું ગણાય."],
+  "Each person is counted once, even if they are in both advocacy and livelihood. Anyone whose enrolment date is missing or not yet reached will not appear on a bar yet, so this can read slightly lower than your total.": ["हर व्यक्ति एक बार गिना जाता है, चाहे वह दोनों कार्यक्रमों में हो। जिनकी पंजीकरण तारीख़ नहीं है, वे अभी किसी बार में नहीं दिखते, इसलिए यह आपके कुल से थोड़ा कम दिख सकता है।", "દરેક વ્યક્તિ એક જ વાર ગણાય છે, ભલે તે બંને કાર્યક્રમમાં હોય. જેમની નોંધણી તારીખ નથી તે હજી કોઈ બારમાં નથી દેખાતા, એટલે આ તમારા કુલ કરતાં થોડું ઓછું દેખાઈ શકે."],
+  "Additional income is what a household now earns above its baseline. A household whose income fell counts as zero, never as a subtraction.": ["अतिरिक्त आय वह है जो परिवार अब बेसलाइन से ज़्यादा कमाता है। जिसकी आय घटी, वह शून्य गिना जाता है, घटाया नहीं जाता।", "વધારાની આવક એ છે જે પરિવાર હવે બેઝલાઇન કરતાં વધુ કમાય છે. જેની આવક ઘટી તે શૂન્ય ગણાય છે, બાદ નથી થતી."],
+  "Your records aren't on this phone yet": ["आपके रिकॉर्ड अभी इस फ़ोन पर नहीं हैं", "તમારા રેકોર્ડ હજી આ ફોનમાં નથી"],
+  "To save your data, the app only downloads your beneficiaries when you ask it to. Tap once and your impact and badges will fill in — and stay available offline after that.": ["डेटा बचाने के लिए ऐप आपके लाभार्थी तभी लाता है जब आप कहें। एक बार दबाएँ, आपका असर और बैज भर जाएँगे — और उसके बाद बिना इंटरनेट भी दिखेंगे।", "ડેટા બચાવવા એપ તમારા લાભાર્થી તમે કહો ત્યારે જ લાવે છે. એક વાર દબાવો, તમારી અસર અને બેજ ભરાઈ જશે — અને પછી ઇન્ટરનેટ વગર પણ દેખાશે."],
+  "Load my data": ["मेरा डेटा लाएँ", "મારો ડેટા લાવો"],
+  "Loading…": ["आ रहा है…", "આવી રહ્યું છે…"],
+  "Try again": ["फिर कोशिश करें", "ફરી પ્રયાસ કરો"],
+  "Could not load your records — check your connection.": ["रिकॉर्ड नहीं आ सके — इंटरनेट देखें।", "રેકોર્ડ આવી શક્યા નહીં — ઇન્ટરનેટ તપાસો."],
+  "Share your impact on WhatsApp": ["अपना असर WhatsApp पर भेजें", "તમારી અસર WhatsApp પર મોકલો"],
+  "Share your impact": ["अपना असर बताएँ", "તમારી અસર જણાવો"],
+  "Try another": ["दूसरा संदेश", "બીજો સંદેશ"],
+  "Send via WhatsApp": ["WhatsApp से भेजें", "WhatsApp થી મોકલો"],
+  "of 10 badges unlocked": ["/ 10 बैज मिले", "/ 10 બેજ મળ્યા"],
+  "How to earn it": ["यह कैसे मिलेगा", "આ કેવી રીતે મળશે"],
+  "Every badge below is earned by your real work in the field. Your first one is closer than you think.": ["नीचे हर बैज मैदान के असली काम से मिलता है। आपका पहला बैज आपकी सोच से भी पास है।", "નીચે દરેક બેજ મેદાનના સાચા કામથી મળે છે. તમારો પહેલો બેજ તમે ધારો છો તેના કરતાં નજીક છે."],
+  "Every single badge earned. Extraordinary work.": ["सारे बैज मिल गए। शानदार काम!", "બધા બેજ મળી ગયા. શાનદાર કામ!"],
+  "People enrolled": ["पंजीकृत लोग", "નોંધાયેલા લોકો"],
+  "Got benefits or endline income": ["लाभ या एंडलाइन आय मिली", "લાભ કે એન્ડલાઇન આવક મળી"],
+  "Benefits + added income": ["लाभ + बढ़ी आय", "લાભ + વધેલી આવક"],
+  "Beneficiaries with a photo": ["फ़ोटो वाले लाभार्थी", "ફોટાવાળા લાભાર્થીઓ"],
+  "Different schemes delivered": ["अलग-अलग योजनाओं के लाभ", "અલગ અલગ યોજનાના લાભ"],
+  "Days you logged work": ["जिन दिनों काम दर्ज किया", "જે દિવસોએ કામ નોંધ્યું"],
+  "people enrolled": ["लोग पंजीकृत", "લોકો નોંધાયા"],
+  "people so far": ["लोग अब तक", "લોકો અત્યાર સુધી"],
+  "of impact so far": ["का असर अब तक", "ની અસર અત્યાર સુધી"],
+  "with a photo": ["फ़ोटो के साथ", "ફોટા સાથે"],
+  "schemes so far": ["योजनाएँ अब तक", "યોજનાઓ અત્યાર સુધી"],
+  "days logged": ["दिन दर्ज", "દિવસ નોંધાયા"],
+  "Unlocked": ["मिल गया", "મળી ગયો"],
+  "Not yet unlocked": ["अभी नहीं मिला", "હજી મળ્યો નથી"],
+  "earned — well done": ["मिला — शाबाश", "મળ્યો — શાબાશ"],
+  "Enrol 50 people. Every beneficiary you add counts, in either programme — livelihood or advocacy.": ["50 लोगों का पंजीकरण करें। आप जो भी लाभार्थी जोड़ें, वह गिना जाता है — आजीविका हो या सरकारी लाभ।", "50 લોકોની નોંધણી કરો. તમે ઉમેરો તે દરેક લાભાર્થી ગણાય છે — આજીવિકા હોય કે સરકારી લાભ."],
+  "Help 10 people actually receive something — either a government scheme marked Benefits Received, or an endline income recorded against them.": ["10 लोगों को सच में कुछ मिले — या तो कोई सरकारी योजना जिसमें लाभ मिल गया दर्ज हो, या उनकी एंडलाइन आय दर्ज हो।", "10 લોકોને ખરેખર કંઈક મળે — કાં તો કોઈ સરકારી યોજના જેમાં લાભ મળ્યો નોંધાયું હોય, કાં તેમની એન્ડલાઇન આવક નોંધાઈ હોય."],
+  "Upload a photo for 50 different beneficiaries.": ["50 अलग-अलग लाभार्थियों की फ़ोटो डालें।", "50 અલગ અલગ લાભાર્થીઓનો ફોટો મૂકો."],
+  "Deliver benefits from 8 different schemes.": ["8 अलग-अलग योजनाओं का लाभ दिलाएँ।", "8 અલગ અલગ યોજનાના લાભ અપાવો."],
+  "Log work on 30 separate days.": ["30 अलग-अलग दिन काम दर्ज करें।", "30 અલગ અલગ દિવસે કામ નોંધો."],
+  "Counted per person. Family members enrolled as their own record each count separately.": ["हर व्यक्ति एक बार गिना जाता है। परिवार के जिन सदस्यों का अपना रिकॉर्ड है, वे अलग गिने जाते हैं।", "દરેક વ્યક્તિ એક વાર ગણાય છે. પરિવારના જે સભ્યોનો પોતાનો રેકોર્ડ છે તે અલગ ગણાય છે."],
+  "Counted per person, not per application — someone who received three different schemes still counts once. Applications still waiting for a decision, and rejected ones, do not count.": ["हर व्यक्ति गिना जाता है, हर आवेदन नहीं — जिसे तीन योजनाओं का लाभ मिला, वह भी एक बार गिना जाता है। फ़ैसले का इंतज़ार कर रहे और अस्वीकृत आवेदन नहीं गिने जाते।", "દરેક વ્યક્તિ ગણાય છે, દરેક અરજી નહીં — જેને ત્રણ યોજનાનો લાભ મળ્યો તે પણ એક જ વાર ગણાય. નિર્ણયની રાહ જોતી અને નામંજૂર અરજીઓ ગણાતી નથી."],
+  "Both programmes count. Advocacy: the amount on every scheme marked Benefits Received (where you left it blank, the scheme's standard value is used). Livelihood: the extra income a household now earns above its baseline. A household whose income fell counts as zero, never as a subtraction.": ["दोनों कार्यक्रम गिने जाते हैं। सरकारी लाभ: हर उस योजना की राशि जिसमें लाभ मिल गया दर्ज है (राशि ख़ाली हो तो योजना की तय राशि)। आजीविका: बेसलाइन से ऊपर परिवार की बढ़ी आय। जिसकी आय घटी, वह शून्य गिना जाता है, घटाया नहीं जाता।", "બંને કાર્યક્રમ ગણાય છે. સરકારી લાભ: દરેક યોજના જેમાં લાભ મળ્યો નોંધાયું છે તેની રકમ (રકમ ખાલી હોય તો યોજનાની નક્કી રકમ). આજીવિકા: બેઝલાઇન ઉપર પરિવારની વધેલી આવક. જેની આવક ઘટી તે શૂન્ય ગણાય છે, બાદ નથી થતી."],
+  "This counts people who have at least one photo — extra photos of the same person do not add to it. Photos taken in the older version of the app count too.": ["इसमें वे लोग गिने जाते हैं जिनकी कम से कम एक फ़ोटो है — एक ही व्यक्ति की ज़्यादा फ़ोटो से गिनती नहीं बढ़ती। ऐप के पुराने वर्ज़न की फ़ोटो भी गिनी जाती हैं।", "આમાં એ લોકો ગણાય છે જેમનો ઓછામાં ઓછો એક ફોટો છે — એક જ વ્યક્તિના વધુ ફોટાથી ગણતરી વધતી નથી. એપના જૂના વર્ઝનના ફોટા પણ ગણાય છે."],
+  "Counts distinct schemes where at least one person actually received the benefit. Ten families on PM-KISAN is still one scheme.": ["वे अलग-अलग योजनाएँ गिनी जाती हैं जिनमें कम से कम एक व्यक्ति को सच में लाभ मिला। पीएम-किसान के दस परिवार भी एक ही योजना हैं।", "એ અલગ અલગ યોજનાઓ ગણાય છે જેમાં ઓછામાં ઓછી એક વ્યક્તિને ખરેખર લાભ મળ્યો. પીએમ-કિસાનના દસ પરિવાર પણ એક જ યોજના છે."],
+  "A day counts if you enrolled someone, added a photo, recorded income, or updated a scheme — advocacy or livelihood, both count. They do not have to be consecutive: any 30 days, and the count never goes back down.": ["वह दिन गिना जाता है जिस दिन आपने पंजीकरण किया, फ़ोटो डाली, आय दर्ज की या योजना अपडेट की — दोनों कार्यक्रम गिने जाते हैं। दिन लगातार होना ज़रूरी नहीं: कोई भी 30 दिन, और गिनती कभी कम नहीं होती।", "એ દિવસ ગણાય છે જે દિવસે તમે નોંધણી કરી, ફોટો મૂક્યો, આવક નોંધી કે યોજના અપડેટ કરી — બંને કાર્યક્રમ ગણાય છે. દિવસો સળંગ હોવા જરૂરી નથી: કોઈ પણ 30 દિવસ, અને ગણતરી ક્યારેય ઘટતી નથી."],
+  "A running total of the unique beneficiaries you have enrolled, as at the end of each month — not just that month's new enrolments. That is why the bars never go down.": ["हर महीने के अंत तक आपके पंजीकृत कुल लाभार्थी — सिर्फ़ उस महीने के नए नहीं। इसलिए बार कभी नीचे नहीं जाते।", "દરેક મહિનાના અંત સુધીના તમારા નોંધાયેલા કુલ લાભાર્થીઓ — ફક્ત એ મહિનાના નવા નહીં. એટલે બાર ક્યારેય નીચે નથી જતા."],
+  "Government scheme benefits received:": ["मिले सरकारी योजना लाभ:", "મળેલા સરકારી યોજનાના લાભ:"],
+  "Additional income generated:": ["बढ़ी हुई आय:", "વધેલી આવક:"],
+  "Total:": ["कुल:", "કુલ:"],
+  // common messages
+  "No internet connection. Please reconnect and try again.": ["इंटरनेट नहीं है। जुड़कर फिर कोशिश करें।", "ઇન્ટરનેટ નથી. જોડાઈને ફરી પ્રયાસ કરો."],
+  "Cloud sync is not available. Please reload the page.": ["क्लाउड से जुड़ाव नहीं है। पेज दोबारा खोलें।", "ક્લાઉડ સાથે જોડાણ નથી. પેજ ફરી ખોલો."],
+  "Could not save to cloud. Please check your connection and try again.": ["क्लाउड पर सेव नहीं हुआ। इंटरनेट देखकर फिर कोशिश करें।", "ક્લાઉડ પર સેવ ન થયું. ઇન્ટરનેટ તપાસી ફરી પ્રયાસ કરો."],
+  "Cloud sync is still starting up. Please wait a moment and try again.": ["क्लाउड अभी शुरू हो रहा है। थोड़ा रुककर फिर कोशिश करें।", "ક્લાઉડ હજી શરૂ થાય છે. થોડું રોકાઈ ફરી પ્રયાસ કરો."],
+  "Loading your records first — try again in a moment.": ["पहले आपके रिकॉर्ड आ रहे हैं — थोड़ी देर में फिर कोशिश करें।", "પહેલાં તમારા રેકોર્ડ આવે છે — થોડી વારમાં ફરી પ્રયાસ કરો."],
+  "Still syncing with the server, please wait a few seconds and try again.": ["सर्वर से जुड़ाव चल रहा है, कुछ सेकंड रुककर फिर कोशिश करें।", "સર્વર સાથે જોડાણ ચાલે છે, થોડી સેકંડ રોકાઈ ફરી પ્રયાસ કરો."],
+  "Loading the scheme records first — try again in a moment.": ["पहले योजना रिकॉर्ड आ रहे हैं — थोड़ी देर में फिर कोशिश करें।", "પહેલાં યોજના રેકોર્ડ આવે છે — થોડી વારમાં ફરી પ્રયાસ કરો."],
+  "OK, show the latest": ["ठीक है, नया वाला दिखाएँ", "ઠીક છે, નવું બતાવો"],
+  "Update available — tap to reload": ["नया अपडेट आया — दोबारा खोलने के लिए दबाएँ", "નવું અપડેટ આવ્યું — ફરી ખોલવા દબાવો"],
+  "New version available — reloading.": ["नया वर्ज़न आया — दोबारा खुल रहा है।", "નવું વર્ઝન આવ્યું — ફરી ખૂલે છે."],
+  "Enroll Beneficiary": ["लाभार्थी पंजीकृत करें", "લાભાર્થીની નોંધણી કરો"],
+  "Note": ["नोट", "નોંધ"],
+  "(optional)": ["(वैकल्पिक)", "(વૈકલ્પિક)"],
+  "Already logged:": ["पहले से दर्ज:", "પહેલેથી નોંધાયેલી:"],
+  ". To change a status, tap the scheme on the card.": ["। स्थिति बदलने के लिए कार्ड पर योजना दबाएँ।", ". સ્થિતિ બદલવા કાર્ડ પર યોજના દબાવો."]
+};
+
+// messages with a name, a number or an amount in them. [regex, hindi, gujarati]
+// $1.. = the captured part; a captured scheme or status name is itself translated.
+const _V253_P = [
+  [/^Hi, (.+)$/, "नमस्ते, $1", "નમસ્તે, $1"],
+  [/^(\d{1,2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sept?|Oct|Nov|Dec) (\d{4})$/, "$1 $2 $3", "$1 $2 $3"],
+  [/^([\d.]+) acres$/, "$1 एकड़", "$1 એકર"],
+  [/^(\d+) \(total\)$/, "$1 (कुल)", "$1 (કુલ)"],
+  [/^NGO: (.+?) · Coordinator: (.+?)(?: · Enrolled by: (.+))?$/, "संस्था: $1 · कोऑर्डिनेटर: $2|| · पंजीकरण किया: $3", "સંસ્થા: $1 · કોઓર્ડિનેટર: $2|| · નોંધણી કરનાર: $3"],
+  [/^Baseline: (₹\S+|—)(?: → Endline (₹\S+))?$/, "बेसलाइन: $1|| → एंडलाइन $2", "બેઝલાઇન: $1|| → એન્ડલાઇન $2"],
+  [/^Showing (\d+) of (\d+) beneficiar(?:y|ies)$/, "$2 में से $1 लाभार्थी", "$2 માંથી $1 લાભાર્થી"],
+  [/^Showing (\d+) of (\d+) beneficiar(?:y|ies) \(page (\d+) of (\d+)\)$/, "$2 में से $1 लाभार्थी (पेज $3 / $4)", "$2 માંથી $1 લાભાર્થી (પેજ $3 / $4)"],
+  [/^(\d+) beneficiar(?:y|ies) enrolled$/, "$1 लाभार्थी पंजीकृत", "$1 લાભાર્થી નોંધાયેલા"],
+  [/^beneficiar(?:y|ies) enrolled by you$/, "लाभार्थी आपने पंजीकृत किए", "લાભાર્થીની નોંધણી તમે કરી"],
+  [/^Page (\d+) of (\d+) · (\d+) total$/, "पेज $1 / $2 · कुल $3", "પેજ $1 / $2 · કુલ $3"],
+  [/^(\d+)% of (\d+)$/, "$2 का $1%", "$2 ના $1%"],
+  [/^of (\d+)$/, "/ $1", "/ $1"],
+  [/^Refresh data \((\d+) left today\)$/, "डेटा रिफ़्रेश करें (आज $1 बाकी)", "ડેટા રિફ્રેશ કરો (આજે $1 બાકી)"],
+  [/^Refreshed — (\d+) records loaded$/, "रिफ़्रेश हुआ — $1 रिकॉर्ड आए", "રિફ્રેશ થયું — $1 રેકોર્ડ આવ્યા"],
+  [/^Progress updated to: (.+)$/, "प्रगति बदली: $1", "પ્રગતિ બદલાઈ: $1"],
+  [/^(.+): (Need to Apply|Applied|Benefits Received|Rejected)$/, "$1: $2", "$1: $2"],
+  [/^Log Income — (.+)$/, "आय दर्ज करें — $1", "આવક નોંધો — $1"],
+  [/^(\d+) entr(?:y|ies)$/, "$1 एंट्री", "$1 એન્ટ્રી"],
+  [/^Change the entry from (.+)$/, "$1 की एंट्री बदलें", "$1 ની એન્ટ્રી બદલો"],
+  [/^Edit entry from (.+)$/, "$1 की एंट्री बदलें", "$1 ની એન્ટ્રી બદલો"],
+  [/^Income entry added\. New total: (₹\S+)$/, "आय जुड़ गई। नया कुल: $1", "આવક ઉમેરાઈ. નવો કુલ: $1"],
+  [/^Entry updated\. New total: (₹\S+)$/, "एंट्री बदल गई। नया कुल: $1", "એન્ટ્રી બદલાઈ. નવો કુલ: $1"],
+  [/^Recorded — no additional income\. Total: (₹\S+)$/, "दर्ज हुआ — अतिरिक्त आय नहीं। कुल: $1", "નોંધાયું — વધારાની આવક નથી. કુલ: $1"],
+  [/^Entry deleted \(kept under Deleted entries\)\. New total: (₹\S+)$/, "एंट्री हटी (हटाई गई एंट्री में रखी)। नया कुल: $1", "એન્ટ્રી કાઢી (કાઢેલી એન્ટ્રીમાં રાખી). નવો કુલ: $1"],
+  [/^Entry restored\. New total: (₹\S+)$/, "एंट्री वापस आई। नया कुल: $1", "એન્ટ્રી પાછી આવી. નવો કુલ: $1"],
+  [/^Deleted entries \((\d+)\) — not counted in any total$/, "हटाई गई एंट्री ($1) — किसी कुल में नहीं गिनी जाती", "કાઢેલી એન્ટ્રી ($1) — કોઈ કુલમાં ગણાતી નથી"],
+  [/^Recorded (\d.+)$/, "दर्ज: $1", "નોંધ્યું: $1"],
+  [/^(\d+) log entr(?:y|ies) · (.+)$/, "$1 एंट्री · $2", "$1 એન્ટ્રી · $2"],
+  [/^Family Members \((\d+)\)$/, "परिवार के सदस्य ($1)", "પરિવારના સભ્યો ($1)"],
+  [/^Advocacy record updated for (.+)$/, "$1 का सरकारी लाभ रिकॉर्ड बदला", "$1 નો સરકારી લાભ રેકોર્ડ બદલાયો"],
+  [/^Advocacy record saved for (.+)$/, "$1 का सरकारी लाभ रिकॉर्ड सेव हुआ", "$1 નો સરકારી લાભ રેકોર્ડ સેવ થયો"],
+  [/^Changes saved for (.+)$/, "$1 के बदलाव सेव हुए", "$1 ના ફેરફાર સેવ થયા"],
+  [/^Enrolled — ID: (.+)$/, "पंजीकृत — ID: $1", "નોંધાયું — ID: $1"],
+  [/^Enrolled! ID: (.+)$/, "पंजीकृत! ID: $1", "નોંધાયું! ID: $1"],
+  [/^Family member added: (.+)$/, "परिवार का सदस्य जुड़ा: $1", "પરિવારના સભ્ય ઉમેરાયા: $1"],
+  [/^Keep going — (\d+) more to unlock\.$/, "लगे रहिए — $1 और बैज बाकी।", "આગળ વધો — હજી $1 બેજ બાકી."],
+  [/^Badge unlocked — (.+)$/, "बैज मिला — $1", "બેજ મળ્યો — $1"],
+  [/^(\d+) new badges unlocked!$/, "$1 नए बैज मिले!", "$1 નવા બેજ મળ્યા!"],
+  [/^Help (\d+) people receive a government scheme benefit or have an endline income recorded\.$/, "$1 लोगों को सरकारी योजना का लाभ दिलाएँ या उनकी एंडलाइन आय दर्ज करें।", "$1 લોકોને સરકારી યોજનાનો લાભ અપાવો કે તેમની એન્ડલાઇન આવક નોંધો."],
+  [/^Reach (₹\d+ lakh) of total impact — government scheme benefits plus the additional income households now earn\.$/, "कुल $1 का असर पाएँ — सरकारी योजना के लाभ और परिवारों की बढ़ी आय मिलाकर।", "કુલ $1 ની અસર મેળવો — સરકારી યોજનાના લાભ અને પરિવારોની વધેલી આવક મળીને."],
+  [/^The last one: (₹1 crore) of total impact — government scheme benefits plus the additional income households now earn\.$/, "आख़िरी बैज: कुल $1 का असर — सरकारी योजना के लाभ और परिवारों की बढ़ी आय मिलाकर।", "છેલ્લો બેજ: કુલ $1 ની અસર — સરકારી યોજનાના લાભ અને પરિવારોની વધેલી આવક મળીને."],
+  [/^There are (\d+) applications to work through, and you have moved (\d+) of them forward — either applied for, or the benefit already received\.$/, "कुल $1 आवेदनों पर काम करना है, और आपने इनमें से $2 आगे बढ़ाए — या तो आवेदन किया, या लाभ मिल गया।", "કુલ $1 અરજીઓ પર કામ કરવાનું છે, અને તમે તેમાંથી $2 આગળ વધારી — કાં અરજી કરી, કાં લાભ મળી ગયો."],
+  [/^You have (\d+) livelihood beneficiaries, and you have started the intervention with (\d+) of them\.$/, "आपके $1 आजीविका लाभार्थी हैं, और इनमें से $2 के साथ इंटरवेंशन शुरू किया है।", "તમારા $1 આજીવિકા લાભાર્થીઓ છે, અને તેમાંથી $2 સાથે ઇન્ટરવેન્શન શરૂ કર્યું છે."],
+  [/^Your efforts have generated an estimated impact of (₹\S+), bringing meaningful change to (\d+) lives\.$/, "आपके काम से लगभग $1 का असर हुआ है, जिससे $2 लोगों के जीवन में अच्छा बदलाव आया।", "તમારા કામથી આશરે $1 ની અસર થઈ છે, જેનાથી $2 લોકોના જીવનમાં સારો ફેરફાર આવ્યો."],
+  [/^Your empathy and dedication have made a meaningful difference in the lives of (\d+) people\. The future is brighter because of you!$/, "आपकी लगन और संवेदना से $1 लोगों के जीवन में फ़र्क़ आया है। आपकी वजह से भविष्य बेहतर है!", "તમારી લગન અને સંવેદનાથી $1 લોકોના જીવનમાં ફરક આવ્યો છે. તમારા લીધે ભવિષ્ય વધુ સારું છે!"],
+  [/^(\d+) schemes? across (\d+) (?:person|people) still waiting to be applied for$/, "$2 लोगों की $1 योजनाओं का आवेदन अभी बाकी है", "$2 લોકોની $1 યોજનાની અરજી હજી બાકી છે"],
+  [/^Showing the 200 most urgent of (\d+)\.$/, "$1 में से सबसे ज़रूरी 200 दिख रहे हैं।", "$1 માંથી સૌથી જરૂરી 200 દેખાય છે."],
+  // alerts: the text after the bold name
+  [/^is enrolled but no intervention type has been assigned\.$/, "का पंजीकरण हुआ, पर कोई इंटरवेंशन नहीं चुना गया।", "ની નોંધણી થઈ, પણ કોઈ ઇન્ટરવેન્શન પસંદ નથી."],
+  [/^\((.+?)\) — enrolled (\d+) days ago but intervention has not started\. Field coordinator to follow up\.$/, "($1) — $2 दिन पहले पंजीकरण हुआ, पर इंटरवेंशन शुरू नहीं हुआ। फ़ॉलो-अप करें।", "($1) — $2 દિવસ પહેલાં નોંધણી થઈ, પણ ઇન્ટરવેન્શન શરૂ નથી થયું. ફોલો-અપ કરો."],
+  [/^\((.+?)\) — intervention in progress for (\d+) days\. Endline likely due — please schedule\.$/, "($1) — $2 दिन से इंटरवेंशन चालू है। एंडलाइन का समय आ गया होगा — तय करें।", "($1) — $2 દિવસથી ઇન્ટરવેન્શન ચાલુ છે. એન્ડલાઇનનો સમય આવ્યો હશે — નક્કી કરો."],
+  [/^\((.+?)\) — enrolled (\d+) days ago, still at baseline stage with no intervention started\. Requires urgent field follow-up\.$/, "($1) — $2 दिन पहले पंजीकरण हुआ, अब भी बेसलाइन पर, इंटरवेंशन शुरू नहीं। जल्दी फ़ॉलो-अप ज़रूरी।", "($1) — $2 દિવસ પહેલાં નોંધણી થઈ, હજી બેઝલાઇન પર, ઇન્ટરવેન્શન શરૂ નથી. તાત્કાલિક ફોલો-અપ જરૂરી."],
+  [/^\((.+?)\) — advocacy-tagged but no schemes logged in (\d+) days since enrolment\. Log at least one scheme via Advocacy → Log\.$/, "($1) — सरकारी लाभ में है, पर पंजीकरण के $2 दिन बाद भी कोई योजना दर्ज नहीं। कम से कम एक योजना दर्ज करें।", "($1) — સરકારી લાભમાં છે, પણ નોંધણીના $2 દિવસ પછી પણ કોઈ યોજના નોંધાઈ નથી. ઓછામાં ઓછી એક યોજના નોંધો."],
+  [/^\((.+?)\) —$/, "($1) —", "($1) —"],
+  [/^no baseline income recorded$/, "बेसलाइन आय दर्ज नहीं", "બેઝલાઇન આવક નોંધાઈ નથી"],
+  [/^\. Impact cannot be measured for this person, and no endline income should be entered until the baseline is filled in\.$/, "। इस व्यक्ति का असर नहीं मापा जा सकता; बेसलाइन भरने से पहले एंडलाइन आय न डालें।", ". આ વ્યક્તિની અસર માપી શકાતી નથી; બેઝલાઇન ભર્યા પહેલાં એન્ડલાઇન આવક ન નાખો."],
+  [/^zero benefit amount$/, "लाभ की राशि शून्य", "લાભની રકમ શૂન્ય"],
+  [/^\. Add the actual ₹ amount\.$/, "। असली ₹ राशि डालें।", ". સાચી ₹ રકમ નાખો."]
+];
+
+// ── V25.3: THE COORDINATOR APP IN HINDI / GUJARATI - ON SCREEN ONLY ─────────────
+// Guru, 5 Oct 2026: the language switch translated the forms only. Now every
+// screen a coordinator sees follows it. ⛔ DISPLAY ONLY: this changes the words
+// a coordinator READS and nothing else - no saved value, no typed value, no
+// <option> value, no database write. English (the default) and every other
+// role never start it, so for them nothing here runs at all.
+// How: after anything is drawn, each piece of text is looked up in the word
+// tables above (_V253_N names, _V253_U screen words, _V253_P messages with a
+// number or name in them) and swapped for the coordinator's language. The
+// English is remembered, so switching back puts the exact English back.
+// Not touched: person names, IDs, villages, typed text, and the enrolment
+// chips whose text the app reads back when it saves (Hindi/Gujarati shown
+// beside them by CSS instead, as in V24.4).
+const _V253_SKIP = 'script,style,noscript,[contenteditable],[data-no-l10n],[data-en],#ichips .ichip,.adv-enroll-name,#dr-sub,.coord-card-name,.coord-card-idrow';
+const _V253_ATTRS = ['placeholder', 'title', 'aria-label', 'data-label'];
+const _v253Txt = new WeakMap();   // text node -> { en, out }
+const _v253Htm = new WeakMap();   // element (translated whole) -> { html, out }
+const _v253Att = new WeakMap();   // element -> { attr: { en, out } }
+let _v253Li = -2, _v253Obs = null;
+
+function _v253Idx() {
+  const l = (typeof _effectiveLang === 'function') ? _effectiveLang() : 'en';
+  return l === 'hi' ? 0 : l === 'gu' ? 1 : -1;
+}
+function _v253Find(core, li) {
+  const h = _V253_U[core] || _V253_N[core];
+  if (h) return h[li] || null;
+  for (const p of _V253_P) {
+    const m = p[0].exec(core);
+    if (!m) continue;
+    const tpl = p[li + 1];
+    if (!tpl) return null;
+    // a "||" part is dropped when a value it shows is empty
+    return tpl.split('||').filter(seg => [...seg.matchAll(/\$(\d)/g)].every(x => m[+x[1]] != null && m[+x[1]] !== ''))
+      .join('').replace(/\$(\d)/g, (_, k) => { const v = m[+k]; const n = _V253_N[v]; return (n && n[li]) || v; });
+  }
+  // a list of known names ("Farming, Animal Husbandry", "Pune, Maharashtra")
+  if (core.indexOf(', ') > 0) {
+    const parts = core.split(', ');
+    const tr = parts.map(x => { const n = _V253_N[x] || (typeof _V244_PLACES !== 'undefined' && (_V244_PLACES.s[x] || _V244_PLACES.d[x])); return n ? n[li] : null; });
+    if (tr.every(Boolean)) return tr.join(', ');
+  }
+  return null;
+}
+// the translation of one piece of text, or null; spaces around it are kept.
+// Remembered per language: a screen repaint asks the same questions again, and
+// most text (names, numbers) has no translation - one look each, not 60 patterns.
+const _v253Memo = [new Map(), new Map()];
+function _v253Tr(text, li) {
+  if (li < 0 || typeof text !== 'string') return null;
+  const memo = _v253Memo[li];
+  const got = memo.get(text);
+  if (got !== undefined) return got;
+  const res = _v253TrRaw(text, li);
+  if (memo.size > 6000) memo.clear();
+  memo.set(text, res);
+  return res;
+}
+function _v253TrRaw(text, li) {
+  const lead = /^\s*/.exec(text)[0];
+  const trail = text.length > lead.length ? /\s*$/.exec(text)[0] : '';
+  const core = text.slice(lead.length, text.length - trail.length).replace(/\s+/g, ' ');
+  if (!core || !/[A-Za-z]/.test(core)) return null;
+  let out = _v253Find(core, li);
+  if (out == null) {
+    // an icon, arrow or plus sign at either end: translate what is between
+    const k = /^([^A-Za-z0-9]*)([\s\S]*?)([^A-Za-z0-9]*)$/.exec(core);
+    if (k && k[2] && (k[1] || k[3])) { const o = _v253Find(k[2], li); if (o != null) out = k[1] + o + k[3]; }
+  }
+  return out == null ? null : lead + out + trail;
+}
+function _v253Text(n, li) {
+  const v = n.nodeValue;
+  const r = _v253Txt.get(n);
+  if (r && r.out === v) return;                        // already ours
+  const out = _v253Tr(v, li);
+  if (out == null || out === v) { if (r) _v253Txt.delete(n); return; }
+  const p = n.parentNode;
+  // an <option> without a value takes its text as value: pin the English first
+  if (p && p.nodeName === 'OPTION' && !p.hasAttribute('value')) p.setAttribute('value', v.trim().replace(/\s+/g, ' '));
+  _v253Txt.set(n, { en: v, out: out });
+  n.nodeValue = out;
+}
+function _v253Attrs(el, li) {
+  for (const a of _V253_ATTRS) {
+    const v = el.getAttribute(a);
+    if (!v) continue;
+    let rec = _v253Att.get(el);
+    if (rec && rec[a] && rec[a].out === v) continue;
+    const out = _v253Tr(v, li);
+    if (out == null || out === v) continue;
+    if (!rec) { rec = {}; _v253Att.set(el, rec); }
+    rec[a] = { en: v, out: out };
+    el.setAttribute(a, out);
+  }
+}
+// a line split by <b>/<strong> (a number in bold): translated as one sentence
+function _v253Whole(el, li) {
+  const r = _v253Htm.get(el);
+  if (r) { if (el.textContent === r.out) return true; _v253Htm.delete(el); }
+  if (!el.firstElementChild) return false;
+  for (const c of el.children) if (!/^(B|STRONG|EM|I|SMALL|BR)$/.test(c.nodeName)) return false;
+  // only a MIXED line (words and a bold part); a bold label alone is done word by word
+  let mixed = false;
+  for (const c of el.childNodes) if (c.nodeType === 3 && /[A-Za-z]/.test(c.nodeValue)) { mixed = true; break; }
+  if (!mixed) return false;
+  const out = _v253Tr(el.textContent, li);
+  if (out == null) return false;
+  _v253Htm.set(el, { html: el.innerHTML, out: out });
+  el.textContent = out;
+  return true;
+}
+// the same test as _V253_SKIP, without a selector match per element (speed)
+const _V253_SKIP_TAG = { SCRIPT: 1, STYLE: 1, NOSCRIPT: 1 };
+function _v253SkipEl(el) {
+  if (_V253_SKIP_TAG[el.nodeName]) return true;
+  if (el.hasAttribute('data-en') || el.hasAttribute('data-no-l10n') || el.hasAttribute('contenteditable')) return true;
+  if (el.id === 'dr-sub') return true;
+  const cl = el.classList;
+  if (cl.length && (cl.contains('adv-enroll-name') || cl.contains('coord-card-name') || cl.contains('coord-card-idrow')
+      || (cl.contains('ichip') && el.parentElement && el.parentElement.id === 'ichips'))) return true;
+  return false;
+}
+function _v253Walk(node, li) {
+  if (node.nodeType === 3) { if (/[A-Za-z]/.test(node.nodeValue)) _v253Text(node, li); return; }
+  if (node.nodeType !== 1) return;
+  if (_v253SkipEl(node)) return;
+  if (node.attributes.length) _v253Attrs(node, li);
+  if (/^(INPUT|TEXTAREA)$/.test(node.nodeName)) return;   // typed text is never touched
+  if (_v253Whole(node, li)) return;
+  for (let c = node.firstChild; c; c = c.nextSibling) _v253Walk(c, li);
+}
+function _v253From(node, li) {
+  const pe = node.nodeType === 1 ? node : node.parentElement;
+  if (!pe || (pe.closest && pe.closest(_V253_SKIP))) return;
+  _v253Walk(node, li);
+}
+// everything back to the English it was drawn in
+function _v253Restore() {
+  const tw = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+  const whole = [];
+  for (let n = tw.currentNode; n; n = tw.nextNode()) {
+    if (n.nodeType === 3) {
+      const r = _v253Txt.get(n);
+      if (r) { if (n.nodeValue === r.out) n.nodeValue = r.en; _v253Txt.delete(n); }
+    } else {
+      if (_v253Htm.has(n)) whole.push(n);
+      const a = _v253Att.get(n);
+      if (a) { for (const k in a) if (n.getAttribute(k) === a[k].out) n.setAttribute(k, a[k].en); _v253Att.delete(n); }
+    }
+  }
+  whole.forEach(el => { const r = _v253Htm.get(el); if (r && el.textContent === r.out) el.innerHTML = r.html; _v253Htm.delete(el); });
+}
+function _v253OnMut(list) {
+  const li = _v253Idx();
+  if (li !== _v253Li) { _v253Start(); return; }
+  if (li < 0) return;
+  for (const m of list) {
+    if (m.type === 'childList') {
+      const t = m.target;
+      if (t.nodeType === 1 && !t.closest(_V253_SKIP) && _v253Whole(t, li)) continue;
+      m.addedNodes.forEach(n => { if (n.isConnected) _v253From(n, li); });
+    } else if (m.type === 'characterData') {
+      const pe = m.target.parentElement;
+      if (pe && pe.isConnected) _v253From(pe, li);
+    } else if (m.type === 'attributes') {
+      const el = m.target;
+      if (el.isConnected && !el.closest(_V253_SKIP)) _v253Attrs(el, li);
+    }
+  }
+}
+// start, stop or switch - called when the coordinator screen opens and when
+// the language changes; a sign-out to another role stops it on the next paint
+function _v253Start() {
+  const li = _v253Idx();
+  if (li === _v253Li) return;
+  _v253Li = li;
+  if (_v253Obs) { _v253Obs.disconnect(); _v253Obs = null; }
+  try { _v253Restore(); } catch (e) { console.warn('[V25.3] restore', e && e.message); }
+  try { if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache(); } catch (_) {}
+  try { document.body.classList.toggle('v244-gu', li === 1); } catch (_) {}
+  if (li < 0) return;
+  try { _v253Walk(document.body, li); } catch (e) { console.warn('[V25.3] translate', e && e.message); }
+  _v253Obs = new MutationObserver(function (l) { try { _v253OnMut(l); } catch (e) { console.warn('[V25.3]', e && e.message); } });
+  _v253Obs.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: _V253_ATTRS });
+}
+// the phone's own boxes (confirm / alert / prompt) show the same words
+(function () {
+  ['alert', 'confirm', 'prompt'].forEach(function (name) {
+    const f = window[name];
+    if (typeof f !== 'function') return;
+    window[name] = function (msg) {
+      try {
+        const li = _v253Idx();
+        if (li >= 0 && typeof msg === 'string') msg = msg.split('\n').map(line => { const o = _v253Tr(line, li); return o == null ? line : o; }).join('\n');
+      } catch (_) {}
+      const a = Array.prototype.slice.call(arguments); a[0] = msg;
+      return f.apply(window, a);
+    };
+  });
+})();
+function _v253GuName(en) { const n = en && _V253_N[en]; return (n && n[1]) || ''; }
+
 function _refreshLivelihoodChips() {
   const container = document.getElementById('ichips');
   if (!container) return;
   const types = getLivTypes();
   container.innerHTML = types.map(t =>
-    `<div class="ichip" onclick="toggleChip(this)"${_v244HiName(t) ? ' data-hi="' + _v244HiName(t).replace(/"/g, '&quot;') + '"' : ''}><div class="ichip-box"></div>${t.replace(/</g,'&lt;')}</div>`
+    `<div class="ichip" onclick="toggleChip(this)"${_v244HiName(t) ? ' data-hi="' + _v244HiName(t).replace(/"/g, '&quot;') + '"' : ''}${_v253GuName(t) ? ' data-gu="' + _v253GuName(t).replace(/"/g, '&quot;') + '"' : ''}><div class="ichip-box"></div>${t.replace(/</g,'&lt;')}</div>`
   ).join('') +
-  `<div class="ichip" id="liv-other-chip" onclick="toggleLivOtherChip(this)" data-hi="${_v244HiName('Other')}"><div class="ichip-box"></div>Other</div>`;
+  `<div class="ichip" id="liv-other-chip" onclick="toggleLivOtherChip(this)" data-hi="${_v244HiName('Other')}" data-gu="${_v253GuName('Other')}"><div class="ichip-box"></div>Other</div>`;
   try { document.body.classList.toggle('v244-hi', ((typeof _effectiveLang === 'function') ? _effectiveLang() : 'en') === 'hi'); } catch (_) {}   // V24.4
+  try { document.body.classList.toggle('v244-gu', ((typeof _effectiveLang === 'function') ? _effectiveLang() : 'en') === 'gu'); } catch (_) {}   // V25.3
 }
 
 // Rebuild the enrollment form's advocacy scheme panel. Called on openEnroll,
