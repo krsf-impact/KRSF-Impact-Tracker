@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V25.4-LIVE
+  KRSF Beneficiary Impact Tracker  -  V25.6-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,40 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V25.6-LIVE (2026-10-06 - Reports for donor logins, from stored figures).
+
+    + Donor logins get the Reports tab: every tab (FC Performance, Partners
+      for a donor with several partners, Enrollment Trends, Advocacy
+      Pipeline, Livelihood Impact), with the five date chips. Month filters,
+      drill-downs into lists and the State filter stay office-only.
+    + A donor holds no records, so the figures are counted on the office
+      laptop by the same Reports code and stored per partner; a donor reads
+      only its own partners and only the chip it opens, kept on the device
+      until the donor presses Refresh (2 a day; a Refresh with nothing new
+      is not used). Opening Reports never downloads records.
+    + The office laptop counts in the background, at most once an hour, and
+      writes only what changed.
+    + Tests: 117 files. v256 is new.
+
+  V25.5-LIVE (2026-10-06 - Endline today counts the day's endline entries).
+
+    + TODAY card and TODAY BY PARTNER: Endline = households with an endline
+      income entry saved today, whatever date is typed on the entry. V25.4
+      needed the endline DATE to be today, and coordinators log income
+      dated weeks back, so the column read 0 on a morning full of entries.
+    + Reports (leaderboard, partner table, CSV): Endline in a date window
+      follows the same rule - entries saved in the window. Endlines from
+      before the income log keep their endline date.
+    + Reports' advocacy headings, cards and CSV columns say what they count:
+      Schemes surveyed / Schemes applied / Schemes received. The dashboard's
+      Today counts people and says so. No figure changes.
+    + Which date where: every count on the dashboard and in Reports goes by
+      the day the entry was made; the Livelihood "Endline date" filter and
+      the Total impact chart go by the date of the income.
+    + Households, not entries or rupees. No extra download; admin and
+      partner screens only.
+    + Tests: 112 files; v254 now plants a back-dated entry.
+
   V25.4-LIVE (2026-10-05 - the dashboard's Today in the app's words).
 
     + TODAY card and TODAY BY PARTNER table: ADVOCACY Surveyed / Applied /
@@ -1708,6 +1742,9 @@ body[data-role="scopedViewerByFc"] .nav-btn[data-v="enroll"] { display: none !im
    top-bar Refresh, with its daily limit. The id outranks the hide rule above. */
 body[data-role="scopedViewer"] #topbar-refresh-btn[data-admin-only],
 body[data-role="scopedViewerByFc"] #topbar-refresh-btn[data-admin-only] { display: inline-block !important; }
+/* V25.6: donors get the Reports entry (stored figures only - see _v256DonorA) */
+body[data-role="scopedViewer"] .nav-btn[data-donor-ok][data-admin-only],
+body[data-role="scopedViewer"] .mob-sheet-btn[data-donor-ok][data-admin-only] { display: flex !important; }
 #topbar-refresh-left{vertical-align:middle;font-weight:500;margin-left:4px}
 #topbar-refresh-left:empty{display:none}
 #topbar-refresh-btn.v247-off{background:#F3F4F6 !important;color:#6B7280 !important;border-color:#E5E7EB !important;cursor:not-allowed !important}
@@ -3465,7 +3502,7 @@ body[data-shell="coord"] .coord-card {
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
       Dashboard
     </button>
-    <button data-admin-only data-ngo-ok class="nav-btn" data-v="reports" onclick="nav('reports')" style="display:none">
+    <button data-admin-only data-ngo-ok data-donor-ok class="nav-btn" data-v="reports" onclick="nav('reports')" style="display:none">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="3" y1="13" x2="3" y2="7"/><line x1="8" y1="13" x2="8" y2="3"/><line x1="13" y1="13" x2="13" y2="9"/><line x1="1" y1="15" x2="15" y2="15"/></svg>
       Reports
     </button>
@@ -4284,7 +4321,7 @@ body[data-shell="coord"] .coord-card {
     <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="8" cy="12" r="6"/><circle cx="16" cy="12" r="6"/></svg>
     <span>Integrated View</span>
   </button>
-  <button data-admin-only data-ngo-ok class="mob-sheet-btn" onclick="closeMobMoreSheet();mobNav('reports')" style="display:none">
+  <button data-admin-only data-ngo-ok data-donor-ok class="mob-sheet-btn" onclick="closeMobMoreSheet();mobNav('reports')" style="display:none">
     <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><line x1="6" y1="20" x2="6" y2="12"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="18" y1="20" x2="18" y2="14"/><line x1="2" y1="22" x2="22" y2="22"/></svg>
     <span>Reports</span>
   </button>
@@ -4672,7 +4709,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V25.4-LIVE';
+const APP_VERSION = 'V25.6-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -6954,6 +6991,8 @@ async function _v247FullReload(u, why) {
 }
 async function _v247DoRefresh(u) {
   const t0 = _v247Now();
+  // [V25.6] a donor on Reports: the Reports figures, kept on the device until now
+  if (_v256IsDonor(u) && typeof currentView !== 'undefined' && currentView === 'reports') return _v256RefreshReports();
   // A partner or donor on the dashboard holds no list yet. With a saved copy on
   // this device it is loaded (nothing downloaded) and brought up to date below.
   // ⛔ WITHOUT ONE, NOTHING IS DOWNLOADED. The lists download when one is opened,
@@ -26862,7 +26901,21 @@ function _v401TodayStats(srcB, srcA) {
     // household's partner row, inside the same branch.
     const _eT254 = _d254 === todayIst;
     const _iT254 = !!b.inProgressDate && _v400IstDayMemo(b.inProgressDate) === todayIst;
-    const _nT254 = !!b.endlineDate && _v400IstDayMemo(b.endlineDate) === todayIst;
+    // [V25.5] ENDLINE TODAY = a household with an endline income entry SAVED
+    // today (the entry's addedAt), whatever date was typed on the entry.
+    // Guru, 6 Oct: income was being logged all morning and Endline read 0.
+    // V25.4 asked for the ENDLINE DATE to be today - but an FC logs income
+    // dated weeks back (30 Sept, 31 Aug), so that date is almost never today
+    // and the column could not see the day's work. Households, not entries
+    // and not rupees: three entries for one household today count once.
+    // Only entries still on the record count (a deleted one moves to
+    // _v245DeletedIncome); a restored entry keeps its first save time.
+    let _nT254 = false;
+    if (Array.isArray(b.incomeLog)) {
+      for (const _e of b.incomeLog) {
+        if (_e && _e.addedAt && _v400IstDayMemo(_e.addedAt) === todayIst) { _nT254 = true; break; }
+      }
+    }
     if ((_eT254 || _iT254 || _nT254)
         && (b.interventions || []).some(function(i){ return i && i !== ADV_SENTINEL; })) {
       if (_eT254) { livEnr++; const g = _v207For(b.ngo); g.lE++; g.liv++; }
@@ -27060,7 +27113,7 @@ function _v207TodayByNgo(opts) {
   const note = 'Every figure carries its own date and follows the Reports rules. Advocacy counts people: '
     + 'Surveyed = scheme sheet first made today (any status); Applied and Benefits received = the day '
     + 'stamped on the scheme. Livelihood counts households: Enrolled = enrolment date; Intervention = '
-    + 'the day the intervention started; Endline = the endline date.';
+    + 'the day the intervention started; Endline = an endline income entry saved today, whatever date it carries.';
   return '<div style="background:#fff;border:1px solid var(--gray3);border-radius:12px;padding:12px 14px;margin:' + (o.margin || '0 0 16px') + '">'
     + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;gap:10px;flex-wrap:wrap">'
     + '<span style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--navy2)">TODAY BY PARTNER · ' + esc(dateLbl) + '</span>'
@@ -29522,6 +29575,20 @@ function _rptShowTip(el) {
 // every input arrives as an argument -- and it must never read Firebase: the
 // whole Reports feature is required to add zero download. rptverify.js asserts
 // that statically.
+// [V25.5] ENDLINE IN A WINDOW = an endline income entry SAVED in it (addedAt),
+// whatever date was typed on the entry - the rule the dashboard's Today uses.
+// An FC logs income dated weeks back, so the endline date put the day's work
+// in a past window, or none. A household whose entries carry no save time
+// (endlines from before the income log) keeps its endline date. Households,
+// not entries: any one entry in the window counts the household once.
+function _v255EndlineIn(b, inWin) {
+  const log = (b && Array.isArray(b.incomeLog)) ? b.incomeLog : [];
+  let stamped = false;
+  for (const e of log) {
+    if (e && e.addedAt) { stamped = true; if (inWin(e.addedAt)) return true; }
+  }
+  return stamped ? false : inWin(b && b.endlineDate);
+}
 function _rptAggregate(allB, advParents, users, nowMs, winMs, ceilMs) {
   // ⛔ V21.2: "Last active" IS NOT A WINDOWED FIGURE - the column's own tooltip
   // says "Not affected by the date filter." It was nonetheless computed against
@@ -29637,7 +29704,7 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs, ceilMs) {
       }
       if (_v19HasEndline(b)) {
         o.endline++;
-        if (inWin(b.endlineDate)) o.endlineWin++;
+        if (_v255EndlineIn(b, inWin)) o.endlineWin++;   // V25.5
       }
       return;
     }
@@ -29663,7 +29730,7 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs, ceilMs) {
       // the ONE endline rule - the Livelihood tab and dashboard use it too
       if (_v19HasEndline(b)) {
         a.endline++;
-        if (inWin(b.endlineDate)) a.endlineWin++;
+        if (_v255EndlineIn(b, inWin)) a.endlineWin++;   // V25.5
       }
     }
     if (b.phone) a.phone++;
@@ -30032,8 +30099,10 @@ function _rptRenderFc(A, nowMs, rowScope) {
   // a tooltip only by whoever taps it.
   // V24.6: two programmes, three columns each. Enrollments (all households)
   // and Data quality are gone, at Guru's request.
-  const RPT_FC_COLS = ['Coordinator','Surveyed','Applied',
-                       A.benefitsFellBack ? 'Benefits received (all-time)' : 'Benefits received',
+  // V25.5: Reports counts SCHEMES and its headings say so; the dashboard's
+  // Today counts PEOPLE and says so there. Same dates, different unit.
+  const RPT_FC_COLS = ['Coordinator','Schemes surveyed','Schemes applied',
+                       A.benefitsFellBack ? 'Schemes received (all-time)' : 'Schemes received',
                        'Enrolled','Intervention','Endline','Last active'];
   const scope = A.allTime ? 'in total, across all time' : 'inside the selected date window';
 
@@ -30066,7 +30135,7 @@ function _rptRenderFc(A, nowMs, rowScope) {
         + (A.allTime ? '' : ' ⚠ This app only began recording the DATE a benefit was received on 30 July 2026, so benefits from before then cannot appear here — they still count in the all-time total of ' + sum('benefits').toLocaleString('en-IN') + '.')),
     'Livelihood households enrolled ' + scope + ' — at least one REAL livelihood activity (goat rearing, tailoring, a shop). "Advocacy (Govt. Schemes)" is not a livelihood activity, which is why a coordinator doing only advocacy work shows 0. All-time total: ' + sum('livelihood').toLocaleString('en-IN') + '.',
     'Livelihood households marked "Intervention In Progress" ' + scope + ', dated by that step; households that have since completed still count. All-time total: ' + sum('intervention').toLocaleString('en-IN') + '.',
-    'Livelihood households whose endline income was recorded ' + scope + ', dated by the endline. All-time total: ' + sum('endline').toLocaleString('en-IN') + '.',
+    'Livelihood households whose endline income was recorded ' + scope + ', dated by the day the endline income was entered (whatever date is typed on it). All-time total: ' + sum('endline').toLocaleString('en-IN') + '.',
     'The most recent day they enrolled someone or logged an advocacy update. Red means 30+ days with nothing at all. Not affected by the date filter.'
   ];
   // V12.3: every count column now reads the WINDOWED figure, so the date chip
@@ -30166,9 +30235,9 @@ function _rptRenderFc(A, nowMs, rowScope) {
   // (office work included) so the cards and the table cannot disagree.
   const _bSub246 = bWin + (!A.allTime && !A.benefitsFellBack && A.benefitFirstStamp ? ' · dated from ' + A.benefitFirstStamp : '');
   return _v246KpiGroups([
-    ['Surveyed',          'clip',   sum('advWin'),        win, allT(sum('surveyed'))],
-    ['Applied',           'file',   sum('appliedWin'),    win, allT(sum('applied'))],
-    ['Benefits received', 'gift',   sum('benefitsWin'),   _bSub246, A.benefitsFellBack ? null : allT(sum('benefits'))]
+    ['Schemes surveyed',  'clip',   sum('advWin'),        win, allT(sum('surveyed'))],
+    ['Schemes applied',   'file',   sum('appliedWin'),    win, allT(sum('applied'))],
+    ['Schemes received',  'gift',   sum('benefitsWin'),   _bSub246, A.benefitsFellBack ? null : allT(sum('benefits'))]
   ], [
     ['Enrolled',          'users',  sum('livelihoodWin'),   win, allT(sum('livelihood'))],
     ['Intervention',      'sprout', sum('interventionWin'), win, allT(sum('intervention'))],
@@ -30197,7 +30266,7 @@ function _rptRenderFc(A, nowMs, rowScope) {
   + `<div class="rpt-card">
       <div class="rpt-card-h">
         <h3>Inactive coordinators \u2014 nothing logged in 30+ days</h3>
-        <div class="rpt-note">${activeFcs.length} of ${fcList.length} coordinators were active in the last 30 days. The people below may have left, be on leave, or need support \u2014 their beneficiaries may need reassigning (User Management \u2192 Transfer).</div>
+        <div class="rpt-note">${activeFcs.length} of ${A.fcTotal != null ? A.fcTotal : fcList.length} coordinators were active in the last 30 days. The people below may have left, be on leave, or need support \u2014 their beneficiaries may need reassigning (User Management \u2192 Transfer).</div>
       </div>
       <div class="rpt-tblwrap">
         <table class="rpt-tbl" style="min-width:420px">
@@ -30356,13 +30425,14 @@ window.rptExportFc = function () {
   // V12.7: a CSV leaves the building. It gets the SAME gate and the SAME
   // scoped roster as the screen — an export that ignored either would hand an
   // NGO admin the whole fleet in a file.
-  if (!_rptCanView()) return;
+  if (!_rptCanView() && !_v256IsDonor()) return;   // V25.6: + donors
   const _w212 = _v212Win();   // V21.2: month or day-window, decided in one place
   // V21.6: read once, so the row scope is built from exactly the records the
   // aggregate counted.
-  const _v216B = filteredAll();
-  const A = _rptAggregate(_v216B, loadAdv(), _rptScopedUsers(), _w212.now, _w212.win, _w212.ceil);
-  const _v216Scope = _v216RowScope(_v216B);
+  const _v256X = _v256ExpA();   // V25.6: a donor's own figures
+  const _v216B = _v256X ? [] : filteredAll();
+  const A = _v256X || _rptAggregate(_v216B, loadAdv(), _rptScopedUsers(), _w212.now, _w212.win, _w212.ceil);
+  const _v216Scope = _v256X ? _v256RowScope(_v256X) : _v216RowScope(_v216B);
   // V12.6: these MUST be the windowed keys, matching _rptRenderFc exactly. They
   // were the all-time ones, so exporting while sorted by Applied produced a
   // different row order than the screen it was exported from.
@@ -30420,9 +30490,9 @@ window.rptExportFc = function () {
   const BW = A.benefitsFellBack ? ' (all-time — no dated benefits yet)' : W;
   _rptExportRows(
     ['Coordinator', 'NGO',
-     'Surveyed' + W, 'Applied' + W, 'Benefits received' + BW,
+     'Schemes surveyed' + W, 'Schemes applied' + W, 'Schemes received' + BW,
      'Livelihood enrolled' + W, 'Intervention' + W, 'Endline' + W,
-     'Surveyed (all-time)', 'Applied (all-time)', 'Benefits received (all-time)',
+     'Schemes surveyed (all-time)', 'Schemes applied (all-time)', 'Schemes received (all-time)',
      'Livelihood enrolled (all-time)', 'Intervention (all-time)', 'Endline (all-time)',
      'Total beneficiaries (all-time)', 'Last active', 'Status'],
     rows, 'coordinators');
@@ -30432,9 +30502,9 @@ window.rptExportNgo = function () {
   // V12.7: the partner comparison is a fleet artefact. The tab is hidden for
   // an NGO admin, but a hidden button is not a control — this is, and it is
   // why the check is here and not only in the markup.
-  if (!_rptIsFleet()) return;
+  if (!_rptIsFleet() && !_v256IsDonor()) return;   // V25.6: + donors
   const _w212 = _v212Win();   // V21.2: month or day-window, decided in one place
-  const A = _rptAggregate(filteredAll(), loadAdv(), _rptScopedUsers(), _w212.now, _w212.win, _w212.ceil);
+  const A = _v256ExpA() || _rptAggregate(filteredAll(), loadAdv(), _rptScopedUsers(), _w212.now, _w212.win, _w212.ceil);
   // V25: the screen's rows in the screen's order - the same keys
   const rows = _rptSortRows(_v25PartnerAgg(A), _V25_NGO_KEYS[rptNgoSort] || _V25_NGO_KEYS[1], rptNgoDir).map(r => [
     r.ngo,
@@ -30446,9 +30516,9 @@ window.rptExportNgo = function () {
   const BW = A.benefitsFellBack ? ' (all-time — no dated benefits yet)' : W;
   _rptExportRows(
     ['Partner',
-     'Surveyed' + W, 'Applied' + W, 'Benefits received' + BW,
+     'Schemes surveyed' + W, 'Schemes applied' + W, 'Schemes received' + BW,
      'Livelihood enrolled' + W, 'Intervention' + W, 'Endline' + W,
-     'Surveyed (all-time)', 'Applied (all-time)', 'Benefits received (all-time)',
+     'Schemes surveyed (all-time)', 'Schemes applied (all-time)', 'Schemes received (all-time)',
      'Livelihood enrolled (all-time)', 'Intervention (all-time)', 'Endline (all-time)',
      'Last active'],
     rows, 'partners');
@@ -30528,7 +30598,7 @@ function _v246SchemeCard(A) {
   const rec = (r, sv) => `${n(r)}<span class="v246-bar" title="${pct(r, sv)}% of surveyed"><i style="width:${pct(r, sv)}%"></i></span>`;
   const money = v => v ? `<span title="₹${Math.round(v).toLocaleString('en-IN')}">${_rptMoney(v)}</span>` : '<span class="v246-zero">—</span>';
   const official = new Set((typeof getSchemes === 'function' ? getSchemes() : []) || []);
-  const agg = _v246SchemeAgg(A.latestRows, A.bById, A);
+  const agg = A.__v256sch || _v246SchemeAgg(A.latestRows, A.bById, A);   // V25.6
   const partners = Array.from(agg.keys()).sort((a, b) => a.localeCompare(b));
   const sortList = list => list.sort((x, y) => {
     const k = rptSchSort, a = k === 0 ? x[0].toLowerCase() : x[1][k - 1], b = k === 0 ? y[0].toLowerCase() : y[1][k - 1];
@@ -30538,7 +30608,7 @@ function _v246SchemeCard(A) {
   const schemeRows = (fold, cls, key) => {
     let h = '';
     sortList(Array.from(fold.out.entries())).forEach(([name, v]) => {
-      const drill = cls ? '' : ` style="cursor:pointer" onclick="advStageF='';advSchemeFilter=decodeURIComponent('${enc(name)}');advBCurrentPage=1;currentView='advocacy';nav('advocacy')" title="Click to see every ${esc(name)} entry"`;
+      const drill = (cls || _v256IsDonor()) ? '' : ` style="cursor:pointer" onclick="advStageF='';advSchemeFilter=decodeURIComponent('${enc(name)}');advBCurrentPage=1;currentView='advocacy';nav('advocacy')" title="Click to see every ${esc(name)} entry"`;
       h += `<tr class="${cls}"${drill}><td>${esc(name)}</td>${cells(v)}</tr>`;
     });
     const o = fold.other;
@@ -30596,10 +30666,10 @@ function _v246SchemeCard(A) {
 // window chosen at the top - so one file answers the whole partner-by-scheme
 // question, and the file says which window it holds.
 window.rptExportSchemes = function () {
-  if (!_rptCanView()) return;
+  if (!_rptCanView() && !_v256IsDonor()) return;   // V25.6: + donors
   const _w = _v212Win();
-  const A = _rptAggregate(filteredAll(), loadAdv(), _rptScopedUsers(), _w.now, _w.win, _w.ceil);
-  const agg = _v246SchemeAgg(A.latestRows, A.bById, A);
+  const A = _v256ExpA() || _rptAggregate(filteredAll(), loadAdv(), _rptScopedUsers(), _w.now, _w.win, _w.ceil);
+  const agg = A.__v256sch || _v246SchemeAgg(A.latestRows, A.bById, A);   // V25.6
   const official = new Set((typeof getSchemes === 'function' ? getSchemes() : []) || []);
   const rows = [];
   Array.from(agg.keys()).sort((a, b) => a.localeCompare(b)).forEach(p => {
@@ -30608,7 +30678,7 @@ window.rptExportSchemes = function () {
   });
   const W = ' (' + _rptWinLabel() + ')';
   const BW = A.benefitsFellBack ? ' (all-time — no dated benefits yet)' : W;
-  _rptExportRows(['Partner', 'Scheme', 'Source', 'Surveyed' + W, 'Applied' + W, 'Benefits received' + BW, 'Amount Rs' + BW], rows, 'schemes');
+  _rptExportRows(['Partner', 'Scheme', 'Source', 'Schemes surveyed' + W, 'Schemes applied' + W, 'Schemes received' + BW, 'Amount Rs' + BW], rows, 'schemes');
 };
 
 // ── V12: NGO comparison tab ─────────────────────────────────────────────────
@@ -30667,7 +30737,7 @@ function _v25PartnerAgg(A) {
       }
       if (_v19HasEndline(b)) {
         r.endline++;
-        if (inWin(b.endlineDate)) r.endlineWin++;
+        if (_v255EndlineIn(b, inWin)) r.endlineWin++;   // V25.5
       }
     }
     bump(r, b.enrollDate);
@@ -30694,7 +30764,8 @@ function _v25PartnerAgg(A) {
     if (aAt) bump(r, aAt);
     if (bAt) bump(r, bAt);
   });
-  A._v25p = Array.from(m.values()).filter(r => r.surveyed || r.livelihood || r.ngo !== '—');
+  A._v25p = Array.from(m.values()).filter(r => r.surveyed || r.livelihood || r.ngo !== '—')
+    .sort((x, y) => String(x.ngo).localeCompare(String(y.ngo)));   // V25.6: one fixed order
   return A._v25p;
 }
 // The sort keys, indexed to the columns EXACTLY (screen and CSV share them).
@@ -30707,8 +30778,8 @@ function _rptRenderNgo(A) {
   const enc = v => encodeURIComponent(String(v)).replace(/'/g, '%27');
   const rowsIn = _v25PartnerAgg(A);
   const now = (typeof _v19ServerNow === 'function') ? _v19ServerNow() : Date.now();
-  const COLS = ['Partner', 'Surveyed', 'Applied',
-                A.benefitsFellBack ? 'Benefits received (all-time)' : 'Benefits received',
+  const COLS = ['Partner', 'Schemes surveyed', 'Schemes applied',   // V25.5: schemes, said in the heading
+                A.benefitsFellBack ? 'Schemes received (all-time)' : 'Schemes received',
                 'Enrolled', 'Intervention', 'Endline', 'Last active'];
   const scope = A.allTime ? 'in total, across all time' : 'inside the selected date window';
   const sum = k => rowsIn.reduce((s2, r) => s2 + (r[k] || 0), 0);
@@ -30721,7 +30792,7 @@ function _rptRenderNgo(A) {
       : 'Benefits that arrived ' + scope + '.' + (A.allTime ? '' : ' Benefits from before 30 July 2026 carry no date and count only in the all-time total of ' + sum('benefits').toLocaleString('en-IN') + '.')),
     'Households with at least one real livelihood activity, enrolled ' + scope + '. Every household of the partner counts, including those enrolled under an office login. All-time total: ' + sum('livelihood').toLocaleString('en-IN') + '.',
     'Livelihood households marked "Intervention In Progress" ' + scope + ', dated by that step; households that have since completed still count. All-time total: ' + sum('intervention').toLocaleString('en-IN') + '.',
-    'Livelihood households whose endline income was recorded ' + scope + ', dated by the endline. All-time total: ' + sum('endline').toLocaleString('en-IN') + '.',
+    'Livelihood households whose endline income was recorded ' + scope + ', dated by the day the endline income was entered (whatever date is typed on it). All-time total: ' + sum('endline').toLocaleString('en-IN') + '.',
     'The most recent day anyone enrolled a household or logged a scheme update for this partner. Red means 30+ days with nothing. Not affected by the date filter.'
   ];
   const sorted = _rptSortRows(rowsIn, _V25_NGO_KEYS[rptNgoSort] || _V25_NGO_KEYS[1], rptNgoDir);
@@ -30744,9 +30815,9 @@ function _rptRenderNgo(A) {
   const bWin = A.benefitsFellBack ? 'all-time — no dated benefits yet' : win;
   const allT = v => A.allTime ? null : v;
   return _v246KpiGroups([
-    ['Surveyed',          'clip',   sum('advWin'),      win,  allT(sum('surveyed'))],
-    ['Applied',           'file',   sum('appliedWin'),  win,  allT(sum('applied'))],
-    ['Benefits received', 'gift',   sum('benefitsWin'), bWin, A.benefitsFellBack ? null : allT(sum('benefits'))]
+    ['Schemes surveyed',  'clip',   sum('advWin'),      win,  allT(sum('surveyed'))],
+    ['Schemes applied',   'file',   sum('appliedWin'),  win,  allT(sum('applied'))],
+    ['Schemes received',  'gift',   sum('benefitsWin'), bWin, A.benefitsFellBack ? null : allT(sum('benefits'))]
   ], [
     ['Enrolled',          'users',  sum('livelihoodWin'),   win, allT(sum('livelihood'))],
     ['Intervention',      'sprout', sum('interventionWin'), win, allT(sum('intervention'))],
@@ -30817,9 +30888,9 @@ function _v25FunnelCard(A) {
   </div>`;
 }
 window.rptExportFunnel = function () {
-  if (!_rptCanView()) return;
+  if (!_rptCanView() && !_v256IsDonor()) return;   // V25.6: + donors
   const _w = _v212Win();
-  const A = _rptAggregate(filteredAll(), loadAdv(), _rptScopedUsers(), _w.now, _w.win, _w.ceil);
+  const A = _v256ExpA() || _rptAggregate(filteredAll(), loadAdv(), _rptScopedUsers(), _w.now, _w.win, _w.ceil);
   const rows = _v25PartnerAgg(A).filter(r => r.livelihood)
     .slice().sort((a, b) => b.livelihoodWin - a.livelihoodWin || a.ngo.localeCompare(b.ngo))
     .map(r => [r.ngo, r.livelihoodWin, r.interventionWin, r.endlineWin, r.livelihood, r.intervention, r.endline]);
@@ -30890,6 +30961,8 @@ function _rptKpiRow(cards) {
 let _v13RptReturn = null;
 
 function _v13RptDrill(fcId, ngoName) {
+  // V25.6: not for a donor - the list it opens would download every record
+  if (_v256IsDonor()) { try { toast('Reports show the figures only. Open All Beneficiaries to see the households.', 'info', 5000); } catch (_) {} return; }
   try {
     _v13RptReturn = { state: stateFilter, ngo: ngoFilter, fc: fcFilter };
   } catch (_) { _v13RptReturn = null; }
@@ -30983,7 +31056,8 @@ function _rptChrome(body) {
   // NGO admin sees only their own partner, so for them the tab would be a
   // one-row table titled "which partners are doing the best work". It is
   // removed rather than left to render something meaningless.
-  const fleet = _rptIsFleet();
+  const fleet = _rptIsFleet() || _v256DonorMany();   // V25.6
+  const _v256D = _v256IsDonor();
   // 1400px, not 1080 and not full-bleed. The old 1080 cap left roughly a third
   // of a laptop screen empty; removing the cap entirely was worse — measured at
   // 1900px the coordinator name column ballooned to 842px, half the table, so
@@ -30993,30 +31067,530 @@ function _rptChrome(body) {
       <div class="rpt-head">
         <div>
           <div class="rpt-title">Reports</div>
-          <div class="rpt-sub">Computed on this device from data already loaded \u2014 no extra Firebase download. ${fleet
+          <div class="rpt-sub">${_v256D ? 'Prepared by the KRSF office laptop from every record' + (_v256ACache && _v256ACache.A && _v256ACache.A._v256 ? ', as of ' + _v256AsOf(_v256ACache.A) : '') + '. Covers your partners only; the State filter does not apply here.' : ''}${_v256D ? '' : 'Computed on this device from data already loaded \u2014 no extra Firebase download. '}${_v256D ? '' : (fleet
             ? 'Respects the State and NGO filters above.'
-            : 'Covers your own coordinators and beneficiaries only. Respects the filters above.'}</div>
+            : 'Covers your own coordinators and beneficiaries only. Respects the filters above.')}</div>
         </div>
       </div>
       <div class="rpt-seg" role="tablist">
         ${tab('fc', 'FC Performance')}${fleet ? tab('ngo', 'Partners') : ''}${tab('trend', 'Enrollment Trends')}${tab('adv', 'Advocacy Pipeline')}${tab('liv', 'Livelihood Impact')}
       </div>
-      ${showChips ? `<div class="rpt-chips">${chipBtn(0)}${chipBtn(7)}${chipBtn(30)}${chipBtn(90)}${chipBtn(365)}${_v212MonthChips()}${_v212MonthSwitch()}</div>` : ''}
+      ${showChips ? `<div class="rpt-chips">${chipBtn(0)}${chipBtn(7)}${chipBtn(30)}${chipBtn(90)}${chipBtn(365)}${_v256D ? '' : _v212MonthChips() + _v212MonthSwitch()}</div>` : ''}
       ${_v13RptFilterBanner()}
       ${body}
     </div>`;
+}
+
+// ── V25.6: REPORTS FOR DONOR LOGINS, FROM STORED FIGURES ─────────────────────
+// Guru, 6 Oct: donors (scopedViewer) get the Reports tab - every tab, with the
+// five date chips. ⛔ A DONOR HOLDS NO RECORDS (V22.4) and fetching them for a
+// nine-partner donor is about 154 MB, so Reports is NOT counted from records
+// on a donor's device. The admin laptop, which already holds every record,
+// counts each donor partner's Reports with the very same _rptAggregate the
+// admin screen uses and stores a small block per partner: "b" (all time) and
+// one per date chip. A donor reads only its own partners and only the chip it
+// opens, once, kept on the device until the donor presses Refresh (Guru, 6 Oct:
+// the cheapest choice; donors have two Refreshes a day); drawn by the
+// SAME renderers from an aggregate rebuilt out of those blocks.
+// ⛔ Stored under _summary/rpt, which no other read touches (the admin's own
+// read of _summary/ngo would otherwise download every block on every write).
+// ⛔ No object is keyed by a NAME: scheme, partner and village names may hold
+// "/" or "." and Firebase refuses the whole write. Everything is a list.
+const _V256_WINS = [0, 7, 30, 90, 365];
+const _V256_PATH = '_summary/rpt/';
+const _V256_EVERY = 60 * 60000;           // the admin re-counts at most hourly
+const _V256_VER = 3;
+
+function _v256IsDonor(u) {
+  const s = u || ((typeof currentUser === 'function') ? currentUser() : null);
+  return !!(s && s.role === 'scopedViewer');
+}
+function _v256Key(ngo) { return (typeof _v363SafeKey === 'function') ? _v363SafeKey(ngo) : String(ngo).replace(/[.#$\/\[\]]/g, '_'); }
+function _v256N(v) { v = Number(v); return isFinite(v) ? v : 0; }
+function _v256Entries(m) { return m ? Array.from(m.entries()) : []; }
+
+// ── the admin side: one partner's records -> its blocks ─────────────────────
+// Kept small on purpose (a donor downloads them): a name is written once and
+// referred to by its place in a list; a village is a short fingerprint; a day
+// is a day number; the all-time chip is the all-time block itself, so it is
+// not stored twice.
+function _v256Fp(s) {
+  let h = 2166136261;
+  s = String(s);
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0).toString(36);
+}
+const _V256_ISO = /^\d{4}-\d{2}-\d{2}$/;
+function _v256Day(s) { return _V256_ISO.test(s) ? Math.round(Date.parse(s) / 86400000) : String(s); }
+function _v256Iso(n) { return (typeof n === 'number') ? new Date(n * 86400000).toISOString().slice(0, 10) : String(n); }
+function _v256BuildBase(A, ngo, held, nowMs) {
+  const N = _v256N;
+  const fc = [], fcIdx = new Map();
+  A.fcList.forEach(a => {
+    const id = a.u && a.u.id;
+    if (!id) return;
+    const any = a.tot || a.surveyed || a.applied || a.livelihood || a.last;
+    if (!any && a.u.ngo !== ngo) return;
+    fcIdx.set(id, fc.length);
+    fc.push([id, N(a.tot), N(a.last), N(a.surveyed), N(a.applied), N(a.benefits),
+             N(a.livelihood), N(a.intervention), N(a.endline), held.has(id) ? 1 : 0]);
+  });
+  const off = [];
+  _v256OfficeAll(A).forEach(a => off.push([String((a.u && a.u.ngo) || '—'), N(a.filed), N(a.surveyed), N(a.applied),
+    N(a.benefits), N(a.livelihood), N(a.intervention), N(a.endline)]));
+  const pa = _v25PartnerAgg(A).map(r => [r.ngo, N(r.surveyed), N(r.applied), N(r.benefits),
+    N(r.livelihood), N(r.intervention), N(r.endline), N(r.last)]);
+  const names = [], nameIdx = new Map(), parts = [], partIdx = new Map();
+  const ix = (m, list, v) => { if (!m.has(v)) { m.set(v, list.length); list.push(v); } return m.get(v); };
+  const sch = [];
+  _v246SchemeAgg(A.latestRows, A.bById, A).forEach((m, p) => m.forEach((c, name) =>
+    sch.push([ix(partIdx, parts, p), ix(nameIdx, names, name), N(c[0]), N(c[1]), N(c[2]), N(c[3])])));
+  const sus = A.suspects.slice().sort((a, b) => (a.endIncome / a.baseIncome) - (b.endIncome / b.baseIncome)).slice(0, 50)
+    .map(s => [String(s.id || ''), String(s.name || ''), String(s.ngo || ''), String(A.uName.get(s.createdBy) || s.coord || '—'), N(s.baseIncome), N(s.endIncome)]);
+  // the trend chart reads at most the last 365 days; nothing older is kept
+  const today = Math.round(nowMs / 86400000);
+  const day = [];
+  _v256Entries(A.dayCounts).forEach(([d, n]) => { const k = _v256Day(String(d)); if (typeof k === 'number' && today - k <= 370) day.push([today - k, N(n)]); });
+  return {
+    v: _V256_VER, fc, off, pa, sch, names, parts, sus, susN: A.suspects.length, today: today, day,
+    bday: _v256Entries(A.benefitDayCounts).map(([d, n]) => [_v256Day(String(d)), N(n)]),
+    vil: _v256Entries(A.villageFirst).map(([k, d]) => [_v256Fp(k), _v256Day(String(d))]),
+    liv: [N(A.livN), N(A.endN), N(A.sumBase), N(A.sumEnd), N(A.upliftBase), N(A.upliftAdded), N(A.overdue)],
+    stage: Object.keys(A.stage).map(k => [k, N(A.stage[k])]),
+    byInt: _v256Entries(A.byInt).map(([k, g]) => [String(k), N(g.n), N(g.base), N(g.end)]),
+    byNgoLiv: _v256Entries(A.byNgoLiv).map(([k, g]) => [String(k || '—'), N(g.n), N(g.base), N(g.end)]),
+    nw: _v256Entries(A.ngoWin).map(([k, g]) => [String(k || ''), N(g.n), g.fcs ? g.fcs.size : 0]),
+    tot: [N(A.totalEverEnrolled), N(A.advTotal)],
+    _fcIdx: fcIdx, _nameIdx: nameIdx, _partIdx: partIdx
+  };
+}
+// a window's figures, by reference to the all-time block; benefits are the TRUE
+// windowed count (0 when the window fell back to all time) so the donor's merge
+// can apply the fallback itself
+function _v256BuildWin(A, base) {
+  const N = _v256N, fell = !!A.benefitsFellBack;
+  const fc = [];
+  A.fcList.forEach(a => {
+    const i = base._fcIdx.get(a.u && a.u.id);
+    if (i == null) return;
+    const r = [i, N(a.enrolledWin), N(a.advWin), N(a.appliedWin), fell ? 0 : N(a.benefitsWin),
+               N(a.livelihoodWin), N(a.interventionWin), N(a.endlineWin)];
+    if (r.slice(1).some(Boolean)) fc.push(r);
+  });
+  const off = [];
+  _v256OfficeAll(A).forEach(a => off.push([String((a.u && a.u.ngo) || '—'), N(a.enrolledWin), N(a.advWin), N(a.appliedWin),
+    fell ? 0 : N(a.benefitsWin), N(a.livelihoodWin), N(a.interventionWin), N(a.endlineWin)]));
+  const pa = _v25PartnerAgg(A).map(r => [r.ngo, N(r.advWin), N(r.appliedWin), (fell && !A.allTime) ? 0 : N(r.benefitsWin),
+    N(r.livelihoodWin), N(r.interventionWin), N(r.endlineWin)]);
+  const sch = [];
+  _v246SchemeAgg(A.latestRows, A.bById, Object.assign({}, A, { benefitsFellBack: false }))
+    .forEach((m, p) => m.forEach((c, name) => {
+      const pi = base._partIdx.get(p), ni = base._nameIdx.get(name);
+      if (pi != null && ni != null) sch.push([pi, ni, N(c[0]), N(c[1]), N(c[2]), N(c[3])]);
+    }));
+  return {
+    v: _V256_VER, fc, off, pa, sch, enr: N(A.enrolledWinTotal),
+    nw: _v256Entries(A.ngoWin).map(([k, g]) => [String(k || ''), N(g.n), g.fcs ? g.fcs.size : 0])
+  };
+}
+// every office bucket, including one with nothing filed (officeAll drops none
+// that has work; officeRows is the subset with something filed)
+function _v256OfficeAll(A) {
+  const seen = new Set(), out = [];
+  (A.officeAll || []).concat(A.officeRows || []).forEach(a => { if (a && !seen.has(a)) { seen.add(a); out.push(a); } });
+  return out;
+}
+// one partner, every window: what the admin stores for it ("b" doubles as the
+// all-time chip)
+let _v256LongestMs = 0;
+async function _v256PackPartner(ngo, recs, adv, users, held, nowMs) {
+  const out = {};
+  let base = null;
+  for (const d of _V256_WINS) {
+    // one window at a time, each started only when the browser is idle, so the
+    // office screen never waits on it for more than one piece (measured in v256)
+    await new Promise(r => { try { if (typeof requestIdleCallback === 'function') { requestIdleCallback(() => r(), { timeout: 5000 }); return; } } catch (_) {} setTimeout(r, 0); });
+    const t0 = (typeof performance !== 'undefined') ? performance.now() : 0;
+    const A = _rptAggregate(recs, adv, users, nowMs, d ? d * 86400000 : Infinity, null);
+    if (!d) { base = _v256BuildBase(A, ngo, held, nowMs); }
+    else out['w' + d] = Object.assign(_v256BuildWin(A, base), { at: nowMs });
+    if (typeof performance !== 'undefined') _v256LongestMs = Math.max(_v256LongestMs, performance.now() - t0);
+  }
+  delete base._fcIdx; delete base._nameIdx; delete base._partIdx;
+  // ⛔ A CHIP BLOCK POINTS INTO ITS ALL-TIME BLOCK (coordinator and name places),
+  // so the two must come from the same count. Each carries the all-time block's
+  // fingerprint; a donor holding an older all-time block reloads it first.
+  const bh = _v256Hash(JSON.stringify(base));
+  base.h = bh;
+  for (const k in out) if (k !== 'b') out[k].bh = bh;
+  out.b = Object.assign(base, { at: nowMs, ngo: ngo });
+  return out;
+}
+function _v256Hash(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0).toString(36) + ':' + s.length;
+}
+// The admin writes the blocks for every partner a donor can see - only blocks
+// that changed since the last write, remembered on this laptop. One partner at
+// a time with a pause between, so the screen never stalls; at most hourly.
+let _v256LastRun = 0, _v256Busy = false;
+async function _v256WriteDonorReports(force) {
+  const u = (typeof currentUser === 'function') ? currentUser() : null;
+  if (!u || u.role !== 'admin' || _v256Busy) return { skipped: 'busy-or-role' };
+  if (!force && Date.now() - _v256LastRun < _V256_EVERY) return { skipped: 'recent' };
+  if (!FB || !FB.db || !FB.online || !FB.benefReplayComplete || !FB.advReplayComplete) return { skipped: 'not-ready' };
+  const users = (typeof loadUsers === 'function') ? loadUsers() : [];
+  const ngos = new Set();
+  users.forEach(x => { if (x && x.role === 'scopedViewer') (x.assignedNgos || []).forEach(n => { if (n) ngos.add(n); }); });
+  if (!ngos.size) { _v256LastRun = Date.now(); return { partners: 0, wrote: 0 }; }
+  _v256Busy = true;
+  _v256LongestMs = 0;
+  const t0 = Date.now();
+  let wrote = 0, bytes = 0;
+  try {
+    const byNgo = new Map(), owner = new Map(), held = new Set();
+    RecordCache.benef.forEach(b => {
+      if (!b) return;
+      if (b.createdBy) held.add(b.createdBy);
+      if (!ngos.has(b.ngo)) return;
+      let l = byNgo.get(b.ngo); if (!l) { l = []; byNgo.set(b.ngo, l); }
+      l.push(b); owner.set(b.id, b.ngo);
+    });
+    // a scheme record goes with its HOUSEHOLD's partner, never its own copy (V18.9)
+    const advBy = new Map();
+    RecordCache.adv.forEach(a => {
+      const n = a && a.bid && owner.get(a.bid);
+      if (!n) return;
+      let l = advBy.get(n); if (!l) { l = []; advBy.set(n, l); }
+      l.push(a);
+    });
+    const nowMs = (typeof _v19ServerNow === 'function') ? _v19ServerNow() : Date.now();
+    const update = {}, hashes = {};
+    for (const ngo of ngos) {
+      await new Promise(r => setTimeout(r, 0));
+      const pack = await _v256PackPartner(ngo, byNgo.get(ngo) || [], advBy.get(ngo) || [], users, held, nowMs);
+      const key = _v256Key(ngo);
+      for (const part in pack) {
+        const body = JSON.stringify(Object.assign({}, pack[part], { at: 0 }));
+        const h = _v256Hash(body), hk = 'krsf_v256h_' + key + '_' + part;
+        let old = null;
+        try { old = localStorage.getItem(hk); } catch (_) {}
+        if (!force && old === h) continue;
+        update['rpt/' + key + '/' + part] = pack[part];
+        hashes[hk] = h;
+        bytes += body.length;
+      }
+    }
+    if (Object.keys(update).length) {
+      await fbRef('_summary').update(update);   // one multi-path update under _summary
+      wrote = Object.keys(update).length;
+      try { Object.keys(hashes).forEach(k => localStorage.setItem(k, hashes[k])); } catch (_) {}
+    }
+    _v256LastRun = Date.now();
+    console.log('[V25.6] donor Reports: ' + ngos.size + ' partners, ' + wrote + ' blocks written ('
+      + Math.round(bytes / 1024) + ' KB) in ' + (Date.now() - t0) + ' ms');
+    return { partners: ngos.size, wrote: wrote, bytes: bytes, ms: Date.now() - t0, longestMs: Math.round(_v256LongestMs) };
+  } catch (e) {
+    console.warn('[V25.6] donor Reports write failed:', e && e.message);
+    return { error: String(e && e.message || e) };
+  } finally { _v256Busy = false; }
+}
+function _v256Schedule(force) {
+  const run = function () { try { _v256WriteDonorReports(!!force); } catch (_) {} };
+  try { if (typeof requestIdleCallback === 'function') { requestIdleCallback(run, { timeout: 20000 }); return; } } catch (_) {}
+  setTimeout(run, 3000);
+}
+window._v256WriteDonorReports = _v256WriteDonorReports;
+
+// ── the donor side: read the blocks, rebuild the aggregate ──────────────────
+const _v256Mem = new Map();       // path -> block (or false when the database has none)
+const _v256Retried = new Set();
+// forget a partner's blocks (or, with no key, every block) - on this device too
+function _v256Forget(key) {
+  Array.from(_v256Mem.keys()).forEach(p => { if (!key || p.indexOf(key + '/') === 0) _v256Mem.delete(p); });
+  try {
+    const pre = _v256LsKey(key ? key + '/' : '');
+    const drop = [];
+    for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf(pre) === 0) drop.push(k); }
+    drop.forEach(k => localStorage.removeItem(k));
+  } catch (_) {}
+  _v256ACache = null;
+}
+// The donor's Refresh, on Reports: bring the office's latest Reports figures.
+// First a few bytes per partner to ask whether there is anything newer; only
+// then the blocks. Nothing newer: nothing downloaded and the Refresh not used.
+async function _v256RefreshReports() {
+  const scope = _v256Scope();
+  const changed = [];
+  let heldAt = 0;
+  await Promise.all(scope.map(async n => {
+    const k = _v256Key(n), held = _v256Mem.get(k + '/b');
+    if (held && held.at) heldAt = Math.max(heldAt, held.at);
+    try {
+      const h = (await fbRef(_V256_PATH + k + '/b/h').once('value')).val();
+      if (!held || !h || h !== held.h) changed.push(k);
+    } catch (_) { changed.push(k); }
+  }));
+  if (!changed.length) return { ok: true, how: 'recent', n: 0, free: true, at: heldAt || Date.now() };
+  // only the partners whose figures changed are downloaded again
+  changed.forEach(k => _v256Forget(k));
+  _v256Retried.clear();
+  const d = _v256Win(), paths = [];
+  scope.forEach(n => { const k = _v256Key(n); paths.push(k + '/b'); if (d) paths.push(k + '/w' + d); });
+  await _v256Load(paths);
+  return { ok: true, how: 'reports', n: 0 };
+}
+let _v256Loading = null, _v256ACache = null;
+function _v256Scope(u) {
+  const s = u || currentUser();
+  let list = (s && Array.isArray(s.assignedNgos) && s.assignedNgos.length) ? s.assignedNgos.slice() : (s && s.ngo ? [s.ngo] : []);
+  if (typeof ngoFilter !== 'undefined' && ngoFilter && list.indexOf(ngoFilter) >= 0) list = [ngoFilter];
+  return list;
+}
+function _v256Win() { return _V256_WINS.indexOf(rptRange) >= 0 ? rptRange : 0; }
+function _v256LsKey(p) { const u = currentUser(); return 'krsf_v256_' + ((u && u.userId) || '') + '_' + p; }
+async function _v256Load(paths) {
+  const need = [];
+  paths.filter(p => !_v256Mem.has(p)).forEach(p => {
+    try {
+      const c = JSON.parse(localStorage.getItem(_v256LsKey(p)) || 'null');
+      if (c && c.v && c.v.v === _V256_VER) { _v256Mem.set(p, c.v); return; }
+    } catch (_) {}
+    need.push(p);
+  });
+  // every partner at once, not one after another: one round trip, not nine
+  await Promise.all(need.map(async p => {
+    try {
+      const snap = await fbRef(_V256_PATH + p).once('value');
+      const v = snap.val() || false;
+      _v256Mem.set(p, v);
+      try { localStorage.setItem(_v256LsKey(p), JSON.stringify({ t: Date.now(), v: v })); } catch (_) {}
+    } catch (e) { console.warn('[V25.6] read failed ' + p + ':', e && e.message); }
+  }));
+}
+// The aggregate the Reports screen is drawn from, or null while it loads.
+// { missing: [...] } when the office has not prepared a partner yet.
+function _v256DonorA() {
+  const scope = _v256Scope(), d = _v256Win();
+  const paths = [];
+  scope.forEach(n => { const k = _v256Key(n); paths.push(k + '/b'); if (d) paths.push(k + '/w' + d); });
+  const sig = paths.join('|');
+  if (_v256ACache && _v256ACache.sig === sig) return _v256ACache.A;
+  if (!paths.every(p => _v256Mem.has(p))) {
+    if (!_v256Loading) {
+      _v256Loading = _v256Load(paths).then(function () {
+        _v256Loading = null;
+        try { if (currentView === 'reports') renderReports(); } catch (_) {}
+      });
+    }
+    return null;
+  }
+  const packs = scope.map(n => { const k = _v256Key(n); return { ngo: n, k: k, b: _v256Mem.get(k + '/b'), w: d ? _v256Mem.get(k + '/w' + d) : true }; });
+  // a chip from a newer count than the all-time block held: read that partner's
+  // all-time block (and this chip) again, once; never draw a mismatched pair
+  const stale = d ? packs.filter(p => p.b && p.w && p.w.bh !== p.b.h) : [];
+  if (stale.length) {
+    if (!_v256Retried.has(sig)) {
+      _v256Retried.add(sig);
+      stale.forEach(p => _v256Forget(p.k));
+      return _v256DonorA();
+    }
+    return { missing: stale.map(p => p.ngo) };
+  }
+  const missing = packs.filter(p => !p.b || !p.w || p.b.v !== _V256_VER).map(p => p.ngo);
+  const A = missing.length ? { missing: missing } : _v256MakeA(packs, d);
+  _v256ACache = { sig: sig, A: A };
+  return A;
+}
+// the all-time chip's figures ARE the all-time block's (proven in v256.js)
+function _v256W0(b) {
+  return {
+    fc: _v256L(b.fc).map((r, i) => [i, r[1], r[3], r[4], r[5], r[6], r[7], r[8]]),
+    off: _v256L(b.off).map(r => [r[0], 0, r[2], r[3], r[4], r[5], r[6], r[7]]),
+    pa: _v256L(b.pa).map(r => [r[0], r[1], r[2], r[3], r[4], r[5], r[6]]),
+    sch: _v256L(b.sch), enr: _v256L(b.tot)[0] || 0, nw: _v256L(b.nw)
+  };
+}
+function _v256L(x) { return Array.isArray(x) ? x : (x && typeof x === 'object' ? Object.values(x) : []); }
+function _v256MakeA(packs, d) {
+  const ALL = !d;
+  const nowMs = packs.reduce((m, p) => Math.max(m, _v256N(p.b.at)), 0) || Date.now();
+  const winMs = d ? d * 86400000 : Infinity;
+  const inWin = iso => {
+    if (ALL) return true;
+    if (!iso) return false;
+    const t = new Date(iso).getTime();
+    if (isNaN(t)) return false;
+    return (nowMs - t) <= winMs;
+  };
+  const users = (typeof loadUsers === 'function') ? loadUsers() : [];
+  const uById = new Map(); users.forEach(x => { if (x && x.id) uById.set(x.id, x); });
+  const uName = new Map(); users.forEach(x => { if (x && x.id) uName.set(x.id, x.fullName || x.username); });
+  const fcAgg = new Map();
+  const fcFor = id => {
+    let a = fcAgg.get(id);
+    if (!a) {
+      a = { u: uById.get(id) || { id: id, fullName: '—', ngo: '' }, tot: 0, enrolledWin: 0, advWin: 0, filed: 0, recd: 0,
+            applied: 0, benefits: 0, livelihood: 0, appliedWin: 0, benefitsWin: 0, livelihoodWin: 0,
+            surveyed: 0, intervention: 0, endline: 0, interventionWin: 0, endlineWin: 0, last: 0, _held: 0 };
+      fcAgg.set(id, a);
+    }
+    return a;
+  };
+  const offBy = new Map();
+  const offFor = k => {
+    let a = offBy.get(k);
+    if (!a) { a = { u: { ngo: k }, _isOffice: true, tot: 0, filed: 0, surveyed: 0, applied: 0, benefits: 0, livelihood: 0, intervention: 0, endline: 0,
+                    enrolledWin: 0, advWin: 0, appliedWin: 0, benefitsWin: 0, livelihoodWin: 0, interventionWin: 0, endlineWin: 0, last: 0 }; offBy.set(k, a); }
+    return a;
+  };
+  const paBy = new Map();
+  const paFor = k => {
+    let r = paBy.get(k);
+    if (!r) { r = { ngo: k, surveyed: 0, applied: 0, benefits: 0, livelihood: 0, intervention: 0, endline: 0,
+                    advWin: 0, appliedWin: 0, benefitsWin: 0, livelihoodWin: 0, interventionWin: 0, endlineWin: 0, last: 0 }; paBy.set(k, r); }
+    return r;
+  };
+  const dayCounts = new Map(), benefitDayCounts = new Map(), villageFirst = new Map(), ngoWin = new Map();
+  const stage = { 'Enrolled': 0, 'Intervention In Progress': 0, 'Completed': 0 };
+  const byInt = new Map(), byNgoLiv = new Map(), schAll = new Map(), schWin = new Map();
+  const suspects = [];
+  let livN = 0, endN = 0, sumBase = 0, sumEnd = 0, upliftBase = 0, upliftAdded = 0, overdue = 0;
+  let enrolledWinTotal = 0, totalEverEnrolled = 0, advTotal = 0, susN = 0;
+  const addSch = (m, r) => {
+    let pm = m.get(r[0]); if (!pm) { pm = new Map(); m.set(r[0], pm); }
+    const c = pm.get(r[1]) || [0, 0, 0, 0];
+    c[0] += r[2]; c[1] += r[3]; c[2] += r[4]; c[3] += r[5];
+    pm.set(r[1], c);
+  };
+  packs.forEach(p => {
+    const b = p.b, w = d ? p.w : _v256W0(p.b);
+    const bfc = _v256L(b.fc), names = _v256L(b.names), parts = _v256L(b.parts);
+    _v256L(b.fc).forEach(r => {
+      const a = fcFor(r[0]);
+      a.tot += r[1]; if (r[2] > a.last) a.last = r[2];
+      a.surveyed += r[3]; a.applied += r[4]; a.filed += r[4]; a.benefits += r[5]; a.recd += r[5];
+      a.livelihood += r[6]; a.intervention += r[7]; a.endline += r[8]; if (r[9]) a._held = 1;
+    });
+    _v256L(w.fc).forEach(r => {
+      const row = bfc[r[0]];
+      if (!row) return;
+      const a = fcFor(row[0]);
+      a.enrolledWin += r[1]; a.advWin += r[2]; a.appliedWin += r[3]; a.benefitsWin += r[4];
+      a.livelihoodWin += r[5]; a.interventionWin += r[6]; a.endlineWin += r[7];
+    });
+    _v256L(b.off).forEach(r => {
+      const a = offFor(r[0]);
+      a.filed += r[1]; a.surveyed += r[2]; a.applied += r[3]; a.benefits += r[4]; a.livelihood += r[5]; a.intervention += r[6]; a.endline += r[7];
+    });
+    _v256L(w.off).forEach(r => {
+      const a = offFor(r[0]);
+      a.enrolledWin += r[1]; a.advWin += r[2]; a.appliedWin += r[3]; a.benefitsWin += r[4];
+      a.livelihoodWin += r[5]; a.interventionWin += r[6]; a.endlineWin += r[7];
+    });
+    _v256L(b.pa).forEach(r => {
+      const x = paFor(r[0]);
+      x.surveyed += r[1]; x.applied += r[2]; x.benefits += r[3]; x.livelihood += r[4]; x.intervention += r[5]; x.endline += r[6];
+      if (r[7] > x.last) x.last = r[7];
+    });
+    _v256L(w.pa).forEach(r => {
+      const x = paFor(r[0]);
+      x.advWin += r[1]; x.appliedWin += r[2]; x.benefitsWin += r[3]; x.livelihoodWin += r[4]; x.interventionWin += r[5]; x.endlineWin += r[6];
+    });
+    _v256L(b.day).forEach(r => { const k = _v256Iso(_v256N(b.today) - r[0]); dayCounts.set(k, (dayCounts.get(k) || 0) + r[1]); });
+    _v256L(b.bday).forEach(r => { const k = _v256Iso(r[0]); benefitDayCounts.set(k, (benefitDayCounts.get(k) || 0) + r[1]); });
+    _v256L(b.vil).forEach(r => { const v = _v256Iso(r[1]); const c = villageFirst.get(r[0]); if (!c || v < c) villageFirst.set(r[0], v); });
+    const L = _v256L(b.liv);
+    livN += L[0] || 0; endN += L[1] || 0; sumBase += L[2] || 0; sumEnd += L[3] || 0;
+    upliftBase += L[4] || 0; upliftAdded += L[5] || 0; overdue += L[6] || 0;
+    _v256L(b.stage).forEach(r => { stage[r[0]] = (stage[r[0]] || 0) + r[1]; });
+    _v256L(b.byInt).forEach(r => { const g = byInt.get(r[0]) || { n: 0, base: 0, end: 0 }; g.n += r[1]; g.base += r[2]; g.end += r[3]; byInt.set(r[0], g); });
+    _v256L(b.byNgoLiv).forEach(r => { const g = byNgoLiv.get(r[0]) || { n: 0, base: 0, end: 0 }; g.n += r[1]; g.base += r[2]; g.end += r[3]; byNgoLiv.set(r[0], g); });
+    _v256L(b.sus).forEach(r => suspects.push({ id: r[0], name: r[1], ngo: r[2], createdBy: null, coord: r[3], baseIncome: r[4], endIncome: r[5] }));
+    susN += _v256N(b.susN);
+    const named = r => [parts[r[0]], names[r[1]], r[2], r[3], r[4], r[5]];
+    _v256L(b.sch).forEach(r => addSch(schAll, named(r)));
+    _v256L(w.sch).forEach(r => addSch(schWin, named(r)));
+    const T = _v256L(b.tot); totalEverEnrolled += T[0] || 0; advTotal += T[1] || 0;
+    enrolledWinTotal += _v256N(w.enr);
+    _v256L(w.nw).forEach(r => { const g = ngoWin.get(r[0]) || { n: 0, fcs: { size: 0 } }; g.n += r[1]; g.fcs.size += r[2]; ngoWin.set(r[0], g); });
+  });
+  // (every day is kept: the trend chart reads only the days of its own window)
+  const benefitsFellBack = !ALL && benefitDayCounts.size === 0;
+  // the roster's order, as _rptAggregate builds it, so equal figures sort the same way
+  const order = new Map(); users.forEach((x, i) => { if (x && x.id) order.set(x.id, i); });
+  const fcList = Array.from(fcAgg.values()).sort((x, y) => (order.has(x.u.id) ? order.get(x.u.id) : 1e9) - (order.has(y.u.id) ? order.get(y.u.id) : 1e9));
+  const offAll = Array.from(offBy.values());
+  if (benefitsFellBack) {
+    fcList.concat(offAll).forEach(a => { a.benefitsWin = a.benefits; });
+    paBy.forEach(r => { r.benefitsWin = r.benefits; });
+    schWin.forEach((pm, p) => pm.forEach((c, name) => { const all = (schAll.get(p) || new Map()).get(name); if (all) { c[2] = all[2]; c[3] = all[3]; } }));
+  }
+  const real = (typeof _v19ServerNow === 'function') ? _v19ServerNow() : Date.now();
+  const activeFcs = fcList.filter(a => a.last && (real - a.last) <= 30 * 86400000 && !_v215Inactive(a.u));
+  const inactiveFcs = fcList.filter(a => a.tot > 0 && (!a.last || (real - a.last) > 30 * 86400000))
+    .sort((x, y) => (x.last || 0) - (y.last || 0));
+  let benefitFirstStamp = null;
+  if (benefitDayCounts.size) {
+    const first = Array.from(benefitDayCounts.keys()).sort()[0];
+    try { benefitFirstStamp = new Date(first).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }); } catch (_) { benefitFirstStamp = first; }
+  }
+  const scopeNgos = new Set(packs.map(p => p.ngo));
+  const fcs = users.filter(x => x && x.role === 'coordinator' && scopeNgos.has(x.ngo));
+  const A = {
+    fcAgg: fcAgg, fcByName: new Map(), fcList: fcList,
+    officeRows: offAll.filter(a => a.filed > 0), officeAll: offAll.filter(a => a.surveyed > 0 || a.livelihood > 0),
+    ngoRows: [], benefitDayCounts: benefitDayCounts, totalEverEnrolled: totalEverEnrolled, benefitFirstStamp: benefitFirstStamp,
+    activeFcs: activeFcs, inactiveFcs: inactiveFcs, convDen: 0, convNum: 0, ADVI: 'Advocacy (Govt. Schemes)',
+    dayCounts: dayCounts, ngoWin: ngoWin, villageFirst: villageFirst, enrolledWinTotal: enrolledWinTotal,
+    livN: livN, endN: endN, sumBase: sumBase, sumEnd: sumEnd, upliftBase: upliftBase, upliftAdded: upliftAdded, overdue: overdue,
+    stage: stage, byInt: byInt, byNgoLiv: byNgoLiv, overdueNgo: new Map(), suspects: suspects, suspectsN: susN, uName: uName,
+    newVillages: Array.from(villageFirst.values()).filter(v => inWin(v)).length,
+    statusCount: { 'Need to Apply': 0, 'Applied': 0, 'Benefits Received': 0, 'Rejected': 0 },
+    stuckByScheme: new Map(), schemeStats: new Map(), stuckTotal: 0, advTotal: advTotal,
+    latestRows: [], bById: new Map(), inWin: inWin, fcs: fcs, allTime: ALL, benefitsFellBack: benefitsFellBack,
+    fcTotal: fcs.length, _v256: { at: nowMs, partners: packs.length }, __v256sch: schWin
+  };
+  A._v25p = Array.from(paBy.values()).filter(r => r.surveyed || r.livelihood || r.ngo !== '—')
+    .sort((x, y) => String(x.ngo).localeCompare(String(y.ngo)));   // the order _v25PartnerAgg returns since V25.6
+  return A;
+}
+// the zero-row scope for the leaderboard, from the blocks rather than records
+function _v256RowScope(A) {
+  const held = new Set();
+  (A && A.fcList || []).forEach(a => { if (a._held || a.tot > 0) held.add(a.u.id); });
+  return { ngo: (typeof ngoFilter !== 'undefined' && ngoFilter) || '', fc: '', ngos: new Set(_v256Scope()), held: held };
+}
+function _v256AsOf(A) {
+  const at = A && A._v256 && A._v256.at;
+  if (!at) return '';
+  try { return new Date(at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }); } catch (_) { return ''; }
+}
+// a donor with more than one partner gets the Partners tab, as the office does
+function _v256DonorMany(u) {
+  const s = u || ((typeof currentUser === 'function') ? currentUser() : null);
+  return _v256IsDonor(s) && Array.isArray(s.assignedNgos) && s.assignedNgos.length > 1;
+}
+// the suspicious-endline count: the true count a donor's blocks carry
+function _v256SusN(A) { return (A && A.suspectsN != null) ? A.suspectsN : ((A && A.suspects) || []).length; }
+// an export: a donor's figures when they are on screen, otherwise null
+function _v256ExpA() {
+  if (!_v256IsDonor()) return null;
+  const A = _v256DonorA();
+  return (A && !A.missing) ? A : null;
 }
 
 function renderReports() {
   const u = currentUser();
   // V12.7: admin + NGO admin. The nav button being hidden is not what keeps
   // anyone else out — this check is, and it runs on every render.
-  if (!_rptCanView(u)) {
+  if (!_rptCanView(u) && !_v256IsDonor(u)) {   // V25.6: + donors
     document.getElementById('content').innerHTML =
       '<div style="padding:48px 20px;text-align:center;color:var(--gray2);font-size:14px">Reports are available to admin and NGO partner accounts only.</div>';
     return;
   }
-  const fleet = _rptIsFleet(u);
+  const fleet = _rptIsFleet(u) || _v256DonorMany(u);   // V25.6: a donor with several partners compares them
   // V12.7: an NGO admin can never leave their own partner, so the Partners tab
   // (which exists to compare partners against each other) is not theirs. If
   // their saved tab is that one — or they arrive with it set — bounce to the
@@ -31033,16 +31607,30 @@ function renderReports() {
     _v13SyncFilterSelects();
   }
   const esc = s => escHtml(String(s == null ? '' : s));
-  const allB = filteredAll();                 // topbar State/NGO filters apply here
+  // [V25.6] A DONOR'S REPORTS COME FROM THE STORED BLOCKS, NEVER FROM RECORDS -
+  // a donor holds none, and fetching them is the download V22.4 removed.
+  const _v256D = _v256IsDonor(u);
+  let _v256Agg = null;
+  if (_v256D) {
+    _v256Agg = _v256DonorA();
+    if (!_v256Agg || _v256Agg.missing) {
+      document.getElementById('content').innerHTML = _rptChrome(!_v256Agg
+        ? '<div class="rpt-card"><div class="rpt-empty" style="padding:28px">Loading your partners’ Reports…</div></div>'
+        : '<div class="rpt-card"><div class="rpt-empty" style="padding:28px">Reports for ' + esc(_v256Agg.missing.join(', '))
+          + ' are not ready yet. They are prepared by the KRSF office laptop and appear here after it is next online.</div></div>');
+      return;
+    }
+  }
+  const allB = _v256D ? [] : filteredAll();                 // topbar State/NGO filters apply here
   // ⚠️ NOT loadUsers(). See _rptScopedUsers — the roster is the only Reports
   // input that is not already scoped by the Firebase query.
-  const users = _rptScopedUsers(u);
-  const advParents = loadAdv();
+  const users = _v256D ? [] : _rptScopedUsers(u);
+  const advParents = _v256D ? [] : loadAdv();
   // V12.6: rptRange 0 = all time. Infinity makes _rptAggregate's ALL_TIME
   // branch fire, which counts undated records too.
   const _w212 = _v212Win();   // V21.2: month or day-window, decided in one place
-  const now = _w212.now, winMs = _w212.win;
-  const _A = _rptAggregate(allB, advParents, users, now, winMs, _w212.ceil);
+  const now = _v256D ? _v256Agg._v256.at : _w212.now, winMs = _w212.win;
+  const _A = _v256D ? _v256Agg : _rptAggregate(allB, advParents, users, now, winMs, _w212.ceil);
   const { fcAgg, fcByName, fcList, ngoRows, benefitDayCounts, totalEverEnrolled, benefitFirstStamp, activeFcs, inactiveFcs, convDen, convNum, ADVI, dayCounts, ngoWin, villageFirst, enrolledWinTotal, livN, endN, sumBase, sumEnd, upliftBase, upliftAdded, overdue, stage, byInt, byNgoLiv, overdueNgo, suspects, uName, newVillages, statusCount, stuckByScheme, schemeStats, stuckTotal, advTotal, latestRows, bById, inWin, fcs } = _A;
 
 
@@ -31091,7 +31679,7 @@ function renderReports() {
   const _v207Here = fleet ? 'ngo' : 'fc';
   const _v207Card = (rptTab === _v207Here) ? _v207TodayByNgo({ margin: '0 0 16px' }) : '';
 
-  if (rptTab === 'fc') { body = _v207Card + _rptRenderFc(_A, now, _v216RowScope(allB)); }
+  if (rptTab === 'fc') { body = _v207Card + _rptRenderFc(_A, now, _v256D ? _v256RowScope(_A) : _v216RowScope(allB)); }
 
   // ══ TAB 2 : NGO COMPARISON (V12) ═════════════════════════════════════════
   if (rptTab === 'ngo') { body = _v207Card + _rptRenderNgo(_A); }
@@ -31193,7 +31781,7 @@ function renderReports() {
         <div style="font-size:15px;font-weight:700;color:var(--green)">Total measured income added: ${_rptMoney(added)} / year</div>
         <div style="font-size:11px;color:#065F46;margin-top:3px">Across the ${endN.toLocaleString('en-IN')} beneficiar${endN === 1 ? 'y' : 'ies'} with completed baseline + endline surveys. Counts only measured, surveyed income change — nothing estimated.</div>
       </div>` : '') +
-      (suspects.length ? card(' Suspicious endlines — endline less than HALF of baseline (' + suspects.length.toLocaleString('en-IN') + ' records)',
+      (_v256SusN(_A) ? card(' Suspicious endlines — endline less than HALF of baseline (' + _v256SusN(_A).toLocaleString('en-IN') + ' records)',
         'Classic sign of the "entered only the ADDITIONAL income" mistake — though genuine income drops happen too, so nothing here is auto-changed. Review each: open the record → Endline Survey and re-save (the V4.7 form now catches this mistake at entry). The last column shows what the total would be IF the entered amount was actually the additional income.',
         tblWrap(`<table style="width:100%;border-collapse:collapse">
           <tr><th style="${TH}">Beneficiary</th><th style="${TH}">NGO</th><th style="${TH}">FC</th><th style="${THR}">Baseline</th><th style="${THR}">Endline entered</th><th style="${THR}">Shows as</th><th style="${THR}">If additional: total</th></tr>
@@ -31207,7 +31795,7 @@ function renderReports() {
             <td style="${TDR}">${fmt(s.baseIncome + s.endIncome)}</td>
           </tr>`).join('')}
         </table>`)
-        + (suspects.length > 50 ? `<div style="font-size:11px;color:var(--gray2);margin-top:8px">Showing the 50 most severe of ${suspects.length.toLocaleString('en-IN')} suspicious records.</div>` : '')) : '') +
+        + (_v256SusN(_A) > 50 ? `<div style="font-size:11px;color:var(--gray2);margin-top:8px">Showing the 50 most severe of ${_v256SusN(_A).toLocaleString('en-IN')} suspicious records.</div>` : '')) : '') +
       card('Program stages — where every livelihood beneficiary stands', 'Baseline survey at enrollment → intervention → endline survey measures the change.',
         frow('Baseline Completed', stage['Enrolled'] || 0, 'var(--navy2)') +
         frow('Intervention In Progress', stage['Intervention In Progress'] || 0, '#7C3AED') +
@@ -31517,7 +32105,7 @@ window.nav=function(v){
   // map, alerts, ngo). enroll is intercepted — donors never see the modal.
   if (me && me.role === 'scopedViewer') {
     if (v === 'enroll') v = 'dashboard';   // silently bounce
-    const allowed = new Set(['dashboard','list','beneficiaries','advocacy','integrated','map','ngo','alerts']);
+    const allowed = new Set(['dashboard','list','beneficiaries','advocacy','integrated','map','ngo','alerts','reports']);   // V25.6: + reports
     if (!allowed.has(v)) v = 'dashboard';
   }
   // V376-TL: same allowed-route set as scopedViewer (read-only with full
@@ -31530,7 +32118,8 @@ window.nav=function(v){
   currentView=v;
   // V22.4: the dashboard is figures; everything else is people. Asking for a
   // list, the map or the alerts is the moment the records are worth fetching.
-  if (typeof _v224Deferred !== 'undefined' && _v224Deferred && v !== 'dashboard') {
+  if (typeof _v224Deferred !== 'undefined' && _v224Deferred && v !== 'dashboard'
+      && !(v === 'reports' && _v256IsDonor(me))) {   // V25.6: a donor's Reports read stored figures only
     try { _v224EnsureRecords(); } catch (_) {}
   }
   // V21.1: the Find bar follows the page, and clears itself on the way out.
@@ -40516,6 +41105,7 @@ async function _v362WriteAllSummaries() {
         }
         await fbRef('').update(update);
         _v400LastAdminSummaryWrite = Date.now();
+        try { _v256Schedule(false); } catch (_) {}   // V25.6: donors' Reports, at most hourly, in the background
         console.log('[V366] Admin wrote ' + Object.keys(update).length + ' summary nodes ('
           + Math.round(JSON.stringify(update).length/1024) + ' KB) via bucketed compute');
       } catch (e) {
@@ -43079,7 +43669,7 @@ function _applyRoleVisibility() {
     // the Reports nav entries. It only unhides the BUTTON; renderReports()
     // re-checks the role itself, so this attribute can never be the only thing
     // standing between a role and the page.
-    if (el.hasAttribute('data-ngo-ok')) { el.style.display = (isAdm || isNgo) ? '' : 'none'; return; }
+    if (el.hasAttribute('data-ngo-ok')) { el.style.display = (isAdm || isNgo || (isSV && el.hasAttribute('data-donor-ok'))) ? '' : 'none'; return; }   // V25.6: + donors
     el.style.display = isAdm ? '' : 'none';
   });
   // V325: utility-only tools are permanently hidden from sidebar even for
