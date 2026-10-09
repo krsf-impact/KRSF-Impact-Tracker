@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V25.6-LIVE
+  KRSF Beneficiary Impact Tracker  -  V25.7-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,23 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V25.7-LIVE (2026-10-09 - the dashboard figures count up; the import shows
+  its progress).
+
+    + Dashboard (admin, partner, donor and team-leader logins): the six
+      figures count up from 0 when the dashboard opens - after login or
+      from the menu - in under a second. A background refresh does not
+      restart it. The real figure stays in the page throughout (the count
+      is drawn over it), so the saved screen and print hold the real
+      number. Skipped where the device asks for reduced motion. Digits in
+      the six tiles are now even-width and set slightly tighter.
+    + Import: "Reading your file" while a file is checked; then "Creating
+      record 37 of 120" with a bar, "Saving households", "Saving scheme
+      records", closed before the result. Says so if the phone goes
+      offline. The import itself is unchanged.
+    + No extra download: 0 bytes of Firebase. Display only.
+    + Tests: 117 files. The V25.7 checks are in _specs/v257.
+
   V25.6-LIVE (2026-10-06 - Reports for donor logins, from stored figures).
 
     + Donor logins get the Reports tab: every tab (FC Performance, Partners
@@ -638,74 +655,6 @@
       opening this folder fresh). A CLAUDE.md at the app root now maps the
       project for a session that has never seen it.
 
-  V22.5-LIVE (2026-09-20 - the release that had never once worked).
-
-    + ⛔ V22.4 SAVED NOTHING FOR DONORS OR PARTNER LOGINS. Not once. Every
-      summary write Firebase received was REJECTED, from the minute it went
-      live, because one intervention is named "Advocacy (Govt. Schemes)" and
-      a dot is among the six characters a Firebase key may not contain. The
-      whole write is thrown away, not the one bad name. So the stored figures
-      stayed frozen, every donor and partner login found nothing to read, and
-      each fell back to downloading its entire scope exactly as before -
-      three bursts of 37, 19 and 37 MB in twenty minutes on the first evening.
-      Counts now travel as lists of pairs rather than as names, so no partner
-      or scheme name can ever break a write again.
-
-    + ⛔ AND THE SAME TRAP SITS IN THE SCHEME SETTINGS, DORMANT. Those are
-      keyed by scheme name too, and one scheme is "Suraksha/Jivan Vima
-      Yojana". It has not fired only because that scheme happens to carry no
-      settings yet - and tagging a scheme for a state is precisely what gives
-      it some, so the Maharashtra rollout is when it would have gone off,
-      taking every other scheme’s settings with it. Names are now escaped
-      reversibly, so nothing stored needs migrating.
-
-    + ⛔ TODAY’S CARD WAS WRONG IN EVERY DEFERRED SESSION, TWICE OVER. It was
-      fed by reading the newest 2,000 records edited anywhere since yesterday
-      and then keeping this partner’s. On a real day the fleet edits 14,270 -
-      Bhiloda alone 5,762 - so a partner saw a fourteenth of their own day: 14
-      enrolments where the truth was 166. And Applied and Benefits received
-      read zero, because a session working from figures holds no scheme
-      records to count. Reading more was no answer; a complete window is 8.63
-      MB. The figures are counted once by the admin, with the card’s own
-      function, and stored - exact, and 1.2 MB cheaper: a partner sign-in went
-      from 1,304 KB to 224 KB.
-
-    + ⛔ THE ARITHMETIC EXISTED TWICE AND ONLY ONE COPY WAS FIXED. A partner
-      login writing its own summary uses one function; the admin, which is
-      what actually fills the database, uses a faster single-pass version of
-      the same sums. Today’s figures went into the first, so nothing reached
-      the database at all and the card read "Nothing recorded yet today" -
-      indistinguishable, on screen, from a genuinely quiet day.
-
-    + A partner login has its own partner locked into the filter bar, and the
-      card counted that as a narrowing filter and so refused the stored
-      figures entirely. The dashboard already knew better; the card did not.
-
-    + THE USAGE COUNTER ONLY EVER RECORDED SESSIONS THAT LASTED FIVE MINUTES.
-      It wrote on a five-minute timer and on page close - and the close write
-      cannot work, because it must read the running total back before adding
-      to it and the page is destroyed mid-read. So short visits recorded
-      nothing, and short visits are the expensive ones: a cold sign-in that
-      pulls a scope and leaves. It now writes a minute after sign-in and
-      whenever the tab is hidden, so a burst has a name against it.
-
-    + The Bandwidth screen says whether each person is on the installed app or
-      an ordinary browser tab. A tab loses its saved records when the phone
-      needs space, so anyone reading "browser" is paying for the same
-      download again and again.
-
-    + ⛔ THE FAKE DATABASE THE TESTS RUN AGAINST WAS KINDER THAN FIREBASE, AND
-      THAT IS HOW ALL OF THIS SHIPPED GREEN. It accepted keys production
-      refuses, so 54 checks passed while every write on live was failing. It
-      now enforces the same rules - including the three reserved keys that DO
-      begin with a dot, which it first got wrong in the other direction and
-      v215 caught within one run.
-
-    + Tests: 77 files, 2,400 checks, and the suites now run against the real
-      19 September export as well as the sample - which is what exposed five
-      of the six faults above. 30 mutants, all 30 caught, including the
-      daily-refresh guard that survived two earlier attempts at a check.
-
   ============================================================================
   Everything before this point lives in CHANGELOG.md, beside this file.
 -->
@@ -918,6 +867,16 @@ html,body{height:100%;font-family:var(--font);background:#EEF2F7;color:var(--tex
 .stat.s-purple{border-top-color:var(--purple)}
 .stat-label{font-size:11px;font-weight:600;color:var(--gray2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
 .stat-val{font-size:26px;font-weight:700;line-height:1.1;min-height:32px}
+/* V25.7: digits keep their width while they count (the motion is JS); the
+   real figure stays in the text, made invisible, and the count is drawn
+   over it from data-v257n - so nothing that reads the tile sees a
+   half-counted number, and the tile never changes size mid-count. The
+   second content line keeps the count out of screen readers; print
+   always shows the real figure. */
+.odometer{font-variant-numeric:tabular-nums;letter-spacing:-0.02em}
+.stat-val.v257-run{position:relative;-webkit-text-fill-color:transparent}
+.stat-val.v257-run::after{content:attr(data-v257n);content:attr(data-v257n) / "";position:absolute;left:0;right:0;top:0;-webkit-text-fill-color:currentColor;pointer-events:none}
+@media print{.stat-val.v257-run{-webkit-text-fill-color:inherit}.stat-val.v257-run::after{content:none}}
 .stat-sub{font-size:11px;color:var(--gray2);margin-top:5px}
 .pill{display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;margin-top:5px}
 .pill-green{background:var(--green2);color:var(--green)}
@@ -4709,7 +4668,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V25.6-LIVE';
+const APP_VERSION = 'V25.7-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -27499,7 +27458,7 @@ function renderDashboard() {
   // the tile; min-width:0 is required for flex/grid children to allow shrinking.
   const tile = (label, val, sub, colorClass, valColor) => `<div class="stat ${colorClass||'s-blue'}" style="padding:10px 12px;min-width:0">
     <div class="stat-label" style="font-size:10px">${label}</div>
-    <div class="stat-val" style="font-size:18px;font-weight:700;word-break:break-word;line-height:1.15${valColor?';color:'+valColor:''}">${val}</div>
+    <div class="stat-val odometer" style="font-size:18px;font-weight:700;word-break:break-word;line-height:1.15${valColor?';color:'+valColor:''}">${val}</div>
     ${sub?`<div class="stat-sub" style="font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${String(sub).replace(/"/g,'&quot;').replace(/<[^>]+>/g,'')}">${sub}</div>`:''}
   </div>`;
 
@@ -27564,6 +27523,79 @@ function renderDashboard() {
       </div>
     </div>
     ${_renderDashboardRecentUpdates(list)}`;
+  // V25.7: count the six figures up if the dashboard was just opened
+  try { _v257CountUpSoon(); } catch (_) {}
+}
+
+// ── V25.7: the dashboard's six figures count up when the dashboard opens ──
+// ⛔ THE REAL FIGURE NEVER LEAVES THE PAGE. The tile keeps its exact text; CSS
+// makes that text invisible and draws the count over it from data-v257n. So
+// the V357 tab cache, print and anything else that reads the tile always get
+// the figure the dashboard computed - never a half-count.
+// ⛔ ONLY ON OPENING. nav() arms it; the re-renders a sync triggers do not, so
+// a figure never restarts from 0 while somebody is reading it. The arm is
+// spent only on a screen with a figure to count: an admin whose first paint
+// after login is an empty cache (all 0 and —) gets the count on the first
+// real figures instead.
+// ⛔ AFTER THE CACHE SNAPSHOT. The V361 heavy-view path snapshots #content
+// synchronously right after the renderer returns. The count starts in a
+// microtask, which runs after that snapshot and before the next paint - so
+// no tile is ever cached mid-count, and no frame shows the figure first.
+// Display only: no Firebase read or write, no stored state.
+let _v257CountArmed = false;
+function _v257CountUpSoon() {
+  try { queueMicrotask(_v257CountUp); }
+  catch (_) { Promise.resolve().then(_v257CountUp); }
+}
+function _v257CountClear(el) {
+  el.classList.remove('v257-run');
+  el.removeAttribute('data-v257n');
+}
+function _v257CountUp() {
+  const root = document.getElementById('content');
+  if (!root) return;
+  // a replayed or interrupted screen never keeps a count in progress
+  root.querySelectorAll('.v257-run').forEach(_v257CountClear);
+  if (!_v257CountArmed || currentView !== 'dashboard') return;
+  const els = root.querySelectorAll('.stats-6 .stat-val.odometer');
+  const items = [];
+  els.forEach(function (el) {
+    const m = /^(\u20B9?)(\d[\d,]*)$/.exec(String(el.textContent || '').trim());
+    if (!m) return;            // "—" and anything unexpected stay exactly as they are
+    const target = Number(m[2].replace(/,/g, ''));
+    if (!(target > 0) || !isFinite(target)) return;
+    items.push({ el: el, pre: m[1], target: target, commas: m[2].indexOf(',') >= 0 });
+  });
+  if (!items.length) return;  // loading, or nothing above 0 yet - keep the arm for the real figures
+  _v257CountArmed = false;
+  let still = false;
+  try { still = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch (_) {}
+  if (still || document.hidden) return;
+  // the same formatting the tile itself used, so the count ends on its text
+  const fmt = function (it, n) { return it.pre + (it.commas ? n.toLocaleString('en-IN') : String(n)); };
+  items.forEach(function (it) { it.el.setAttribute('data-v257n', fmt(it, 0)); it.el.classList.add('v257-run'); });
+  const DUR = 900, t0 = performance.now();
+  let done = false;
+  const finish = function () {
+    if (done) return;
+    done = true;
+    items.forEach(function (it) { _v257CountClear(it.el); });
+  };
+  const step = function (now) {
+    if (done) return;
+    const p = Math.min(1, Math.max(0, (now - t0) / DUR));
+    const e = 1 - Math.pow(1 - p, 3);   // ease out: fast, then settling
+    let live = 0;
+    items.forEach(function (it) {
+      if (!it.el.isConnected) return;
+      live++;
+      it.el.setAttribute('data-v257n', fmt(it, Math.round(it.target * e)));
+    });
+    if (p >= 1 || !live) finish(); else requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+  // a hidden tab pauses animation frames; the real figure shows regardless
+  setTimeout(finish, DUR + 700);
 }
 
 // Recent Updates — pulls from the audit log, filters to beneficiary-level
@@ -32024,6 +32056,8 @@ function _v357WrapRoute(view, originalFn) {
       // Cache HIT — restore HTML, skip the expensive renderer entirely.
       try {
         el.innerHTML = cached.html;
+        // V25.7: a replayed dashboard counts up too, when it was just opened
+        if (view === 'dashboard') { try { _v257CountUpSoon(); } catch (_) {} }
         return;
       } catch(_) { /* fall through to re-render */ }
     }
@@ -32116,6 +32150,8 @@ window.nav=function(v){
     if (!allowed.has(v)) v = 'dashboard';
   }
   currentView=v;
+  // V25.7: opening the dashboard (menu or login) arms its count-up; anything else disarms it
+  _v257CountArmed = (v === 'dashboard');
   // V22.4: the dashboard is figures; everything else is people. Asking for a
   // list, the map or the alerts is the moment the records are worth fetching.
   if (typeof _v224Deferred !== 'undefined' && _v224Deferred && v !== 'dashboard'
@@ -44294,6 +44330,92 @@ function _colLetter(i) {
 }
 
 // ── File upload + parse ──────────────────────────────────────────────────
+// ── V25.7: the import says what it is doing ───────────────────────────────
+// A progress window while a file is read and checked, and while Confirm
+// Import runs: which record it is on, then the two saves. Display only - it
+// shows counters the import already keeps and never touches a row, the
+// order, or a save. Every method is wrapped, and the numbers are formatted
+// inside that wrapping, so nothing here can throw into the import.
+// ⛔ It sits on <body>, not #content, so the import's own re-render cannot
+// tear it down halfway; and every exit of the import closes it, so it can
+// never be left covering the page. If the connection drops it says so: a
+// Firebase step waits for the connection rather than failing.
+const _v257Busy = {
+  el: null,
+  _net: null,
+  _ensure: function () {
+    if (this.el && this.el.isConnected) return this.el;
+    const d = document.createElement('div');
+    d.id = 'v257-busy';
+    d.setAttribute('aria-busy', 'true');
+    d.style.cssText = 'position:fixed;top:0;right:0;bottom:0;left:0;z-index:100000;background:rgba(15,23,42,.45);display:flex;align-items:center;justify-content:center;padding:16px';
+    d.innerHTML = ''
+      + '<div style="background:#fff;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.25);padding:22px 24px;width:100%;max-width:380px;font-family:var(--font)">'
+      +   '<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">'
+      +     '<div style="width:24px;height:24px;flex:none;border:3px solid #E5E7EB;border-top-color:var(--navy);border-radius:50%;animation:_v257Spin .8s linear infinite"></div>'
+      +     '<div data-k="t" role="status" aria-live="polite" style="font-size:15px;font-weight:700;color:var(--text)"></div>'
+      +   '</div>'
+      +   '<div style="height:8px;background:#E5E7EB;border-radius:6px;overflow:hidden">'
+      +     '<div data-k="b" style="height:100%;width:0;background:var(--navy);border-radius:6px;transition:width .2s ease"></div>'
+      +   '</div>'
+      +   '<div data-k="d" style="font-size:13px;color:var(--gray1);margin-top:10px;font-variant-numeric:tabular-nums"></div>'
+      +   '<div data-k="w" style="display:none;font-size:12px;font-weight:600;color:#92400E;margin-top:8px">No internet connection - waiting for it to come back.</div>'
+      +   '<div style="font-size:11px;color:var(--gray2);margin-top:6px">Please keep this page open until it finishes.</div>'
+      + '</div>'
+      + '<style>@keyframes _v257Spin{to{transform:rotate(360deg)}}@keyframes _v257Slide{0%{margin-left:-35%}100%{margin-left:100%}}</style>';
+    document.body.appendChild(d);
+    this.el = d;
+    // never two listeners: drop any left from a window something else removed
+    try { if (this._net) { window.removeEventListener('online', this._net); window.removeEventListener('offline', this._net); } } catch (_) {}
+    const self = this;
+    this._net = function () { self._offline(); };
+    window.addEventListener('online', this._net);
+    window.addEventListener('offline', this._net);
+    return d;
+  },
+  _q: function (k) { const d = this._ensure(); return d.querySelector('[data-k="' + k + '"]'); },
+  _n: function (n) { try { return Number(n).toLocaleString('en-IN'); } catch (_) { return String(n); } },
+  _offline: function () {
+    if (!this.el || !this.el.isConnected) return;   // a late event never re-opens a closed window
+    try { this._q('w').style.display = (navigator.onLine === false) ? 'block' : 'none'; } catch (_) {}
+  },
+  _bar: function (pct) {
+    const b = this._q('b');
+    if (pct == null) {   // a step whose length is unknown: the bar slides
+      b.style.transition = 'none';
+      b.style.width = '35%';
+      b.style.animation = '_v257Slide 1.1s ease-in-out infinite';
+    } else {             // a counted step: the bar fills
+      b.style.animation = 'none';
+      b.style.marginLeft = '0';
+      b.style.transition = 'width .2s ease';
+      b.style.width = Math.max(0, Math.min(100, Math.round(pct))) + '%';
+    }
+  },
+  _show: function (title, detail, pct) {
+    try {
+      const t = this._q('t');
+      if (t.textContent !== title) t.textContent = title;   // announced once per step, not per row
+      this._q('d').textContent = detail || '';
+      this._bar(pct);
+      this._offline();
+    } catch (_) {}
+  },
+  reading: function () { this._show('Reading your file…', 'Checking every row - large files take a little while.', null); },
+  begin: function (total) { try { this._show('Importing beneficiaries', 'Preparing ' + this._n(total) + ' records…', 0); } catch (_) {} },
+  row: function (n, total) {
+    try { this._show('Importing beneficiaries', 'Creating record ' + this._n(n) + ' of ' + this._n(total), total > 0 ? (n - 1) / total * 100 : 0); } catch (_) {}
+  },
+  savingHouseholds: function (n) { try { this._show('Saving households…', this._n(n) + ' records, sent to the server in one step.', null); } catch (_) {} },
+  savingSchemes: function () { this._show('Saving scheme records…', 'Almost done.', null); },
+  hide: function () {
+    try { if (this._net) { window.removeEventListener('online', this._net); window.removeEventListener('offline', this._net); } } catch (_) {}
+    this._net = null;
+    try { if (this.el) this.el.remove(); } catch (_) {}
+    this.el = null;
+  }
+};
+
 async function handleImportFileUpload(input) {
   const file = input.files[0];
   if (!file) return;
@@ -44306,15 +44428,18 @@ async function handleImportFileUpload(input) {
     input.value = '';
     return;
   }
+  // V25.7: say so while the file is read and every row is checked
+  _v257Busy.reading();
   const reader = new FileReader();
-  reader.onerror = () => toast('Could not read file. Try again.', 'error');
+  reader.onerror = () => { _v257Busy.hide(); toast('Could not read file. Try again.', 'error'); };
   if (lower.endsWith('.csv')) {
-    reader.onload = e => _parseImportCsv(e.target.result);
+    reader.onload = e => { try { _parseImportCsv(e.target.result); } finally { _v257Busy.hide(); } };
     reader.readAsText(file, 'UTF-8');
   } else if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) {
-    reader.onload = e => _parseImportXlsx(e.target.result);
+    reader.onload = e => { try { _parseImportXlsx(e.target.result); } finally { _v257Busy.hide(); } };
     reader.readAsArrayBuffer(file);
   } else {
+    _v257Busy.hide();
     toast('Unsupported file type. Upload .csv or .xlsx.', 'error');
     input.value = '';
   }
@@ -45124,6 +45249,9 @@ async function confirmBulkImport() {
   // never permanently locked.
   _importRunInFlight = true;
   try {
+  // V25.7: show the run - closed on every way out (see the finally below)
+  let _v257Row = 0;
+  _v257Busy.begin(importable.length);
 
   const data = loadData();
   const advData = loadAdv();
@@ -45163,6 +45291,8 @@ async function confirmBulkImport() {
     // Promise instead of an id, breaking the entire flow.
     for (const v of importable) {
     const p = v.parsed;
+    // V25.7: display only - which record the run has reached
+    _v257Busy.row(++_v257Row, importable.length);
     // Build district string in the app's stored format: "District, State"
     const fullDistrict = p.district + ', ' + p.state;
     // V16.0.3: genId must see the ids assigned earlier in this same batch, or
@@ -45352,10 +45482,14 @@ async function confirmBulkImport() {
   // didn't land in cloud and the user should retry.
   let _benefSaved = false;
   try {
+    _v257Busy.savingHouseholds(importedIds.length);
     await saveData(data);
     _benefSaved = true;
+    _v257Busy.savingSchemes();
     await saveAdv(advData);
+    _v257Busy.hide();
   } catch (e) {
+    _v257Busy.hide();
     const msg = (e instanceof SaveError) ? e.message : 'Bulk import failed to save to cloud.';
     if (!_benefSaved) {
       // V383 fix: the per-row saveData() calls in the loop above (bulk-
@@ -45433,6 +45567,7 @@ async function confirmBulkImport() {
   // gates. finally guarantees the flag clears on every exit path.
   } finally {
     _importRunInFlight = false;
+    _v257Busy.hide();   // V25.7: whatever happened, never leave it covering the page
   }
 }
 
