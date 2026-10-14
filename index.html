@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V25.8-LIVE
+  KRSF Beneficiary Impact Tracker  -  V25.9-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,30 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V25.9-LIVE (2026-10-14 - the figure boxes in colour).
+
+    + Every figure box is filled with its own pale colour, with a darker
+      number, instead of a white box with a thin coloured line (the
+      owner's choice "A"). Dashboard: six colours and a small icon on
+      each box (people, map, pin, rising line, gift, star); Total Impact
+      in the app's navy. Livelihood, Advocacy, Integrated, All
+      Beneficiaries and the coordinator's Home strip: each box tinted in
+      its own colour; the chosen filter keeps its strong border.
+    + Boxes that shared a colour now differ: "All" is navy (was grey),
+      "Advocacy Only" teal (was a second purple), Advocacy's Total
+      Beneficiaries navy and Benefit Amount purple (both were red, beside
+      the red Rejected box).
+    + Every figure stays on ONE line: a long figure in a narrow box is
+      drawn a little smaller instead of breaking onto a second line; short
+      figures keep their size. On a narrow laptop (769-1200 px) the
+      Dashboard shows three boxes a row and Advocacy four + three; on a
+      phone All Beneficiaries shows two a row (it scrolled sideways). An
+      older phone (no box measuring) keeps the V25.8 sizes.
+    + Look only: no figure, count, filter or click changes; 0 bytes of
+      Firebase. Phones too old for the tint show white boxes, as before.
+      Reports and the admin repair screens are unchanged.
+    + Tests: 117 files. The V25.9 checks are in _specs/v259.
+
   V25.8-LIVE (2026-10-14 - "Other - Bus pass" in the import; three wording
   and order fixes).
 
@@ -656,39 +680,6 @@
       used to catch it. Coverage, not behaviour, and it is recorded here
       rather than quietly rounded up to 33 of 33.
 
-  V22.6-LIVE (2026-09-20 - the counter that destroyed what it recorded).
-
-    + ⛔ A FAILED COUNTER WRITE THREW AWAY THE NUMBERS IT WAS CARRYING. The
-      usage counter marked a session as recorded BEFORE writing it, so a write
-      that failed burned that session for good - never counted, while every
-      later write went on adding its bytes. One row on 20 September read
-      53.77 MB across 0 sessions, which is how this was noticed. The four
-      saved-copy counters had the same flaw and were worse: they are zeroed as
-      they are read, so a failed write discarded the hits, misses,
-      save-failures and fall-throughs it was carrying - the very numbers the
-      Bandwidth screen exists to report.
-      ⛔ AND V22.5 MADE IT MORE LIKELY, NOT LESS. The write added one minute
-      after sign-in can fire before that session’s sign-in has settled, so the
-      first write of almost every session is the one most likely to fail.
-      Everything is now taken, written, and only consumed once the write has
-      actually landed; a failure leaves it all intact for the next attempt.
-
-    + The deprecated apple-mobile-web-app-capable warning in the browser
-      console. The modern tag is added alongside it - ⛔ alongside, not
-      instead: older iOS Safari reads only the apple- form, and dropping it
-      would stop the app opening full-screen for anyone who already
-      installed it.
-
-    + V22.5 IS CONFIRMED WORKING ON LIVE, which is worth recording because
-      V22.4 was not. Two partner logins signed in on 20 September for 33.4 KB
-      and 48.2 KB, against whole partners of 11.86 MB and 15.86 MB - and the
-      second of those was an ordinary field sign-in, nobody testing anything.
-
-    + Tests: 78 files in _tests (77 suites plus runall.js, the runner, which
-      lived outside the project until now and so could not be found by anyone
-      opening this folder fresh). A CLAUDE.md at the app root now maps the
-      project for a session that has never seen it.
-
   ============================================================================
   Everything before this point lives in CHANGELOG.md, beside this file.
 -->
@@ -899,6 +890,41 @@ html,body{height:100%;font-family:var(--font);background:#EEF2F7;color:var(--tex
 .stat.s-green{border-top-color:var(--green)}
 .stat.s-amber{border-top-color:#F59E0B}
 .stat.s-purple{border-top-color:var(--purple)}
+/* V25.9: the dashboard's figure boxes - each its own pale colour (owner's style A).
+   k1 fill, k2 edge, k6 label/icon, k8 number. The number's colour wins over the
+   inline one the tile carried, so a box reads in one colour. */
+.stat.k-blue{--k1:#E6F1FB;--k2:#B5D4F4;--k6:#185FA5;--k8:#0C447C}
+.stat.k-purple{--k1:#EEEDFE;--k2:#CECBF6;--k6:#534AB7;--k8:#3C3489}
+.stat.k-teal{--k1:#E1F5EE;--k2:#9FE1CB;--k6:#0F6E56;--k8:#085041}
+.stat.k-green{--k1:#EAF3DE;--k2:#C0DD97;--k6:#3B6D11;--k8:#27500A}
+.stat.k-amber{--k1:#FAEEDA;--k2:#FAC775;--k6:#854F0B;--k8:#633806}
+.stat.k-navy{--k1:#E9EBF5;--k2:#C9CDE6;--k6:#2B3A86;--k8:#1B2559}
+.stat.k-tile{background:var(--k1);border:1px solid var(--k2);border-radius:12px}
+.stat.k-tile .stat-label{color:var(--k6);display:flex;align-items:center;gap:7px;min-height:26px}   /* a label on two lines keeps the numbers level */
+@media (min-width:1201px) and (max-width:1366px){.stat.k-tile .stat-label{min-height:40px}}   /* narrower: up to three lines */
+/* a narrow laptop (769-1200 px): six boxes in one row left "BENEFICIARIES" wider than
+   its box (V25.8 too) - three a row, two rows, so labels and figures fit full size */
+@media (min-width:769px) and (max-width:1200px){.stats-6{grid-template-columns:repeat(3,1fr)}}
+/* V25.9: a figure always on ONE line (owner, 2026-10-14). Each box is measured and a
+   long figure is drawn smaller only when it would not fit: --kn is its length in
+   characters, --kmax its normal size. Only where the browser measures boxes (cqi):
+   an older phone keeps exactly the V25.8 sizes and wrapping (a var() rule it cannot
+   size would otherwise drop every figure to 14px). */
+@supports (width:1cqi){
+.k-fit{container-type:inline-size}
+.k-fit .k-num{white-space:nowrap;word-break:normal;font-size:min(var(--kmax,22px), calc(100cqi / (var(--kn,8) * .58)))!important}
+}
+.k-fit > div:first-child{overflow-wrap:anywhere}   /* a label word too long for its box wraps inside it */
+/* crowded rows: All Beneficiaries two a row on a phone (was four, the page scrolled
+   sideways); Advocacy's seven boxes four + three on a narrow laptop */
+@media (max-width:768px){.k-allb{grid-template-columns:1fr 1fr!important}}
+@media (min-width:769px) and (max-width:1200px){.adv-summary-strip{grid-template-columns:repeat(4,1fr)!important}}
+.stat.k-tile .k-num{--kmax:18px}
+@media (max-width:768px){.stat.k-tile .k-num{--kmax:22px}.stat.k-tile .stat-label{min-height:34px}}   /* phone: two-line labels, numbers level */
+.stat.k-tile .stat-val{color:var(--k8)!important}
+.stat.k-tile .stat-sub{color:var(--k6)}
+.k-ic{width:22px;height:22px;border-radius:7px;background:#fff;color:var(--k6);display:inline-flex;align-items:center;justify-content:center;flex:none}
+.k-ic svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .stat-label{font-size:11px;font-weight:600;color:var(--gray2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
 .stat-val{font-size:26px;font-weight:700;line-height:1.1;min-height:32px}
 /* V25.7: digits keep their width while they count (the motion is JS); the
@@ -2477,7 +2503,7 @@ body[data-shell="coord"] #_v352-install-btn {
 }
 .coord-sum-card-sub {
   font-size: 10px;
-  color: #6B7280;
+  color: #4B5563;   /* V25.9: readable on the tinted box */
   margin-top: 3px;
 }
 
@@ -4702,7 +4728,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V25.8-LIVE';
+const APP_VERSION = 'V25.9-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -26328,14 +26354,28 @@ function _searchDebounce(key, val, fn) {
 //   pct:     optional progress % (0–100) shown as a bar at the bottom
 //   active:  if true, the cell shows in its active state (for filter cells)
 // Renders as a single grid row with equal-height cards.
+// V25.9: a pale shade of a box's own colour. Callers write the old value first
+// (background:#fff / border #E5E7EB), so a browser without color-mix() keeps the
+// white box it always had.
+function _v259Tint(col, pct) { return 'color-mix(in srgb, ' + col + ' ' + pct + '%, #fff)'; }
+// V25.9: one small icon per dashboard box, keyed by its colour class
+const _V259_ICON = {
+  'k-blue': '<svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+  'k-purple': '<svg viewBox="0 0 24 24"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15M15 6v15"/></svg>',
+  'k-teal': '<svg viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-12a7 7 0 0 1 14 0c0 5.8-7 12-7 12z"/><circle cx="12" cy="9" r="2.5"/></svg>',
+  'k-green': '<svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>',
+  'k-amber': '<svg viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13M19 12v9H5v-9M7.5 8a2.5 2.5 0 0 1 0-5C11 3 12 8 12 8s1-5 4.5-5a2.5 2.5 0 0 1 0 5"/></svg>',
+  'k-navy': '<svg viewBox="0 0 24 24"><path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3l-5.6 2.9 1.1-6.2L3 9.6l6.2-.9z"/></svg>'
+};
 function summaryStrip(cells, rowClass) {
   const cols = cells.length;
   const cellsHtml = cells.map(c => {
     if (c.kind === 'readonly') {
       // Red-font summary stat (non-clickable)
-      return `<div style="background:#fff;border:1px solid var(--gray3);border-top:3px solid #991B1B;border-radius:9px;padding:12px 14px;height:100%;display:flex;flex-direction:column;justify-content:flex-start;min-height:96px">
-        <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#991B1B;margin-bottom:5px">${c.label}</div>
-        <div style="font-size:22px;font-weight:700;color:#991B1B;line-height:1.1">${c.val}</div>
+      const rc = c.col || '#991B1B', rt = c.textc || '#991B1B';   // V25.9
+      return `<div class="k-fit" style="background:#fff;background:${_v259Tint(rc, 9)};border:2px solid #E5E7EB;border-color:${_v259Tint(rc, 30)};border-radius:9px;padding:12px 14px;height:100%;display:flex;flex-direction:column;justify-content:flex-start;min-height:96px">
+        <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:${rt};margin-bottom:5px">${c.label}</div>
+        <div class="k-num" style="--kn:${String(c.val).length};--kmax:22px;font-size:22px;font-weight:700;color:${rt};line-height:1.1">${c.val}</div>
       </div>`;
     }
     // Clickable filter cell
@@ -26350,14 +26390,14 @@ function summaryStrip(cells, rowClass) {
     // Falls back to the pct bar if `sub` is absent, preserving Livelihood +
     // any other view that still uses the percentage style.
     const barHtml = c.sub != null
-      ? `<div style="font-size:11px;color:#6B7280;margin-top:auto;padding-top:6px">${c.sub}</div>`
+      ? `<div style="font-size:11px;color:#4B5563;margin-top:auto;padding-top:6px">${c.sub}</div>`
       : pctW != null
         ? `<div style="height:3px;background:#E5E7EB;border-radius:2px;margin-top:auto;overflow:hidden"><div style="height:100%;width:${pctW}%;background:${col};border-radius:2px"></div></div>
-           <div style="font-size:10px;color:#6B7280;margin-top:4px">${pctW}% ${c.pctLabel||''}</div>`
+           <div style="font-size:10px;color:#4B5563;margin-top:4px">${pctW}% ${c.pctLabel||''}</div>`
         : '';
-    return `<div onclick="${c.onclick||''}" style="background:#fff;border:2px solid ${active?col:'#E5E7EB'};border-radius:9px;padding:12px 14px;cursor:pointer;transition:.15s;height:100%;display:flex;flex-direction:column;min-height:96px" onmouseover="this.style.borderColor='${col}'" onmouseout="this.style.borderColor='${active?col:'#E5E7EB'}'">
+    return `<div onclick="${c.onclick||''}" class="k-fit" style="background:#fff;background:${_v259Tint(col, active ? 16 : 9)};border:2px solid ${active?col:'#E5E7EB'};border-color:${active?col:_v259Tint(col, 30)};border-radius:9px;padding:12px 14px;cursor:pointer;transition:.15s;height:100%;display:flex;flex-direction:column;min-height:96px" onmouseover="this.style.borderColor='${col}'" onmouseout="this.style.borderColor='${active?col:'#E5E7EB'}';this.style.borderColor='${active?col:_v259Tint(col, 30)}'">
       <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:${textc};margin-bottom:5px">${c.label}</div>
-      <div style="font-size:22px;font-weight:700;color:${textc};line-height:1.1">${c.val}</div>
+      <div class="k-num" style="--kn:${String(c.val).length};--kmax:22px;font-size:22px;font-weight:700;color:${textc};line-height:1.1">${c.val}</div>
       ${barHtml}
     </div>`;
   }).join('');
@@ -27490,20 +27530,20 @@ function renderDashboard() {
   // 6-column layout needs tighter typography so long rupee values don't wrap.
   // word-break:break-word prevents a long "₹1,23,45,000" from overflowing
   // the tile; min-width:0 is required for flex/grid children to allow shrinking.
-  const tile = (label, val, sub, colorClass, valColor) => `<div class="stat ${colorClass||'s-blue'}" style="padding:10px 12px;min-width:0">
-    <div class="stat-label" style="font-size:10px">${label}</div>
-    <div class="stat-val odometer" style="font-size:18px;font-weight:700;word-break:break-word;line-height:1.15${valColor?';color:'+valColor:''}">${val}</div>
+  const tile = (label, val, sub, colorClass, valColor) => `<div class="stat ${colorClass||'s-blue'}${_V259_ICON[colorClass] ? ' k-tile k-fit' : ''}" style="padding:10px 12px;min-width:0">
+    <div class="stat-label" style="font-size:10px">${_V259_ICON[colorClass] ? '<span class="k-ic" aria-hidden="true">' + _V259_ICON[colorClass] + '</span>' : ''}${label}</div>
+    <div class="stat-val odometer k-num" style="--kn:${String(val).length};font-size:18px;font-weight:700;word-break:break-word;line-height:1.15${valColor?';color:'+valColor:''}">${val}</div>
     ${sub?`<div class="stat-sub" style="font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${String(sub).replace(/"/g,'&quot;').replace(/<[^>]+>/g,'')}">${sub}</div>`:''}
   </div>`;
 
   document.getElementById('content').innerHTML = `
     <div class="stats stats-6" style="margin-bottom:18px">
-      ${tile('Total Beneficiaries', total, filterBadges || 'Livelihood & Advocacy', 's-blue')}
-      ${tile('States Covered', distinctStates.size, A.stateNames.length ? A.stateNames.join(', ') : '—', 's-purple')}
-      ${tile('Districts Covered', distinctDistricts.size, distinctDistricts.size===1 ? '1 district' : distinctDistricts.size+' districts', 's-amber')}
-      ${tile('Total Additional Income', totalAdded>0 ? '₹'+totalAdded.toLocaleString('en-IN') : '—', withEnd.length ? `From ${withEnd.length} endline${withEnd.length===1?'':'s'}` : 'No endlines yet', 's-green', totalAdded>0?'var(--green)':'')}
-      ${tile('Scheme Benefits', schemeBenefits>0 ? '₹'+schemeBenefits.toLocaleString('en-IN') : '—', 'Advocacy benefits received', 's-purple', schemeBenefits>0?'var(--purple)':'')}
-      ${tile('Total Impact', totalImpact>0 ? '₹'+totalImpact.toLocaleString('en-IN') : '—', 'Income + Scheme Benefits', 's-blue', totalImpact>0?'var(--navy)':'')}
+      ${tile('Total Beneficiaries', total, filterBadges || 'Livelihood & Advocacy', 'k-blue')}
+      ${tile('States Covered', distinctStates.size, A.stateNames.length ? A.stateNames.join(', ') : '—', 'k-purple')}
+      ${tile('Districts Covered', distinctDistricts.size, distinctDistricts.size===1 ? '1 district' : distinctDistricts.size+' districts', 'k-teal')}
+      ${tile('Total Additional Income', totalAdded>0 ? '₹'+totalAdded.toLocaleString('en-IN') : '—', withEnd.length ? `From ${withEnd.length} endline${withEnd.length===1?'':'s'}` : 'No endlines yet', 'k-green', totalAdded>0?'var(--green)':'')}
+      ${tile('Scheme Benefits', schemeBenefits>0 ? '₹'+schemeBenefits.toLocaleString('en-IN') : '—', 'Advocacy benefits received', 'k-amber', schemeBenefits>0?'var(--purple)':'')}
+      ${tile('Total Impact', totalImpact>0 ? '₹'+totalImpact.toLocaleString('en-IN') : '—', 'Income + Scheme Benefits', 'k-navy', totalImpact>0?'var(--navy)':'')}
     </div>
     ${_v401TodayStrip()}
     ${_v207TodayByNgo()}
@@ -28025,7 +28065,7 @@ function renderLivelihood(sub) {
   // non-clickable) on the right.
   const pctOf = n => total ? Math.round(n/total*100) : 0;
   const strip = summaryStrip([
-    {kind:'filter',   label:'All Beneficiaries',      val: total,      col:'#6B7280', textc:'#374151', active: !livStage,                             pct: 100,               pctLabel:'',           onclick:`_livSetStage('')`},
+    {kind:'filter',   label:'All Beneficiaries',      val: total,      col:'#25399D', textc:'#1B2559', active: !livStage,                             pct: 100,               pctLabel:'',           onclick:`_livSetStage('')`},
     {kind:'filter',   label:'Baseline Completed',     val: enrolled,   col:NEW_STAGE_COLORS['Enrolled'],                 textc:NEW_STAGE_TEXT['Enrolled'],                 active: livStage==='Enrolled',                 pct: pctOf(enrolled),   pctLabel:`of ${total}`, onclick:`_livSetStage('${livStage==='Enrolled'?'':'Enrolled'}')`},
     {kind:'filter',   label:'Intervention In Progress',val: inprogOnly,col:NEW_STAGE_COLORS['Intervention In Progress'], textc:NEW_STAGE_TEXT['Intervention In Progress'], active: livStage==='Intervention In Progress', pct: pctOf(inprogOnly), pctLabel:`of ${total}`, onclick:`_livSetStage('${livStage==='Intervention In Progress'?'':'Intervention In Progress'}')`},
     {kind:'filter',   label:'Endline Completed',      val: completed,  col:NEW_STAGE_COLORS['Completed'],                textc:NEW_STAGE_TEXT['Completed'],                active: livStage==='Completed',                pct: pctOf(completed),  pctLabel:`of ${total}`, onclick:`_livSetStage('${livStage==='Completed'?'':'Completed'}')`},
@@ -28294,13 +28334,13 @@ function renderAdvocacy(sub) {
   // cell replaces the old "X% of applications" line with the beneficiary
   // count subtitle (V385).
   const strip = summaryStrip([
-    {kind:'readonly', label:'Total Beneficiaries', val: totalBens},
+    {kind:'readonly', label:'Total Beneficiaries', val: totalBens, col:'#25399D', textc:'#1B2559'},
     {kind:'filter',   label:'Need to Apply',               val: needApplyCnt,   col:'#F59E0B', textc:'#B45309', active: advStageF==='Need to Apply',         sub: _benSub(needApplyBens), onclick:`advStageF='${advStageF==='Need to Apply'?'':'Need to Apply'}';advBCurrentPage=1;renderAdvocacy(advSubTab)`},
     {kind:'filter',   label:'All Applications Submitted',  val: filedTotal,     col:'#6B7280', textc:'#374151', active: advStageF==='ALL_SUBMITTED_FILTER',  sub: _benSub(submittedBens), onclick:`advStageF='${advStageF==='ALL_SUBMITTED_FILTER'?'':'ALL_SUBMITTED_FILTER'}';advBCurrentPage=1;renderAdvocacy(advSubTab)`},
     {kind:'filter',   label:'Applied but Benefits Pending',val: appliedCnt,     col:'#60A5FA', textc:'#1D4ED8', active: advStageF==='Applied',               sub: _benSub(appliedBens),   onclick:`advStageF='${advStageF==='Applied'?'':'Applied'}';advBCurrentPage=1;renderAdvocacy(advSubTab)`},
     {kind:'filter',   label:'Benefits Received',           val: benefitCnt,     col:'#10B981', textc:'#065F46', active: advStageF==='Benefits Received',     sub: _benSub(benefitBens),   onclick:`advStageF='${advStageF==='Benefits Received'?'':'Benefits Received'}';advBCurrentPage=1;renderAdvocacy(advSubTab)`},
     {kind:'filter',   label:'Applications Rejected',       val: rejectedCnt,    col:'#F87171', textc:'#991B1B', active: advStageF==='Rejected',              sub: _benSub(rejectedBens),  onclick:`advStageF='${advStageF==='Rejected'?'':'Rejected'}';advBCurrentPage=1;renderAdvocacy(advSubTab)`},
-    {kind:'readonly', label:'Benefit Amount (₹)', val: totalAmt>0 ? '₹'+totalAmt.toLocaleString('en-IN') : '—'},
+    {kind:'readonly', col:'#7C3AED', textc:'#5B21B6', label:'Benefit Amount (₹)', val: totalAmt>0 ? '₹'+totalAmt.toLocaleString('en-IN') : '—'},
   ], 'adv-summary-strip');
   const stripNote = `<div style="font-size:10px;color:var(--gray2);margin:-8px 2px 12px 2px;line-height:1.4">Total Beneficiaries and Benefit Amount are per person / ₹. The 5 middle cells count individual scheme applications — one beneficiary with multiple schemes contributes to each status they have.</div>`;
 
@@ -28566,10 +28606,10 @@ function renderIntegrated(sub) {
   const pctOf = n => total ? Math.round(n/total*100) : 0;
 
   const strip = summaryStrip([
-    {kind:'filter',   label:'All Beneficiaries',  val: total,              col:'#6B7280', textc:'#374151', active: !intSubTab,             pct: 100,                       pctLabel:'',           onclick:`renderIntegrated('')`},
+    {kind:'filter',   label:'All Beneficiaries',  val: total,              col:'#25399D', textc:'#1B2559', active: !intSubTab,             pct: 100,                       pctLabel:'',           onclick:`renderIntegrated('')`},
     {kind:'filter',   label:'Livelihood Only',    val: livOnlyBids.length, col:'#F59E0B', textc:'#B45309', active: intSubTab==='livOnly', pct: pctOf(livOnlyBids.length), pctLabel:`of ${total}`, onclick:`renderIntegrated('${intSubTab==='livOnly'?'':'livOnly'}')`},
     {kind:'filter',   label:'Dual (Both)',        val: dualBids.length,    col:'#7C3AED', textc:'var(--purple)', active: intSubTab==='dual',   pct: pctOf(dualBids.length),    pctLabel:`of ${total}`, onclick:`renderIntegrated('${intSubTab==='dual'?'':'dual'}')`},
-    {kind:'filter',   label:'Advocacy Only',      val: advOnlyBids.length, col:'#5B21B6', textc:'#5B21B6', active: intSubTab==='advOnly', pct: pctOf(advOnlyBids.length), pctLabel:`of ${total}`, onclick:`renderIntegrated('${intSubTab==='advOnly'?'':'advOnly'}')`},
+    {kind:'filter',   label:'Advocacy Only',      val: advOnlyBids.length, col:'#0D9488', textc:'#0F5F59', active: intSubTab==='advOnly', pct: pctOf(advOnlyBids.length), pctLabel:`of ${total}`, onclick:`renderIntegrated('${intSubTab==='advOnly'?'':'advOnly'}')`},
     {kind:'readonly', label:'Total Impact (₹)', val: totalImpact>0 ? '₹'+totalImpact.toLocaleString('en-IN') : '—'},
   ]);
 
@@ -28987,21 +29027,21 @@ function renderAllBeneficiaries() {
   const cardHtml = (key, label, val, col, textc) => {
     const act = allBProgFilter === key;
     const p = key === '' ? 100 : pctOf(val);
-    return `<div onclick="allBProgFilter='${act?'':key}';allBSelected=new Set();allBCurrentPage=1;renderAllBeneficiaries()" style="background:#fff;border:2px solid ${act?col:'#E5E7EB'};border-radius:9px;padding:12px 16px;cursor:pointer;transition:.15s" onmouseover="this.style.borderColor='${col}'" onmouseout="this.style.borderColor='${act?col:'#E5E7EB'}'">
+    return `<div onclick="allBProgFilter='${act?'':key}';allBSelected=new Set();allBCurrentPage=1;renderAllBeneficiaries()" class="k-fit" style="background:#fff;background:${_v259Tint(col, act ? 16 : 9)};border:2px solid ${act?col:'#E5E7EB'};border-color:${act?col:_v259Tint(col, 30)};border-radius:9px;padding:12px 16px;cursor:pointer;transition:.15s" onmouseover="this.style.borderColor='${col}'" onmouseout="this.style.borderColor='${act?col:'#E5E7EB'}';this.style.borderColor='${act?col:_v259Tint(col, 30)}'">
       <div style="font-size:10px;font-weight:600;text-transform:uppercase;color:${textc};margin-bottom:6px;letter-spacing:.04em">${label}</div>
-      <div style="font-size:28px;font-weight:700;color:${textc};line-height:1;margin-bottom:6px">${val}</div>
+      <div class="k-num" style="--kn:${String(val).length};--kmax:28px;font-size:28px;font-weight:700;color:${textc};line-height:1;margin-bottom:6px">${val}</div>
       <div style="height:4px;background:#F3F4F6;border-radius:2px;overflow:hidden;margin-bottom:4px"><div style="width:${p}%;height:100%;background:${col}"></div></div>
-      <div style="font-size:10px;color:var(--gray2)">${key===''?'100%':(p+'% of '+total)}</div>
+      <div style="font-size:10px;color:#4B5563">${key===''?'100%':(p+'% of '+total)}</div>
     </div>`;
   };
 
   document.getElementById('page-count').textContent=totalFiltered+' beneficiaries';
   document.getElementById('content').innerHTML=`
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
-      ${cardHtml('',        'All Beneficiaries', total,            '#374151', '#374151')}
+    <div class="k-allb" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
+      ${cardHtml('',        'All Beneficiaries', total,            '#25399D', '#1B2559')}
       ${cardHtml('livOnly', 'Livelihood Only',   livOnlyList.length, '#F59E0B', '#B45309')}
       ${cardHtml('dual',    'Dual (Both)',       dualList.length,    '#7C3AED', 'var(--purple)')}
-      ${cardHtml('advOnly', 'Advocacy Only',     advOnlyList.length, '#5B21B6', '#5B21B6')}
+      ${cardHtml('advOnly', 'Advocacy Only',     advOnlyList.length, '#0D9488', '#0F5F59')}
     </div>
     <div class="card"><div class="card-head">
       <div class="card-title">All Beneficiaries${allBProgFilter==='livOnly'?' · Livelihood Only':allBProgFilter==='dual'?' · Dual':allBProgFilter==='advOnly'?' · Advocacy Only':''}${allBPhotoFilter?' · With a photo':''} <span style="font-size:12px;font-weight:400;color:var(--gray2)">${list.length} records</span>${_v247SavedLine()}</div>
@@ -43462,21 +43502,21 @@ function coordRenderList() {
   const _pct = n => all.length ? Math.round(n/all.length*100) : 0;
   const _sumCard = (key, label, col, textc, val, sub) => {
     const active = coordProgFilter === key;
-    const border = active ? col : '#E5E7EB';
-    return `<div class="coord-sum-card" style="border-color:${border};${active?`box-shadow:0 0 0 1px ${col} inset;`:''}"
+    const border = active ? col : _v259Tint(col, 30);   // V25.9: pale edge; the class keeps #E5E7EB for old browsers
+    return `<div class="coord-sum-card k-fit" style="background:${_v259Tint(col, active ? 16 : 9)};border-color:${border};${active?`box-shadow:0 0 0 1px ${col} inset;`:''}"
              onclick="coordSetProgFilter('${key}')">
       <div class="coord-sum-card-label" style="color:${textc}">${label}</div>
-      <div class="coord-sum-card-val" style="color:${textc}">${val}</div>
+      <div class="coord-sum-card-val k-num" style="--kn:${String(val).length};--kmax:20px;color:${textc}">${val}</div>
       <div class="coord-sum-card-sub">${sub}</div>
     </div>`;
   };
   const stripEl = document.getElementById('coord-summary-strip');
   if (stripEl) {
     stripEl.innerHTML = [
-      _sumCard('',        'All Beneficiaries', '#6B7280', '#374151', progCounts.all,      '100%'),
+      _sumCard('',        'All Beneficiaries', '#25399D', '#1B2559', progCounts.all,      '100%'),
       _sumCard('livOnly', 'Livelihood Only',   '#F59E0B', '#B45309', progCounts.livOnly,  `${_pct(progCounts.livOnly)}% of ${all.length}`),
       _sumCard('dual',    'Dual (Both)',       '#7C3AED', '#6D28D9', progCounts.dual,     `${_pct(progCounts.dual)}% of ${all.length}`),
-      _sumCard('advOnly', 'Advocacy Only',     '#5B21B6', '#5B21B6', progCounts.advOnly,  `${_pct(progCounts.advOnly)}% of ${all.length}`),
+      _sumCard('advOnly', 'Advocacy Only',     '#0D9488', '#0F5F59', progCounts.advOnly,  `${_pct(progCounts.advOnly)}% of ${all.length}`),
     ].join('');
   }
 
