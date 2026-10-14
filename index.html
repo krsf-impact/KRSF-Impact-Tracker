@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V25.7-LIVE
+  KRSF Beneficiary Impact Tracker  -  V25.8-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,40 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V25.8-LIVE (2026-10-14 - "Other - Bus pass" in the import; three wording
+  and order fixes).
+
+    + Import: a scheme that is not on the list can be written as
+      "Other - Bus pass:Applied". It is saved as "Bus pass", exactly as
+      + Add custom scheme saves one: by name on the household, the
+      advocacy list and exports; in Reports inside the "Other schemes"
+      line, like every custom scheme. The preview says so on the row.
+      Saved under the official name: a name on the list, the same
+      letters ("Pancard"), or an old name the office merged into one.
+      A slip inside a word ("Benk Account") is refused with the official
+      name suggested; a different whole word ("CM Kisan", "Awas Yojana")
+      is accepted with a warning. One name in two spellings keeps the spelling
+      already in the records. Template updated to match.
+    + The import's audit line said imported warning rows were skipped;
+      it now counts only the duplicates really left out.
+    + Recent Updates, the Audit Log and its Excel file said "Approved"
+      for a benefit received (the stored word). They now say Benefits
+      Received, and a plain "Approved" with no benefit says Applied - old
+      lines too, as the counts already read them. The stored text is not
+      changed.
+    + The template lists the four real stages; "Approved" in an old
+      sheet still imports as Benefits Received, as before.
+    + Reports, Advocacy Pipeline: opening "Other schemes" shows the top 50
+      names and a search box that finds ANY of them, so a scheme with one
+      or two people can be found. (All 1,000+ on screen at once made the
+      office laptop's background count 10x slower - measured.) Dashboard
+      and Advocacy tab unchanged: no list, one "Other Schemes" chip.
+    + Reports: the "Recorded by office staff" rows are listed by partner
+      name, on the office screen and the donor screen alike (they were
+      the same rows in a different order). No figure changes.
+    + No extra download: 0 bytes of Firebase.
+    + Tests: 117 files. The V25.8 checks are in _specs/v258.
+
   V25.7-LIVE (2026-10-09 - the dashboard figures count up; the import shows
   its progress).
 
@@ -4668,7 +4702,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V25.7-LIVE';
+const APP_VERSION = 'V25.8-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -27602,6 +27636,26 @@ function _v257CountUp() {
 // events (create/update/delete/status/endline/reassign/advocacy), scopes to
 // beneficiaries currently visible to the user, shows the 15 most recent.
 // Each row: who did what to which beneficiary, and when (relative time).
+// V25.8: a received benefit is STORED as status "Approved" + benefitRecd "Yes",
+// and the Log Advocacy save writes its audit line from the stored word, so
+// Recent Updates and the Audit Log said "Aadhar Card: Approved (Rs 200)". Users
+// never choose a stage called Approved. Shown, not stored: the stored audit text
+// is left exactly as it is (rewriting it would add bytes to the largest node).
+// That save appends " (Rs N)" only when benefitRecd is "Yes", so - as
+// _advNormStatus counts it - "Approved (Rs N)" is Benefits Received and a bare
+// "Approved" is Applied. Only lines of that one shape are touched.
+function _v258AuditText(s) {
+  s = String(s == null ? '' : s);
+  if (s.indexOf('Approved') < 0) return s;
+  const m = /^((?:Updated|Logged) \d+ scheme rows?: )([\s\S]*)$/.exec(s);
+  if (!m) return s;
+  return m[1] + m[2].split('; ').map(function (p) {
+    if (/: Approved \(\u20B9[^)]*\)$/.test(p)) return p.replace(/: Approved( \(\u20B9[^)]*\))$/, ': Benefits Received$1');
+    if (/: Approved$/.test(p)) return p.replace(/: Approved$/, ': Applied');
+    return p;
+  }).join('; ');
+}
+
 function _renderDashboardRecentUpdates(list) {
   // V22.4: a donor's session holds no records. The card then works from the
   // small lookup that travelled with the stored summary - the same fifty-odd
@@ -27912,7 +27966,7 @@ function _renderDashboardRecentUpdates(list) {
     const beneficiaryName = (e.recordType === 'advocacy' && bid && hasId(bid))
       ? escHtml(nameOfId(bid))
       : escHtml(e.recordLabel || '');
-    const summary = escHtml(e.summary||'');
+    const summary = escHtml(_v258AuditText(e.summary||''));   // V25.8
     const displayName = (e.userId && fullNameById[e.userId]) || e.username || '—';
     const who = escHtml(displayName + (e.role==='admin'?' (Admin)':e.role==='ngo'?' (NGO)':e.role==='coordinator'?' (FC)':''));
     const ebid = bid ? escHtml(bid) : '';
@@ -29933,7 +29987,7 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs, ceilMs) {
   // V24.6: the leaderboard's office rows now include entries still at "Need to
   // Apply", because Surveyed counts them. officeRows itself is unchanged: the
   // partner table below is built from it.
-  const officeAll = Array.from(_v187OfficeByNgo.values()).filter(a => a.surveyed > 0 || a.livelihood > 0);   // V25: + livelihood
+  const officeAll = Array.from(_v187OfficeByNgo.values()).filter(a => a.surveyed > 0 || a.livelihood > 0).sort(_v258OfficeOrder);   // V25: + livelihood; V25.8: by partner
   if (benefitsFellBack) fcList.concat(officeRows)
     .forEach(a => { a.benefitsWin = a.benefits; });
 
@@ -30621,6 +30675,31 @@ function _v246Fold(maps, official) {
   }));
   return { out, other };
 }
+// V25.8: the "Other schemes" line - every name findable, at most 50 on screen
+const _v258OtherRows = {}, _v258OtherQ = {};
+function _v258OtherPick(ok) {
+  const all = _v258OtherRows[ok] || [];
+  // a search typed earlier applies only while its box is on screen (more than 50 names);
+  // with 50 or fewer every name is shown, so the line's count and its rows agree
+  const q = all.length > 50 ? String(_v258OtherQ[ok] || '').trim().toLowerCase() : '';
+  const m = q ? all.filter(function (r) { return r.k.indexOf(q) >= 0; }) : all;
+  return { html: m.slice(0, 50).map(function (r) { return r.html; }).join(''), shown: Math.min(50, m.length), matched: m.length, total: all.length, q: q };
+}
+function _v258OtherCount(p) {
+  return p.q ? (p.matched ? 'Showing ' + p.shown + ' of ' + p.matched.toLocaleString('en-IN') + ' matching' : 'No name matches')
+    : 'Showing the top ' + p.shown + ' of ' + p.total.toLocaleString('en-IN') + ' - type to find any name';
+}
+window._v258OtherFind = function (inp, okEnc) {
+  try {
+    const ok = decodeURIComponent(okEnc);
+    _v258OtherQ[ok] = inp.value;
+    const tb = inp.closest('tbody') || inp.closest('table'); if (!tb) return;
+    tb.querySelectorAll('tr[data-v258o="' + okEnc + '"]').forEach(function (tr) { tr.remove(); });
+    const p = _v258OtherPick(ok);
+    inp.closest('tr').insertAdjacentHTML('afterend', p.html);
+    const c = tb.querySelector('[data-v258c="' + okEnc + '"]'); if (c) c.textContent = _v258OtherCount(p);
+  } catch (_) {}
+};
 function _v246SchemeCard(A) {
   const esc = v => escHtml(String(v == null ? '' : v));
   // a name inside an onclick: encoded, and the apostrophe too (encodeURIComponent leaves it)
@@ -30646,10 +30725,17 @@ function _v246SchemeCard(A) {
     const o = fold.other;
     if (o.names.size) {
       const ok = key + '::other', open = !!rptSchOpen[ok];
-      h += `<tr class="${cls}" style="cursor:pointer" onclick="rptSchToggle('${enc(ok)}')" title="Names typed in by coordinators instead of picked from the scheme list"><td><span class="v246-chev">${open ? '▼' : '▶'}</span>Other schemes typed by coordinators <span class="rpt-mini">(${o.names.size.toLocaleString('en-IN')} different name${o.names.size === 1 ? '' : 's'})</span></td>${cells(o.v)}</tr>`;
-      if (open) Array.from(o.names.entries()).sort((a, b) => b[1][0] - a[1][0] || a[0].localeCompare(b[0])).slice(0, 50).forEach(([name, v]) => {
-        h += `<tr class="${cls ? 'v246-sub2' : 'v246-sub'}"><td>${esc(name)}</td>${cells(v, true)}</tr>`;
-      });
+      h += `<tr class="${cls}" style="cursor:pointer" onclick="rptSchToggle('${enc(ok)}')" title="Schemes not on the official list - typed in the form, or imported as Other - and a name. Open it and type to find any of them."><td><span class="v246-chev">${open ? '▼' : '▶'}</span>Other schemes typed by coordinators <span class="rpt-mini">(${o.names.size.toLocaleString('en-IN')} different name${o.names.size === 1 ? '' : 's'})</span></td>${cells(o.v)}</tr>`;
+      if (open) {
+        // V25.8: every name can be FOUND; at most 50 are ON SCREEN (measured: 1,000+
+        // rows here slowed the office laptop's donor job from ~11 s to ~2-3 min)
+        const sc = cls ? 'v246-sub2' : 'v246-sub';
+        _v258OtherRows[ok] = Array.from(o.names.entries()).sort((a, b) => b[1][0] - a[1][0] || a[0].localeCompare(b[0]))
+          .map(([name, v]) => ({ k: String(name).toLowerCase(), html: `<tr class="${sc}" data-v258o="${enc(ok)}"><td>${esc(name)}</td>${cells(v, true)}</tr>` }));
+        const pk = _v258OtherPick(ok);
+        if (pk.total > 50) h += `<tr class="${sc}"><td colspan="5"><input type="search" class="v258-find" placeholder="Find a scheme name… (${pk.total.toLocaleString('en-IN')} names)" value="${esc(_v258OtherQ[ok] || '')}" oninput="_v258OtherFind(this, '${enc(ok)}')" style="width:100%;max-width:340px;font:inherit;padding:4px 8px;border:1px solid var(--gray3);border-radius:6px"> <span class="rpt-mini" data-v258c="${enc(ok)}">${esc(_v258OtherCount(pk))}</span></td></tr>`;
+        h += pk.html;
+      }
     }
     return h;
   };
@@ -31227,6 +31313,18 @@ function _v256BuildWin(A, base) {
 }
 // every office bucket, including one with nothing filed (officeAll drops none
 // that has work; officeRows is the subset with something filed)
+// V25.8: the "Recorded by office staff" rows in ONE order wherever they are
+// drawn - by partner name, ignoring capitals, then character order as the tie
+// break (no locale, so every device sorts alike). They are sums, so the order
+// changes no figure; it only stops the office screen and a donor's screen
+// listing the same rows differently. (officeRows is never drawn - every reader
+// takes officeAll - so it is left as it was.)
+function _v258OfficeOrder(x, y) {
+  const a = String((x && x.u && x.u.ngo) || '\u2014'), b = String((y && y.u && y.u.ngo) || '\u2014');
+  const al = a.toLowerCase(), bl = b.toLowerCase();
+  if (al !== bl) return al < bl ? -1 : 1;
+  return a < b ? -1 : (a > b ? 1 : 0);
+}
 function _v256OfficeAll(A) {
   const seen = new Set(), out = [];
   (A.officeAll || []).concat(A.officeRows || []).forEach(a => { if (a && !seen.has(a)) { seen.add(a); out.push(a); } });
@@ -31553,7 +31651,7 @@ function _v256MakeA(packs, d) {
   // the roster's order, as _rptAggregate builds it, so equal figures sort the same way
   const order = new Map(); users.forEach((x, i) => { if (x && x.id) order.set(x.id, i); });
   const fcList = Array.from(fcAgg.values()).sort((x, y) => (order.has(x.u.id) ? order.get(x.u.id) : 1e9) - (order.has(y.u.id) ? order.get(y.u.id) : 1e9));
-  const offAll = Array.from(offBy.values());
+  const offAll = Array.from(offBy.values()).sort(_v258OfficeOrder);   // V25.8: by partner, as _rptAggregate
   if (benefitsFellBack) {
     fcList.concat(offAll).forEach(a => { a.benefitsWin = a.benefits; });
     paBy.forEach(r => { r.benefitsWin = r.benefits; });
@@ -35160,7 +35258,7 @@ function renderAdminAuditLog() {
         const displayName = (e.userId && fullNameById[e.userId]) || e.username || '(system)';
         const usernameHint = (displayName !== e.username && e.username) ? ` <span style="font-size:10px;color:var(--gray2)">(${escHtml(e.username)})</span>` : '';
         const who = escHtml(displayName) + usernameHint + (e.role ? ` <span style="font-size:10px;color:var(--gray2)">· ${escHtml(e.role)}${e.ngo?' · '+escHtml(e.ngo):''}</span>` : '');
-        const summary = escHtml(e.summary || '');
+        const summary = escHtml(_v258AuditText(e.summary || ''));   // V25.8
         const recordLabel = (e.recordLabel||e.recordId||'').replace(/</g,'&lt;');
         return `<tr>
           <td style="white-space:nowrap;font-size:11px;color:var(--gray1);font-family:monospace">${_formatAuditTs(e.ts)}</td>
@@ -35249,7 +35347,7 @@ function exportAuditLogCsv() {
     _auditRecordTypeLabel(e.recordType),
     e.recordId || '',
     e.recordLabel || '',
-    e.summary || '',
+    _v258AuditText(e.summary || ''),   // V25.8
     e.changes ? JSON.stringify(e.changes) : '',
   ]);
   const csv = [headers, ...csvRows].map(r => r.map(_csvEsc).join(',')).join('\n');
@@ -44192,7 +44290,8 @@ async function downloadImportTemplateXlsx() {
       ['',               'You do NOT need to add "Advocacy (Govt. Schemes)" — schemes alone imply advocacy.'],
       ['schemes',        'Pipe-separated scheme rows. Format: SchemeName:Status:Amount:Date'],
       ['',               'Amount is optional. Example: PM-KISAN:Benefits Received:6000|MGNREGA:Applied'],
-      ['',               'Valid statuses: Need to Apply, Applied, Approved, Rejected, Benefits Received'],
+      ['',               'Valid statuses: Need to Apply, Applied, Rejected, Benefits Received'],
+      ['',               'A scheme NOT on the list: write Other - and its name. Example: Other - Bus pass:Applied'],
       ['',               'Amount is only meaningful when status is "Benefits Received".'],
       ['',               'If schemes is non-empty, beneficiary is auto-enrolled in the Advocacy program.'],
       ['status',         'Optional dropdown: Enrolled / Intervention In Progress / Completed.'],
@@ -44526,11 +44625,195 @@ function _v252Canon(typed, list) {
   return hit || t;
 }
 
+// V25.8: "Other - Bus pass" in the schemes column. A scheme that is not on the
+// list is saved under its own name, exactly as + Add custom scheme saves one in
+// the form (a plain scheme name; no marker), so every screen, count and export
+// treats it the same way as the custom schemes already in the database.
+// Returns {} when the text is not an "Other" entry (checked as before),
+// {err} to refuse the row, or {name, note} for the name to save.
+// ⛔ an exact official name is never re-read, even one that begins "Other".
+// ⛔ a name that IS on the list ("Other - aadhar card") gets the official
+// spelling, so a scheme is never split across two names in Reports.
+// ⛔ a name that is NEARLY an official one ("Aadhaar Card", "PM Kisan") is refused
+// with the official name suggested - otherwise one scheme splits into two names.
+// ⛔ one name in two spellings keeps ONE spelling: the one already most used in
+// the records the office holds, else the first accepted in this file (seen).
+// ⛔ refused while the scheme list has not loaded (it is then the 8 built-in
+// defaults), or a name on the real list would be saved as a custom one.
+const _V258_DEFAULTS = '["PM-KISAN","MGNREGA","PM Awas Yojana (PMAY)","Ayushman Bharat","Ration Card (NFSA)","Ujjwala Yojana","Sukanya Samriddhi","Old Age Pension"]';
+// a pasted no-break space becomes a space; only invisible marks that are never
+// part of a word are dropped (the joiners Marathi and Gujarati use are kept)
+function _v258Clean(raw) {
+  return String(raw == null ? '' : raw).replace(/\u00A0/g, ' ').replace(/[\u200B\u2060\uFEFF]/g, '').trim();
+}
+// letters (with their Indian-language vowel signs) and digits only, small letters
+function _v258Key(s) { return String(s).toLowerCase().replace(/[^\p{L}\p{M}\p{N}]+/gu, ''); }
+function _v258Words(s) { return String(s).toLowerCase().split(/[^\p{L}\p{M}\p{N}]+/u).filter(Boolean); }
+// owner's rule (2026-10-13, option B): a look-alike that differs by a WHOLE word,
+// a number or a bracket ("CM Kisan" / "PM-KISAN", "Election Card 2") may be a
+// different scheme - accepted with a warning. A slip inside a word ("Benk
+// Account") is refused with the official name suggested.
+// Whole-word means: words ADDED or REMOVED with the rest unchanged ("Election Card
+// 2", "Awas Yojana"), or ONE word swapped where both are short codes or a number
+// ("CM"/"PM"). Words run together ("Pankard") or a letter off ("Election cad")
+// are slips.
+function _v258WholeWord(name, official) {
+  const a = _v258Words(name), b = _v258Words(official);
+  if (a.length !== b.length) {
+    const s = a.length < b.length ? a : b, l = a.length < b.length ? b : a;
+    let i = 0; for (let j = 0; j < l.length && i < s.length; j++) if (l[j] === s[i]) i++;
+    return i === s.length;   // every word of the shorter one is in the longer, in order
+  }
+  const diff = []; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) diff.push([a[i], b[i]]);
+  if (diff.length !== 1) return false;
+  const x = diff[0][0], y = diff[0][1];
+  return (x.length <= 3 && y.length <= 3) || /^\d+$/.test(x) || /^\d+$/.test(y);
+}
+function _v258Dist(a, b, cap) {
+  if (Math.abs(a.length - b.length) > cap) return cap + 1;
+  let prev = []; for (let j = 0; j <= b.length; j++) prev[j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i]; let lo = i;
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      if (cur[j] < lo) lo = cur[j];
+    }
+    if (lo > cap) return cap + 1;
+    prev = cur;
+  }
+  return prev[b.length];
+}
+// the official name this one is a slip of, if any: the same letters and digits,
+// or up to 1 letter different (names of 6 or fewer) / 2 different (longer)
+function _v258Near(name, list) {
+  const k = _v258Key(name);
+  if (k.length < 3) return null;
+  const lim = k.length <= 6 ? 1 : 2;
+  let best = null, bd = lim + 1;
+  list.forEach(function (x) {
+    const kx = _v258Key(x); if (!kx) return;
+    const d = (kx === k) ? 0 : _v258Dist(k, kx, lim);
+    if (d < bd) { bd = d; best = x; }
+  });
+  return bd <= lim ? best : null;
+}
+// an official name with the same words plus or minus whole words, however many
+// letters that adds ("Awas Yojana" / "PM Awas Yojana (PMAY)", "Ration Card" /
+// "Ration Card (NFSA)"): accepted, with the look-alike warning (option B). The
+// official name sharing the most words is named; the first on the list on a tie.
+function _v258WordAlike(name, list) {
+  const n = _v258Words(name).length; if (!n) return null;
+  let best = null, bw = 0;
+  list.forEach(function (x) {
+    // words added or dropped only: a swapped word ("Job card" / "PAN Card") is not a look-alike
+    const m = _v258Words(x).length; if (!m || m === n || !_v258WholeWord(name, x)) return;
+    const w = Math.min(n, m);
+    if (w > bw) { bw = w; best = x; }
+  });
+  return best;
+}
+// spellings of custom (not-on-list) names already in the records this admin holds
+function _v258FillSeen(seen, list) {
+  seen.__v258Filled = true;
+  try {
+    const on = new Set(list), tally = new Map();
+    (_loadAdvRaw() || []).forEach(function (a) { ((a && a.schemeRows) || []).forEach(function (r) {
+      // the spelling exactly as stored, so a reused name is the SAME name in Reports
+      const n = r && typeof r.scheme === 'string' ? r.scheme.trim() : '';
+      if (!n || on.has(n)) return;
+      const k = n.replace(/\s+/g, ' ').toLowerCase();
+      let m = tally.get(k); if (!m) { m = new Map(); tally.set(k, m); }
+      m.set(n, (m.get(n) || 0) + 1);
+    }); });
+    tally.forEach(function (m, k) {
+      let top = null, c = -1; m.forEach(function (v, n) { if (v > c || (v === c && n < top)) { top = n; c = v; } });
+      seen.set(k, { name: top, src: 'records' });
+    });
+  } catch (_) {}
+}
+const _V258_RESERVED = ['__proto__', 'constructor', 'prototype', 'hasOwnProperty', 'toString', 'valueOf', 'isPrototypeOf', 'propertyIsEnumerable', 'toLocaleString', '__defineGetter__', '__defineSetter__', '__lookupGetter__', '__lookupSetter__'];
+// an old name the admin merged into a scheme on the list (Admin → rename/merge),
+// following later merges of the merged name too (A → B, then B → C gives C)
+function _v258Renamed(name, list) {
+  const norm = function (x) { return String(x).replace(/\s+/g, ' ').trim().toLowerCase(); };
+  let rs = []; try { rs = (typeof _v235Renames === 'function') ? (_v235Renames() || []) : []; } catch (_) { rs = []; }
+  let k = norm(name);
+  for (let step = 0; step < 10; step++) {   // 10: a merge loop cannot spin
+    let to = null;
+    for (let i = rs.length - 1; i >= 0; i--) {   // the latest merge of this name
+      const r = rs[i];
+      if (!r || r.kind !== 'scheme' || typeof r.from !== 'string' || typeof r.to !== 'string') continue;
+      if (norm(r.from) === k) { to = r.to; break; }
+    }
+    if (to === null) return null;
+    if (list.includes(to)) return to;
+    k = norm(to);
+  }
+  return null;
+}
+function _v258OtherScheme(raw, list, seen) {
+  const t = _v258Clean(raw);
+  if (list.includes(t)) {
+    // an official name with a pasted invisible character: it IS that scheme
+    return (t === String(raw == null ? '' : raw).trim()) ? {}
+      : { name: t, note: 'Scheme "' + escHtml(t) + '" had an invisible character pasted in - saved as "' + escHtml(t) + '".' };
+  }
+  if (/^other$/i.test(t)) {
+    return { err: 'Scheme "Other" needs the scheme\'s name after it - for example Other - Bus pass:Applied' };
+  }
+  const m = /^other\s*[-\u2013\u2014]\s*([\s\S]*)$/i.exec(t);
+  if (!m) return {};
+  const name = m[1].replace(/\s+/g, ' ').trim();
+  if (!name) {
+    return { err: 'Scheme "' + escHtml(t) + '" has no name after "Other -". Write it as Other - Bus pass:Applied' };
+  }
+  if (JSON.stringify(list) === _V258_DEFAULTS) {
+    return { err: 'The scheme list has not loaded yet, so "' + escHtml(t) + '" cannot be checked against it. Wait until the app shows Synced, then upload the file again.' };
+  }
+  if (/^others?$/i.test(name) || _V258_RESERVED.indexOf(name) >= 0) {
+    return { err: 'Scheme "' + escHtml(t) + '" needs a real scheme name after "Other -" - for example Other - Bus pass' };
+  }
+  if (name.length > 80) {
+    return { err: 'Scheme "' + escHtml(name.slice(0, 40)) + '…" is longer than 80 letters. Shorten the name after "Other -".' };
+  }
+  const official = _v252Canon(name, list);
+  if (list.includes(official)) {
+    return { name: official, note: 'Scheme written as "' + escHtml(t) + '" is on the list - saved as "' + escHtml(official) + '".' };
+  }
+  const merged = _v258Renamed(name, list);
+  if (merged) {
+    return { name: merged, note: 'Scheme "' + escHtml(name) + '" was merged into "' + escHtml(merged) + '" by the office - saved as "' + escHtml(merged) + '".' };
+  }
+  const kn = _v258Key(name);
+  const same = list.find(function (x) { return _v258Key(x) === kn; });
+  if (same) {
+    return { name: same, note: 'Scheme written as "' + escHtml(t) + '" is "' + escHtml(same) + '" on the list (same letters) - saved as "' + escHtml(same) + '".' };
+  }
+  const near = _v258Near(name, list);
+  let alike = null;
+  if (near) {
+    if (!_v258WholeWord(name, near)) {
+      return { err: 'Scheme "' + escHtml(t) + '" is very close to "' + escHtml(near) + '", which is on the list. If it is that scheme, write ' +
+        escHtml(near) + ' instead. If it really is a different scheme, add it in Admin → Advocacy Management first.' };
+    }
+    alike = near;
+  }
+  if (!alike) alike = _v258WordAlike(name, list);
+  if (seen && !seen.__v258Filled) _v258FillSeen(seen, list);
+  const k = name.toLowerCase();
+  const known = seen && seen.get(k);
+  const use = known ? known.name : name;
+  return { name: use, key: k, note: 'Scheme "' + escHtml(use) + '" is not on the list - saved as a custom scheme' +
+    (use !== name ? ' (written "' + escHtml(name) + '" here; spelt as ' + (known.src === 'records' ? 'it already is in the records' : 'earlier in this file') + ')' : '') +
+    (alike ? '. ⚠ It looks like "' + escHtml(alike) + '", which IS on the list - if it is that scheme, write ' + escHtml(alike) + ' instead' : '') + '.' };
+}
+
 function _validateImportRows() {
   if (!_importState.rawRows) return;
   const partners = loadPartners().map(p => p.name);
   const livTypes = getLivTypes();
   const schemes = getSchemes();
+  const _v258Seen = new Map();   // V25.8: custom scheme names, first spelling in this file
   const allStates = (typeof ALL_STATE_NAMES !== 'undefined') ? ALL_STATE_NAMES : [];
   const existingRecords = loadData();
   // Pre-build a lookup for duplicate detection: key = "name|village|ngo"
@@ -44636,6 +44919,7 @@ function _validateImportRows() {
   const validated = _importState.rawRows.map((row, idx) => {
     const errors = [];
     const warnings = [];
+    const _v258RowKeys = [];   // V25.8: custom-name spellings first set by this row
     const get = k => (row[k] != null ? String(row[k]).trim() : '');
     const getNum = k => {
       const v = get(k);
@@ -44810,7 +45094,7 @@ function _validateImportRows() {
       const VALID_STATUSES = ['Need to Apply', 'Applied', 'Approved', 'Rejected', 'Benefits Received'];
       schemesRaw.split('|').map(s => s.trim()).filter(Boolean).forEach(entry => {
         const parts = entry.split(':').map(s => (s || '').trim());
-        const schemeName = parts[0];
+        let schemeName = parts[0];   // V25.8: let - "Other - X" becomes X below
         const status = parts[1];
         const amountRaw = parts[2];  // may be undefined
         // V21.2: an optional FOURTH part - the day this status was reached.
@@ -44827,13 +45111,19 @@ function _validateImportRows() {
           return;
         }
         if (!schemeName) return;
-        if (!schemes.includes(schemeName)) {
-          errors.push(`Unknown scheme "${schemeName}" — add via Admin → Advocacy Management first`);
+        // V25.8: "Other - Bus pass" saves a custom scheme named "Bus pass"
+        const _v258o = _v258OtherScheme(schemeName, schemes, _v258Seen);
+        if (_v258o.err) { errors.push(_v258o.err); return; }
+        if (_v258o.name) { schemeName = _v258o.name; warnings.push(_v258o.note); }
+        else if (!schemes.includes(schemeName)) {
+          const _v258n = _v258Renamed(schemeName, schemes) || _v258Near(schemeName, schemes);
+          errors.push('Unknown scheme "' + escHtml(schemeName) + '"' + (_v258n ? ' - did you mean "' + escHtml(_v258n) + '"?' : '') +
+            ' — add it via Admin → Advocacy Management first, or, if it is not on the list, write "Other - " and its name');
           return;
         }
         const st = status || 'Need to Apply';
         if (!VALID_STATUSES.includes(st)) {
-          errors.push(`Scheme "${schemeName}" has invalid status "${status}" (must be one of: ${VALID_STATUSES.join(', ')})`);
+          errors.push(`Scheme "${escHtml(schemeName)}" has invalid status "${escHtml(status)}" (must be one of: Need to Apply, Applied, Rejected, Benefits Received)`);   // V25.8: "Approved" still accepted, no longer advertised; names escaped
           return;
         }
         // Parse amount if present. Empty / missing = 0. Non-numeric = error.
@@ -44847,7 +45137,7 @@ function _validateImportRows() {
           if (_amtErr) { errors.push(_amtErr); return; }
           const n = parseFloat(amountRaw);
           if (isNaN(n) || n < 0) {
-            errors.push(`Scheme "${schemeName}" has invalid benefit amount "${amountRaw}" (must be a non-negative number)`);
+            errors.push(`Scheme "${escHtml(schemeName)}" has invalid benefit amount "${escHtml(amountRaw)}" (must be a non-negative number)`);
             return;
           }
           amount = n;
@@ -44906,7 +45196,13 @@ function _validateImportRows() {
         if (_impDate) _v212Row._impDate = _impDate;
         if (_impNoDate) _v212Row._impNoDate = true;
         schemeRows.push(_v212Row);
+        // V25.8: only an entry that passed every check fixes the spelling for later rows
+        if (_v258o.key && !_v258Seen.has(_v258o.key)) { _v258Seen.set(_v258o.key, { name: _v258o.name, src: 'file' }); _v258RowKeys.push(_v258o.key); }
       });
+      // V25.8: the same scheme twice on one row counts once (one row per household
+      // and scheme) - say so on the row rather than let the second vanish quietly
+      schemeRows.map(r => r.scheme).filter((n, i, a) => a.indexOf(n) !== i).filter((n, i, a) => a.indexOf(n) === i)
+        .forEach(n => warnings.push('Scheme "' + escHtml(n) + '" is written more than once on this row - only one of them will count.'));
     }
 
     // V16.0.7: Auto-derive advocacy program membership from schemes column.
@@ -45141,6 +45437,8 @@ function _validateImportRows() {
       }
     }
 
+    // V25.8: a row refused for any reason does not fix a spelling for later rows
+    if (errors.length > 0) _v258RowKeys.forEach(k => _v258Seen.delete(k));
     const status = errors.length > 0 ? 'error' : (warnings.length > 0 ? 'warning' : 'ok');
     // V4.2: parsed object only contains V4.1 schema fields. Removed primaryLivelihood,
     // livestock object, inc1/2/3, aadhaar, ration, bank, pmjay, mgnrega, pmkisan,
@@ -45534,7 +45832,7 @@ async function confirmBulkImport() {
     : '';
   auditLog('bulk_import', 'beneficiary', batchId,
     `${importedIds.length} records`,
-    `Imported ${importedIds.length} beneficiaries from ${_importState.fileName}. Partners: ${partnerSummary}.${fmSuffix} Skipped: ${errorCount} errors, ${warningCount - (warningCount && _importState.dupeDecision === 'import' ? 0 : importable.filter(v=>v.dupeOf || v.mobileDupeOf).length)} warnings.`,
+    `Imported ${importedIds.length} beneficiaries from ${_importState.fileName}. Partners: ${partnerSummary}.${fmSuffix} Skipped: ${errorCount} errors, ${(_v258Imp => _importState.validated.filter(v => v.status !== 'error' && !_v258Imp.has(v)).length)(new Set(importable))} duplicates.`,
     null);
 
   const fmToast = familyMemberCount > 0
@@ -47904,7 +48202,7 @@ function renderAdminImport() {
         <div style="background:var(--gray4);border:1px solid var(--gray3);border-radius:10px;padding:14px;font-size:12px;color:var(--gray2);line-height:1.6">
           <strong style="color:var(--gray1)">Rules the importer enforces:</strong><br>
           • <strong>NGO partners and coordinators must already exist</strong> in Admin Panel before import. Add missing ones first.<br>
-          • <strong>Livelihood types and schemes</strong> must match the lists in Admin → Livelihood Management / Advocacy Management.<br>
+          • <strong>Livelihood types and schemes</strong> must match the lists in Admin → Livelihood Management / Advocacy Management. A scheme that is not on the list can be written as <code>Other - Bus pass</code>; it is saved as a custom scheme named "Bus pass".<br>
           • <strong>Columns with *</strong> are required — except <strong>baseIncome*</strong> and <strong>hhSize*</strong>, which may be left empty when the household survey has not been done. Missing any other required value blocks that row.<br>
           • <strong>Numbers must be plain.</strong> No rupee sign, no comma, no spaces — write 30000, not 30,000. A comma is refused rather than silently read as 30.<br>
           • <strong>Duplicate detection</strong> matches on <code>name + village + NGO</code>. You'll choose per batch whether to skip or import duplicates.<br>
@@ -48158,8 +48456,8 @@ function _renderImportRowDetail(idx) {
           : `<div style="color:var(--gray2)">Baseline income</div><div>${p.baseIncome ? '₹' + p.baseIncome.toLocaleString('en-IN') : '—'}</div>
              <div style="color:var(--gray2)">Household size</div><div>${p.hhSize || '—'}</div>`}
         <div style="color:var(--gray2)">Interventions</div><div>${(p.interventions || []).join(', ') || '—'}</div>
-        ${p.schemeRows && p.schemeRows.length > 0 ? `<div style="color:var(--gray2)">Schemes</div><div>${p.schemeRows.map(s => s.scheme + (s.remarks ? ' [' + s.remarks + ']' : '') + ' (' + s.status + ')').join(', ')}</div>` : ''}
-        <div style="color:var(--gray2)">Coordinator</div><div>${p.coord || '—'}</div>
+        ${p.schemeRows && p.schemeRows.length > 0 ? `<div style="color:var(--gray2)">Schemes</div><div>${p.schemeRows.map(s => escHtml(s.scheme + (s.remarks ? ' [' + s.remarks + ']' : '') + ' (' + s.status + ')')).join(', ')}</div>` : ''}
+        <div style="color:var(--gray2)">Coordinator</div><div>${escHtml(p.coord || '—')}</div>
       </div>
     </div>
   `;
