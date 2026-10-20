@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V25.9-LIVE
+  KRSF Beneficiary Impact Tracker  -  V26.0-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,57 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V26.0-LIVE (2026-10-19 - the same advocacy numbers everywhere; Reports for
+  team leaders).
+
+    + REPORTS LOOK. Each Advocacy box shows the people behind its entries
+      beside the figure - "76 | 64 ben" = 76 applications by 64
+      beneficiaries - and on its All-time line, each household once. Donor
+      logins (Reports from stored figures) show the entries only. The
+      Advocacy group is sky blue with an edge; up to 1,600 px wide the two
+      groups stand one above the other, and a figure and its "| N ben"
+      never break or spill. "dated from <day>" shows only when the window
+      starts before benefits were first dated.
+    + "Schemes received" reads "Benefits received" - boxes, leaderboard,
+      Partners table and the Excel files.
+    + ONE RULE FOR AN ADVOCACY BENEFICIARY, ON EVERY SCREEN (owner): a
+      household on file with at least one scheme entry that counts (the
+      latest copy of each scheme, not deleted). Ticked Advocacy with no
+      scheme entered does not count. Entries are those scheme rows; Rs
+      received = every entry at Benefits Received, at its typed amount or
+      the scheme's standard value. Five screens used to count people five
+      ways. On the 8 Oct data, before -> after:
+        Advocacy Total box; Dashboard Advocacy filter   1,54,388 -> 1,54,371
+        NGO Partners / Team Report people               1,54,458 -> 1,54,371
+          entries 2,65,112 -> 2,65,120; Rs 1,09,11,58,836 -> 1,09,13,08,936
+        Dashboard "Beneficiaries by Intervention" bar   1,54,458 -> 1,54,371
+        Integrated, All Beneficiaries, coordinator list:
+          Advocacy Only                                 1,54,025 -> 1,53,932
+        Field Map "Advocacy" filter and village counts: the same rule.
+      The 93 households ticked Advocacy with no scheme are in no programme
+      box now, so the three boxes add up to 93 less than "All", and their
+      Program column reads "-". No livelihood figure moves.
+    + The stored figures donors and viewers read follow the same rule and
+      the HOUSEHOLD's partner, not the scheme record's own copy: KRSF.Idar
+      18,869 -> 19,497 people, Rs 26.29 Cr -> 27.18 Cr, as on its screens.
+      Both summary writers changed together; same fields, same size.
+    + The Advocacy Excel: the Benefit Amount column holds received entries
+      only, standard value included, so it adds up to the Benefit Amount
+      box; an amount typed on an entry not yet received moves to a new last
+      column. The household profile shows that same amount (it showed Rs 0
+      when none was typed), and the Map's intervention list counts Advocacy
+      by the one rule. Alerts "stuck at Need
+      to Apply" counts the latest copy of each scheme (1,18,609 -> 1,18,593
+      people). Coordinator badges count their own households only. A hidden
+      fault is gone: two lists of the same length could be handed each
+      other's scheme rows (no effect on the 8 Oct data).
+    + REPORTS FOR TEAM LEADERS - their own team only, counted on the phone
+      from the records it already holds. Sidebar entry, plus an "Open
+      Reports" button on Team Report on a phone. No Partners tab; it says
+      "Loading" until every record of the team is in.
+    + Firebase: 0 new reads or writes for any login.
+    + Tests: 117 files. The V26.0 checks are in _specs/v260.
+
   V25.9-LIVE (2026-10-14 - the figure boxes in colour).
 
     + Every figure box is filled with its own pale colour, with a darker
@@ -624,61 +675,6 @@
       drops null children, so a payload that fails to build disappears without
       an error anywhere a human would look" - written down the night before and
       walked into the next morning.
-
-  V22.7-LIVE (2026-09-21 - the saved copy nobody ever read).
-
-    + ⛔ A DONOR OR PARTNER LOGIN PAID FOR THEIR WHOLE PARTNER EVERY SINGLE
-      TIME THEY OPENED A LIST. The records are kept on the machine for thirty
-      days so the next visit is nearly free - but since V22.4 the on-demand
-      fetch asked for them with force:true, which is the flag that says SKIP
-      that copy and go to Firebase. It was written, kept, and never once read.
-      Measured on live: the same partner login, same browser, six minutes
-      apart - 10.94 MB, then 10.54 MB. From V22.7 the second visit asks for
-      nothing at all.
-
-    + ⛔ AND THE FLAG WAS HIDING A SECOND FAULT, so removing it alone would
-      have shipped one. The saved copy records its AGE but never whose records
-      it holds. A donor’s partners can be changed by an admin; with every
-      visit refetching that never mattered. Read instead, a donor who gained
-      or lost a partner would have gone on seeing the old set for a month -
-      exactly the trap V22.3 hit with team leaders. The scope is now stored
-      beside the copy, modelled line for line on the marker that already
-      proved itself there, including the rule that cost V22.3 a mutant: the
-      marker moves only once the records are genuinely in hand, never at the
-      moment the change is noticed.
-
-    + ⛔ WHY NO TEST CAUGHT IT, WHICH MATTERS MORE THAN THE FIX. Every session
-      in the suite deletes the saved copy as it boots, so that each test
-      begins from a known cold start. The consequence is that nothing in the
-      file could ever exercise that copy, and a flag that skipped it was
-      invisible for three releases. The harness can now be told to keep what
-      is on the machine, and a second visit is checked for what it costs.
-      Same shape as the fake database that accepted keys Firebase refuses.
-
-    + ⛔ A FAILED COUNTER WRITE THREW AWAY THE NUMBERS IT WAS CARRYING (the
-      V22.6 work, never uploaded). The usage counter marked a session as
-      recorded BEFORE writing it, so a write that failed burned that session
-      for good - never counted, while every later write went on adding its
-      bytes. One row on 20 September read 53.77 MB across 0 sessions, which is
-      how it was noticed. The four saved-copy counters were worse: they are
-      zeroed as they are read, so a failed write discarded the hits and misses
-      the Bandwidth screen exists to report. V22.5 made this MORE likely, not
-      less - the write added a minute after sign-in can fire before that
-      session has settled. Everything is now consumed only once the write has
-      landed.
-
-    + The deprecated apple-mobile-web-app-capable console warning. The modern
-      tag is added ⛔ alongside it, not instead: older iOS Safari reads only
-      the apple- form, and dropping it would stop the app opening full-screen
-      for anyone who already installed it.
-
-    + Tests: 78 files, 2,407 checks, and the suites run against the real 21
-      September export as well as the sample. 33 mutants, 32 caught. ⛔ The
-      one survivor is a partner’s own name in the filter bar: the guard is
-      present and correct - three partner logins signed in for 33, 48 and 17
-      KB on live to prove it - but this round’s changes blinded the check that
-      used to catch it. Coverage, not behaviour, and it is recorded here
-      rather than quietly rounded up to 33 of 33.
 
   ============================================================================
   Everything before this point lives in CHANGELOG.md, beside this file.
@@ -1764,6 +1760,13 @@ body[data-role="scopedViewerByFc"] #topbar-refresh-btn[data-admin-only] { displa
 /* V25.6: donors get the Reports entry (stored figures only - see _v256DonorA) */
 body[data-role="scopedViewer"] .nav-btn[data-donor-ok][data-admin-only],
 body[data-role="scopedViewer"] .mob-sheet-btn[data-donor-ok][data-admin-only] { display: flex !important; }
+/* V26.0: team leaders get the Reports entry too - their own team, counted on the
+   device from records it already holds (see _rptScopedUsers). Sidebar only: no
+   non-admin role has the mobile More sheet. */
+body[data-role="scopedViewerByFc"] .nav-btn[data-tl-ok][data-admin-only] { display: flex !important; }
+/* V26.0: on a phone the sidebar entry is out of reach - Team Report carries a button instead */
+.v260-tl-rpt { display: none; justify-content: flex-end; margin: 0 0 10px; }
+@media (max-width: 768px) { .v260-tl-rpt { display: flex; } }
 #topbar-refresh-left{vertical-align:middle;font-weight:500;margin-left:4px}
 #topbar-refresh-left:empty{display:none}
 #topbar-refresh-btn.v247-off{background:#F3F4F6 !important;color:#6B7280 !important;border-color:#E5E7EB !important;cursor:not-allowed !important}
@@ -3194,13 +3197,36 @@ body[data-shell="coord"] .coord-card {
    over the table, so the six columns read as two sets of three. */
 .v246-kgroups{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
 .v246-kg{border-radius:16px;padding:10px;display:flex;flex-direction:column;gap:8px;min-width:0}
-.v246-kg.adv{background:#EEF1FB} .v246-kg.liv{background:#ECF8F1}
+.v246-kg.adv{background:#E1F0FB;border:1.5px solid #B5D4F4} .v246-kg.liv{background:#ECF8F1;border:1.5px solid transparent}   /* V26.0 */
 .v246-kg-lab{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;padding:2px 6px 0}
-.v246-kg.adv .v246-kg-lab{color:var(--navy2)} .v246-kg.liv .v246-kg-lab{color:var(--green)}
+.v246-kg.adv .v246-kg-lab{color:#185FA5} .v246-kg.liv .v246-kg-lab{color:var(--green)}
 .v246-kg-lab span{font-weight:500;letter-spacing:0;text-transform:none;color:var(--ink2)}
 .v246-kcards{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .v246-kcards .rpt-kpi{padding:12px 14px;min-width:0}
 .v246-kcards .rpt-kpi-val{font-size:22px}
+/* V26.0: "58 | 36 ben" - the people behind the entries, beside the figure and on the
+   All-time line. Neither part ever breaks or spills: where the browser measures boxes
+   (cqi) both are drawn smaller in a narrow box, but never below a readable size
+   (figure 15px, "ben" 10px; All-time 10px); only if even that does not fit - the
+   narrowest boxes - "| N ben" sits just under the figure. --nv / --nb are each part's
+   width per px of type, so the line is sized for the figure's real size (22, or 18 on
+   a phone). Elsewhere the V25.9 sizes, wrapping the same way. */
+.v26-vrow{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:6px;margin-top:6px;min-width:0}
+.v26-vrow .rpt-kpi-val{margin-top:0;white-space:nowrap}
+.v26-ben{font-size:12px;font-weight:600;color:#185FA5;white-space:nowrap;font-variant-numeric:tabular-nums}
+.v26-sep{color:#85B7EB;font-weight:400}
+.v26-arow{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:5px;margin-top:6px;padding-top:6px;border-top:1px dashed var(--rbd);min-width:0}
+.v26-arow .rpt-kpi-all{margin:0;padding:0;border:0;white-space:nowrap}
+.v26-arow .v26-ben{font-size:11.5px}
+@supports (width:1cqi){
+.v26-vrow,.v26-arow{container-type:inline-size}
+.v26-vrow .rpt-kpi-val{font-size:clamp(15px, calc(100cqi * var(--v26v,22) / (var(--nv,5) * var(--v26v,22) + var(--nb,8) * 12 + 8)), calc(var(--v26v,22) * 1px))!important}
+.v26-vrow .v26-ben{font-size:clamp(10px, calc(100cqi * 12 / (var(--nv,5) * var(--v26v,22) + var(--nb,8) * 12 + 8)), 12px)}
+.v26-arow .rpt-kpi-all,.v26-arow .v26-ben{font-size:clamp(10px, calc(100cqi * 11.5 / ((var(--nv,10) + var(--nb,8)) * 11.5 + 8)), 11.5px)}
+}
+@media(max-width:480px){ .v26-vrow{--v26v:18} }
+/* the smallest phones: "INTERVENTION" ran 5px out of its box (V25.9 too) */
+@media(max-width:400px){ .v246-kcards .rpt-kpi-lab{letter-spacing:.01em;gap:4px} }
 .rpt-tbl tr.v246-grp th{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:8px 12px 4px;text-align:center;border-bottom:0;cursor:default}
 .rpt-tbl tr.v246-grp th.adv{color:var(--navy2);box-shadow:inset 0 -2px 0 var(--navy2)}
 .rpt-tbl tr.v246-grp th.liv{color:var(--green);box-shadow:inset 0 -2px 0 var(--green)}
@@ -3218,7 +3244,7 @@ body[data-shell="coord"] .coord-card {
 .rpt-kpis.v25-k3{grid-template-columns:repeat(3,1fr)}
 @media(max-width:760px){ .rpt-kpis.v25-k3{grid-template-columns:1fr} }
 .v25-pct{font-size:11px;color:var(--ink3);margin-left:6px;font-weight:500}
-@media(max-width:900px){ .v246-kgroups{grid-template-columns:1fr} }
+@media(max-width:1600px){ .v246-kgroups{grid-template-columns:1fr} }   /* V26.0: was 900 - side by side, a laptop left each box 85-140px ("INTERVENTION" was cut off) */
 @media(max-width:480px){ .v246-kcards{gap:6px} .v246-kcards .rpt-kpi{padding:10px} .v246-kcards .rpt-kpi-val{font-size:18px} .v246-kcards .rpt-kpi-lab{font-size:9.5px} }
 
 @media (prefers-reduced-motion: reduce){
@@ -3521,7 +3547,7 @@ body[data-shell="coord"] .coord-card {
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
       Dashboard
     </button>
-    <button data-admin-only data-ngo-ok data-donor-ok class="nav-btn" data-v="reports" onclick="nav('reports')" style="display:none">
+    <button data-admin-only data-ngo-ok data-donor-ok data-tl-ok class="nav-btn" data-v="reports" onclick="nav('reports')" style="display:none">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="3" y1="13" x2="3" y2="7"/><line x1="8" y1="13" x2="8" y2="3"/><line x1="13" y1="13" x2="13" y2="9"/><line x1="1" y1="15" x2="15" y2="15"/></svg>
       Reports
     </button>
@@ -4728,7 +4754,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V25.9-LIVE';
+const APP_VERSION = 'V26.0-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -22516,17 +22542,19 @@ function _computeNgoStats(partnerName, benefSet, advAll) {
   // schemes are still at "Need to Apply". This matches every other surface
   // in the app (Advocacy tab, dashboard tile, beneficiary lists), so the
   // count of advocacy beneficiaries is consistent everywhere.
-  const advTagged = benefs.filter(b => (b.interventions || []).includes(ADV_SENTINEL));
-  const advTaggedIds = new Set(advTagged.map(b => b.id));
-  const advRecords = advAll.filter(a => advTaggedIds.has(a.bid));
-  const advBenefs = advTagged;
+  // V26.0: ONE RULE (owner, 2026-10-19) - no longer the tag. A person is a household of
+  // this partner with at least one counted entry, and the entries are every one of its
+  // households' latest rows, tagged or not (8 Oct: 93 tagged households had no entry,
+  // 6 households with entries had no tag). Also drops a walk of every record per partner.
+  const _v260Ids = new Set(benefs.map(b => b.id));
   // V18.7: ONE row set. This walked the raw records, so a scheme row that
   // appears twice in the same person's list — the later entry superseding the
   // earlier — was counted twice here, while the dashboard and the Advocacy tab
   // counted it once. Measured on the 21 Aug export: 19,883 rows this way
   // against 19,858 the other. Indexed by beneficiary rather than filtered, or
   // this scans every row once per partner and once per coordinator.
-  const allRows = _v187RowsForBids(advAll, new Set(advRecords.map(a => a.bid)));
+  const allRows = _v187RowsForBids(advAll, _v260Ids);   // V26.0: every household of the partner
+  const advBenefs = Array.from(new Set(allRows.map(r => r.__bid)));   // V26.0: the people behind those rows
   // V371: use _advNormStatus(r) instead of raw r.status so the Team Report's
   // status buckets match the Advocacy KPI page exactly. The normaliser treats
   // benefitRecd='Yes' as "Benefits Received" regardless of the raw status
@@ -22612,17 +22640,17 @@ function _computeFcStats(fcUserId, fcDisplayName, benefSet, advAll) {
   // ── ADVOCACY block ──
   // Same rule as NGO stats: count all advocacy-tagged beneficiaries; pipeline
   // % is computed over all their scheme rows including Need to Apply.
-  const advTagged = benefs.filter(b => (b.interventions || []).includes(ADV_SENTINEL));
-  const advTaggedIds = new Set(advTagged.map(b => b.id));
-  const advRecords = advAll.filter(a => advTaggedIds.has(a.bid));
-  const advBenefs = advTagged;
+  // V26.0: ONE RULE - as _computeNgoStats: households of this coordinator with at least
+  // one counted entry, and all of their latest rows; the tag no longer decides.
+  const _v260Ids = new Set(benefs.map(b => b.id));
   // V18.7: ONE row set. This walked the raw records, so a scheme row that
   // appears twice in the same person's list — the later entry superseding the
   // earlier — was counted twice here, while the dashboard and the Advocacy tab
   // counted it once. Measured on the 21 Aug export: 19,883 rows this way
   // against 19,858 the other. Indexed by beneficiary rather than filtered, or
   // this scans every row once per partner and once per coordinator.
-  const allRows = _v187RowsForBids(advAll, new Set(advRecords.map(a => a.bid)));
+  const allRows = _v187RowsForBids(advAll, _v260Ids);   // V26.0: every household of the coordinator
+  const advBenefs = Array.from(new Set(allRows.map(r => r.__bid)));   // V26.0: the people behind those rows
   // V371: use _advNormStatus(r) — same fix as _computeNgoStats above.
   const needRows     = allRows.filter(r => _advNormStatus(r) === 'Need to Apply');
   const appliedRows  = allRows.filter(r => _advNormStatus(r) === 'Applied');
@@ -22796,12 +22824,12 @@ function renderNGO() {
   // Portfolio advocacy totals: count all advocacy-tagged beneficiaries and all
   // their scheme rows. Matches the per-partner rule and the rest of the app —
   // Need to Apply is a pipeline stage, not an exclusion.
-  const advTaggedAll = data.filter(b => (b.interventions || []).includes(ADV_SENTINEL));
-  const advTaggedAllIds = new Set(advTaggedAll.map(b => b.id));
-  const advAllBenefs = advTaggedAll;
-  const portAdvBids = advTaggedAllIds;
+  // V26.0: ONE RULE - every household in view, and the people are those with at least one
+  // counted entry (was: tagged households only), so the totals row adds up from the rows above.
+  const portAdvBids = new Set(data.map(b => b.id));
   // V18.7: see the note in _computeNgoStats — same rule, same reason.
   const portAdvRows = _v187RowsForBids(advAll, portAdvBids);
+  const advAllBenefs = Array.from(new Set(portAdvRows.map(r => r.__bid)));   // V26.0
   // V371: portfolio total — same _advNormStatus(r) fix.
   const portNeed     = portAdvRows.filter(r => _advNormStatus(r) === 'Need to Apply').length;
   const portApplied  = portAdvRows.filter(r => _advNormStatus(r) === 'Applied').length;
@@ -22904,6 +22932,7 @@ function renderNGO() {
   }).join('');
 
   document.getElementById('content').innerHTML = `
+    ${(_isTL && _rptCanView(u)) ? `<div class="v260-tl-rpt"><button type="button" class="btn btn-primary btn-sm" onclick="nav('reports')">Open Reports</button></div>` : ''}
     <div class="card">
       <div class="card-head">
         <div class="card-title">${_isFcMode ? `Field Coordinator Performance — ${u.ngo}` : 'NGO Partner Performance'}${filtLabel}${_v247SavedLine()}</div>
@@ -22962,7 +22991,7 @@ function renderNGO() {
         <b style="color:var(--gray)">Notes.</b>
         Beneficiaries in both programs are counted in both columns (dual-program).
         <b>Livelihood pipeline</b> is % of livelihood beneficiaries at each stage.
-        <b>Advocacy</b> counts all beneficiaries with the Advocacy intervention; its pipeline % is over all their scheme rows (including "Need to Apply").
+        <b>Advocacy</b> counts the beneficiaries with at least one scheme entered (V26.0: the same rule on every screen); its pipeline % is over all their scheme rows (including "Need to Apply").
         <b>Avg gain</b> = total additional income ÷ completed livelihood beneficiaries.
         <b>Avg per application</b> = total benefits realised ÷ scheme rows marked "Benefits Received".
       </div>
@@ -23016,6 +23045,27 @@ function _getAlertsInner() {
   // Pre-compute advocacy scheme rows per beneficiary for rules that need them
   const advByBid = {};
   advAll.forEach(a => { (advByBid[a.bid] = advByBid[a.bid] || []).push(a); });
+  // V26.0: each household's COUNTED rows (latest copy per scheme+remarks, deleted dropped) -
+  // exactly _advLatestRowsAll narrowed to the household. Every copy of a household's entries
+  // sits in its own records (advByBid, in advAll order), and the whole-database sort is stable
+  // by createdAt, so the same copy wins. The whole-cache grouping is reused when it is current;
+  // otherwise each household is worked out from its own records. (Asking for the whole-cache
+  // grouping here forced a full rebuild mid-save: the bulk status update ran +1 s - speed chain.)
+  // Only the rows' status is read below.
+  const _v260Full = (_v202FullByBidCache && _v202FullRowsCache && _v202FullByBidSrc === _v202FullRowsCache
+      && _v202FullRowsCacheLen === RecordCache.adv.size) ? _v202FullByBidCache : null;
+  const _v260Cmp = (x, y) => (x.createdAt || '') < (y.createdAt || '') ? -1 : (x.createdAt || '') > (y.createdAt || '') ? 1 : 0;   // as _advLatestRowsAll
+  const _v260AlertRows = { get: function (bid) {
+    if (_v260Full) return _v260Full.get(bid);
+    const recs = advByBid[bid];
+    if (!recs || !recs.length) return undefined;
+    const m = new Map();
+    for (const a of (recs.length > 1 ? recs.slice().sort(_v260Cmp) : recs))
+      if (a && a.bid) for (const r of (a.schemeRows || [])) { if (r && r.scheme) m.set(r.scheme + '::' + (r.remarks || ''), r); }   // the later copy wins; no bid, no person (V19.9, review F)
+    const out = [];
+    m.forEach(r => { if (!r._deleted) out.push(r); });
+    return out.length ? out : undefined;
+  } };
 
   const daysSince = isoDate => {
     if (!isoDate) return null;
@@ -23136,13 +23186,16 @@ function _getAlertsInner() {
     // Schemes already at Applied, Rejected, or Benefits Received do not
     // trigger the alert at all. Only "stuck-at-Need-to-Apply" is flagged.
     const advTagged = (b.interventions || []).includes('Advocacy (Govt. Schemes)');
-    if (advTagged) {
+    // V26.0: ONE RULE - the entries are the counted rows (latest copy per scheme), so a
+    // superseded copy is no longer counted as stuck, and a household with entries counts
+    // whether or not it carries the tag. Case (a) is still about the tag itself.
+    const _v260Rows = _v260AlertRows.get(b.id) || [];
+    if (advTagged || _v260Rows.length) {
       const STALE_DAYS = 60;
       const advRecs = advByBid[b.id] || [];
-      const liveRows = advRecs.flatMap(r => (r.schemeRows || []).filter(sr => !sr._deleted));
-      const needToApplyRows = liveRows.filter(sr => sr.status === 'Need to Apply');
+      const needToApplyRows = _v260Rows.filter(sr => _advNormStatus(sr) === 'Need to Apply');
 
-      if (advRecs.length === 0) {
+      if (advTagged && advRecs.length === 0) {
         // Case (a): no advocacy record at all.
         const d = daysSince(b.enrollDate);
         if (d !== null && d > STALE_DAYS) {
@@ -23461,8 +23514,24 @@ const _V15_ADVOCACY = 'Advocacy (Govt. Schemes)';
 function _v15HasLiv(b) {
   return (b.interventions || []).some(function (i) { return i !== _V15_ADVOCACY; });
 }
+// V26.0: ONE RULE (owner, 2026-10-19: "Same rule") - on the map a household is in Advocacy
+// when it has at least one counted entry, as on every other screen; the tag no longer
+// decides. The test is _v260HasRows over the counted rows of the records already held,
+// fetched again at the start of every draw (refreshMapMarkers), only when a filter needs it,
+// and itself remembered while the rows do not change. Nothing fetched from Firebase.
+let _v260MapAdv = null;
+function _v260MapAdvSet() {
+  try {
+    // the memoised whole-cache rows when they are current - the same test _advLatestRowsAll
+    // makes, without first copying every record into a new array
+    const rows = (_v202FullRowsCache && _v202FullRowsCacheLen === RecordCache.adv.size)
+      ? _v202FullRowsCache : _advLatestRowsAll(getAdvocacyBids());   // the in-view records, through an approved reader (_tests/advread.js)
+    return _v260HasRows(rows);
+  } catch (_) { return null; }
+}
 function _v15HasAdv(b) {
-  return (b.interventions || []).indexOf(_V15_ADVOCACY) !== -1;
+  const s = _v260MapAdv || (_v260MapAdv = _v260MapAdvSet());
+  return s ? s(b) : (b.interventions || []).indexOf(_V15_ADVOCACY) !== -1;
 }
 function _v15MatchProgramme(b) {
   if (_v15Programme === 'liv')  return _v15HasLiv(b);
@@ -24040,10 +24109,11 @@ function refreshMapMarkers() {
   const intervF = document.getElementById('map-interv-f') ? document.getElementById('map-interv-f').value : '';
   // filteredAll() so the map respects the topbar state/NGO/FC filters, same
   // as every other view.
+  _v260MapAdv = null;   // V26.0: read afresh for this draw on first use (filter and bubble counts alike)
   let list = filteredAll().filter(_v15MatchProgramme);
   if (mapFilterStatus) list = list.filter(function (b) { return _v174Stage(b) === mapFilterStatus; });
   if (mapFilterNgo)    list = list.filter(function (b) { return b.ngo === mapFilterNgo; });
-  if (intervF)         list = list.filter(function (b) { return (b.interventions || []).indexOf(intervF) !== -1; });
+  if (intervF)         list = list.filter(function (b) { return intervF === _V15_ADVOCACY ? _v15HasAdv(b) : (b.interventions || []).indexOf(intervF) !== -1; });   // V26.0: Advocacy = a counted entry, as the programme buttons
   // V16.5: "GPS-located only" must mean a fix we are willing to stand behind,
   // otherwise the strictest filter on the map would be the one showing the
   // least trustworthy pins.
@@ -24903,13 +24973,24 @@ let _advLatestRowsCacheLen = -1;
 // size; a subset that long holds every record and is the same set.
 let _v202FullRowsCache = null;
 let _v202FullRowsCacheLen = -1;
+// V26.0: the partial-list slot below remembered its answer by LENGTH only, so two
+// different lists of the same size (the donor job passes one list per partner) got
+// the first one's rows. Now it is keyed on what is IN the list: the same records, in
+// the same order. A pointer compare per record - far cheaper than the rebuild it saves.
+// Every invalidation still works: they all set _advLatestRowsCache = null.
+let _v260RowsSrc = null;
+function _v260SameList(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
 function _advLatestRowsAll(allAdv) {
   const src = allAdv || loadAdv();
   const isFull = !!(allAdv && typeof RecordCache === 'object' && RecordCache.adv && src.length === RecordCache.adv.size);
   // Cache hit: same array length means same data (advocacy rarely changes mid-session)
   if (isFull) {
     if (_v202FullRowsCache && src.length === _v202FullRowsCacheLen) return _v202FullRowsCache;
-  } else if (_advLatestRowsCache && src.length === _advLatestRowsCacheLen && allAdv) {
+  } else if (_advLatestRowsCache && allAdv && src.length === _advLatestRowsCacheLen && _v260SameList(src, _v260RowsSrc)) {   // V26.0: same records, not just as many
     return _advLatestRowsCache;
   }
   const recs = src.slice();
@@ -24977,7 +25058,7 @@ function _advLatestRowsAll(allAdv) {
   const result = Object.values(byKey).filter(r => !r._deleted);
   // Store in cache
   if (isFull) { _v202FullRowsCache = result; _v202FullRowsCacheLen = src.length; }
-  else if (allAdv) { _advLatestRowsCache = result; _advLatestRowsCacheLen = src.length; }
+  else if (allAdv) { _advLatestRowsCache = result; _advLatestRowsCacheLen = src.length; _v260RowsSrc = src.slice(); }   // V26.0: a copy - a caller may reuse its array
   return result;
 }
 
@@ -26636,7 +26717,7 @@ function _v224TrendAgg(list, advLatest) {
   });
   advLatest.forEach(r => {
     if (!bidSet.has(r.__bid)) return;
-    if (r.benefitRecd !== 'Yes') return;
+    if (r.benefitRecd !== 'Yes' || _advNormStatus(r) !== 'Benefits Received') return;   // V26.0: the status rule every total uses (the cheap test first - same answer)
     // _advLatestRowsAll keyed this row to the most recent advocacy log that
     // touched it and stamped the timestamp onto `__createdAt` (note the
     // double underscore — it's the aggregator's field, distinct from the
@@ -26717,7 +26798,7 @@ function _v224TopNgoAgg(list, advLatest) {
   if (list.length === 0) return [];
   const advBenByBid = {};
   advLatest.forEach(r => {
-    if (r.benefitRecd === 'Yes') {
+    if (r.benefitRecd === 'Yes' && _advNormStatus(r) === 'Benefits Received') {   // V26.0: the status rule every total uses (the cheap test first - same answer)
       // V19.3: ⛔ _v18RowBenefit, NOT the stored amount alone. V18.0 promised
       // ONE valuation across all sixteen monetary totals and this row was
       // missed: 5,874 of the 24,879 received benefits have no amount typed in
@@ -27387,6 +27468,34 @@ function _v401TodayStrip() {
 // implementation means the stored figure and the tile above it cannot drift -
 // which they did before, because 'how many districts' was written twice and the
 // two versions split "Anand, Gujarat" differently.
+// V26.0: "does this household have at least one counted entry?" - asked of every household
+// by the Dashboard's Advocacy bar and the Field Map, so it must be cheap. The households with
+// rows are worked out ONCE per rows list (remembered by the list's IDENTITY, as
+// _v187RowsByBid: the screens and the summary job pass the same memoised list again and
+// again; after any change the row cache is a NEW array, which rebuilds this). A household
+// found is then remembered by its OBJECT - an identity look-up, measured ~5x cheaper than
+// the id string on 1.5 lakh households and cheaper than V25.9's tag test. One not found is
+// asked by id every time, so a new or edited record (a new object) is never missed.
+let _v260HR = null;
+function _v260HasRows(rows) {
+  if (!_v260HR || _v260HR.src !== rows) {
+    // the households with a counted row: a plain Set of ids (~4 MB on the full fleet). NOT the
+    // whole-cache household -> rows grouping (~36 MB, review E): holding that for the session
+    // made every later big copy slower (bulk status update +0.6 s, speed chain 2026-10-20), and
+    // since Alerts works per household nothing on the Dashboard needs it.
+    const bids = new Set();
+    for (const r of (rows || [])) { if (r && !r._deleted) bids.add(r.__bid); }
+    _v260HR = { src: rows, bids: bids, seen: new WeakSet(), test: null };
+    const H = _v260HR;
+    H.test = function (b) {
+      if (!b || typeof b !== 'object') return false;
+      if (H.seen.has(b)) return true;
+      if (H.bids.has(b.id)) { H.seen.add(b); return true; }
+      return false;
+    };
+  }
+  return _v260HR.test;
+}
 function _v224DashAgg(list, advLatest) {
   const listIds = new Set(list.map(function (b) { return b.id; }));
   const states = new Set(), districts = new Set();
@@ -27408,10 +27517,23 @@ function _v224DashAgg(list, advLatest) {
       byIntervention[i] = (byIntervention[i] || 0) + 1;
     });
   }
+  // V26.0: ONE RULE for the Advocacy bar (owner, 2026-10-19: "Same rule") - a household in
+  // the list with at least one counted entry, not the tag (8 Oct: 1,54,371; the tag said
+  // 1,54,458). The livelihood bars are untouched. The key keeps its place, so the stored
+  // payload keeps its shape: the pair only appears or goes with the count itself.
+  {
+    // one quick test per household (see _v260HasRows - review C: a pass over every row on
+    // each dashboard draw cost +25%)
+    const _v260A = 'Advocacy (Govt. Schemes)', _v260H = _v260HasRows(advLatest);
+    let _v260N = 0; for (const b of list) if (_v260H(b)) _v260N++;
+    if (_v260N) byIntervention[_v260A] = _v260N; else delete byIntervention[_v260A];
+  }
   const withEnd = list.filter(_v19HasEndline);
   const totalAdded = withEnd.reduce(function (s, b) { return s + _v193Delta(b); }, 0);
   const schemeBenefits = (advLatest || [])
-    .filter(function (r) { return listIds.has(r.__bid) && r.benefitRecd === 'Yes'; })
+    // V26.0: the status rule every total uses. benefitRecd === 'Yes' is asked first only because
+    // it is cheap and _advNormStatus can say Benefits Received for no other row - same answer.
+    .filter(function (r) { return r.benefitRecd === 'Yes' && _advNormStatus(r) === 'Benefits Received' && listIds.has(r.__bid); })
     .reduce(function (s, r) { return s + _v18RowBenefit(r); }, 0);
   return {
     total: list.length,
@@ -27436,7 +27558,7 @@ function renderDashboard() {
   // is disabled or cold.
   const _agg = (typeof _v361GetAdvAgg === 'function') ? _v361GetAdvAgg() : null;
   const advRecs = _agg ? _agg.allAdv  : getAdvocacyBids();
-  const advBids = _agg ? _agg.advBids : [...new Set(advRecs.map(a=>a.bid))];
+  const advBids = _agg ? _agg.advBids : [...new Set(_advLatestRowsAll(advRecs).map(r=>r.__bid))];   // V26.0: counted entries, as _v361GetAdvAgg
   // V361: convert advBids array to Set once for O(1) lookups in the next filter
   // (the old `advBids.includes(b.id)` was O(n) per record → O(n²) overall on
   // 50K records = 2.5 billion comparisons. Set lookup makes it O(n)).
@@ -28245,7 +28367,9 @@ function _v361GetAdvAgg() {
   const allAdv = getAdvocacyBids();
   const allRows = _advLatestRowsAll(allAdv);
   const advBidsSet = new Set();
-  for (const a of allAdv) { if (a && a.bid) advBidsSet.add(a.bid); }
+  // V26.0: ONE RULE - a person is a household with at least one counted entry (was any
+  // advocacy RECORD, entries or not: 1,54,388 against the list title's 1,54,371 on 8 Oct)
+  for (const r of allRows) advBidsSet.add(r.__bid);
   // Single pass to compute all status counts (vs 5 separate .filter() passes
   // in the original renderer). For 50K rows: ~50K iterations vs ~250K.
   let needApplyCnt = 0, appliedCnt = 0, rejectedCnt = 0, benefitCnt = 0, totalAmt = 0;
@@ -28283,8 +28407,8 @@ function renderAdvocacy(sub) {
   const _agg = _v361GetAdvAgg();
   const allAdv = _agg ? _agg.allAdv : getAdvocacyBids();
   const allB   = filteredAll();
-  const advBids = _agg ? _agg.advBids : [...new Set(allAdv.map(a=>a.bid))];
   const allRows = _agg ? _agg.allRows : _advLatestRowsAll(allAdv);
+  const advBids = _agg ? _agg.advBids : [...new Set(allRows.map(r=>r.__bid))];   // V26.0: counted entries, as _v361GetAdvAgg
 
   // Total Beneficiaries includes anyone with ANY scheme tracked, including
   // Need-to-Apply-only folks — they're still part of the advocacy roster.
@@ -28583,9 +28707,9 @@ function renderIntegrated(sub) {
     bList = allB.map(b => {
       const schemeRows = latestByBid[b.id] || [];
       const hasLiv = (b.interventions||[]).some(i => i !== 'Advocacy (Govt. Schemes)');
-      const hasAdv = schemeRows.length > 0 || (b.interventions||[]).includes('Advocacy (Govt. Schemes)');
+      const hasAdv = schemeRows.length > 0;   // V26.0: ONE RULE - a counted entry, not the tag
       const incDelta   = _v193Delta(b);   // V19.3: the one rule
-      const benefitAmt = schemeRows.filter(r => r.benefitRecd === 'Yes').reduce((s, r) => s + _v18RowBenefit(r), 0);
+      const benefitAmt = schemeRows.filter(r => _advNormStatus(r) === 'Benefits Received').reduce((s, r) => s + _v18RowBenefit(r), 0);   // V26.0: the status rule every total uses
       return { ...b, schemeRows, hasLiv, hasAdv, incDelta, benefitAmt };
     });
 
@@ -28647,7 +28771,8 @@ function renderIntegrated(sub) {
     const d = _v19HasEndline(b) ? b.incDelta : null;
     const programBadge = b.hasLiv && b.hasAdv ? `<span class="pill pill-blue" style="margin:1px">Livelihood</span><span class="pill pill-purple" style="margin:1px">Advocacy</span>`
                       : b.hasLiv ? `<span class="pill pill-blue">Livelihood</span>`
-                      : `<span class="pill pill-purple">Advocacy</span>`;
+                      : b.hasAdv ? `<span class="pill pill-purple">Advocacy</span>`
+                      : `<span style="color:var(--gray2);font-size:12px">—</span>`;   // V26.0: tagged, no entry yet - in neither card
     const impact = (b.incDelta||0) + (b.benefitAmt||0);
     const incCell = (b.hasLiv && d != null)
       ? `<span style="font-weight:600;color:${d>=0?'var(--green)':'var(--red)'}">₹${Math.abs(d).toLocaleString('en-IN')}</span>`
@@ -28954,8 +29079,7 @@ function renderAllBeneficiaries() {
   if (_allBEnrichedCache && _allBEnrichedCacheKey === cacheKey) {
     enriched = _allBEnrichedCache;
   } else {
-    const advBidSet = new Set(advArr.map(a => a.bid));
-    const latestByBid = {};
+    const latestByBid = {};   // V26.0: the counted rows decide "in Advocacy" - the any-record set is gone
     if (typeof _advLatestRowsAll === 'function') {
       _advLatestRowsAll(advArr).forEach(r => {
         (latestByBid[r.__bid] = latestByBid[r.__bid] || []).push(r);
@@ -28963,12 +29087,12 @@ function renderAllBeneficiaries() {
     }
     enriched = allB.map(b => {
       const hasLiv = (b.interventions||[]).some(i => i && i !== 'Advocacy (Govt. Schemes)');
-      const hasAdv = advBidSet.has(b.id) || (b.interventions||[]).includes('Advocacy (Govt. Schemes)');
       const schemeRows = latestByBid[b.id] || [];
+      const hasAdv = schemeRows.length > 0;   // V26.0: ONE RULE - a counted entry, not the tag or any record
       // V19.5: the one rule - the last surviving copy. All Beneficiaries and
       // the Integrated screen show the same column and must not part ways.
       const incDelta   = _v193Delta(b);
-      const benefitAmt = schemeRows.filter(r => r.benefitRecd === 'Yes').reduce((s, r) => s + _v18RowBenefit(r), 0);
+      const benefitAmt = schemeRows.filter(r => _advNormStatus(r) === 'Benefits Received').reduce((s, r) => s + _v18RowBenefit(r), 0);   // V26.0
       // V18.2: computed HERE, inside the memoised block, so it costs one
       // boolean per record per REBUILD. In the row loop below it would be five
       // property reads per visible row on every keystroke of the search box.
@@ -29074,7 +29198,8 @@ function renderAllBeneficiaries() {
           const programBadge = (b.hasLiv && b.hasAdv)
             ? `<span class="pill pill-blue">Livelihood</span><span class="pill pill-purple" style="margin-left:4px">Advocacy</span>`
             : b.hasLiv ? `<span class="pill pill-blue">Livelihood</span>`
-            : `<span class="pill pill-purple">Advocacy</span>`;
+            : b.hasAdv ? `<span class="pill pill-purple">Advocacy</span>`
+            : `<span style="color:var(--gray2);font-size:12px">—</span>`;   // V26.0: tagged, no entry yet - in neither card
           const incCell = (b.hasLiv && b.endIncome != null)
             ? `<span style="font-weight:600;color:${d>=0?'var(--green)':'var(--red)'}">₹${Math.abs(d).toLocaleString('en-IN')}</span>`
             : `<span style="color:var(--gray2);font-size:12px">—</span>`;
@@ -29246,7 +29371,8 @@ window.openDrawer = function(id) {
     const tableRows = latestRows.map(r => {
       const ns = _drawerNormStatus(r);
       const amtCell = ns.label==='Benefits Received'
-        ? `<span style="font-weight:600;color:var(--green);font-size:12px">₹${Number(r.benefitAmt||0).toLocaleString('en-IN')}</span>`
+        // V26.0: the amount every total counts - typed, or the scheme's standard value when none was typed
+        ? `<span style="font-weight:600;color:var(--green);font-size:12px"${(Number(r.benefitAmt) || 0) === 0 && _v18RowBenefit(r) ? ' title="The scheme\u2019s standard value (no amount was typed)"' : ''}>₹${Number(_v18RowBenefit(r) || 0).toLocaleString('en-IN')}</span>`
         : `<span style="color:var(--gray2);font-size:12px">—</span>`;
       return `<tr>
         <td style="font-size:11px;color:var(--gray2);vertical-align:top;padding:6px 10px;border-right:1px solid var(--gray3)">${fmtD(r.__createdAt)}</td>
@@ -29282,11 +29408,38 @@ function _rptCanView(u) {
   // the page simply does not open. Belt and braces for a state the user form
   // should already make unreachable.
   if (s.role === 'ngo') return !!s.ngo;
+  // V26.0: a team leader - THEIR TEAM ONLY (see _rptScopedUsers), counted on this
+  // device from the records their sign-in already loaded. Fail-closed like the NGO
+  // case: with no partner the sign-in loads nothing, and with no coordinators
+  // there is no team to report on, so the page does not open.
+  // The exports share this gate, so a team leader's files hold their team's rows;
+  // the partner-comparison export stays behind _rptIsFleet (admin + donors).
+  if (s.role === 'scopedViewerByFc') return !!s.ngo && Array.isArray(s.assignedFcIds) && s.assignedFcIds.some(Boolean);
   return false;
 }
 function _rptIsFleet(u) {
   const s = u || (typeof currentUser === 'function' ? currentUser() : null);
   return !!(s && s.role === 'admin');
+}
+// V26.0: A TEAM LEADER'S REPORTS ARE ONLY AS COMPLETE AS THE COPY ON THE DEVICE.
+// Opened while the sign-in is still fetching, every figure would read low with
+// nothing on screen to say so. 'loading' while either fetch runs, 'partial' when
+// one failed (the fetch marks the cache partial), '' when the team is all here.
+// ⛔ NOT the replay flags alone: the 500 ms quiet timers armed when the listeners
+// attach flip them true while the per-coordinator queries are still out, so the
+// fetches' own in-flight marks are read too. A Refresh (_v247SwapBusy) downloads
+// BESIDE a complete copy and swaps in one step, so the figures stay meanwhile.
+// Reads flags only - never Firebase. Each fetch ends with renderCurrentView(),
+// which re-renders Reports when the records are in: no polling.
+function _v260TlLoadState() {
+  try {
+    const swap = !!window._v247SwapBusy;
+    const busy = !swap && !!((typeof _v375ScopedBenefMultiFetch === 'function' && _v375ScopedBenefMultiFetch._inFlight)
+                          || (typeof _v375ScopedAdvMultiFetch === 'function' && _v375ScopedAdvMultiFetch._inFlight));
+    if (busy || !FB.benefReplayComplete || !FB.advReplayComplete) return 'loading';
+    if (FB.benefCachePartial || FB.advCachePartial) return 'partial';
+    return '';
+  } catch (_) { return 'loading'; }   // cannot tell: never draw figures that may be short
 }
 
 // ⚠️ THE ROSTER IS THE ONE SURFACE THAT IS NOT ALREADY SCOPED.
@@ -29305,6 +29458,14 @@ function _rptScopedUsers(u) {
   if (!_rptCanView(s)) return [];
   const all = (typeof loadUsers === 'function') ? loadUsers() : [];
   if (_rptIsFleet(s)) return all;
+  // V26.0: a team leader gets THEIR coordinators - the assignedFcIds list Team
+  // Report uses (renderNGO) - never the partner's whole staff. The leaderboard and
+  // the exports therefore name nobody outside the team; work on the team's
+  // households typed by anyone else lands in the "Recorded by office staff" row.
+  if (s.role === 'scopedViewerByFc') {
+    const ids = new Set(Array.isArray(s.assignedFcIds) ? s.assignedFcIds : []);
+    return all.filter(x => x && ids.has(x.id));
+  }
   // An NGO admin with no ngo set is a misconfiguration, not a licence to see
   // everything — return nothing rather than fall through to the full roster.
   if (!s.ngo) return [];
@@ -29716,6 +29877,7 @@ function _v255EndlineIn(b, inWin) {
   return stamped ? false : inWin(b && b.endlineDate);
 }
 function _rptAggregate(allB, advParents, users, nowMs, winMs, ceilMs) {
+  const _v26all = new Map();   // V26.0: household -> bits, the people behind the cards (see _v26People)
   // ⛔ V21.2: "Last active" IS NOT A WINDOWED FIGURE - the column's own tooltip
   // says "Not affected by the date filter." It was nonetheless computed against
   // `nowMs`, which for a calendar month is the END OF THAT MONTH. Choose August
@@ -29923,6 +30085,11 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs, ceilMs) {
     const rows = [_r];
     a.surveyed++;   // V24.6: every scheme entry, any status - "Surveyed", all time
     if (inWin(_r.__createdAt)) a.advWin += 1;   // ...and in the window (the Surveyed column)
+    // V26.0: the household behind this entry, with the same tests as the counts (see _v26People)
+    // one Map for the page (see _v26People), keyed by the household OBJECT already looked up
+    // (an identity key is far cheaper than the id string); written only when the bits change
+    const _v26m = _v26all, _v26b = _pb || _r.__bid, _v26o = _v26m.get(_v26b) || 0;
+    let _v26k = _v26o | 1;   // 2 (in the window) from parentInWin below - the date is read once
     // V12.3: the two windowed counts below rest on DIFFERENT dates, and the
     // difference matters when reading them.
     //   APPLIED  -> the row's own _aAt stamp when it has one (V12.4 onward,
@@ -29937,18 +30104,19 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs, ceilMs) {
     //               and are therefore absent from the windowed count while
     //               still counting in full in the all-time one.
     const parentInWin = inWin(_r.__createdAt);
+    if (parentInWin) _v26k |= 2;   // V26.0
     rows.forEach(r => {
       const s = _advNormStatus(r);
       if (s !== 'Need to Apply') {
-        a.filed++; a.applied++;
+        a.filed++; a.applied++; _v26k |= 4;
         // V12.5: stamps go through _rptStampOk, which drops any stamp dated on
         // or before 2026-07-29 — the day the buggy stamper re-dated historical
         // rows as "today" (see _rptStampOk). Records nobody has re-saved since
         // still carry those stamps, so the reader must ignore them too.
         const aAt = _rptStampOk(r._aAt);
-        if (ALL_TIME || (aAt ? inWin(aAt) : parentInWin)) a.appliedWin++;
+        if (ALL_TIME || (aAt ? inWin(aAt) : parentInWin)) { a.appliedWin++; _v26k |= 8; }
         if (s === 'Benefits Received') {
-          a.recd++; a.benefits++;
+          a.recd++; a.benefits++; _v26k |= 16;
           // V12: only STAMPED rows appear in the daily series. A benefit with
           // no valid _bAt is historical — it still counts in every total
           // above, it simply has no day to sit on. Inventing one would make
@@ -29959,11 +30127,12 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs, ceilMs) {
           // V12.6: at ALL TIME there is no window to fall outside of, so an
           // undated benefit counts like any other. Only a real window needs a
           // date, and only then can a benefit be excluded for lacking one.
-          if (ALL_TIME) a.benefitsWin++;
-          else if (bAt && inWin(bAt)) a.benefitsWin++;
+          if (ALL_TIME) { a.benefitsWin++; _v26k |= 32; }
+          else if (bAt && inWin(bAt)) { a.benefitsWin++; _v26k |= 32; }
         }
       }
     });
+    if (_v26k !== _v26o) _v26m.set(_v26b, _v26k);   // V26.0
     // ⛔ V19.9: LAST ACTIVE MUST FOLLOW THE WORK, NOT THE PAPERWORK.
     // Advocacy history is append-only per RECORD, but changing a scheme's
     // status EDITS the record it already sits in — it does not create a new
@@ -30201,7 +30370,7 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs, ceilMs) {
   });
   const stuckTotal = Array.from(stuckByScheme.values()).reduce((s, g) => s + g.n, 0);
   const advTotal = latestRows.length;
-  return { fcAgg, fcByName, fcList, officeRows, ngoRows, benefitDayCounts, totalEverEnrolled, benefitFirstStamp, activeFcs, inactiveFcs, convDen, convNum, ADVI, dayCounts, ngoWin, villageFirst, enrolledWinTotal, livN, endN, sumBase, sumEnd, upliftBase, upliftAdded, overdue, stage, byInt, byNgoLiv, overdueNgo, suspects, uName, newVillages, statusCount, stuckByScheme, schemeStats, stuckTotal, advTotal, latestRows, bById, inWin, fcs, allTime: ALL_TIME, benefitsFellBack, officeAll };
+  return { _v26all, fcAgg, fcByName, fcList, officeRows, ngoRows, benefitDayCounts, totalEverEnrolled, benefitFirstStamp, activeFcs, inactiveFcs, convDen, convNum, ADVI, dayCounts, ngoWin, villageFirst, enrolledWinTotal, livN, endN, sumBase, sumEnd, upliftBase, upliftAdded, overdue, stage, byInt, byNgoLiv, overdueNgo, suspects, uName, newVillages, statusCount, stuckByScheme, schemeStats, stuckTotal, advTotal, latestRows, bById, inWin, fcs, allTime: ALL_TIME, benefitsFellBack, officeAll };
 }
 
 // ── V12: FC Performance tab ─────────────────────────────────────────────────
@@ -30214,6 +30383,8 @@ function _rptAggregate(allB, advParents, users, nowMs, winMs, ceilMs) {
 // Sarvangi bug. Only test harnesses leave it out, at "All partners".
 function _rptRenderFc(A, nowMs, rowScope) {
   const esc = s => escHtml(String(s == null ? '' : s));
+  // V26.0: a team leader's page - two sentences below are worded for them
+  const _v260TL = (function () { try { const s = (typeof currentUser === 'function') ? currentUser() : null; return !!(s && s.role === 'scopedViewerByFc'); } catch (_) { return false; } })();
   const now = nowMs || Date.now();
   const { fcList, inactiveFcs, activeFcs, enrolledWinTotal, convDen, convNum } = A;
 
@@ -30228,7 +30399,7 @@ function _rptRenderFc(A, nowMs, rowScope) {
   // V25.5: Reports counts SCHEMES and its headings say so; the dashboard's
   // Today counts PEOPLE and says so there. Same dates, different unit.
   const RPT_FC_COLS = ['Coordinator','Schemes surveyed','Schemes applied',
-                       A.benefitsFellBack ? 'Schemes received (all-time)' : 'Schemes received',
+                       A.benefitsFellBack ? 'Benefits received (all-time)' : 'Benefits received',
                        'Enrolled','Intervention','Endline','Last active'];
   const scope = A.allTime ? 'in total, across all time' : 'inside the selected date window';
 
@@ -30324,7 +30495,7 @@ function _rptRenderFc(A, nowMs, rowScope) {
   // the figure above it with nothing on screen to explain the difference.
   // Guru asked for it by name: "Recorded by office staff".
   const officeTr = (A.officeAll || A.officeRows || []).map(a => `<tr
-      style="background:var(--gray4)" title="Scheme work saved by an admin or partner login, and households enrolled by one, rather than by a field coordinator. It counts in the totals above; it simply belongs to no one coordinator.">
+      style="background:var(--gray4)" title="${_v260TL ? 'Scheme work on your team\u2019s households saved by a login outside your team (the office, the partner or another team) and not matched by name to one of your coordinators. It counts in the totals above; it simply belongs to no one coordinator.' : 'Scheme work saved by an admin or partner login, and households enrolled by one, rather than by a field coordinator. It counts in the totals above; it simply belongs to no one coordinator.'}">
       <td><div class="rpt-person"><span class="rpt-av" style="background:var(--gray2)">\u2699</span><span><span class="rpt-pname" style="font-style:italic">Recorded by office staff</span><span class="rpt-psub">${esc(a.u.ngo || '\u2014')}</span></span></div></td>
       <td class="rpt-strong">${a.advWin.toLocaleString('en-IN')}</td>
       <td>${a.appliedWin.toLocaleString('en-IN')}</td>
@@ -30359,11 +30530,12 @@ function _rptRenderFc(A, nowMs, rowScope) {
   const allT = v => A.allTime ? null : v;
   // V24.6: two programmes, three cards each, each card the sum of its column
   // (office work included) so the cards and the table cannot disagree.
-  const _bSub246 = bWin + (!A.allTime && !A.benefitsFellBack && A.benefitFirstStamp ? ' · dated from ' + A.benefitFirstStamp : '');
+  const _bSub246 = bWin + (!A.allTime && !A.benefitsFellBack && A.benefitFirstStamp && _v26Before(A) ? ' · dated from ' + A.benefitFirstStamp : '');
+  const _v26P = _v26People(_v206AllRows, A.benefitsFellBack, A._v26all);   // V26.0: null for donor logins
   return _v246KpiGroups([
-    ['Schemes surveyed',  'clip',   sum('advWin'),        win, allT(sum('surveyed'))],
-    ['Schemes applied',   'file',   sum('appliedWin'),    win, allT(sum('applied'))],
-    ['Schemes received',  'gift',   sum('benefitsWin'),   _bSub246, A.benefitsFellBack ? null : allT(sum('benefits'))]
+    ['Schemes surveyed',  'clip',   sum('advWin'),        win, allT(sum('surveyed')), _v26P && [_v26P.sw, allT(_v26P.s)]],
+    ['Schemes applied',   'file',   sum('appliedWin'),    win, allT(sum('applied')), _v26P && [_v26P.aw, allT(_v26P.a)]],
+    ['Benefits received',  'gift',   sum('benefitsWin'),   _bSub246, A.benefitsFellBack ? null : allT(sum('benefits')), _v26P && [_v26P.bw, A.benefitsFellBack ? null : allT(_v26P.b)]]
   ], [
     ['Enrolled',          'users',  sum('livelihoodWin'),   win, allT(sum('livelihood'))],
     ['Intervention',      'sprout', sum('interventionWin'), win, allT(sum('intervention'))],
@@ -30392,7 +30564,7 @@ function _rptRenderFc(A, nowMs, rowScope) {
   + `<div class="rpt-card">
       <div class="rpt-card-h">
         <h3>Inactive coordinators \u2014 nothing logged in 30+ days</h3>
-        <div class="rpt-note">${activeFcs.length} of ${A.fcTotal != null ? A.fcTotal : fcList.length} coordinators were active in the last 30 days. The people below may have left, be on leave, or need support \u2014 their beneficiaries may need reassigning (User Management \u2192 Transfer).</div>
+        <div class="rpt-note">${activeFcs.length} of ${A.fcTotal != null ? A.fcTotal : fcList.length} coordinators were active in the last 30 days. The people below may have left, be on leave, or need support \u2014 their beneficiaries may need reassigning (${_v260TL ? 'the KRSF office can transfer them' : 'User Management \u2192 Transfer'}).</div>
       </div>
       <div class="rpt-tblwrap">
         <table class="rpt-tbl" style="min-width:420px">
@@ -30616,9 +30788,9 @@ window.rptExportFc = function () {
   const BW = A.benefitsFellBack ? ' (all-time — no dated benefits yet)' : W;
   _rptExportRows(
     ['Coordinator', 'NGO',
-     'Schemes surveyed' + W, 'Schemes applied' + W, 'Schemes received' + BW,
+     'Schemes surveyed' + W, 'Schemes applied' + W, 'Benefits received' + BW,
      'Livelihood enrolled' + W, 'Intervention' + W, 'Endline' + W,
-     'Schemes surveyed (all-time)', 'Schemes applied (all-time)', 'Schemes received (all-time)',
+     'Schemes surveyed (all-time)', 'Schemes applied (all-time)', 'Benefits received (all-time)',
      'Livelihood enrolled (all-time)', 'Intervention (all-time)', 'Endline (all-time)',
      'Total beneficiaries (all-time)', 'Last active', 'Status'],
     rows, 'coordinators');
@@ -30642,9 +30814,9 @@ window.rptExportNgo = function () {
   const BW = A.benefitsFellBack ? ' (all-time — no dated benefits yet)' : W;
   _rptExportRows(
     ['Partner',
-     'Schemes surveyed' + W, 'Schemes applied' + W, 'Schemes received' + BW,
+     'Schemes surveyed' + W, 'Schemes applied' + W, 'Benefits received' + BW,
      'Livelihood enrolled' + W, 'Intervention' + W, 'Endline' + W,
-     'Schemes surveyed (all-time)', 'Schemes applied (all-time)', 'Schemes received (all-time)',
+     'Schemes surveyed (all-time)', 'Schemes applied (all-time)', 'Benefits received (all-time)',
      'Livelihood enrolled (all-time)', 'Intervention (all-time)', 'Endline (all-time)',
      'Last active'],
     rows, 'partners');
@@ -30836,7 +31008,7 @@ window.rptExportSchemes = function () {
   });
   const W = ' (' + _rptWinLabel() + ')';
   const BW = A.benefitsFellBack ? ' (all-time — no dated benefits yet)' : W;
-  _rptExportRows(['Partner', 'Scheme', 'Source', 'Schemes surveyed' + W, 'Schemes applied' + W, 'Schemes received' + BW, 'Amount Rs' + BW], rows, 'schemes');
+  _rptExportRows(['Partner', 'Scheme', 'Source', 'Schemes surveyed' + W, 'Schemes applied' + W, 'Benefits received' + BW, 'Amount Rs' + BW], rows, 'schemes');
 };
 
 // ── V12: NGO comparison tab ─────────────────────────────────────────────────
@@ -30857,6 +31029,7 @@ window.rptExportSchemes = function () {
 // tabs cannot disagree. Nothing is downloaded: it reads what is loaded.
 function _v25PartnerAgg(A) {
   if (A._v25p) return A._v25p;
+  const _v26all = new Map();   // V26.0: household -> bits, the people behind the cards (see _v26People)
   const ADVI = 'Advocacy (Govt. Schemes)';
   const ALL = !!A.allTime, inWin = A.inWin, fell = !!A.benefitsFellBack;
   const real = (typeof _v19ServerNow === 'function') ? _v19ServerNow() : Date.now();
@@ -30907,21 +31080,27 @@ function _v25PartnerAgg(A) {
     if (!b) return;
     const r = g(b.ngo);
     r.surveyed++;
-    if (inWin(x.__createdAt)) r.advWin++;
+    const _v26w = inWin(x.__createdAt);   // V26.0: read once, used three times
+    if (_v26w) r.advWin++;
+    // V26.0: one Map for the tab (see _v26People), keyed by the household object found above
+    const _v26m = _v26all, _v26o = _v26m.get(b) || 0;
+    let _v26k = _v26o | 1 | (_v26w ? 2 : 0);
     const s = _advNormStatus(x);
     const aAt = _rptStampOk(x._aAt), bAt = _rptStampOk(x._bAt);
     if (s !== 'Need to Apply') {
-      r.applied++;
-      if (ALL || (aAt ? inWin(aAt) : inWin(x.__createdAt))) r.appliedWin++;
+      r.applied++; _v26k |= 4;
+      if (ALL || (aAt ? inWin(aAt) : _v26w)) { r.appliedWin++; _v26k |= 8; }
       if (s === 'Benefits Received') {
-        r.benefits++;
-        if (ALL || fell || (bAt && inWin(bAt))) r.benefitsWin++;
+        r.benefits++; _v26k |= 16;
+        if (ALL || fell || (bAt && inWin(bAt))) { r.benefitsWin++; _v26k |= 32; }
       }
     }
+    if (_v26k !== _v26o) _v26m.set(b, _v26k);   // V26.0
     bump(r, x.__createdAt);
     if (aAt) bump(r, aAt);
     if (bAt) bump(r, bAt);
   });
+  A._v25pAll = _v26all;   // V26.0: every row kept below that has households is in this Map
   A._v25p = Array.from(m.values()).filter(r => r.surveyed || r.livelihood || r.ngo !== '—')
     .sort((x, y) => String(x.ngo).localeCompare(String(y.ngo)));   // V25.6: one fixed order
   return A._v25p;
@@ -30937,7 +31116,7 @@ function _rptRenderNgo(A) {
   const rowsIn = _v25PartnerAgg(A);
   const now = (typeof _v19ServerNow === 'function') ? _v19ServerNow() : Date.now();
   const COLS = ['Partner', 'Schemes surveyed', 'Schemes applied',   // V25.5: schemes, said in the heading
-                A.benefitsFellBack ? 'Schemes received (all-time)' : 'Schemes received',
+                A.benefitsFellBack ? 'Benefits received (all-time)' : 'Benefits received',
                 'Enrolled', 'Intervention', 'Endline', 'Last active'];
   const scope = A.allTime ? 'in total, across all time' : 'inside the selected date window';
   const sum = k => rowsIn.reduce((s2, r) => s2 + (r[k] || 0), 0);
@@ -30972,10 +31151,11 @@ function _rptRenderNgo(A) {
   const win = _rptWinLabel();
   const bWin = A.benefitsFellBack ? 'all-time — no dated benefits yet' : win;
   const allT = v => A.allTime ? null : v;
+  const _v26P = _v26People(rowsIn, false, A._v25pAll);   // V26.0: a partner row's window bit already holds its fallback
   return _v246KpiGroups([
-    ['Schemes surveyed',  'clip',   sum('advWin'),      win,  allT(sum('surveyed'))],
-    ['Schemes applied',   'file',   sum('appliedWin'),  win,  allT(sum('applied'))],
-    ['Schemes received',  'gift',   sum('benefitsWin'), bWin, A.benefitsFellBack ? null : allT(sum('benefits'))]
+    ['Schemes surveyed',  'clip',   sum('advWin'),      win,  allT(sum('surveyed')), _v26P && [_v26P.sw, allT(_v26P.s)]],
+    ['Schemes applied',   'file',   sum('appliedWin'),  win,  allT(sum('applied')), _v26P && [_v26P.aw, allT(_v26P.a)]],
+    ['Benefits received',  'gift',   sum('benefitsWin'), bWin, A.benefitsFellBack ? null : allT(sum('benefits')), _v26P && [_v26P.bw, A.benefitsFellBack ? null : allT(_v26P.b)]]
   ], [
     ['Enrolled',          'users',  sum('livelihoodWin'),   win, allT(sum('livelihood'))],
     ['Intervention',      'sprout', sum('interventionWin'), win, allT(sum('intervention'))],
@@ -31072,19 +31252,62 @@ const _RPT_ICONS = {
 // that all-time was wrong, it was that all-time was shown while a 7-day chip
 // was selected, with no way to tell which you were looking at.
 // V24.6: the same cards as _rptKpiRow, in two labelled groups of three.
+// V26.0: the PEOPLE behind the scheme entries. The pass that counts the entries also
+// fills ONE Map household -> bits for the whole page (all): 1 surveyed, 2 surveyed in
+// the window, 4 applied, 8 applied in the window, 16 benefit received, 32 received in
+// the window - each household once, however many rows or schemes it has. Every row the
+// pass fills is in the cards' total (fcList + office buckets with work; partner rows),
+// so this equals the union over the rows - without building and merging one Map per
+// row (review: +130 ms a draw for admin). rows is kept for the callers' shape only.
+// Donor logins read stored figures, which carry no households: null (nothing shown).
+function _v26People(rows, fell, all) {
+  if (typeof _v256IsDonor === 'function' && _v256IsDonor()) return null;
+  // an aggregate with no households behind it (one rebuilt from the stored donor figures) has
+  // no people to count: nothing is shown, never "| 0 ben"
+  if (!(all instanceof Map)) return null;
+  const u = all;
+  const c = [0, 0, 0, 0, 0, 0];
+  u.forEach(function (k) { for (let i = 0; i < 6; i++) if (k & (1 << i)) c[i]++; });
+  return { s: c[0], sw: c[1], a: c[2], aw: c[3], b: c[4], bw: fell ? c[4] : c[5] };
+}
+// V26.0: "dated from <day>" explains a low windowed Benefits figure only when the
+// window starts BEFORE benefits were first dated; for a later window it says nothing.
+// When it cannot tell, it keeps the caveat (as before).
+function _v26Before(A) {
+  try {
+    const ks = Array.from((A && A.benefitDayCounts && A.benefitDayCounts.keys()) || []);
+    if (!ks.length || typeof A.inWin !== 'function') return true;
+    const t = ks.map(function (k) { return typeof k === 'number' ? k * 86400000 : Date.parse(String(k).slice(0, 10)); })
+      .filter(function (x) { return isFinite(x); });
+    if (!t.length) return true;
+    return !!A.inWin(new Date(Math.min.apply(null, t) - 86400000).toISOString());
+  } catch (_) { return true; }
+}
 function _v246KpiGroups(adv, liv) {
   const one = c => {
-    const [label, icon, val, sub, allTime] = c;
+    const [label, icon, val, sub, allTime, ben] = c;
     const fmt = v => typeof v === 'number' ? v.toLocaleString('en-IN') : v;
+    // V26.0: ben = [people in the window, people all-time]; the figure itself stays
+    // alone in .rpt-kpi-val and the All-time figure alone in .rpt-kpi-all
+    const bw = ben && typeof ben[0] === 'number' ? fmt(ben[0]) + ' ben' : null;
+    const ba = ben && typeof ben[1] === 'number' ? fmt(ben[1]) + ' ben' : null;
+    // each part's width per px of type (characters x .62); the CSS multiplies by the real size
+    const wd = t => (String(t).length * .62).toFixed(2);
+    const valRow = bw
+      ? `<div class="v26-vrow" style="--nv:${wd(fmt(val))};--nb:${wd('| ' + bw)}"><div class="rpt-kpi-val">${fmt(val)}</div><span class="v26-ben"><span class="v26-sep">|</span> ${bw}</span></div>`
+      : `<div class="rpt-kpi-val">${fmt(val)}</div>`;
+    const allRow = allTime == null ? '' : ba
+      ? `<div class="v26-arow" style="--nv:${wd('All-time ' + fmt(allTime))};--nb:${wd('| ' + ba)}"><div class="rpt-kpi-all">All-time <b>${fmt(allTime)}</b></div><span class="v26-ben"><span class="v26-sep">|</span> ${ba}</span></div>`
+      : `<div class="rpt-kpi-all">All-time <b>${fmt(allTime)}</b></div>`;
     return `<div class="rpt-kpi">
       <div class="rpt-kpi-lab"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${_RPT_ICONS[icon] || ''}</svg>${escHtml(label)}</div>
-      <div class="rpt-kpi-val">${fmt(val)}</div>
+      ${valRow}
       <div class="rpt-kpi-sub">${escHtml(sub || '')}</div>
-      ${allTime == null ? '' : `<div class="rpt-kpi-all">All-time <b>${fmt(allTime)}</b></div>`}
+      ${allRow}
     </div>`;
   };
   return `<div class="v246-kgroups">
-    <div class="v246-kg adv"><div class="v246-kg-lab">Advocacy <span>· scheme entries</span></div><div class="v246-kcards">${adv.map(one).join('')}</div></div>
+    <div class="v246-kg adv"><div class="v246-kg-lab">Advocacy <span>· scheme entries${adv.some(c => c[5]) ? ' | beneficiaries' : ''}</span></div><div class="v246-kcards">${adv.map(one).join('')}</div></div>
     <div class="v246-kg liv"><div class="v246-kg-lab">Livelihood <span>· households</span></div><div class="v246-kcards">${liv.map(one).join('')}</div></div>
   </div>`;
 }
@@ -31216,6 +31439,11 @@ function _rptChrome(body) {
   // removed rather than left to render something meaningless.
   const fleet = _rptIsFleet() || _v256DonorMany();   // V25.6
   const _v256D = _v256IsDonor();
+  // V26.0: a team leader's header names their team - the coordinators actually found
+  // (review C: counting every assigned id could say 29 over 28 leaderboard rows)
+  const _v260U = (typeof currentUser === 'function') ? currentUser() : null;
+  const _v260TL = !!(_v260U && _v260U.role === 'scopedViewerByFc');
+  const _v260N = _v260TL ? _rptScopedUsers(_v260U).length : 0;
   // 1400px, not 1080 and not full-bleed. The old 1080 cap left roughly a third
   // of a laptop screen empty; removing the cap entirely was worse — measured at
   // 1900px the coordinator name column ballooned to 842px, half the table, so
@@ -31227,7 +31455,8 @@ function _rptChrome(body) {
           <div class="rpt-title">Reports</div>
           <div class="rpt-sub">${_v256D ? 'Prepared by the KRSF office laptop from every record' + (_v256ACache && _v256ACache.A && _v256ACache.A._v256 ? ', as of ' + _v256AsOf(_v256ACache.A) : '') + '. Covers your partners only; the State filter does not apply here.' : ''}${_v256D ? '' : 'Computed on this device from data already loaded \u2014 no extra Firebase download. '}${_v256D ? '' : (fleet
             ? 'Respects the State and NGO filters above.'
-            : 'Covers your own coordinators and beneficiaries only. Respects the filters above.')}</div>
+            : (_v260TL ? 'Covers your team only \u2014 ' + _v260N + ' coordinator' + (_v260N === 1 ? '' : 's') + ' and their households. Respects the filters above.'   // V26.0
+              : 'Covers your own coordinators and beneficiaries only. Respects the filters above.'))}</div>
         </div>
       </div>
       <div class="rpt-seg" role="tablist">
@@ -31753,11 +31982,16 @@ function _v256ExpA() {
 
 function renderReports() {
   const u = currentUser();
-  // V12.7: admin + NGO admin. The nav button being hidden is not what keeps
+  // V12.7: admin + NGO admin (V26.0: + team leaders). The nav button being hidden is not what keeps
   // anyone else out — this check is, and it runs on every render.
   if (!_rptCanView(u) && !_v256IsDonor(u)) {   // V25.6: + donors
     document.getElementById('content').innerHTML =
-      '<div style="padding:48px 20px;text-align:center;color:var(--gray2);font-size:14px">Reports are available to admin and NGO partner accounts only.</div>';
+      '<div style="padding:48px 20px;text-align:center;color:var(--gray2);font-size:14px">'
+      + ((u && u.role === 'scopedViewerByFc')   // V26.0: a team leader with no partner or no coordinators
+          ? (!u.ngo ? 'Reports need your partner: none is set on this account yet. The KRSF office can set it.'   // review C
+                    : 'Reports need your team: no coordinators are assigned to this account yet. The KRSF office can assign them.')
+          : 'Reports are available to admin and NGO partner accounts only.')
+      + '</div>';
     return;
   }
   const fleet = _rptIsFleet(u) || _v256DonorMany(u);   // V25.6: a donor with several partners compares them
@@ -31788,6 +32022,21 @@ function renderReports() {
         ? '<div class="rpt-card"><div class="rpt-empty" style="padding:28px">Loading your partners’ Reports…</div></div>'
         : '<div class="rpt-card"><div class="rpt-empty" style="padding:28px">Reports for ' + esc(_v256Agg.missing.join(', '))
           + ' are not ready yet. They are prepared by the KRSF office laptop and appear here after it is next online.</div></div>');
+      return;
+    }
+  }
+  // [V26.0] A TEAM LEADER'S REPORTS ARE COUNTED FROM THE RECORDS ON THIS DEVICE.
+  // Until both fetches of their sign-in are in, the figures would read low with
+  // nothing to say so - show that they are loading instead. The fetch that
+  // finishes last calls renderCurrentView(), which draws this page again.
+  if (u && u.role === 'scopedViewerByFc') {
+    const _v260L = _v260TlLoadState();
+    if (_v260L) {
+      document.getElementById('content').innerHTML = _rptChrome('<div class="rpt-card"><div class="rpt-empty" style="padding:28px">'
+        + (_v260L === 'partial'
+            ? 'Some of your team\u2019s records could not be loaded on this device, so the figures would read low. Press Refresh at the top (or reload the app), then open Reports again.'
+            : 'Loading your team\u2019s records\u2026 the figures appear when every record is in.')
+        + '</div></div>');
       return;
     }
   }
@@ -32284,7 +32533,7 @@ window.nav=function(v){
   // dashboard chrome). enroll silently bounces to dashboard.
   if (me && me.role === 'scopedViewerByFc') {
     if (v === 'enroll') v = 'dashboard';
-    const allowed = new Set(['dashboard','list','beneficiaries','advocacy','integrated','map','ngo','alerts']);
+    const allowed = new Set(['dashboard','list','beneficiaries','advocacy','integrated','map','ngo','alerts','reports']);   // V26.0: + reports (their team, from records held)
     if (!allowed.has(v)) v = 'dashboard';
   }
   currentView=v;
@@ -36632,7 +36881,7 @@ function exportBeneficiariesCsv() {
   advLatest.forEach(r => {
     if (!schemeSummary[r.__bid]) schemeSummary[r.__bid] = { names: [], received: 0 };
     schemeSummary[r.__bid].names.push(r.scheme);
-    if (r.benefitRecd === 'Yes') schemeSummary[r.__bid].received += _v18RowBenefit(r);
+    if (_advNormStatus(r) === 'Benefits Received') schemeSummary[r.__bid].received += _v18RowBenefit(r);   // V26.0: the status rule every total uses
   });
 
   // V4.1: Updated columns — added Gender, Livestock; renamed "Livelihood"
@@ -36710,7 +36959,7 @@ function exportAdvocacyCsv() {
   const headers = [
     'Beneficiary ID','Beneficiary Name','Village','District','NGO',
     'Coordinator','Scheme','Application Status','Benefit Received',
-    'Benefit Amount (Rs)','Last Updated'
+    'Benefit Amount (Rs)','Last Updated','Amount Entered, Not Yet Received (Rs)'
   ];
 
   const dataRows = rows.map(r => {
@@ -36724,8 +36973,14 @@ function exportAdvocacyCsv() {
       b.ngo||'', b.coord||'',
       r.scheme||'', status,
       r.benefitRecd || 'No',
-      r.benefitAmt || '',
+      // V26.0: a received entry is worth what the Benefit Amount box counts - the typed
+      // amount, or the scheme's standard value when none was typed (_v18RowBenefit). The
+      // column summed ~Rs 8 Cr below the box on 8 Oct. Other entries: as typed, unchanged.
+      (status === 'Benefits Received' ? (_v18RowBenefit(r) || '') : ''),
       r.__createdAt || '',
+      // V26.0: so the Benefit Amount column adds up to the Benefit Amount box, a figure typed on an
+      // entry that is not (yet) received sits here instead (8 Oct: Rs 50,51,000) - kept, not lost
+      (status === 'Benefits Received' ? '' : (r.benefitAmt || '')),
     ];
   });
 
@@ -40365,15 +40620,13 @@ function _v362ComputeOneSummary(records, advRecords, ngoScope, prefiltered) {
   const recs = (ngoScope && !prefiltered)
     ? records.filter(b => b && b.ngo === ngoScope)
     : records;
-  const adv = (ngoScope && !prefiltered)
-    ? advRecords.filter(a => a && a.ngo === ngoScope)
-    : advRecords;
+  // V26.0: no slice of the scheme records by their own partner copy (it goes stale when a
+  // household moves). The rows are de-duplicated over ALL of advRecords and then narrowed
+  // to this scope's households - the rule the dash payload below already used.
 
   // ---- Dashboard tab ----
   const livRecs = recs.filter(b => (b.interventions||[]).some(i => i && i !== 'Advocacy (Govt. Schemes)'));
-  const advBidSet = new Set();
-  for (const a of adv) { if (a && a.bid) advBidSet.add(a.bid); }
-  const advRecs2 = recs.filter(b => advBidSet.has(b.id));
+  // V26.0: advBidSet / advRecs2 (the advocacy people) are counted from the rows - see below
   const statesSet = new Set();
   const distSet = new Set();
   for (const b of recs) {
@@ -40393,7 +40646,7 @@ function _v362ComputeOneSummary(records, advRecords, ngoScope, prefiltered) {
   // a local de-dup if running in a context where _advLatestRowsAll is absent.
   let allRows;
   try {
-    allRows = (typeof _advLatestRowsAll === 'function') ? _advLatestRowsAll(adv) : adv.flatMap(a => (a.schemeRows||[]).map(r => Object.assign({__bid:a.bid}, r)));
+    allRows = (typeof _advLatestRowsAll === 'function') ? _advLatestRowsAll(advRecords) : advRecords.flatMap(a => (a.schemeRows||[]).map(r => Object.assign({__bid:a.bid}, r)));   // V26.0: whole set, then narrowed
   } catch(_) { allRows = []; }
   // Filter to scope's advocacy rows (the cache returns ALL — re-filter by bid here)
   const scopedBidSet = new Set(recs.map(b => b.id));
@@ -40403,6 +40656,12 @@ function _v362ComputeOneSummary(records, advRecords, ngoScope, prefiltered) {
   // scheme rows whose beneficiary no longer exists - so the stored figure
   // sat above the tile on the same data.
   allRows = allRows.filter(r => scopedBidSet.has(r.__bid));
+  // V26.0: ONE RULE - an advocacy person is a household in this scope with at least one
+  // counted entry (was: any advocacy record, households gone included, by the record's
+  // own partner copy). Same fields, same shapes; _v400ComputeAllSummaries counts the same.
+  const advBidSet = new Set();
+  for (const r of allRows) { if (!r._deleted) advBidSet.add(r.__bid); }
+  const advRecs2 = recs.filter(b => advBidSet.has(b.id));
   let needApply=0, applied=0, rejected=0, received=0, totalAmt=0;
   for (const r of allRows) {
     if (r._deleted) continue;
@@ -40697,31 +40956,50 @@ async function _v400ComputeAllSummaries(records, advRecords) {
     global.ngoMap[b.ngo][tgt]++;
     if (byNgo[b.ngo]) byNgo[b.ngo].ngoMap[b.ngo][tgt]++;
   }
-  // ---- Pass 2 (advocacy): advBid sets + weekly adv events (RAW rows) ----
-  for (let i = 0; i < advRecords.length; i++) {
+  // ---- Pass 2 (V26.0): the COUNTED ROWS - people, weekly bars, row buckets ----
+  // ⛔ V26.0: ONE RULE (owner, 2026-10-19). An advocacy person is a household ON FILE with
+  // at least one counted entry; the entries, the weekly bars and the Rs are those rows.
+  // De-duplicated ONCE over every scheme record, then narrowed to each scope's households
+  // and grouped by the HOUSEHOLD's partner (CLAUDE.md §10) - exactly _v362ComputeOneSummary.
+  // Before: people were every advocacy RECORD (households gone included), and both the
+  // people and the row buckets followed the record's own partner copy, which goes stale
+  // when a household moves (8 Oct: KRSF.Idar stored Rs 26.29 Cr against 27.18 Cr on screen).
+  // Same fields, same shapes - only counts move, so the stored bytes do not grow.
+  const _v260Own = new Map();          // household id -> its partner ('' when none)
+  for (let i = 0; i < records.length; i++) {
     if (i > 0 && i % CHUNK === 0) await _v400Yield();
-    const a = advRecords[i];
-    if (!a) continue;
-    const ctxs = (a.ngo && byNgo[a.ngo]) ? [global, byNgo[a.ngo]] : [global];
-    const wk = _v400WeekKey(a.updatedAt || a.createdAt);
+    const b = records[i];
+    if (b && b.id) _v260Own.set(b.id, b.ngo || '');
+  }
+  // ⛔ V18.7: ONE de-duplication rule - _advLatestRowsAll itself, never a second copy.
+  const _v187Shared = _advLatestRowsAll(advRecords);
+  const gRows = {};                    // global byKey
+  const nRows = {};                    // ngoName -> byKey
+  for (let i = 0; i < _v187Shared.length; i++) {
+    if (i > 0 && i % CHUNK === 0) await _v400Yield();
+    const r = _v187Shared[i];
+    if (!r || !r.scheme || r._deleted) continue;
+    if (!_v260Own.has(r.__bid)) continue;              // a household on file only (V19.5)
+    const n = _v260Own.get(r.__bid);
+    const ctxs = (n && byNgo[n]) ? [global, byNgo[n]] : [global];
+    const key = r.__bid + '::' + r.scheme + '::' + (r.remarks || '');
+    // V19.5: ⛔ `scheme` is kept - the valuation rule reads it for the standard amount.
+    const row = { status: r.status, benefitRecd: r.benefitRecd, benefitAmt: r.benefitAmt,
+                  scheme: r.scheme,
+                  _deleted: r._deleted, __bid: r.__bid };
+    gRows[key] = row;
+    if (n && byNgo[n]) (nRows[n] = nRows[n] || {})[key] = row;   // the HOUSEHOLD's partner
+    const wk = _v400WeekKey(r.__ts);   // the date of the version that survived, as _v362
+    const s = _advNormStatus(r);
     for (const c of ctxs) {
-      if (a.bid) c.advBid.add(a.bid);
+      c.advBid.add(r.__bid);
       if (wk) {
         if (!c.weeks[wk]) c.weeks[wk] = { week: wk, enrolled: 0, applied: 0, received: 0, rejected: 0 };
-        // ⛔ V18.7: the seventh counting site, and the one most people see.
-        // This is the ADMIN path that writes /_summary/global and every
-        // per-NGO summary the donor and viewer dashboards read. It still built
-        // its bars from the raw list while _v362ComputeOneSummary (NGO-admin
-        // save) and _v363ComputeFcSlice (FC save) had been switched to the
-        // de-duplicated rows — so the same partner's chart differed depending
-        // on who happened to save last.
-        for (const r of (_v187RowsByBid(advRecords).get(a.bid) || [])) {
-          if (!r || r._deleted) continue;
-          const s = _advNormStatus(r);
-          if (s === 'Applied') c.weeks[wk].applied++;
-          else if (s === 'Benefits Received') c.weeks[wk].received++;
-          else if (s === 'Rejected') c.weeks[wk].rejected++;
-        }
+        // ⛔ V18.7: the seventh counting site, and the one most people see - the bars
+        // are the de-duplicated rows, as in _v362ComputeOneSummary and _v363ComputeFcSlice.
+        if (s === 'Applied') c.weeks[wk].applied++;
+        else if (s === 'Benefits Received') c.weeks[wk].received++;
+        else if (s === 'Rejected') c.weeks[wk].rejected++;
       }
     }
   }
@@ -40740,38 +41018,10 @@ async function _v400ComputeAllSummaries(records, advRecords) {
       else if (!isLiv && tagged) c.advOnly++;
     }
   }
-  // ---- Pass 4 (advocacy rows): dedup ONCE per scope, then status counts ----
-  // One stable sort by createdAt (same comparator as _advLatestRowsAll); a
-  // stable-sorted whole restricted to a bucket ≡ the bucket sorted alone, so
-  // per-scope dedup over this order matches _advLatestRowsAll(slice) exactly.
+  // ---- Pass 4: status counts per scope (V26.0: the rows were bucketed in pass 2) ----
   // ⛔ V18.7: ONE de-duplication rule. This block used to re-implement it -
   // the same key string, the same sort, written out a second time - and two
-  // copies of a rule drift. A rule drifting between screens is the whole
-  // complaint this release answers. It surfaced while writing the sabotage
-  // tests: the mutation on the key could not be applied, because the pattern
-  // matched in two places.
-  const _v187Shared = _advLatestRowsAll(advRecords);
-  const gRows = {};                    // global byKey
-  const nRows = {};                    // ngoName -> byKey
-  for (let i = 0; i < _v187Shared.length; i++) {
-    if (i > 0 && i % CHUNK === 0) await _v400Yield();
-    const r = _v187Shared[i];
-    if (!r || !r.scheme) continue;
-    const key = r.__bid + '::' + r.scheme + '::' + (r.remarks || '');
-    // V19.5: ⛔ `scheme` was dropped here, and the valuation rule reads it to
-    // find the standard amount for a benefit with no typed figure. Without
-    // it every one of the 5,874 blank benefits was worth zero, so the
-    // summary an ADMIN writes came out Rs 5.65 crore below the same
-    // partner's summary written by the partner - the same node, flipping by
-    // crores depending on who saved last.
-    const row = { status: r.status, benefitRecd: r.benefitRecd, benefitAmt: r.benefitAmt,
-                  scheme: r.scheme,
-                  _deleted: r._deleted, __bid: r.__bid };
-    gRows[key] = row;
-    // the partner bucket follows the RECORD's partner, exactly as before
-    const bucket = (r.__ngo && byNgo[r.__ngo]) ? (nRows[r.__ngo] = nRows[r.__ngo] || {}) : null;
-    if (bucket) bucket[key] = row;
-  }
+  // copies of a rule drift.
   async function countRows(byKey, bidFilter) {
     const out = { needApply: 0, applied: 0, rejected: 0, received: 0, totalAmt: 0 };
     const keys = Object.keys(byKey);
@@ -40922,9 +41172,7 @@ function _v363ComputeFcSlice(records, advAll, user) {
   const adv  = (advAll || []).filter(a => a && a.createdBy === user.userId);
 
   const livRecs = recs.filter(b => (b.interventions||[]).some(i => i && i !== 'Advocacy (Govt. Schemes)'));
-  const advBidSet = new Set();
-  for (const a of adv) { if (a && a.bid) advBidSet.add(a.bid); }
-  const advRecsCount = recs.filter(b => advBidSet.has(b.id)).length;
+  // V26.0: advBidSet / advRecsCount (the advocacy people) are counted from the rows - see below
   let totalIncome = 0;
   // V19.3: the one rule - see _v193Delta. This is the stored summary that
   // donors and Team Leaders read; it used to count any record with an
@@ -40941,6 +41189,12 @@ function _v363ComputeFcSlice(records, advAll, user) {
   // Filter to this FC's bids only
   const bidSet = new Set(recs.map(b => b.id));
   allRows = allRows.filter(r => bidSet.has(r.__bid));
+  // V26.0: ONE RULE - an advocacy person is one of this coordinator's households with at
+  // least one counted entry (was: every household of an advocacy record this coordinator
+  // typed, their own or not). The rows themselves are unchanged.
+  const advBidSet = new Set();
+  for (const r of allRows) { if (!r._deleted) advBidSet.add(r.__bid); }
+  const advRecsCount = advBidSet.size;
   let needApply=0, applied=0, rejected=0, received=0, totalAmt=0;
   for (const r of allRows) {
     if (r._deleted) continue;
@@ -42197,8 +42451,11 @@ function _v356PopulateSchemeFilter() {
 // Advocacy intervention flag or having any advocacy record logged against them.
 function _coordClassifyProg(b, advByBid) {
   const hasLiv = (b.interventions||[]).some(i => i && i !== 'Advocacy (Govt. Schemes)');
+  // V26.0: ONE RULE - advByBid now maps a household to its COUNTED rows (latest copy per
+  // scheme, not deleted), so a household is in Advocacy when it has one; not the tag, and
+  // not a record whose entries were all deleted.
   const schemeCnt = (advByBid[b.id] || []).length;
-  const hasAdv = schemeCnt > 0 || (b.interventions||[]).includes('Advocacy (Govt. Schemes)');
+  const hasAdv = schemeCnt > 0;
   return { hasLiv, hasAdv };
 }
 
@@ -43049,7 +43306,10 @@ function _coordActiveDayCount(list, advAll) {
 function _coordComputeBadgeStats() {
   const list = getData();
   const advAll = loadAdv();
-  const rows = _advLatestRowsAll(advAll);
+  // V26.0: narrowed to the coordinator's own households, exactly as the carousel
+  // (_coordComputeReportsData) - a household handed to someone else no longer counts here.
+  const _v260Own = new Set(list.map(function(b) { return b && b.id; }));
+  const rows = _advLatestRowsAll(advAll).filter(function(r) { return r && _v260Own.has(r.__bid); });
   // Reuse the Reports computation for ₹ so the badge and the carousel can
   // never disagree about the same number. Pass our already-cloned arrays in
   // rather than letting it re-clone the whole dataset a second time.
@@ -43382,7 +43642,9 @@ function coordRenderList() {
   // are cached in a bid → records map to avoid O(n²) scans.
   const advAll = loadAdv();
   const advByBid = {};
-  advAll.forEach(a => { (advByBid[a.bid] = advByBid[a.bid] || []).push(a); });
+  // V26.0: the counted rows, not the raw records (see _coordClassifyProg). loadAdv() is the
+  // whole cache, so this is the memoised full set - no extra pass.
+  _advLatestRowsAll(advAll).forEach(r => { (advByBid[r.__bid] = advByBid[r.__bid] || []).push(r); });
   const progOf = {};
   list.forEach(b => { progOf[b.id] = _coordClassifyProg(b, advByBid); });
 
@@ -43635,7 +43897,7 @@ function coordCardHtml(b, advByBid) {
   // not passed (legacy callers), fall back to loading advocacy records.
   const _advMap = advByBid || (function() {
     const m = {};
-    loadAdv().forEach(a => { (m[a.bid] = m[a.bid] || []).push(a); });
+    _advLatestRowsAll(loadAdv()).forEach(r => { (m[r.__bid] = m[r.__bid] || []).push(r); });   // V26.0: counted rows
     return m;
   })();
   const { hasLiv, hasAdv } = _coordClassifyProg(b, _advMap);
@@ -43694,7 +43956,8 @@ function coordCardHtml(b, advByBid) {
         // V332-FC-SCHEMES: render the latest scheme rows as clickable tags.
         // Tapping a tag opens the bottom-sheet status picker. We stop the
         // click from also opening the drawer.
-        if (!hasAdv) return '';
+        // V26.0: it no longer COUNTS as Advocacy, but the hint stays on its card
+        if (!hasAdv && !(b.interventions || []).includes('Advocacy (Govt. Schemes)')) return '';
         try {
           var rows = _advLatestRowsForBeneficiary(b.id) || [];
           if (!rows.length) {
@@ -43843,7 +44106,8 @@ function _applyRoleVisibility() {
     // the Reports nav entries. It only unhides the BUTTON; renderReports()
     // re-checks the role itself, so this attribute can never be the only thing
     // standing between a role and the page.
-    if (el.hasAttribute('data-ngo-ok')) { el.style.display = (isAdm || isNgo || (isSV && el.hasAttribute('data-donor-ok'))) ? '' : 'none'; return; }   // V25.6: + donors
+    // V26.0: + team leaders, on a control marked data-tl-ok (the sidebar Reports entry)
+    if (el.hasAttribute('data-ngo-ok')) { el.style.display = (isAdm || isNgo || (isSV && el.hasAttribute('data-donor-ok')) || (isTL && el.hasAttribute('data-tl-ok'))) ? '' : 'none'; return; }   // V25.6: + donors
     el.style.display = isAdm ? '' : 'none';
   });
   // V325: utility-only tools are permanently hidden from sidebar even for
