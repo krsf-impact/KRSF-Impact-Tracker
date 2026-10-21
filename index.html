@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V26.0-LIVE
+  KRSF Beneficiary Impact Tracker  -  V26.1-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,27 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V26.1-LIVE (2026-10-21 - the screens follow the filter you are on).
+
+    + In Reports, clicking a coordinator narrows the app to that coordinator.
+      The Advocacy cards were remembered from an EARLIER filter, so after that
+      click they showed another coordinator's figures while the list beneath
+      followed the new one, and clicking a card listed nobody (owner's video,
+      21 Oct; the same in V25.9 and V26.0). The figures are now kept for the
+      filters they were counted under: any change of filter counts them again.
+    + While one coordinator is chosen, every screen says so in a banner above
+      it, with one click to show all coordinators again. Choosing a partner
+      (top bar or a partner row) now shows all of its coordinators: one left
+      chosen under another partner showed 0 on every screen.
+    + The box figures read in Indian commas - 1,73,960, not 173960 (Dashboard,
+      Advocacy, Integrated, All Beneficiaries, coordinator Home). Reports: the
+      Livelihood group has a light green edge, like Advocacy's light blue.
+    + Reviews: a remembered page now also follows the Advocacy / Integrated /
+      Livelihood choices; sign-out forgets a Reports click; the top bar shows
+      the partner a Reports click chose; Dashboard <-> Advocacy reuses figures.
+    + Firebase: 0 new reads or writes. No counting rule changes.
+    + Tests: 117 files. The V26.1 click-through check is _specs/v261/nav-check.js.
+
   V26.0-LIVE (2026-10-19 - the same advocacy numbers everywhere; Reports for
   team leaders).
 
@@ -3088,6 +3109,9 @@ body[data-shell="coord"] .coord-card {
 .rpt-fbanner b{font-weight:700;color:#5A3405}
 .rpt-fbanner button{background:#fff;border:1px solid #FEC84B;color:#B54708;font:600 12px/1 inherit;padding:6px 11px;border-radius:6px;cursor:pointer;white-space:nowrap;font-family:inherit}
 .rpt-fbanner button:hover{background:#FEF0C7}
+/* V26.1: the same banner above every screen while one coordinator is chosen */
+#v261-fc-banner{margin:12px 22px 0}
+@media(max-width:768px){#v261-fc-banner{margin:10px 12px 0}}
 .rpt-chips{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}
 .rpt-chips button{padding:7px 14px;min-height:36px;border-radius:99px;border:1px solid var(--rbd);
   background:#fff;font-size:12.5px;color:var(--ink2);font-family:var(--font);cursor:pointer;
@@ -3197,7 +3221,7 @@ body[data-shell="coord"] .coord-card {
    over the table, so the six columns read as two sets of three. */
 .v246-kgroups{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
 .v246-kg{border-radius:16px;padding:10px;display:flex;flex-direction:column;gap:8px;min-width:0}
-.v246-kg.adv{background:#E1F0FB;border:1.5px solid #B5D4F4} .v246-kg.liv{background:#ECF8F1;border:1.5px solid transparent}   /* V26.0 */
+.v246-kg.adv{background:#E1F0FB;border:1.5px solid #B5D4F4} .v246-kg.liv{background:#ECF8F1;border:1.5px solid #B9E2C8}   /* V26.0 */
 .v246-kg-lab{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;padding:2px 6px 0}
 .v246-kg.adv .v246-kg-lab{color:#185FA5} .v246-kg.liv .v246-kg-lab{color:var(--green)}
 .v246-kg-lab span{font-weight:500;letter-spacing:0;text-transform:none;color:var(--ink2)}
@@ -3730,7 +3754,7 @@ body[data-shell="coord"] .coord-card {
         <option value="">All States</option>
         <option>Andhra Pradesh</option><option>Arunachal Pradesh</option><option>Assam</option><option>Bihar</option><option>Chhattisgarh</option><option>Goa</option><option>Gujarat</option><option>Haryana</option><option>Himachal Pradesh</option><option>Jharkhand</option><option>Karnataka</option><option>Kerala</option><option>Madhya Pradesh</option><option>Maharashtra</option><option>Manipur</option><option>Meghalaya</option><option>Mizoram</option><option>Nagaland</option><option>Odisha</option><option>Punjab</option><option>Rajasthan</option><option>Sikkim</option><option>Tamil Nadu</option><option>Telangana</option><option>Tripura</option><option>Uttar Pradesh</option><option>Uttarakhand</option><option>West Bengal</option><option>Andaman & Nicobar Islands</option><option>Chandigarh</option><option>Dadra & Nagar Haveli and Daman & Diu</option><option>Delhi</option><option>Jammu & Kashmir</option><option>Ladakh</option><option>Lakshadweep</option><option>Puducherry</option>
       </select>
-      <select class="fsel" id="ngo-filter" onchange="_v13RptForgetReturn();ngoFilter=this.value;_rebuildStateFilterOptions();renderCurrent()">
+      <select class="fsel" id="ngo-filter" onchange="_v13RptForgetReturn();ngoFilter=this.value;fcFilter='';_rebuildStateFilterOptions();renderCurrent()">
         <option value="">All NGOs</option>
       </select>
       <button class="btn btn-primary" id="topbar-enroll-btn" onclick="openEnroll()">+ Enroll Beneficiary</button>
@@ -3738,7 +3762,7 @@ body[data-shell="coord"] .coord-card {
   </div>
   <div class="mob-filter-row" id="mob-filter-row">
     <select class="fsel" id="mob-state-filter" onchange="_v13RptForgetReturn();stateFilter=this.value;document.getElementById('state-filter').value=this.value;renderCurrent()"><option value="">All States</option><option>Andhra Pradesh</option><option>Arunachal Pradesh</option><option>Assam</option><option>Bihar</option><option>Chhattisgarh</option><option>Goa</option><option>Gujarat</option><option>Haryana</option><option>Himachal Pradesh</option><option>Jharkhand</option><option>Karnataka</option><option>Kerala</option><option>Madhya Pradesh</option><option>Maharashtra</option><option>Manipur</option><option>Meghalaya</option><option>Mizoram</option><option>Nagaland</option><option>Odisha</option><option>Punjab</option><option>Rajasthan</option><option>Sikkim</option><option>Tamil Nadu</option><option>Telangana</option><option>Tripura</option><option>Uttar Pradesh</option><option>Uttarakhand</option><option>West Bengal</option><option>Andaman & Nicobar Islands</option><option>Chandigarh</option><option>Dadra & Nagar Haveli and Daman & Diu</option><option>Delhi</option><option>Jammu & Kashmir</option><option>Ladakh</option><option>Lakshadweep</option><option>Puducherry</option></select>
-    <select class="fsel" id="mob-ngo-filter" onchange="_v13RptForgetReturn();ngoFilter=this.value;document.getElementById('ngo-filter').value=this.value;_rebuildStateFilterOptions();renderCurrent()"><option value="">All NGOs</option></select>
+    <select class="fsel" id="mob-ngo-filter" onchange="_v13RptForgetReturn();ngoFilter=this.value;fcFilter='';document.getElementById('ngo-filter').value=this.value;_rebuildStateFilterOptions();renderCurrent()"><option value="">All NGOs</option></select>
   </div>
   <!-- Date range filter row. Visible to admin + NGO roles (V318); hidden
        for coordinators (they see only their own records). Controlled by
@@ -3778,6 +3802,7 @@ body[data-shell="coord"] .coord-card {
     <div id="f-cal-grid" role="grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center"></div>
     <div id="f-cal-hint" style="margin-top:8px;font-size:11px;color:var(--gray2)">Tap a start day, then an end day.</div>
   </div>
+  <div id="v261-fc-banner" class="rpt-fbanner" role="status" style="display:none"></div>
   <div class="content" id="content"></div>
 </div>
 </div><!-- /.app — V6 fix: was previously unclosed, causing drawer/modals/login overlay to nest inside .app -->
@@ -4754,7 +4779,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V26.0-LIVE';
+const APP_VERSION = 'V26.1-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -26438,6 +26463,15 @@ function _searchDebounce(key, val, fn) {
 // V25.9: a pale shade of a box's own colour. Callers write the old value first
 // (background:#fff / border #E5E7EB), so a browser without color-mix() keeps the
 // white box it always had.
+// V26.1: a box figure as people read it - 173960 -> "1,73,960"; anything else unchanged
+function _v261N(v) {
+  if (typeof v === 'number') return (isFinite(v) && Math.floor(v) === v) ? v.toLocaleString('en-IN') : v;
+  if (typeof v === 'string' && /^-?\d{4,}$/.test(v)) return Number(v).toLocaleString('en-IN');
+  return v;
+}
+// V26.1: the same grouping for the count in a box's "of 173960" line - that pattern only, so
+// a date, an ID or anything else that ever reaches this line is left exactly as it is
+function _v261T(t) { return String(t == null ? '' : t).replace(/^of (\d{4,})$/, function (m, n) { return 'of ' + Number(n).toLocaleString('en-IN'); }); }
 function _v259Tint(col, pct) { return 'color-mix(in srgb, ' + col + ' ' + pct + '%, #fff)'; }
 // V25.9: one small icon per dashboard box, keyed by its colour class
 const _V259_ICON = {
@@ -26456,7 +26490,7 @@ function summaryStrip(cells, rowClass) {
       const rc = c.col || '#991B1B', rt = c.textc || '#991B1B';   // V25.9
       return `<div class="k-fit" style="background:#fff;background:${_v259Tint(rc, 9)};border:2px solid #E5E7EB;border-color:${_v259Tint(rc, 30)};border-radius:9px;padding:12px 14px;height:100%;display:flex;flex-direction:column;justify-content:flex-start;min-height:96px">
         <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:${rt};margin-bottom:5px">${c.label}</div>
-        <div class="k-num" style="--kn:${String(c.val).length};--kmax:22px;font-size:22px;font-weight:700;color:${rt};line-height:1.1">${c.val}</div>
+        <div class="k-num" style="--kn:${String(_v261N(c.val)).length};--kmax:22px;font-size:22px;font-weight:700;color:${rt};line-height:1.1">${_v261N(c.val)}</div>
       </div>`;
     }
     // Clickable filter cell
@@ -26474,11 +26508,11 @@ function summaryStrip(cells, rowClass) {
       ? `<div style="font-size:11px;color:#4B5563;margin-top:auto;padding-top:6px">${c.sub}</div>`
       : pctW != null
         ? `<div style="height:3px;background:#E5E7EB;border-radius:2px;margin-top:auto;overflow:hidden"><div style="height:100%;width:${pctW}%;background:${col};border-radius:2px"></div></div>
-           <div style="font-size:10px;color:#4B5563;margin-top:4px">${pctW}% ${c.pctLabel||''}</div>`
+           <div style="font-size:10px;color:#4B5563;margin-top:4px">${pctW}% ${_v261T(c.pctLabel||'')}</div>`
         : '';
     return `<div onclick="${c.onclick||''}" class="k-fit" style="background:#fff;background:${_v259Tint(col, active ? 16 : 9)};border:2px solid ${active?col:'#E5E7EB'};border-color:${active?col:_v259Tint(col, 30)};border-radius:9px;padding:12px 14px;cursor:pointer;transition:.15s;height:100%;display:flex;flex-direction:column;min-height:96px" onmouseover="this.style.borderColor='${col}'" onmouseout="this.style.borderColor='${active?col:'#E5E7EB'}';this.style.borderColor='${active?col:_v259Tint(col, 30)}'">
       <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:${textc};margin-bottom:5px">${c.label}</div>
-      <div class="k-num" style="--kn:${String(c.val).length};--kmax:22px;font-size:22px;font-weight:700;color:${textc};line-height:1.1">${c.val}</div>
+      <div class="k-num" style="--kn:${String(_v261N(c.val)).length};--kmax:22px;font-size:22px;font-weight:700;color:${textc};line-height:1.1">${_v261N(c.val)}</div>
       ${barHtml}
     </div>`;
   }).join('');
@@ -26500,6 +26534,7 @@ function _filterByNgoFromRow(rowEl) {
   // dropdown's appearance and nothing else. The same trap is documented
   // elsewhere in this file and was walked into again here.
   ngoFilter = name;
+  fcFilter = '';   // V26.1: a partner, all of its coordinators
   const sel = document.getElementById('ngo-filter');
   if (sel) sel.value = name;
   // V19.5: do everything the dropdown's own onchange does - on a phone the
@@ -27654,7 +27689,7 @@ function renderDashboard() {
   // the tile; min-width:0 is required for flex/grid children to allow shrinking.
   const tile = (label, val, sub, colorClass, valColor) => `<div class="stat ${colorClass||'s-blue'}${_V259_ICON[colorClass] ? ' k-tile k-fit' : ''}" style="padding:10px 12px;min-width:0">
     <div class="stat-label" style="font-size:10px">${_V259_ICON[colorClass] ? '<span class="k-ic" aria-hidden="true">' + _V259_ICON[colorClass] + '</span>' : ''}${label}</div>
-    <div class="stat-val odometer k-num" style="--kn:${String(val).length};font-size:18px;font-weight:700;word-break:break-word;line-height:1.15${valColor?';color:'+valColor:''}">${val}</div>
+    <div class="stat-val odometer k-num" style="--kn:${String(_v261N(val)).length};font-size:18px;font-weight:700;word-break:break-word;line-height:1.15${valColor?';color:'+valColor:''}">${_v261N(val)}</div>
     ${sub?`<div class="stat-sub" style="font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${String(sub).replace(/"/g,'&quot;').replace(/<[^>]+>/g,'')}">${sub}</div>`:''}
   </div>`;
 
@@ -28194,7 +28229,7 @@ function renderLivelihood(sub) {
     {kind:'readonly', label:'Total Additional Income',val: withEnd.length?'₹'+totalDelta.toLocaleString('en-IN'):'—'},
   ]);
 
-  document.getElementById('page-count').textContent = allB.length+' beneficiaries';
+  document.getElementById('page-count').textContent = _v261N(allB.length)+' beneficiaries';
   document.getElementById('content').innerHTML = strip + _livBenTabFull(allB);
   _restoreSearchFocus('liv-search-input');
 }
@@ -28248,7 +28283,7 @@ function _livBenTabFull(allB) {
 
   const _livPaginator = _livPages < 2 ? '' :
     '<div style="display:flex;align-items:center;gap:8px;justify-content:flex-end;padding:10px 16px;border-top:1px solid var(--gray3);">'
-    + '<span style="font-size:12px;color:var(--gray2)">Showing ' + (_livPgStart+1) + '\u2013' + _livPgEnd + ' of ' + _livTotal + '</span>'
+    + '<span style="font-size:12px;color:var(--gray2)">Showing ' + (_livPgStart+1) + '\u2013' + _v261N(_livPgEnd) + ' of ' + _v261N(_livTotal) + '</span>'
     + '<button onclick="livCurrentPage=1;renderLivelihood()"' + (livCurrentPage===1 ? ' disabled style="opacity:.4;cursor:not-allowed"' : ' style="cursor:pointer"') + ' style="padding:4px 8px;border:1px solid var(--gray3);border-radius:5px;background:#fff;font-size:12px">\u00AB</button>'
     + '<button onclick="livCurrentPage--;renderLivelihood()"' + (livCurrentPage===1 ? ' disabled style="opacity:.4;cursor:not-allowed"' : ' style="cursor:pointer"') + ' style="padding:4px 10px;border:1px solid var(--gray3);border-radius:5px;background:#fff;font-size:12px">\u2039 Prev</button>'
     + '<span style="font-size:12px;font-weight:600;color:var(--navy);padding:4px 10px;background:var(--navy3);border-radius:5px">' + livCurrentPage + ' / ' + _livPages + '</span>'
@@ -28257,7 +28292,7 @@ function _livBenTabFull(allB) {
     + '</div>';
 
   return chips+`<div class="card"><div class="card-head">
-    <div class="card-title">${escHtml(livInterv||'All Beneficiaries')}${livStage?' · '+stageLabel(livStage):''} <span style="font-size:12px;font-weight:400;color:var(--gray2)">${_livTotal} records</span>${_v247SavedLine()}</div>
+    <div class="card-title">${escHtml(livInterv||'All Beneficiaries')}${livStage?' · '+stageLabel(livStage):''} <span style="font-size:12px;font-weight:400;color:var(--gray2)">${_v261N(_livTotal)} records</span>${_v247SavedLine()}</div>
     <div class="filters"><input id="liv-search-input" class="fsearch" placeholder="Search name, ID, village..." value="${escHtml(livSearch)}" oninput="_searchDebounce('liv', this.value, () => { livSearch = _searchDebounceVal.liv; renderLivelihood(); })">
     <button class="btn btn-primary btn-sm" onclick="openEnroll()">+ Enroll</button></div></div>
     ${_livTotal===0?'<div class="empty">No beneficiaries match.</div>':`<table class="tbl"><thead><tr><th style="width:52px;text-align:center">Sr. No.</th><th>Beneficiary</th><th>Location</th><th>Partner</th><th>Intervention</th><th>Baseline</th><th>Stage</th><th>Income Delta</th></tr></thead><tbody>${rows}</tbody></table>${_livPaginator}`}
@@ -28361,9 +28396,30 @@ window._v361InvalidateAggCache = _v361InvalidateAggCache;
 // the same `allRows` array is shared so callers can still filter it cheaply
 // for display purposes (filter operations on the cached array are O(rows)
 // but happen at most once per render, not 5×).
+// V26.1: WHAT THE FILTERED HOUSEHOLD LIST DEPENDS ON - the signed-in person and every filter
+// filteredAll() reads. The Advocacy figures below were remembered until the DATA changed;
+// the top-bar dropdowns forgot them on the way (renderCurrent), but a coordinator chosen
+// in Reports (_v13RptDrill) and its restore did not, so the cards showed an earlier
+// filter's figures over a list of the new one (owner's video, 2026-10-21). Kept FOR the
+// filters now, so any route that changes a filter gets them counted again. Read by name:
+// these are top-level `let`s, never window properties (see _v357ComputeSig).
+function _v261FilterSig() {
+  try {
+    const u = (typeof currentUser === 'function') ? currentUser() : null;
+    return [u ? (u.userId || '') + '/' + (u.role || '') + '/' + (u.ngo || '') + '/' +
+        (Array.isArray(u.assignedFcIds) ? u.assignedFcIds.join(',') : '') + '/' + (Array.isArray(u.assignedNgos) ? u.assignedNgos.join(',') : '') : '-',
+      stateFilter, ngoFilter, fcFilter, baselineFrom, baselineTo, endlineFrom, endlineTo,
+      benefitFrom, benefitTo, appliedFrom, appliedTo,
+      // the category narrows nothing without a stage (_v201StageScope); nav() sets it to
+      // 'adv' on Advocacy and clears it on Dashboard, so counting it alone made every
+      // Dashboard <-> Advocacy switch recount the figures (review B: ~5x slower to open)
+      (filterStage ? filterCategory : ''), filterStage].join('\u0001');
+  } catch (_) { return null; }   // cannot tell: never reuse (null matches nothing below)
+}
 function _v361GetAdvAgg() {
   if (!_v361CacheEnabled()) return null;
-  if (_v361AdvAgg) return _v361AdvAgg;
+  const _v261Sig = _v261FilterSig();
+  if (_v361AdvAgg && _v261Sig !== null && _v361AdvAgg.__sig === _v261Sig) return _v361AdvAgg;   // V26.1: only for the same filters
   const allAdv = getAdvocacyBids();
   const allRows = _advLatestRowsAll(allAdv);
   const advBidsSet = new Set();
@@ -28390,6 +28446,7 @@ function _v361GetAdvAgg() {
   // It is the only place a live reference escapes a single render, so it is
   // where a future mutation would do the most damage. READ ONLY.
   _v361AdvAgg = {
+    __sig: _v261Sig,   // V26.1
     allAdv, allRows,
     advBids: Array.from(advBidsSet),
     totalBens: advBidsSet.size,
@@ -28652,7 +28709,7 @@ function _advBenTab2(allAdv, allB) {
 
   const _advBPaginator = _advBPages < 2 ? '' :
     '<div style="display:flex;align-items:center;gap:8px;justify-content:flex-end;padding:10px 16px;border-top:1px solid var(--gray3);">'
-    + '<span style="font-size:12px;color:var(--gray2)">Showing ' + (_advBPgStart+1) + '\u2013' + _advBPgEnd + ' of ' + _advBTotal + '</span>'
+    + '<span style="font-size:12px;color:var(--gray2)">Showing ' + (_advBPgStart+1) + '\u2013' + _v261N(_advBPgEnd) + ' of ' + _v261N(_advBTotal) + '</span>'
     + '<button onclick="advBCurrentPage=1;renderAdvocacy(\'beneficiaries\')"' + (advBCurrentPage===1 ? ' disabled style="opacity:.4;cursor:not-allowed"' : ' style="cursor:pointer"') + ' style="padding:4px 8px;border:1px solid var(--gray3);border-radius:5px;background:#fff;font-size:12px">\u00AB</button>'
     + '<button onclick="advBCurrentPage--;renderAdvocacy(\'beneficiaries\')"' + (advBCurrentPage===1 ? ' disabled style="opacity:.4;cursor:not-allowed"' : ' style="cursor:pointer"') + ' style="padding:4px 10px;border:1px solid var(--gray3);border-radius:5px;background:#fff;font-size:12px">\u2039 Prev</button>'
     + '<span style="font-size:12px;font-weight:600;color:var(--navy);padding:4px 10px;background:var(--navy3);border-radius:5px">' + advBCurrentPage + ' / ' + _advBPages + '</span>'
@@ -28661,7 +28718,7 @@ function _advBenTab2(allAdv, allB) {
     + '</div>';
 
   return `<div class="card"><div class="card-head">
-    <div class="card-title">Beneficiaries${advStageF?' · '+(advStageF==='ALL_SUBMITTED_FILTER'?'All Applications Submitted':advStageF):''}${advSchemeFilter&&advSchemeFilter!=='__other__'?' · '+advSchemeFilter:advSchemeFilter==='__other__'?' · Other Schemes':''} <span style="font-size:12px;font-weight:400;color:var(--gray2)">${_advBTotal} beneficiar${_advBTotal===1?'y':'ies'}</span>${_v247SavedLine()}</div>
+    <div class="card-title">Beneficiaries${advStageF?' · '+(advStageF==='ALL_SUBMITTED_FILTER'?'All Applications Submitted':advStageF):''}${advSchemeFilter&&advSchemeFilter!=='__other__'?' · '+advSchemeFilter:advSchemeFilter==='__other__'?' · Other Schemes':''} <span style="font-size:12px;font-weight:400;color:var(--gray2)">${_v261N(_advBTotal)} beneficiar${_advBTotal===1?'y':'ies'}</span>${_v247SavedLine()}</div>
     <div class="filters"><input id="adv-search-input" class="fsearch" placeholder="Search name or ID..." value="${advSearch2}" oninput="_searchDebounce('adv', this.value, () => { advSearch2 = _searchDebounceVal.adv; advBCurrentPage=1; renderAdvocacy('beneficiaries'); })">
     ${_canExport()?`<button class="btn btn-sm" onclick="exportAdvocacyCsv()" title="Download as CSV (opens in Excel)">📥 Export to Excel</button>`:''}
     <button class="btn btn-primary btn-sm" onclick="openAdvModal()">+ Log Advocacy</button></div></div>
@@ -29110,7 +29167,7 @@ function renderAllBeneficiaries() {
 
   // V325: Update page-count badge once per enrichment (not per page turn)
   const _pcEl = document.getElementById('page-count');
-  if (_pcEl) _pcEl.textContent = total + ' beneficiaries';
+  if (_pcEl) _pcEl.textContent = _v261N(total) + ' beneficiaries';
 
   // Apply program filter before search
   let list = enriched;
@@ -29153,13 +29210,13 @@ function renderAllBeneficiaries() {
     const p = key === '' ? 100 : pctOf(val);
     return `<div onclick="allBProgFilter='${act?'':key}';allBSelected=new Set();allBCurrentPage=1;renderAllBeneficiaries()" class="k-fit" style="background:#fff;background:${_v259Tint(col, act ? 16 : 9)};border:2px solid ${act?col:'#E5E7EB'};border-color:${act?col:_v259Tint(col, 30)};border-radius:9px;padding:12px 16px;cursor:pointer;transition:.15s" onmouseover="this.style.borderColor='${col}'" onmouseout="this.style.borderColor='${act?col:'#E5E7EB'}';this.style.borderColor='${act?col:_v259Tint(col, 30)}'">
       <div style="font-size:10px;font-weight:600;text-transform:uppercase;color:${textc};margin-bottom:6px;letter-spacing:.04em">${label}</div>
-      <div class="k-num" style="--kn:${String(val).length};--kmax:28px;font-size:28px;font-weight:700;color:${textc};line-height:1;margin-bottom:6px">${val}</div>
+      <div class="k-num" style="--kn:${String(_v261N(val)).length};--kmax:28px;font-size:28px;font-weight:700;color:${textc};line-height:1;margin-bottom:6px">${_v261N(val)}</div>
       <div style="height:4px;background:#F3F4F6;border-radius:2px;overflow:hidden;margin-bottom:4px"><div style="width:${p}%;height:100%;background:${col}"></div></div>
-      <div style="font-size:10px;color:#4B5563">${key===''?'100%':(p+'% of '+total)}</div>
+      <div style="font-size:10px;color:#4B5563">${key===''?'100%':(p+'% of '+_v261N(total))}</div>
     </div>`;
   };
 
-  document.getElementById('page-count').textContent=totalFiltered+' beneficiaries';
+  document.getElementById('page-count').textContent=_v261N(totalFiltered)+' beneficiaries';
   document.getElementById('content').innerHTML=`
     <div class="k-allb" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
       ${cardHtml('',        'All Beneficiaries', total,            '#25399D', '#1B2559')}
@@ -29168,7 +29225,7 @@ function renderAllBeneficiaries() {
       ${cardHtml('advOnly', 'Advocacy Only',     advOnlyList.length, '#0D9488', '#0F5F59')}
     </div>
     <div class="card"><div class="card-head">
-      <div class="card-title">All Beneficiaries${allBProgFilter==='livOnly'?' · Livelihood Only':allBProgFilter==='dual'?' · Dual':allBProgFilter==='advOnly'?' · Advocacy Only':''}${allBPhotoFilter?' · With a photo':''} <span style="font-size:12px;font-weight:400;color:var(--gray2)">${list.length} records</span>${_v247SavedLine()}</div>
+      <div class="card-title">All Beneficiaries${allBProgFilter==='livOnly'?' · Livelihood Only':allBProgFilter==='dual'?' · Dual':allBProgFilter==='advOnly'?' · Advocacy Only':''}${allBPhotoFilter?' · With a photo':''} <span style="font-size:12px;font-weight:400;color:var(--gray2)">${_v261N(list.length)} records</span>${_v247SavedLine()}</div>
       <div class="filters">
         <input id="allb-search-input" class="fsearch" placeholder="Search name, ID, village, NGO..." value="${escHtml(allBSearch)}" oninput="_searchDebounce('allb', this.value, () => { allBSearch = _searchDebounceVal.allb; allBSelected = new Set(); allBCurrentPage = 1; renderAllBeneficiaries(); })">
         <button class="btn btn-sm" onclick="allBPhotoFilter=!allBPhotoFilter;allBSelected=new Set();allBCurrentPage=1;renderAllBeneficiaries()"
@@ -29224,7 +29281,7 @@ function renderAllBeneficiaries() {
         }).join('');
         const pgBar = totalPages > 1 ? `
           <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-top:1px solid var(--gray3);background:var(--gray4);border-radius:0 0 8px 8px;flex-wrap:wrap;gap:8px">
-            <span style="font-size:12px;color:var(--gray2)">Showing ` + (pageStart+1) + `\u2013` + pageEnd + ` of ` + totalFiltered + `</span>
+            <span style="font-size:12px;color:var(--gray2)">Showing ` + (pageStart+1) + `\u2013` + _v261N(pageEnd) + ` of ` + _v261N(totalFiltered) + `</span>
             <div style="display:flex;gap:5px;align-items:center">
               <button onclick="allBCurrentPage=1;renderAllBeneficiaries()" ` + (allBCurrentPage===1?'disabled style="opacity:.4;cursor:not-allowed"':'style="cursor:pointer"') + ` style="padding:4px 8px;border:1px solid var(--gray3);border-radius:5px;background:#fff;font-size:12px">&#171;</button>
               <button onclick="allBCurrentPage--;renderAllBeneficiaries()" ` + (allBCurrentPage===1?'disabled style="opacity:.4;cursor:not-allowed"':'style="cursor:pointer"') + ` style="padding:4px 10px;border:1px solid var(--gray3);border-radius:5px;background:#fff;font-size:12px">&#8249; Prev</button>
@@ -31350,6 +31407,7 @@ function _v13RptDrill(fcId, ngoName) {
   stateFilter = '';
   ngoFilter   = ngoName || '';
   fcFilter    = fcId || '';
+  try { _v13SyncFilterSelects(); } catch (_) {}   // V26.1: the top bar shows the partner chosen here
   // V13.1: Integrated view, not Livelihood. Livelihood shows only the income
   // side, so drilling into a coordinator hid whatever advocacy work they had
   // done - half their record, presented as all of it.
@@ -32318,6 +32376,16 @@ function _v357ComputeSig(view) {
   try {
     parts.push('allb', allBProgFilter, allBPhotoFilter);
   } catch (_) { parts.push('allb', 'unavailable'); }
+  // V26.1 (review A): the choices a screen draws from, on THAT screen's page only - a card
+  // clicked on Advocacy must not make Reports or the Dashboard redraw (review C: up to 4 s).
+  // One guard per name.
+  const _v261Scr = view === 'advocacy' ? [function () { return advStageF; }, function () { return advSchemeFilter; }, function () { return advSearch2; }, function () { return advSubTab; }]
+    : view === 'integrated' ? [function () { return intSubTab; }, function () { return intSearch2; }, function () { return intCurrentPage; }]
+    : view === 'list' ? [function () { return livStage; }, function () { return livInterv; }, function () { return livSearch; }, function () { return livSubTab; }]
+    : view === 'dashboard' ? [function () { return progFilter; }] : [];
+  parts.push('scr');
+  _v261Scr
+    .forEach(function (f) { try { parts.push(String(f())); } catch (_) { parts.push('?'); } });
   // ── V12: the Reports state, read DIRECTLY ─────────────────────────────────
   // rptTab and friends are declared with `let`, and a top-level `let` lives in
   // the global DECLARATIVE environment record — it is never a property of
@@ -32586,7 +32654,41 @@ window.nav=function(v){
   // shown/hidden after any rerender that might have reset them; filter locks
   // need reapplied because the topbar DOM persists but selection state doesn't).
   _applyRoleVisibility();
+  try { _v261FcBanner(); } catch (_) {}   // V26.1
 };
+// V26.1: WHILE ONE COORDINATOR IS CHOSEN, EVERY SCREEN SAYS SO. Clicking a coordinator
+// in Reports narrows the whole app to them, and nothing outside Reports said so: the
+// top bar shows only the partner, so one coordinator's 577 households read as the
+// partner's (owner's video, 2026-10-21). Reports keeps its own banner (_v13RptFilterBanner).
+// Drawn outside #content, after every screen change and redraw; reads variables only.
+function _v261FcBanner() {
+  const el = document.getElementById('v261-fc-banner');
+  if (!el) return;
+  const coordShell = document.body && document.body.dataset && document.body.dataset.shell === 'coord';
+  // not on Reports (its own banner) nor on the admin tools (they are not filtered)
+  if (!fcFilter || currentView === 'reports' || currentView === 'alerts' || String(currentView).indexOf('admin_') === 0 || coordShell) {
+    if (el.style.display !== 'none') { el.style.display = 'none'; el.innerHTML = ''; }
+    return;
+  }
+  let who = fcFilter;
+  try {   // the roster entry itself (loadUsers() would copy all ~630 users on every screen change)
+    const x = (typeof RecordCache === 'object' && RecordCache.users && RecordCache.users.get(fcFilter))
+      || (loadUsers() || []).find(v => v && v.id === fcFilter);
+    if (x) who = x.fullName || x.username || fcFilter;
+  } catch (_) {}
+  el.innerHTML = '<span>Showing one coordinator only \u2014 <b>' + escHtml(String(who)) + '</b>'
+    + (ngoFilter ? ' \u00b7 partner <b>' + escHtml(String(ngoFilter)) + '</b>' : '')
+    + '. These figures are not the whole partner.</span>'
+    + '<button type="button" onclick="_v261ClearFc()">\u2715 Show all coordinators</button>';
+  el.style.display = 'flex';
+}
+// Only the coordinator goes; the partner, district and dates stay as they are.
+function _v261ClearFc() {
+  fcFilter = '';
+  try { _v13SyncFilterSelects(); } catch (_) {}   // the top bar shows the partner still chosen
+  try { renderCurrent(); } catch (_) {}
+}
+window._v261ClearFc = _v261ClearFc;
 window.renderCurrent=function(){
   // v21.0 shell dispatch — coordinator shell has its own list renderer,
   // bypassing the nav-routes table (which is manager-shell territory).
@@ -32604,6 +32706,7 @@ window.renderCurrent=function(){
   // Refresh admin date-range summary chip after every render so the live
   // match count stays accurate as other filters (state/NGO) also tighten.
   try { _refreshDateFilterSummary(); } catch(_){}
+  try { _v261FcBanner(); } catch (_) {}   // V26.1
 };
 
 // ── ADMIN PANEL RENDERERS ───────────────────────────────────────────────────
@@ -40058,6 +40161,7 @@ async function doLogout() {
   // V331 FIX (S2.16): reset all UI filters so they don't leak into the next session.
   try {
     stateFilter = ''; ngoFilter = ''; fcFilter = '';
+    try { _v13RptReturn = null; } catch (_) {}   // V26.1: and what a Reports click had borrowed
     // V19.5: signing out does NOT reload the page, so this flag had to be
     // cleared here - otherwise the second person to sign in on a shared
     // laptop got no warning and no count when their scope was missing.
@@ -43768,7 +43872,7 @@ function coordRenderList() {
     return `<div class="coord-sum-card k-fit" style="background:${_v259Tint(col, active ? 16 : 9)};border-color:${border};${active?`box-shadow:0 0 0 1px ${col} inset;`:''}"
              onclick="coordSetProgFilter('${key}')">
       <div class="coord-sum-card-label" style="color:${textc}">${label}</div>
-      <div class="coord-sum-card-val k-num" style="--kn:${String(val).length};--kmax:20px;color:${textc}">${val}</div>
+      <div class="coord-sum-card-val k-num" style="--kn:${String(_v261N(val)).length};--kmax:20px;color:${textc}">${_v261N(val)}</div>
       <div class="coord-sum-card-sub">${sub}</div>
     </div>`;
   };
@@ -43793,7 +43897,7 @@ function coordRenderList() {
                       _coordSchemeFilter || _coordStatusFilter ||
                       _coordDateFrom || _coordDateTo;
     countBar.textContent = anyFilter
-      ? `Showing ${shown} of ${total} beneficiar${total===1?'y':'ies'}`
+      ? `Showing ${_v261N(shown)} of ${_v261N(total)} beneficiar${total===1?'y':'ies'}`
       : `${total} beneficiar${total===1?'y':'ies'} enrolled`;
   }
 
@@ -43870,7 +43974,7 @@ function coordRenderList() {
   // Refresh the count bar so it reflects the paged slice
   const _countBar = document.getElementById('coord-count-bar');
   if (_countBar && list.length > _coordPageSize) {
-    _countBar.textContent = 'Showing ' + _pageList.length + ' of ' + list.length +
+    _countBar.textContent = 'Showing ' + _v261N(_pageList.length) + ' of ' + _v261N(list.length) +
       ' beneficiar' + (list.length === 1 ? 'y' : 'ies') +
       ' (page ' + _coordPage + ' of ' + _totalPages + ')';
   }
