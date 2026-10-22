@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V26.1-LIVE
+  KRSF Beneficiary Impact Tracker  -  V26.2-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,30 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V26.2-LIVE (2026-10-22 - choose several partners at once).
+
+    + The partner menu has "Choose several partners..." (admin and donor
+      logins): tick any partners and every screen shows them together -
+      Dashboard, Reports, Advocacy, Livelihood, Integrated, All Beneficiaries,
+      Field Map, NGO Partners, the Today card, the Excel files and the
+      banners - counted exactly as for one partner (a household belongs to
+      one partner, so nothing is counted twice).
+    + Indian commas on the counts V26.1 left plain: the scheme and livelihood
+      buttons ("E-Shram Card 40,973", owner's photo, 22 Oct), the Dashboard
+      bars, charts and top partners, Alerts, the NGO Partners table, the page
+      counters, the Reports trend tab, the admin Partners / Users / Schemes /
+      Livelihoods tables. A coordinator using Hindi or Gujarati with 1,000 or
+      more households sees those counts translated again (V26.1 left the
+      comma'd lines in English).
+    + Partner and donor logins' stored Today figures no longer follow the
+      office's on-screen choice: with a partner or district chosen while the
+      five-minute count ran, every other partner's Today was stored as zero
+      (since V22.4; found in review), and it no longer stores the office's
+      filter names with it (bytes every partner login downloaded). The Clear
+      button resets the phone menu.
+    + 0 bytes of Firebase: the office holds every record already; a donor
+      choosing several loads what choosing one did. No counting rule changes.
+
   V26.1-LIVE (2026-10-21 - the screens follow the filter you are on).
 
     + In Reports, clicking a coordinator narrows the app to that coordinator.
@@ -676,26 +700,6 @@
       all failed one line - this count, which still said 78. v220users does
       not run on V22.8 either (its import never starts in the harness) and is
       a separate, pre-existing fault.
-
-  V22.8-LIVE (2026-09-21 - the empty thing that came back missing).
-
-    + ⛔ A PARTNER LOGIN WITH NO RECENT HOUSEHOLD ACTIVITY SAW "Loading your
-      figures" FOR EVER. Not slow - crashed. The stored figures carry two sets
-      of recent activity, households and scheme records. Firebase stores
-      NOTHING for an empty one, so a partner with scheme activity but no
-      household activity got that block back without its households half, and
-      reading the keys of something absent threw and killed the whole dashboard
-      render. Live on 21 September, on V22.5 and V22.7 alike - this was never a
-      V22.7 fault and rolling back could not have fixed it.
-      ⛔ EVERY ARRAY AND OBJECT IN THOSE FIGURES HAS THE SAME EXPOSURE - the
-      state and district lists, the partner table, the trend months, today’s
-      rows. They are restored to their empty form ONCE, where the figures are
-      read, rather than guarded at the dozen places that use them.
-
-    + This is the trap the project’s own notes describe - "Firebase silently
-      drops null children, so a payload that fails to build disappears without
-      an error anywhere a human would look" - written down the night before and
-      walked into the next morning.
 
   ============================================================================
   Everything before this point lives in CHANGELOG.md, beside this file.
@@ -3111,6 +3115,16 @@ body[data-shell="coord"] .coord-card {
 .rpt-fbanner button:hover{background:#FEF0C7}
 /* V26.1: the same banner above every screen while one coordinator is chosen */
 #v261-fc-banner{margin:12px 22px 0}
+.v262-pick{position:fixed;z-index:8500;width:320px;max-width:calc(100vw - 32px);max-height:72vh;max-height:min(72vh,calc(100dvh - 160px));display:flex;flex-direction:column;background:#fff;border:1px solid #E2E8F0;border-radius:12px;box-shadow:0 14px 36px rgba(15,23,42,.18);font-family:var(--font);font-size:13px;color:#0F172A}
+.v262-pick-h{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:11px 14px 6px;font-weight:700}
+.v262-pick-n{font-weight:500;font-size:12px;color:var(--gray2)}
+.v262-pick-a{display:flex;gap:14px;padding:0 14px 8px;border-bottom:1px solid #EEF2F6}
+.v262-pick-a button{background:none;border:0;padding:2px 0;color:var(--navy);font:inherit;font-size:12px;font-weight:600;cursor:pointer}
+.v262-pick-l{overflow:auto;padding:6px;flex:1}
+.v262-pick-l label{display:flex;gap:9px;align-items:center;padding:8px;border-radius:8px;cursor:pointer;min-height:36px}
+.v262-pick-l label:hover{background:#F3F6FA}
+.v262-pick-l input{width:17px;height:17px;flex-shrink:0;accent-color:var(--navy)}
+.v262-pick-f{display:flex;gap:8px;justify-content:flex-end;padding:10px 12px;border-top:1px solid #EEF2F6}
 @media(max-width:768px){#v261-fc-banner{margin:10px 12px 0}}
 .rpt-chips{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}
 .rpt-chips button{padding:7px 14px;min-height:36px;border-radius:99px;border:1px solid var(--rbd);
@@ -3754,7 +3768,7 @@ body[data-shell="coord"] .coord-card {
         <option value="">All States</option>
         <option>Andhra Pradesh</option><option>Arunachal Pradesh</option><option>Assam</option><option>Bihar</option><option>Chhattisgarh</option><option>Goa</option><option>Gujarat</option><option>Haryana</option><option>Himachal Pradesh</option><option>Jharkhand</option><option>Karnataka</option><option>Kerala</option><option>Madhya Pradesh</option><option>Maharashtra</option><option>Manipur</option><option>Meghalaya</option><option>Mizoram</option><option>Nagaland</option><option>Odisha</option><option>Punjab</option><option>Rajasthan</option><option>Sikkim</option><option>Tamil Nadu</option><option>Telangana</option><option>Tripura</option><option>Uttar Pradesh</option><option>Uttarakhand</option><option>West Bengal</option><option>Andaman & Nicobar Islands</option><option>Chandigarh</option><option>Dadra & Nagar Haveli and Daman & Diu</option><option>Delhi</option><option>Jammu & Kashmir</option><option>Ladakh</option><option>Lakshadweep</option><option>Puducherry</option>
       </select>
-      <select class="fsel" id="ngo-filter" onchange="_v13RptForgetReturn();ngoFilter=this.value;fcFilter='';_rebuildStateFilterOptions();renderCurrent()">
+      <select class="fsel" id="ngo-filter" onchange="_v262NgoChange(this)">
         <option value="">All NGOs</option>
       </select>
       <button class="btn btn-primary" id="topbar-enroll-btn" onclick="openEnroll()">+ Enroll Beneficiary</button>
@@ -3762,7 +3776,7 @@ body[data-shell="coord"] .coord-card {
   </div>
   <div class="mob-filter-row" id="mob-filter-row">
     <select class="fsel" id="mob-state-filter" onchange="_v13RptForgetReturn();stateFilter=this.value;document.getElementById('state-filter').value=this.value;renderCurrent()"><option value="">All States</option><option>Andhra Pradesh</option><option>Arunachal Pradesh</option><option>Assam</option><option>Bihar</option><option>Chhattisgarh</option><option>Goa</option><option>Gujarat</option><option>Haryana</option><option>Himachal Pradesh</option><option>Jharkhand</option><option>Karnataka</option><option>Kerala</option><option>Madhya Pradesh</option><option>Maharashtra</option><option>Manipur</option><option>Meghalaya</option><option>Mizoram</option><option>Nagaland</option><option>Odisha</option><option>Punjab</option><option>Rajasthan</option><option>Sikkim</option><option>Tamil Nadu</option><option>Telangana</option><option>Tripura</option><option>Uttar Pradesh</option><option>Uttarakhand</option><option>West Bengal</option><option>Andaman & Nicobar Islands</option><option>Chandigarh</option><option>Dadra & Nagar Haveli and Daman & Diu</option><option>Delhi</option><option>Jammu & Kashmir</option><option>Ladakh</option><option>Lakshadweep</option><option>Puducherry</option></select>
-    <select class="fsel" id="mob-ngo-filter" onchange="_v13RptForgetReturn();ngoFilter=this.value;fcFilter='';document.getElementById('ngo-filter').value=this.value;_rebuildStateFilterOptions();renderCurrent()"><option value="">All NGOs</option></select>
+    <select class="fsel" id="mob-ngo-filter" onchange="_v262NgoChange(this)"><option value="">All NGOs</option></select>
   </div>
   <!-- Date range filter row. Visible to admin + NGO roles (V318); hidden
        for coordinators (they see only their own records). Controlled by
@@ -4779,7 +4793,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V26.1-LIVE';
+const APP_VERSION = 'V26.2-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -15296,6 +15310,7 @@ function syncFilters() {
   const mn = document.getElementById('mob-ngo-filter');
   if (ms) ms.value = stateFilter;
   if (mn) mn.value = ngoFilter;
+  try { _v262SyncNgoSelects(); } catch (_) {}   // V26.2
 }
 
 // Add sidebar id for mobile targeting
@@ -16029,6 +16044,26 @@ async function _genIdCore(district) {
 }
 
 let stateFilter = '', ngoFilter = '', fcFilter = '';
+// V26.2: SEVERAL PARTNERS. ngoFilter stays one string, so every signature, memo and Reports
+// return that carries it still works: '' = all, a name = that partner, several names joined by
+// _V262_SEP (a control character no partner name holds), in the partner list's own order.
+// ⛔ Never compare a household's partner with ngoFilter by ===: ask _v262NgoHas(ngoFilter, b.ngo).
+// ⛔ Never print ngoFilter: print _v262NgoLabel(ngoFilter).
+const _V262_SEP = '\u001f';
+let _v262SetKey = null, _v262SetVal = null;
+let _v262Union = { by: null, f: null, ids: null };   // the fast path's households of the chosen partners
+function _v262NgoList(f) { const v = (f === undefined) ? ngoFilter : f; return v ? String(v).split(_V262_SEP).filter(Boolean) : []; }
+function _v262IsMulti(f) { const v = (f === undefined) ? ngoFilter : f; return !!v && String(v).indexOf(_V262_SEP) >= 0; }
+function _v262NgoHas(f, name) {
+  if (!f) return true;
+  if (String(f).indexOf(_V262_SEP) < 0) return name === f;
+  if (_v262SetKey !== f) { _v262SetVal = new Set(_v262NgoList(f)); _v262SetKey = f; }
+  return _v262SetVal.has(name);
+}
+function _v262NgoLabel(f) {
+  const L = _v262NgoList(f);
+  return L.length <= 3 ? L.join(', ') : L.slice(0, 3).join(', ') + ' +' + (L.length - 3) + ' more';
+}
 // Admin-only date range filters. Four string values (ISO YYYY-MM-DD) — empty
 // means "no bound". We apply them in filteredAll() so EVERY view (dashboard,
 // livelihood, advocacy, map, exports) gets the same filtered data set.
@@ -22893,7 +22928,7 @@ function renderNGO() {
   const fmtInt   = v => (v == null || isNaN(v)) ? '—' : Math.round(v).toLocaleString('en-IN');
   const fmtPct   = v => (v == null || isNaN(v)) ? '—' : v + '%';
   // "23 | 57%" — count alongside percentage for the totals row.
-  const fmtCntPct = (cnt, pct) => (pct == null || isNaN(pct)) ? '—' : (cnt != null ? cnt + ' | ' : '') + pct + '%';
+  const fmtCntPct = (cnt, pct) => (pct == null || isNaN(pct)) ? '—' : (cnt != null ? _v261N(cnt) + ' | ' : '') + pct + '%';
   const sortIcon = k => _ngoSort.key === k
     ? (_ngoSort.dir === -1 ? '▌' : '▲')
     : '<span style="opacity:.25">â–Ÿ</span>';
@@ -22917,7 +22952,7 @@ function renderNGO() {
     // both the magnitude and the proportion at a glance. The progress bar below
     // continues to encode the percentage visually.
     const pctCell = (v, color, count) => `
-      <div>${v==null?'—':(count!=null?count+' | ':'')+v+'%'}</div>
+      <div>${v==null?'—':(count!=null?_v261N(count)+' | ':'')+v+'%'}</div>
       <div style="height:3px;width:${v||0}%;max-width:100%;background:${color};border-radius:2px;margin-top:2px;margin-left:auto"></div>
     `;
 
@@ -22939,14 +22974,14 @@ function renderNGO() {
           <div style="font-size:10px;color:var(--gray2);font-weight:400;margin-top:1px">${r.state}</div>
         </td>
         <!-- LIVELIHOOD block -->
-        <td style="padding:10px 8px;text-align:right;font-weight:500;font-variant-numeric:tabular-nums;border-left:2px solid var(--green2)">${r.livBenef || 0}</td>
+        <td style="padding:10px 8px;text-align:right;font-weight:500;font-variant-numeric:tabular-nums;border-left:2px solid var(--green2)">${_v261N(r.livBenef || 0)}</td>
         <td style="padding:10px 8px;text-align:right;font-variant-numeric:tabular-nums">${pctCell(r.livEnrPct, '#F59E0B', r.livEnrCount)}</td>
         <td style="padding:10px 8px;text-align:right;font-variant-numeric:tabular-nums">${pctCell(r.livProgPct, '#A78BFA', r.livProgCount)}</td>
         <td style="padding:10px 8px;text-align:right;font-variant-numeric:tabular-nums">${pctCell(r.livCompPct, '#10B981', r.livCompCount)}</td>
         <td style="padding:10px 8px;text-align:right;font-variant-numeric:tabular-nums">${fmtRupee(r.livTotalAdded || 0)}</td>
         <td style="padding:10px 8px;text-align:right;font-variant-numeric:tabular-nums">${fmtRupee(r.livAvgGain)}</td>
         <!-- ADVOCACY block -->
-        <td style="padding:10px 8px;text-align:right;font-weight:500;font-variant-numeric:tabular-nums;border-left:2px solid var(--purple2)">${r.advBenef || 0}</td>
+        <td style="padding:10px 8px;text-align:right;font-weight:500;font-variant-numeric:tabular-nums;border-left:2px solid var(--purple2)">${_v261N(r.advBenef || 0)}</td>
         <td style="padding:10px 8px;text-align:right;font-variant-numeric:tabular-nums">${pctCell(r.advNeedPct, '#F59E0B', r.advNeedCount)}</td>
         <td style="padding:10px 8px;text-align:right;font-variant-numeric:tabular-nums">${pctCell(r.advAppliedPct, '#3B82F6', r.advAppliedCount)}</td>
         <td style="padding:10px 8px;text-align:right;font-variant-numeric:tabular-nums">${pctCell(r.advReceivedPct, '#10B981', r.advReceivedCount)}</td>
@@ -22995,13 +23030,13 @@ function renderNGO() {
         <tfoot>
           <tr style="background:#FAFAFA;border-top:2px solid var(--gray3);font-weight:600">
             <td style="padding:12px 12px;text-align:left">${_isFcMode ? 'Total (' + u.ngo + ')' : 'Portfolio total'}</td>
-            <td style="padding:12px 8px;text-align:right;font-variant-numeric:tabular-nums;border-left:2px solid var(--green2)">${portLivTotal}</td>
+            <td style="padding:12px 8px;text-align:right;font-variant-numeric:tabular-nums;border-left:2px solid var(--green2)">${_v261N(portLivTotal)}</td>
             <td style="padding:12px 8px;text-align:right;font-variant-numeric:tabular-nums">${fmtCntPct(livStageAll['Enrolled'], portLivEnrPct)}</td>
             <td style="padding:12px 8px;text-align:right;font-variant-numeric:tabular-nums">${fmtCntPct(livStageAll['Intervention In Progress'], portLivProgPct)}</td>
             <td style="padding:12px 8px;text-align:right;font-variant-numeric:tabular-nums">${fmtCntPct(livStageAll['Completed'], portLivCompPct)}</td>
             <td style="padding:12px 8px;text-align:right;font-variant-numeric:tabular-nums">${fmtRupee(portLivTotalAdded)}</td>
             <td style="padding:12px 8px;text-align:right;font-variant-numeric:tabular-nums">${fmtRupee(portLivAvgGain)}</td>
-            <td style="padding:12px 8px;text-align:right;font-variant-numeric:tabular-nums;border-left:2px solid var(--purple2)">${advAllBenefs.length}</td>
+            <td style="padding:12px 8px;text-align:right;font-variant-numeric:tabular-nums;border-left:2px solid var(--purple2)">${_v261N(advAllBenefs.length)}</td>
             <td style="padding:12px 8px;text-align:right;font-variant-numeric:tabular-nums">${fmtCntPct(portNeed, portAdvNeedPct)}</td>
             <td style="padding:12px 8px;text-align:right;font-variant-numeric:tabular-nums">${fmtCntPct(portApplied, portAdvAppliedPct)}</td>
             <td style="padding:12px 8px;text-align:right;font-variant-numeric:tabular-nums">${fmtCntPct(portReceived.length, portAdvReceivedPct)}</td>
@@ -23339,7 +23374,7 @@ function _v221Page(alerts) {
   const shown = sorted.slice(0, _V221_PAGE);
   const more = sorted.length - shown.length;
   return shown.map(a => `<div class="alert alert-${a.type}" ${a.id?`onclick="openDrawer('${a.id}')" style="cursor:pointer"`:''}><div class="alert-icon">${a.type==='green'?'✓':'!'}</div><div>${a.msg}</div></div>`).join('')
-    + (more > 0 ? `<div style="padding:12px 14px;color:var(--gray2);font-size:13px">Showing the ${_V221_PAGE} most urgent of ${alerts.length}.</div>` : '');
+    + (more > 0 ? `<div style="padding:12px 14px;color:var(--gray2);font-size:13px">Showing the ${_V221_PAGE} most urgent of ${_v261N(alerts.length)}.</div>` : '');
 }
 function renderAlerts() {
   // V325: coordinators use the coord shell — render into coord-list instead
@@ -23358,13 +23393,13 @@ function renderAlerts() {
   document.getElementById('content').innerHTML = `
     <div class="card" style="padding:16px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
-        <div class="card-title" style="margin:0">Active Flags (${activeCount})</div>
+        <div class="card-title" style="margin:0">Active Flags (${_v261N(activeCount)})</div>
         <!-- V22.1: the counted rule, said once instead of 100,981 times -->
         ${_v221Stuck.people ? `<div style="font-size:12px;color:var(--gray2);margin-top:2px">and ${_v221Stuck.rows.toLocaleString('en-IN')} scheme${_v221Stuck.rows === 1 ? '' : 's'} across ${_v221Stuck.people.toLocaleString('en-IN')} people still waiting to be applied for</div>` : ''}
         <div style="display:flex;gap:12px;font-size:12px">
-          ${redCount   ? `<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--red);margin-right:5px;vertical-align:middle"></span>${redCount} urgent</span>` : ''}
-          ${amberCount ? `<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--amber);margin-right:5px;vertical-align:middle"></span>${amberCount} to review</span>` : ''}
-          ${greenCount ? `<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin-right:5px;vertical-align:middle"></span>${greenCount} positive</span>` : ''}
+          ${redCount   ? `<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--red);margin-right:5px;vertical-align:middle"></span>${_v261N(redCount)} urgent</span>` : ''}
+          ${amberCount ? `<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--amber);margin-right:5px;vertical-align:middle"></span>${_v261N(amberCount)} to review</span>` : ''}
+          ${greenCount ? `<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin-right:5px;vertical-align:middle"></span>${_v261N(greenCount)} positive</span>` : ''}
         </div>
       </div>
       ${alerts.length === 0 ? '<div class="empty">No active alerts. All beneficiaries are on track.</div>' :
@@ -26062,8 +26097,19 @@ function _v367TryFastPath() {
       candidateIds = candidateIds ? _v367Intersect(candidateIds, ids) : new Set(ids);
     }
     if (ngoFilter) {
-      const ids = _v367Idx.byNgo[ngoFilter] || new Set();
-      candidateIds = candidateIds ? _v367Intersect(candidateIds, ids) : new Set(ids);
+      // V26.2: several partners = the union of their households (a household has one partner),
+      // built once per choice and per index (the index is replaced whenever the data changes).
+      // Only read below - intersected into a new Set or walked - never added to.
+      let ids;
+      if (_v262IsMulti()) {
+        if (_v262Union.by !== _v367Idx.byNgo || _v262Union.f !== ngoFilter) {
+          const un = new Set(); _v262NgoList().forEach(n => { const p = _v367Idx.byNgo[n]; if (p) p.forEach(x => un.add(x)); });
+          _v262Union = { by: _v367Idx.byNgo, f: ngoFilter, ids: un };
+        }
+        ids = _v262Union.ids;
+      }
+      else ids = _v367Idx.byNgo[ngoFilter] || new Set();
+      candidateIds = candidateIds ? _v367Intersect(candidateIds, ids) : (_v262IsMulti() ? ids : new Set(ids));
     }
     if (fcFilter) {
       const ids = _v367Idx.byCreatedBy[fcFilter] || new Set();
@@ -26244,7 +26290,7 @@ function filteredAll() {
     d = cache;
   }
   if (stateFilter) d = d.filter(b => (b.district||'').includes(stateFilter));
-  if (ngoFilter)   d = d.filter(b => b.ngo === ngoFilter);
+  if (ngoFilter)   { const _nf = ngoFilter; d = d.filter(b => _v262NgoHas(_nf, b.ngo)); }   // V26.2: one or several
   // FC filter — used by NGO admin "FC-wise" view in NGO Partners tab. Filters
   // to beneficiaries created by a specific field coordinator (user id match).
   if (fcFilter)    d = d.filter(b => b.createdBy === fcFilter);
@@ -26472,6 +26518,10 @@ function _v261N(v) {
 // V26.1: the same grouping for the count in a box's "of 173960" line - that pattern only, so
 // a date, an ID or anything else that ever reaches this line is left exactly as it is
 function _v261T(t) { return String(t == null ? '' : t).replace(/^of (\d{4,})$/, function (m, n) { return 'of ' + Number(n).toLocaleString('en-IN'); }); }
+// V26.2: '>116906<' -> '>1,16,906<', '>+6736<' -> '>+6,736<'; anything else (₹, %, dates, words) untouched
+function _v262CountCommas(html) {
+  return String(html == null ? '' : html).replace(/>(\+?)(\d{4,})</g, function (m, p, n) { return '>' + p + Number(n).toLocaleString('en-IN') + '<'; });
+}
 function _v259Tint(col, pct) { return 'color-mix(in srgb, ' + col + ' ' + pct + '%, #fff)'; }
 // V25.9: one small icon per dashboard box, keyed by its colour class
 const _V259_ICON = {
@@ -26542,6 +26592,7 @@ function _filterByNgoFromRow(rowEl) {
   // state list was left showing districts the chosen partner has none of.
   const msel = document.getElementById('mob-ngo-filter');
   if (msel) msel.value = name;
+  try { _v262SyncNgoSelects(); } catch (_) {}   // V26.2
   try { _v13RptForgetReturn(); } catch (_) {}
   try { _rebuildStateFilterOptions(); } catch (_) {}
   renderCurrent();
@@ -26906,7 +26957,7 @@ function _renderDashboardTopNGOs(rows, advLatest) {
               <tr data-ngo-row="${escHtml(r.name)}" onclick="_filterByNgoFromRow(this)" style="cursor:pointer" title="Click to filter to this NGO">
                 <td data-cell="rank" style="text-align:center;color:var(--gray2);font-weight:600">${i+1}</td>
                 <td data-cell="name" style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(r.name)}</td>
-                <td data-cell="ben" data-label="Beneficiaries" style="text-align:right"><span class="ngo-ben-full">${r.count}</span><span class="ngo-ben-abbr" style="display:none">${fmtNum(r.count)}</span></td>
+                <td data-cell="ben" data-label="Beneficiaries" style="text-align:right"><span class="ngo-ben-full">${_v261N(r.count)}</span><span class="ngo-ben-abbr" style="display:none">${fmtNum(r.count)}</span></td>
                 <td data-cell="income" data-label="Income Added" style="text-align:right;color:${r.income>0?'var(--green)':'var(--gray2)'};font-weight:${r.income>0?'600':'400'}">${r.income>0?fmt(r.income):'—'}</td>
                 <td data-cell="schemes" data-label="Scheme Benefits" style="text-align:right;color:${r.schemes>0?'var(--purple)':'var(--gray2)'};font-weight:${r.schemes>0?'600':'400'}">${r.schemes>0?fmt(r.schemes):'—'}</td>
                 <td data-cell="total" data-label="Total Impact" style="text-align:right;color:var(--navy);font-weight:700">${r.total>0?fmt(r.total):'—'}</td>
@@ -26955,10 +27006,10 @@ function _v401TodayStats(srcB, srcA) {
   // list underneath it.
   const _ngoF = (typeof ngoFilter !== 'undefined' && ngoFilter) ? ngoFilter : '';
   const _stF = (typeof stateFilter !== 'undefined' && stateFilter) ? stateFilter : '';
-  const _filtered = !!(_ngoF || _stF);
+  const _filtered = !_override && !!(_ngoF || _stF);   // V26.2: a summary writer's scope is counted whole
   const _inScope = function (b) {
     if (!b) return false;
-    if (_ngoF && b.ngo !== _ngoF) return false;
+    if (_ngoF && !_v262NgoHas(_ngoF, b.ngo)) return false;   // V26.2: one or several
     if (_stF && String(b.district || '').indexOf(_stF) === -1) return false;
     return true;
   };
@@ -27169,7 +27220,7 @@ function _v401TodayStats(srcB, srcA) {
       return (y.enrolled + y.applied + y.benefits + y.liv + (y.surveyed || 0))
            - (x.enrolled + x.applied + x.benefits + x.liv + (x.surveyed || 0));
     });
-  const _out = { ver: ver, day: todayIst, ngoF: _ngoF, stF: _stF,
+  const _out = { ver: ver, day: todayIst, ngoF: _override ? '' : _ngoF, stF: _override ? '' : _stF,   // V26.2
     byNgo: _v207Rows,
     enrolledToday: enrolledToday,
     enrolledYest: enrolledYest, livEnr: livEnr, livProg: livProg, livDone: livDone,
@@ -27417,7 +27468,7 @@ async function _v242ShowUnplaced() {
     (r.absent || r.failed || r.left) ? 'warn' : 'success', 9000);
 }
 function _v401TodayScopeLabel() {
-  const n = (typeof ngoFilter !== 'undefined' && ngoFilter) ? String(ngoFilter) : '';
+  const n = (typeof ngoFilter !== 'undefined' && ngoFilter) ? (typeof _v262NgoLabel === 'function' ? _v262NgoLabel(ngoFilter) : String(ngoFilter)) : '';
   const s = (typeof stateFilter !== 'undefined' && stateFilter) ? String(stateFilter) : '';
   if (n && s) return n + ' · ' + s;
   return n || s || 'all NGOs';
@@ -27674,7 +27725,7 @@ function renderDashboard() {
 
   const filterBadges = [
     stateFilter ? `<span style="background:var(--navy3);color:var(--navy);font-size:12px;font-weight:600;padding:3px 10px;border-radius:12px">📍 ${escHtml(stateFilter)}</span>` : '',
-    ngoFilter   ? `<span style="background:var(--navy3);color:var(--navy);font-size:12px;font-weight:600;padding:3px 10px;border-radius:12px">🀝 ${escHtml(ngoFilter)}</span>` : '',
+    ngoFilter   ? `<span style="background:var(--navy3);color:var(--navy);font-size:12px;font-weight:600;padding:3px 10px;border-radius:12px">🀝 ${escHtml(_v262NgoLabel(ngoFilter))}</span>` : '',
     fcFilter    ? (() => {
         const u = loadUsers().find(x => x.id === fcFilter);
         const name = u ? (u.fullName || u.username) : fcFilter;
@@ -27706,13 +27757,13 @@ function renderDashboard() {
     ${_v207TodayByNgo()}
     ${filterBadges?`<div style="display:flex;gap:8px;margin-bottom:12px;margin-top:-6px;align-items:center;flex-wrap:wrap">
       <span style="font-size:12px;color:var(--gray2)">Filters:</span>${filterBadges}
-      <button onclick="stateFilter='';ngoFilter='';fcFilter='';progFilter='';document.getElementById('state-filter').value='';document.getElementById('ngo-filter').value='';var mp=document.getElementById('prog-filter');if(mp)mp.value='';renderCurrent()" style="font-size:11px;color:var(--red);background:none;border:none;cursor:pointer;padding:0;font-family:var(--font)">✕ Clear all</button>
+      <button onclick="stateFilter='';ngoFilter='';fcFilter='';progFilter='';document.getElementById('state-filter').value='';document.getElementById('ngo-filter').value='';try{_v262SyncNgoSelects(true)}catch(e){}var mp=document.getElementById('prog-filter');if(mp)mp.value='';renderCurrent()" style="font-size:11px;color:var(--red);background:none;border:none;cursor:pointer;padding:0;font-family:var(--font)">✕ Clear all</button>
     </div>`:''}
-    ${_renderDashboardTrendBands(A.trend)}
+    ${_v262CountCommas(_renderDashboardTrendBands(A.trend))}
     ${_renderDashboardTopNGOs(A.topNgos)}
     <div class="chart2">
       <div class="card"><div class="card-head"><div class="card-title">No. of Beneficiaries by Intervention</div></div>
-        <div style="padding:12px 16px">${total===0?'<div class="empty">No beneficiaries enrolled yet</div>':Object.entries(ic).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="brow"><div class="blbl">${escHtml(k)}</div><div class="btrack"><div class="bfill" style="width:${Math.round(v/total*100)}%;background:${IC[k]||'var(--navy2)'}"></div></div><div class="bval">${v}</div></div>`).join('')}</div>
+        <div style="padding:12px 16px">${total===0?'<div class="empty">No beneficiaries enrolled yet</div>':Object.entries(ic).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="brow"><div class="blbl">${escHtml(k)}</div><div class="btrack"><div class="bfill" style="width:${Math.round(v/total*100)}%;background:${IC[k]||'var(--navy2)'}"></div></div><div class="bval">${_v261N(v)}</div></div>`).join('')}</div>
       </div>
       <div class="card"><div class="card-head"><div class="card-title">No. of Beneficiaries by Geography</div></div>
         <div style="padding:12px 16px">
@@ -27746,7 +27797,7 @@ function renderDashboard() {
                 <div class="btrack">
                   ${count>0?`<div class="bfill" style="width:${w}%;background:${color}"></div>`:''}
                 </div>
-                <div class="bval" style="font-weight:600;color:${count>0?color:'var(--gray2)'}">${count}</div>
+                <div class="bval" style="font-weight:600;color:${count>0?color:'var(--gray2)'}">${_v261N(count)}</div>
               </div>`;
             }).join('');
           })()}
@@ -28003,7 +28054,7 @@ function _renderDashboardRecentUpdates(list) {
         // mostly is not. Resolved from the record itself; when the record is
         // gone (a deletion), the partner falls back to the actor and the
         // state/coordinator filters hide it - unknowable is not a match.
-        if (ngoFilter && _v19EventNgo(e) !== ngoFilter) return false;
+        if (ngoFilter && !_v262NgoHas(ngoFilter, _v19EventNgo(e))) return false;   // V26.2
         if (stateFilter || fcFilter) {
           const _rec4 = _v19Rec(e.recordType === 'beneficiary' ? e.recordId
             : (hasId(e.recordId) ? e.recordId : advBidByAdvId[e.recordId]));
@@ -28257,8 +28308,8 @@ function _livBenTabFull(allB) {
   if (livStage)  list=list.filter(b=>_v174Stage(b)===livStage);
 
   const chips = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
-    <button class="btn btn-sm ${!livInterv?'btn-primary':''}" onclick="livInterv='';livSearch='';livCurrentPage=1;renderLivelihood()">All <span style="font-weight:400;opacity:.7">${allB.length}</span></button>
-    ${LIV_TYPES_DISPLAY.map(i=>`<button class="btn btn-sm ${livInterv===i?'btn-primary':''}" style="${ic[i]===0?'opacity:.35':''}" onclick="${ic[i]>0?`livInterv='${escHtml(i).replace(/'/g,'&#39;')}';livSearch='';livCurrentPage=1;renderLivelihood()`:''}">${escHtml(i)} <span style="font-weight:400;opacity:.7">${ic[i]}</span></button>`).join('')}
+    <button class="btn btn-sm ${!livInterv?'btn-primary':''}" onclick="livInterv='';livSearch='';livCurrentPage=1;renderLivelihood()">All <span style="font-weight:400;opacity:.7">${_v261N(allB.length)}</span></button>
+    ${LIV_TYPES_DISPLAY.map(i=>`<button class="btn btn-sm ${livInterv===i?'btn-primary':''}" style="${ic[i]===0?'opacity:.35':''}" onclick="${ic[i]>0?`livInterv='${escHtml(i).replace(/'/g,'&#39;')}';livSearch='';livCurrentPage=1;renderLivelihood()`:''}">${escHtml(i)} <span style="font-weight:400;opacity:.7">${_v261N(ic[i])}</span></button>`).join('')}
   </div>`;
 
   // #6a V327 — Paginate livelihood list.
@@ -28286,7 +28337,7 @@ function _livBenTabFull(allB) {
     + '<span style="font-size:12px;color:var(--gray2)">Showing ' + (_livPgStart+1) + '\u2013' + _v261N(_livPgEnd) + ' of ' + _v261N(_livTotal) + '</span>'
     + '<button onclick="livCurrentPage=1;renderLivelihood()"' + (livCurrentPage===1 ? ' disabled style="opacity:.4;cursor:not-allowed"' : ' style="cursor:pointer"') + ' style="padding:4px 8px;border:1px solid var(--gray3);border-radius:5px;background:#fff;font-size:12px">\u00AB</button>'
     + '<button onclick="livCurrentPage--;renderLivelihood()"' + (livCurrentPage===1 ? ' disabled style="opacity:.4;cursor:not-allowed"' : ' style="cursor:pointer"') + ' style="padding:4px 10px;border:1px solid var(--gray3);border-radius:5px;background:#fff;font-size:12px">\u2039 Prev</button>'
-    + '<span style="font-size:12px;font-weight:600;color:var(--navy);padding:4px 10px;background:var(--navy3);border-radius:5px">' + livCurrentPage + ' / ' + _livPages + '</span>'
+    + '<span style="font-size:12px;font-weight:600;color:var(--navy);padding:4px 10px;background:var(--navy3);border-radius:5px">' + _v261N(livCurrentPage) + ' / ' + _v261N(_livPages) + '</span>'
     + '<button onclick="livCurrentPage++;renderLivelihood()"' + (livCurrentPage===_livPages ? ' disabled style="opacity:.4;cursor:not-allowed"' : ' style="cursor:pointer"') + ' style="padding:4px 10px;border:1px solid var(--gray3);border-radius:5px;background:#fff;font-size:12px">Next \u203A</button>'
     + '<button onclick="livCurrentPage=' + _livPages + ';renderLivelihood()"' + (livCurrentPage===_livPages ? ' disabled style="opacity:.4;cursor:not-allowed"' : ' style="cursor:pointer"') + ' style="padding:4px 8px;border:1px solid var(--gray3);border-radius:5px;background:#fff;font-size:12px">\u00BB</button>'
     + '</div>';
@@ -28580,13 +28631,13 @@ function _advSchemeChips(allAdv, activeStatus) {
   const otherCount = otherSchemes.reduce((s,k)=>s+(ic[k]||0), 0);
   const majorCount = activeSchemes.reduce((s,k)=>s+(ic[k]||0), 0);
 
-  const chips = [`<button class="btn btn-sm ${!advSchemeFilter?'btn-primary':''}" onclick="advSchemeFilter='';advBCurrentPage=1;renderAdvocacy()">All Schemes <span style="font-weight:400;opacity:.7">${total}</span></button>`];
+  const chips = [`<button class="btn btn-sm ${!advSchemeFilter?'btn-primary':''}" onclick="advSchemeFilter='';advBCurrentPage=1;renderAdvocacy()">All Schemes <span style="font-weight:400;opacity:.7">${_v261N(total)}</span></button>`];
   activeSchemes.forEach(s => {
     const cnt = ic[s]||0;
-    chips.push(`<button class="btn btn-sm ${advSchemeFilter===s?'btn-primary':''}" style="${cnt===0?'opacity:.35':''}" onclick="${cnt>0?`advSchemeFilter='${s}';advBCurrentPage=1;renderAdvocacy()`:''}">${s} <span style="font-weight:400;opacity:.7">${cnt}</span></button>`);
+    chips.push(`<button class="btn btn-sm ${advSchemeFilter===s?'btn-primary':''}" style="${cnt===0?'opacity:.35':''}" onclick="${cnt>0?`advSchemeFilter='${s}';advBCurrentPage=1;renderAdvocacy()`:''}">${s} <span style="font-weight:400;opacity:.7">${_v261N(cnt)}</span></button>`);
   });
   if (otherCount > 0) {
-    chips.push(`<button class="btn btn-sm ${advSchemeFilter==='__other__'?'btn-primary':''}" onclick="advSchemeFilter='__other__';advBCurrentPage=1;renderAdvocacy()">Other Schemes <span style="font-weight:400;opacity:.7">${otherCount}</span></button>`);
+    chips.push(`<button class="btn btn-sm ${advSchemeFilter==='__other__'?'btn-primary':''}" onclick="advSchemeFilter='__other__';advBCurrentPage=1;renderAdvocacy()">Other Schemes <span style="font-weight:400;opacity:.7">${_v261N(otherCount)}</span></button>`);
   }
   return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${chips.join('')}</div>`;
 }
@@ -28712,7 +28763,7 @@ function _advBenTab2(allAdv, allB) {
     + '<span style="font-size:12px;color:var(--gray2)">Showing ' + (_advBPgStart+1) + '\u2013' + _v261N(_advBPgEnd) + ' of ' + _v261N(_advBTotal) + '</span>'
     + '<button onclick="advBCurrentPage=1;renderAdvocacy(\'beneficiaries\')"' + (advBCurrentPage===1 ? ' disabled style="opacity:.4;cursor:not-allowed"' : ' style="cursor:pointer"') + ' style="padding:4px 8px;border:1px solid var(--gray3);border-radius:5px;background:#fff;font-size:12px">\u00AB</button>'
     + '<button onclick="advBCurrentPage--;renderAdvocacy(\'beneficiaries\')"' + (advBCurrentPage===1 ? ' disabled style="opacity:.4;cursor:not-allowed"' : ' style="cursor:pointer"') + ' style="padding:4px 10px;border:1px solid var(--gray3);border-radius:5px;background:#fff;font-size:12px">\u2039 Prev</button>'
-    + '<span style="font-size:12px;font-weight:600;color:var(--navy);padding:4px 10px;background:var(--navy3);border-radius:5px">' + advBCurrentPage + ' / ' + _advBPages + '</span>'
+    + '<span style="font-size:12px;font-weight:600;color:var(--navy);padding:4px 10px;background:var(--navy3);border-radius:5px">' + _v261N(advBCurrentPage) + ' / ' + _v261N(_advBPages) + '</span>'
     + '<button onclick="advBCurrentPage++;renderAdvocacy(\'beneficiaries\')"' + (advBCurrentPage===_advBPages ? ' disabled style="opacity:.4;cursor:not-allowed"' : ' style="cursor:pointer"') + ' style="padding:4px 10px;border:1px solid var(--gray3);border-radius:5px;background:#fff;font-size:12px">Next \u203A</button>'
     + '<button onclick="advBCurrentPage=' + _advBPages + ';renderAdvocacy(\'beneficiaries\')"' + (advBCurrentPage===_advBPages ? ' disabled style="opacity:.4;cursor:not-allowed"' : ' style="cursor:pointer"') + ' style="padding:4px 8px;border:1px solid var(--gray3);border-radius:5px;background:#fff;font-size:12px">\u00BB</button>'
     + '</div>';
@@ -29285,7 +29336,7 @@ function renderAllBeneficiaries() {
             <div style="display:flex;gap:5px;align-items:center">
               <button onclick="allBCurrentPage=1;renderAllBeneficiaries()" ` + (allBCurrentPage===1?'disabled style="opacity:.4;cursor:not-allowed"':'style="cursor:pointer"') + ` style="padding:4px 8px;border:1px solid var(--gray3);border-radius:5px;background:#fff;font-size:12px">&#171;</button>
               <button onclick="allBCurrentPage--;renderAllBeneficiaries()" ` + (allBCurrentPage===1?'disabled style="opacity:.4;cursor:not-allowed"':'style="cursor:pointer"') + ` style="padding:4px 10px;border:1px solid var(--gray3);border-radius:5px;background:#fff;font-size:12px">&#8249; Prev</button>
-              <span style="font-size:12px;font-weight:600;color:var(--navy);padding:4px 10px;background:var(--navy3);border-radius:5px">` + allBCurrentPage + ` / ` + totalPages + `</span>
+              <span style="font-size:12px;font-weight:600;color:var(--navy);padding:4px 10px;background:var(--navy3);border-radius:5px">` + _v261N(allBCurrentPage) + ` / ` + _v261N(totalPages) + `</span>
               <button onclick="allBCurrentPage++;renderAllBeneficiaries()" ` + (allBCurrentPage===totalPages?'disabled style="opacity:.4;cursor:not-allowed"':'style="cursor:pointer"') + ` style="padding:4px 10px;border:1px solid var(--gray3);border-radius:5px;background:#fff;font-size:12px">Next &#8250;</button>
               <button onclick="allBCurrentPage=${totalPages};renderAllBeneficiaries()" ` + (allBCurrentPage===totalPages?'disabled style="opacity:.4;cursor:not-allowed"':'style="cursor:pointer"') + ` style="padding:4px 8px;border:1px solid var(--gray3);border-radius:5px;background:#fff;font-size:12px">&#187;</button>
             </div>
@@ -29568,7 +29619,7 @@ function _v216ZeroRowOk(u, scope) {
   if (!(u && _v215Inactive(u))) return false;
   if (!scope) return true;
   if (scope.fc && u.id !== scope.fc) return false;
-  if (scope.ngo && u.ngo !== scope.ngo) return false;
+  if (scope.ngo && !(typeof _v262NgoHas === 'function' ? _v262NgoHas(scope.ngo, u.ngo) : u.ngo === scope.ngo)) return false;   // V26.2: one or several
   if (scope.ngos && !scope.ngos.has(u.ngo)) return false;
   if (scope.held && scope.held.has(u.id)) return false;
   return true;
@@ -30713,13 +30764,13 @@ function _rptTrendChart(A, nowMs, days) {
       <line x1="${L}" y1="${B - 60}" x2="${W - 20}" y2="${B - 60}" stroke="#F3F4F6"/>
       <line x1="${L}" y1="${B - 120}" x2="${W - 20}" y2="${B - 120}" stroke="#F3F4F6"/>
       <text x="${L - 6}" y="${B + 4}" font-size="10" fill="#9CA3AF" text-anchor="end">0</text>
-      <text x="${L - 6}" y="${B - 56}" font-size="10" fill="#9CA3AF" text-anchor="end">${Math.round(maxN / 2)}</text>
-      <text x="${L - 6}" y="${B - 116}" font-size="10" fill="#9CA3AF" text-anchor="end">${maxN}</text>
+      <text x="${L - 6}" y="${B - 56}" font-size="10" fill="#9CA3AF" text-anchor="end">${(typeof _v261N === 'function' ? _v261N : String)(Math.round(maxN / 2))}</text>
+      <text x="${L - 6}" y="${B - 116}" font-size="10" fill="#9CA3AF" text-anchor="end">${(typeof _v261N === 'function' ? _v261N : String)(maxN)}</text>
       ${marker}
       <polyline fill="none" stroke="#3050C7" stroke-width="2.5" points="${ePoly}"/>
       ${bPath ? `<path d="${bPath.trim()}" fill="none" stroke="var(--green)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>` : ''}
       ${pointEls}${bDots}
-      ${bestPt && best.n > 0 ? `<text x="${bestPt.x.toFixed(1)}" y="${(bestPt.y - 8).toFixed(1)}" font-size="10" fill="var(--navy)" text-anchor="middle" font-weight="600" style="pointer-events:none">${best.n}</text>` : ''}
+      ${bestPt && best.n > 0 ? `<text x="${bestPt.x.toFixed(1)}" y="${(bestPt.y - 8).toFixed(1)}" font-size="10" fill="var(--navy)" text-anchor="middle" font-weight="600" style="pointer-events:none">${(typeof _v261N === 'function' ? _v261N : String)(best.n)}</text>` : ''}
       <text x="${L}" y="${B + 22}" font-size="10" fill="#9CA3AF">${buckets.length ? fmtD2(buckets[0].label) : ''}</text>
       <text x="${W - 20}" y="${B + 22}" font-size="10" fill="#9CA3AF" text-anchor="end">${buckets.length ? fmtD2(buckets[buckets.length - 1].label) : ''}</text>
     </svg>`;
@@ -30764,7 +30815,7 @@ function _rptExportRows(cols, rows, slug) {
   const scope = [];
   try {
     if (typeof stateFilter !== 'undefined' && stateFilter) scope.push(_fileSlug(stateFilter));
-    if (typeof ngoFilter !== 'undefined' && ngoFilter) scope.push(_fileSlug(ngoFilter));
+    if (typeof ngoFilter !== 'undefined' && ngoFilter) { const _l = _v262NgoList(); scope.push(_l.length <= 3 ? _l.map(_fileSlug).join('+') : _l.length + '-partners'); }   // V26.2
   } catch (_) {}
   // ⛔ V21.2: the window token used to be read off rptRange alone, and
   // rptSetMonth forces rptRange to 0 - so a month-filtered export went out
@@ -31418,6 +31469,93 @@ window._v13RptDrill = _v13RptDrill;
 
 // Any deliberate filter change makes the pending restore wrong — forget it.
 function _v13RptForgetReturn() { _v13RptReturn = null; }
+// ── V26.2: choose several partners ──────────────────────────────────────────
+// The menus keep their single choices exactly as before. Two extra entries: '__v262pick__'
+// opens the tick-box list, '__v262multi__' is shown while several are chosen.
+function _v262CanPick() {
+  const u = (typeof currentUser === 'function') ? currentUser() : null;
+  return !!(u && (u.role === 'admin' || u.role === 'scopedViewer' || u.role === 'viewer'));
+}
+function _v262Names() {
+  const el = document.getElementById('ngo-filter');
+  return el ? Array.from(el.options).map(o => o.value).filter(v => v && v.indexOf('__v262') !== 0) : [];
+}
+// force: the filter was just set here, so a single partner (or All) is shown as it now is; without
+// it a menu that already shows a single partner is left exactly as it was (the refill's own restore)
+function _v262SyncNgoSelects(force) {
+  ['ngo-filter', 'mob-ngo-filter'].forEach(function (id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const was = String(el.value || '');
+    Array.from(el.options).forEach(o => { if (o.value.indexOf('__v262') === 0) o.remove(); });
+    const real = Array.from(el.options).filter(o => o.value).length;
+    if (_v262CanPick() && real >= 2) {
+      const p = document.createElement('option'); p.value = '__v262pick__'; p.textContent = '\u2611 Choose several partners\u2026';
+      el.insertBefore(p, el.options[1] || null);
+    }
+    if (_v262IsMulti()) {
+      const m = document.createElement('option'); m.value = '__v262multi__'; m.textContent = '\u2713 ' + _v262NgoList().length + ' partners';
+      el.insertBefore(m, el.options[1] || null);
+      el.value = '__v262multi__';
+    } else if (force || was.indexOf('__v262') === 0) {
+      el.value = ngoFilter || '';   // was showing the several-partners entry; a single choice is untouched
+    } else el.value = was;
+  });
+}
+// what each menu does on a change: a partner (or All) exactly as before; the two extra entries
+// open the list and leave the filter alone
+function _v262NgoChange(el) {
+  const v = el.value;
+  if (v === '__v262pick__' || v === '__v262multi__') { _v262SyncNgoSelects(); _v262OpenPicker(el); return; }
+  _v262Apply(v ? [v] : []);
+}
+function _v262Apply(list) {
+  const names = _v262Names(), want = new Set(list);
+  // the partner list's own order, so the same choice is always the same filter
+  const pick = names.filter(n => want.has(n)).concat(list.filter(n => names.indexOf(n) < 0));
+  _v13RptForgetReturn();
+  ngoFilter = pick.join(_V262_SEP);
+  fcFilter = '';
+  _v262SyncNgoSelects(true);
+  _rebuildStateFilterOptions();
+  renderCurrent();
+}
+function _v262ClosePicker() { const p = document.getElementById('v262-pick'); if (p) p.remove(); document.removeEventListener('mousedown', _v262Outside, true); document.removeEventListener('keydown', _v262Key, true); }
+function _v262Outside(e) { const p = document.getElementById('v262-pick'); if (p && !p.contains(e.target)) _v262ClosePicker(); }
+function _v262Key(e) { if (e.key === 'Escape') _v262ClosePicker(); }
+function _v262OpenPicker(anchor) {
+  _v262ClosePicker();
+  const names = _v262Names(), on = new Set(_v262NgoList());
+  const p = document.createElement('div');
+  p.id = 'v262-pick'; p.className = 'v262-pick'; p.setAttribute('role', 'dialog'); p.setAttribute('aria-label', 'Choose partners');
+  p.innerHTML = '<div class="v262-pick-h"><span>Choose partners</span><span class="v262-pick-n"></span></div>'
+    + '<div class="v262-pick-a"><button type="button" data-a="all">Tick all</button><button type="button" data-a="none">Clear</button></div>'
+    + '<div class="v262-pick-l">' + names.map((n, i) => '<label><input type="checkbox" data-i="' + i + '"' + (on.has(n) ? ' checked' : '') + '> <span>' + escHtml(n) + '</span></label>').join('') + '</div>'
+    + '<div class="v262-pick-f"><button type="button" class="btn btn-sm" data-a="cancel">Cancel</button><button type="button" class="btn btn-sm btn-primary" data-a="apply">Show these</button></div>';
+  document.body.appendChild(p);
+  const boxes = () => Array.from(p.querySelectorAll('input[type=checkbox]'));
+  const count = () => { const k = boxes().filter(b => b.checked).length; p.querySelector('.v262-pick-n').textContent = k ? k + ' ticked' : 'none = all partners'; };
+  p.addEventListener('change', count);
+  p.addEventListener('click', function (e) {
+    const a = e.target && e.target.getAttribute && e.target.getAttribute('data-a');
+    if (a === 'all' || a === 'none') { boxes().forEach(b => { b.checked = a === 'all'; }); count(); }
+    else if (a === 'cancel') _v262ClosePicker();
+    else if (a === 'apply') {
+      const list = boxes().filter(b => b.checked).map(b => names[Number(b.getAttribute('data-i'))]);
+      _v262ClosePicker();
+      _v262Apply(list.length === names.length ? [] : list);   // every partner ticked = All NGOs
+    }
+  });
+  count();
+  // under the menu on a wide screen; centred near the top on a phone
+  const r = anchor && anchor.getBoundingClientRect ? anchor.getBoundingClientRect() : null;
+  if (r && r.width && window.innerWidth > 640) {
+    p.style.top = Math.round(r.bottom + 6) + 'px';
+    p.style.left = Math.round(Math.max(16, Math.min(r.left, window.innerWidth - p.offsetWidth - 16))) + 'px';
+  } else { p.style.top = '72px'; p.style.left = '16px'; p.style.right = '16px'; p.style.width = 'auto'; }
+  setTimeout(function () { document.addEventListener('mousedown', _v262Outside, true); document.addEventListener('keydown', _v262Key, true); }, 0);
+}
+window._v262NgoChange = _v262NgoChange;
 window._v13RptForgetReturn = _v13RptForgetReturn;
 
 // Put the topbar controls back in step with the variables after a restore.
@@ -31431,6 +31569,7 @@ function _v13SyncFilterSelects() {
     if (ms) ms.value = stateFilter;
     if (n)  n.value  = ngoFilter;
     if (mn) mn.value = ngoFilter;
+    _v262SyncNgoSelects();   // V26.2: several partners show as one entry
   } catch (_) {}
 }
 
@@ -31448,7 +31587,9 @@ function _v13RptFilterBanner() {
       } catch (_) {}
       bits.push('one coordinator only — <b>' + escHtml(String(who)) + '</b>');
     }
-    if (ngoFilter) bits.push('partner <b>' + escHtml(String(ngoFilter)) + '</b>');
+    if (ngoFilter) bits.push(typeof _v262NgoLabel === 'function'   // V26.2: one or several
+      ? (_v262IsMulti() ? 'partners <b>' : 'partner <b>') + escHtml(_v262NgoLabel(ngoFilter)) + '</b>'
+      : 'partner <b>' + escHtml(String(ngoFilter)) + '</b>');
     if (stateFilter) bits.push('district <b>' + escHtml(String(stateFilter)) + '</b>');
   } catch (_) {}
   if (!bits.length) return '';
@@ -31802,7 +31943,8 @@ let _v256Loading = null, _v256ACache = null;
 function _v256Scope(u) {
   const s = u || currentUser();
   let list = (s && Array.isArray(s.assignedNgos) && s.assignedNgos.length) ? s.assignedNgos.slice() : (s && s.ngo ? [s.ngo] : []);
-  if (typeof ngoFilter !== 'undefined' && ngoFilter && list.indexOf(ngoFilter) >= 0) list = [ngoFilter];
+  // V26.2: the chosen partners among their own (none of theirs chosen = all of theirs, as before)
+  if (typeof ngoFilter !== 'undefined' && ngoFilter) { const keep = list.filter(n => _v262NgoHas(ngoFilter, n)); if (keep.length) list = keep; }
   return list;
 }
 function _v256Win() { return _V256_WINS.indexOf(rptRange) >= 0 ? rptRange : 0; }
@@ -31848,9 +31990,9 @@ function _v256DonorA() {
   // all-time block (and this chip) again, once; never draw a mismatched pair
   const stale = d ? packs.filter(p => p.b && p.w && p.w.bh !== p.b.h) : [];
   if (stale.length) {
-    if (!_v256Retried.has(sig)) {
-      _v256Retried.add(sig);
-      stale.forEach(p => _v256Forget(p.k));
+    const _again = stale.filter(p => !_v256Retried.has(p.k + '/w' + d));   // V26.2: per partner and window
+    if (_again.length) {
+      _again.forEach(p => { _v256Retried.add(p.k + '/w' + d); _v256Forget(p.k); });
       return _v256DonorA();
     }
     return { missing: stale.map(p => p.ngo) };
@@ -32183,7 +32325,7 @@ function renderReports() {
         ${kpi(rptRange ? 'Enrolled (window)' : 'Enrolled (all time)', enrolledWinTotal.toLocaleString('en-IN'), _rptWinLabel(), null, 'New beneficiaries enrolled in the selected date range.')}
         ${kpi('Daily average', (chartTotal / Math.max(1, days)).toFixed(1), 'per day across ' + _rptWinLabel(days), null, 'Enrollments plotted on the chart below ÷ the number of days it covers. The chart always spans a finite period, so at "All time" this is the last 12 months rather than the whole history.')}
         ${kpi('Best ' + (bucketDays === 1 ? 'day' : 'week'), best.n.toLocaleString('en-IN'), best.n ? fmtD2(best.label) : '—', null, 'The single ' + (bucketDays === 1 ? 'day' : 'week') + ' with the most enrollments in this window. Tap any point on the chart below to see its exact date and count.')}
-        ${kpi('New villages reached', newVillages, 'first-ever enrollment in window', null, 'Villages that had their very first enrollment ever inside this window — not just their first enrollment recently.')}
+        ${kpi('New villages reached', _v261N(newVillages), 'first-ever enrollment in window', null, 'Villages that had their very first enrollment ever inside this window — not just their first enrollment recently.')}
       </div>` +
       card('Enrollments and benefits per ' + (bucketDays === 1 ? 'day' : 'week') + ' — ' + _rptWinLabel(days),
         'Both lines follow the NGO filter above: pick a partner and this chart redraws for that partner alone.',
@@ -32677,7 +32819,7 @@ function _v261FcBanner() {
     if (x) who = x.fullName || x.username || fcFilter;
   } catch (_) {}
   el.innerHTML = '<span>Showing one coordinator only \u2014 <b>' + escHtml(String(who)) + '</b>'
-    + (ngoFilter ? ' \u00b7 partner <b>' + escHtml(String(ngoFilter)) + '</b>' : '')
+    + (ngoFilter ? (_v262IsMulti() ? ' \u00b7 partners <b>' : ' \u00b7 partner <b>') + escHtml(_v262NgoLabel(ngoFilter)) + '</b>' : '')
     + '. These figures are not the whole partner.</span>'
     + '<button type="button" onclick="_v261ClearFc()">\u2715 Show all coordinators</button>';
   el.style.display = 'flex';
@@ -32833,7 +32975,7 @@ function renderAdminPartners() {
         <span style="font-weight:500">${coordCount[p.name]||0}</span>
         <button class="btn btn-sm" style="margin-left:6px" data-pname="${escHtml(p.name)}" onclick="adminAddCoordinatorFor(this.dataset.pname)">+ Add Coordinator</button>
       </td>
-      <td style="text-align:center;font-weight:500">${benefCount[p.name]||0}</td>
+      <td style="text-align:center;font-weight:500">${_v261N(benefCount[p.name]||0)}</td>
       <td style="white-space:nowrap">
         <button class="btn btn-sm" onclick="adminEditPartner('${escHtml(p.id)}')">Edit</button>
         <button class="btn btn-sm" onclick="adminMergePartner('${escHtml(p.id)}')" title="Merge this partner into another (reassigns all beneficiaries and users, then deletes this partner)">Merge</button>
@@ -33414,7 +33556,7 @@ function renderAdminUsers() {
       <td><div class="bname" style="${_off?_V215_FADE:''}">${escHtml(u.fullName||u.username)}${_off?_V215_CHIP:''}${isMe?' <span style="color:var(--gray2);font-size:11px">(you)</span>':''}${u.mustChangePin?' <span title="Asked to choose their own PIN — waiting for them to do it" style="font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:9px;background:#FEF3C7;color:#92400E">PIN change asked</span>':''}</div><div class="bid">${escHtml(u.username)}</div></td>
       <td>${roleBadge(u.role)}</td>
       <td style="font-size:13px">${u.ngo?escHtml(u.ngo):'<span style="color:var(--gray2)">—</span>'}</td>
-      <td style="text-align:center;font-weight:500">${owned}</td>
+      <td style="text-align:center;font-weight:500">${_v261N(owned)}</td>
       <td style="white-space:nowrap">
         <button class="btn btn-sm" onclick="adminEditUser('${escHtml(u.id)}')">Edit</button>
         ${_v11IsAdmin?`<button class="btn btn-sm" title="Give this person a temporary PIN. They must choose their own the next time they sign in." onclick="adminResetUserPin('${escHtml(u.id)}')">Reset PIN</button>`:''}
@@ -33967,7 +34109,7 @@ function renderAdminLivelihoods() {
   const rows = types.map((t, i) => `<tr>
     <td style="color:var(--gray2);font-size:12px;text-align:center">${i+1}</td>
     <td><div class="bname">${t}</div></td>
-    <td style="text-align:center;font-weight:500">${usage[t]||0}</td>
+    <td style="text-align:center;font-weight:500">${_v261N(usage[t]||0)}</td>
     <td style="white-space:nowrap">
       <button class="btn btn-sm" onclick="adminRenameLivType(${i})">Rename</button>
       <button class="btn btn-sm" style="color:var(--red)" onclick="adminDeleteLivType(${i})">Remove</button>
@@ -34143,7 +34285,7 @@ function renderAdminSchemes() {
     ${defCell}
     ${lockCell}
     ${statesCell}
-    <td style="text-align:center;font-weight:500">${usage[s]||0}</td>
+    <td style="text-align:center;font-weight:500">${_v261N(usage[s]||0)}</td>
     <td style="white-space:nowrap">
       <button class="btn btn-sm" onclick="adminMoveSchemeToTop(${i})" title="Move to top of list" ${isFirst?'disabled style="opacity:.35;cursor:not-allowed"':''}>⤒ Top</button>
       <button class="btn btn-sm" onclick="adminMoveScheme(${i}, -1)" title="Move up one position" ${isFirst?'disabled style="opacity:.35;cursor:not-allowed"':''}>↑</button>
@@ -35785,6 +35927,7 @@ function injectDynamicOptions() {
   };
   populate('ngo-filter',     true,  'All NGOs');
   populate('mob-ngo-filter', true,  'All NGOs');
+  try { _v262SyncNgoSelects(); } catch (_) {}   // V26.2
   populate('f-ngo',          false, null); // enrollment form — no "All" option
   populate('el-ngo-filter',  true,  'All NGO Partners'); // endline page (if present)
 
@@ -35887,7 +36030,7 @@ function _statesWithBeneficiariesForCurrentFilter() {
   try {
     let data = getData();
     const ngo = (typeof ngoFilter !== 'undefined' ? ngoFilter : '') || '';
-    if (ngo) data = data.filter(b => b.ngo === ngo);
+    if (ngo) data = data.filter(b => _v262NgoHas(ngo, b.ngo));   // V26.2: one or several
     for (const b of data) {
       if (!b || !b.district) continue;
       for (const s of ALL_STATE_NAMES) {
@@ -36334,22 +36477,22 @@ const _V253_P = [
   [/^Hi, (.+)$/, "नमस्ते, $1", "નમસ્તે, $1"],
   [/^(\d{1,2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sept?|Oct|Nov|Dec) (\d{4})$/, "$1 $2 $3", "$1 $2 $3"],
   [/^([\d.]+) acres$/, "$1 एकड़", "$1 એકર"],
-  [/^(\d+) \(total\)$/, "$1 (कुल)", "$1 (કુલ)"],
+  [/^([\d,]+) \(total\)$/, "$1 (कुल)", "$1 (કુલ)"],
   [/^NGO: (.+?) · Coordinator: (.+?)(?: · Enrolled by: (.+))?$/, "संस्था: $1 · कोऑर्डिनेटर: $2|| · पंजीकरण किया: $3", "સંસ્થા: $1 · કોઓર્ડિનેટર: $2|| · નોંધણી કરનાર: $3"],
   [/^Baseline: (₹\S+|—)(?: → Endline (₹\S+))?$/, "बेसलाइन: $1|| → एंडलाइन $2", "બેઝલાઇન: $1|| → એન્ડલાઇન $2"],
-  [/^Showing (\d+) of (\d+) beneficiar(?:y|ies)$/, "$2 में से $1 लाभार्थी", "$2 માંથી $1 લાભાર્થી"],
-  [/^Showing (\d+) of (\d+) beneficiar(?:y|ies) \(page (\d+) of (\d+)\)$/, "$2 में से $1 लाभार्थी (पेज $3 / $4)", "$2 માંથી $1 લાભાર્થી (પેજ $3 / $4)"],
-  [/^(\d+) beneficiar(?:y|ies) enrolled$/, "$1 लाभार्थी पंजीकृत", "$1 લાભાર્થી નોંધાયેલા"],
+  [/^Showing ([\d,]+) of ([\d,]+) beneficiar(?:y|ies)$/, "$2 में से $1 लाभार्थी", "$2 માંથી $1 લાભાર્થી"],
+  [/^Showing ([\d,]+) of ([\d,]+) beneficiar(?:y|ies) \(page ([\d,]+) of ([\d,]+)\)$/, "$2 में से $1 लाभार्थी (पेज $3 / $4)", "$2 માંથી $1 લાભાર્થી (પેજ $3 / $4)"],
+  [/^([\d,]+) beneficiar(?:y|ies) enrolled$/, "$1 लाभार्थी पंजीकृत", "$1 લાભાર્થી નોંધાયેલા"],
   [/^beneficiar(?:y|ies) enrolled by you$/, "लाभार्थी आपने पंजीकृत किए", "લાભાર્થીની નોંધણી તમે કરી"],
-  [/^Page (\d+) of (\d+) · (\d+) total$/, "पेज $1 / $2 · कुल $3", "પેજ $1 / $2 · કુલ $3"],
-  [/^(\d+)% of (\d+)$/, "$2 का $1%", "$2 ના $1%"],
-  [/^of (\d+)$/, "/ $1", "/ $1"],
-  [/^Refresh data \((\d+) left today\)$/, "डेटा रिफ़्रेश करें (आज $1 बाकी)", "ડેટા રિફ્રેશ કરો (આજે $1 બાકી)"],
-  [/^Refreshed — (\d+) records loaded$/, "रिफ़्रेश हुआ — $1 रिकॉर्ड आए", "રિફ્રેશ થયું — $1 રેકોર્ડ આવ્યા"],
+  [/^Page ([\d,]+) of ([\d,]+) · ([\d,]+) total$/, "पेज $1 / $2 · कुल $3", "પેજ $1 / $2 · કુલ $3"],
+  [/^([\d,]+)% of ([\d,]+)$/, "$2 का $1%", "$2 ના $1%"],
+  [/^of ([\d,]+)$/, "/ $1", "/ $1"],
+  [/^Refresh data \(([\d,]+) left today\)$/, "डेटा रिफ़्रेश करें (आज $1 बाकी)", "ડેટા રિફ્રેશ કરો (આજે $1 બાકી)"],
+  [/^Refreshed — ([\d,]+) records loaded$/, "रिफ़्रेश हुआ — $1 रिकॉर्ड आए", "રિફ્રેશ થયું — $1 રેકોર્ડ આવ્યા"],
   [/^Progress updated to: (.+)$/, "प्रगति बदली: $1", "પ્રગતિ બદલાઈ: $1"],
   [/^(.+): (Need to Apply|Applied|Benefits Received|Rejected)$/, "$1: $2", "$1: $2"],
   [/^Log Income — (.+)$/, "आय दर्ज करें — $1", "આવક નોંધો — $1"],
-  [/^(\d+) entr(?:y|ies)$/, "$1 एंट्री", "$1 એન્ટ્રી"],
+  [/^([\d,]+) entr(?:y|ies)$/, "$1 एंट्री", "$1 એન્ટ્રી"],
   [/^Change the entry from (.+)$/, "$1 की एंट्री बदलें", "$1 ની એન્ટ્રી બદલો"],
   [/^Edit entry from (.+)$/, "$1 की एंट्री बदलें", "$1 ની એન્ટ્રી બદલો"],
   [/^Income entry added\. New total: (₹\S+)$/, "आय जुड़ गई। नया कुल: $1", "આવક ઉમેરાઈ. નવો કુલ: $1"],
@@ -36357,34 +36500,34 @@ const _V253_P = [
   [/^Recorded — no additional income\. Total: (₹\S+)$/, "दर्ज हुआ — अतिरिक्त आय नहीं। कुल: $1", "નોંધાયું — વધારાની આવક નથી. કુલ: $1"],
   [/^Entry deleted \(kept under Deleted entries\)\. New total: (₹\S+)$/, "एंट्री हटी (हटाई गई एंट्री में रखी)। नया कुल: $1", "એન્ટ્રી કાઢી (કાઢેલી એન્ટ્રીમાં રાખી). નવો કુલ: $1"],
   [/^Entry restored\. New total: (₹\S+)$/, "एंट्री वापस आई। नया कुल: $1", "એન્ટ્રી પાછી આવી. નવો કુલ: $1"],
-  [/^Deleted entries \((\d+)\) — not counted in any total$/, "हटाई गई एंट्री ($1) — किसी कुल में नहीं गिनी जाती", "કાઢેલી એન્ટ્રી ($1) — કોઈ કુલમાં ગણાતી નથી"],
+  [/^Deleted entries \(([\d,]+)\) — not counted in any total$/, "हटाई गई एंट्री ($1) — किसी कुल में नहीं गिनी जाती", "કાઢેલી એન્ટ્રી ($1) — કોઈ કુલમાં ગણાતી નથી"],
   [/^Recorded (\d.+)$/, "दर्ज: $1", "નોંધ્યું: $1"],
-  [/^(\d+) log entr(?:y|ies) · (.+)$/, "$1 एंट्री · $2", "$1 એન્ટ્રી · $2"],
-  [/^Family Members \((\d+)\)$/, "परिवार के सदस्य ($1)", "પરિવારના સભ્યો ($1)"],
+  [/^([\d,]+) log entr(?:y|ies) · (.+)$/, "$1 एंट्री · $2", "$1 એન્ટ્રી · $2"],
+  [/^Family Members \(([\d,]+)\)$/, "परिवार के सदस्य ($1)", "પરિવારના સભ્યો ($1)"],
   [/^Advocacy record updated for (.+)$/, "$1 का सरकारी लाभ रिकॉर्ड बदला", "$1 નો સરકારી લાભ રેકોર્ડ બદલાયો"],
   [/^Advocacy record saved for (.+)$/, "$1 का सरकारी लाभ रिकॉर्ड सेव हुआ", "$1 નો સરકારી લાભ રેકોર્ડ સેવ થયો"],
   [/^Changes saved for (.+)$/, "$1 के बदलाव सेव हुए", "$1 ના ફેરફાર સેવ થયા"],
   [/^Enrolled — ID: (.+)$/, "पंजीकृत — ID: $1", "નોંધાયું — ID: $1"],
   [/^Enrolled! ID: (.+)$/, "पंजीकृत! ID: $1", "નોંધાયું! ID: $1"],
   [/^Family member added: (.+)$/, "परिवार का सदस्य जुड़ा: $1", "પરિવારના સભ્ય ઉમેરાયા: $1"],
-  [/^Keep going — (\d+) more to unlock\.$/, "लगे रहिए — $1 और बैज बाकी।", "આગળ વધો — હજી $1 બેજ બાકી."],
+  [/^Keep going — ([\d,]+) more to unlock\.$/, "लगे रहिए — $1 और बैज बाकी।", "આગળ વધો — હજી $1 બેજ બાકી."],
   [/^Badge unlocked — (.+)$/, "बैज मिला — $1", "બેજ મળ્યો — $1"],
-  [/^(\d+) new badges unlocked!$/, "$1 नए बैज मिले!", "$1 નવા બેજ મળ્યા!"],
-  [/^Help (\d+) people receive a government scheme benefit or have an endline income recorded\.$/, "$1 लोगों को सरकारी योजना का लाभ दिलाएँ या उनकी एंडलाइन आय दर्ज करें।", "$1 લોકોને સરકારી યોજનાનો લાભ અપાવો કે તેમની એન્ડલાઇન આવક નોંધો."],
+  [/^([\d,]+) new badges unlocked!$/, "$1 नए बैज मिले!", "$1 નવા બેજ મળ્યા!"],
+  [/^Help ([\d,]+) people receive a government scheme benefit or have an endline income recorded\.$/, "$1 लोगों को सरकारी योजना का लाभ दिलाएँ या उनकी एंडलाइन आय दर्ज करें।", "$1 લોકોને સરકારી યોજનાનો લાભ અપાવો કે તેમની એન્ડલાઇન આવક નોંધો."],
   [/^Reach (₹\d+ lakh) of total impact — government scheme benefits plus the additional income households now earn\.$/, "कुल $1 का असर पाएँ — सरकारी योजना के लाभ और परिवारों की बढ़ी आय मिलाकर।", "કુલ $1 ની અસર મેળવો — સરકારી યોજનાના લાભ અને પરિવારોની વધેલી આવક મળીને."],
   [/^The last one: (₹1 crore) of total impact — government scheme benefits plus the additional income households now earn\.$/, "आख़िरी बैज: कुल $1 का असर — सरकारी योजना के लाभ और परिवारों की बढ़ी आय मिलाकर।", "છેલ્લો બેજ: કુલ $1 ની અસર — સરકારી યોજનાના લાભ અને પરિવારોની વધેલી આવક મળીને."],
-  [/^There are (\d+) applications to work through, and you have moved (\d+) of them forward — either applied for, or the benefit already received\.$/, "कुल $1 आवेदनों पर काम करना है, और आपने इनमें से $2 आगे बढ़ाए — या तो आवेदन किया, या लाभ मिल गया।", "કુલ $1 અરજીઓ પર કામ કરવાનું છે, અને તમે તેમાંથી $2 આગળ વધારી — કાં અરજી કરી, કાં લાભ મળી ગયો."],
-  [/^You have (\d+) livelihood beneficiaries, and you have started the intervention with (\d+) of them\.$/, "आपके $1 आजीविका लाभार्थी हैं, और इनमें से $2 के साथ इंटरवेंशन शुरू किया है।", "તમારા $1 આજીવિકા લાભાર્થીઓ છે, અને તેમાંથી $2 સાથે ઇન્ટરવેન્શન શરૂ કર્યું છે."],
-  [/^Your efforts have generated an estimated impact of (₹\S+), bringing meaningful change to (\d+) lives\.$/, "आपके काम से लगभग $1 का असर हुआ है, जिससे $2 लोगों के जीवन में अच्छा बदलाव आया।", "તમારા કામથી આશરે $1 ની અસર થઈ છે, જેનાથી $2 લોકોના જીવનમાં સારો ફેરફાર આવ્યો."],
-  [/^Your empathy and dedication have made a meaningful difference in the lives of (\d+) people\. The future is brighter because of you!$/, "आपकी लगन और संवेदना से $1 लोगों के जीवन में फ़र्क़ आया है। आपकी वजह से भविष्य बेहतर है!", "તમારી લગન અને સંવેદનાથી $1 લોકોના જીવનમાં ફરક આવ્યો છે. તમારા લીધે ભવિષ્ય વધુ સારું છે!"],
-  [/^(\d+) schemes? across (\d+) (?:person|people) still waiting to be applied for$/, "$2 लोगों की $1 योजनाओं का आवेदन अभी बाकी है", "$2 લોકોની $1 યોજનાની અરજી હજી બાકી છે"],
-  [/^Showing the 200 most urgent of (\d+)\.$/, "$1 में से सबसे ज़रूरी 200 दिख रहे हैं।", "$1 માંથી સૌથી જરૂરી 200 દેખાય છે."],
+  [/^There are ([\d,]+) applications to work through, and you have moved ([\d,]+) of them forward — either applied for, or the benefit already received\.$/, "कुल $1 आवेदनों पर काम करना है, और आपने इनमें से $2 आगे बढ़ाए — या तो आवेदन किया, या लाभ मिल गया।", "કુલ $1 અરજીઓ પર કામ કરવાનું છે, અને તમે તેમાંથી $2 આગળ વધારી — કાં અરજી કરી, કાં લાભ મળી ગયો."],
+  [/^You have ([\d,]+) livelihood beneficiaries, and you have started the intervention with ([\d,]+) of them\.$/, "आपके $1 आजीविका लाभार्थी हैं, और इनमें से $2 के साथ इंटरवेंशन शुरू किया है।", "તમારા $1 આજીવિકા લાભાર્થીઓ છે, અને તેમાંથી $2 સાથે ઇન્ટરવેન્શન શરૂ કર્યું છે."],
+  [/^Your efforts have generated an estimated impact of (₹\S+), bringing meaningful change to ([\d,]+) lives\.$/, "आपके काम से लगभग $1 का असर हुआ है, जिससे $2 लोगों के जीवन में अच्छा बदलाव आया।", "તમારા કામથી આશરે $1 ની અસર થઈ છે, જેનાથી $2 લોકોના જીવનમાં સારો ફેરફાર આવ્યો."],
+  [/^Your empathy and dedication have made a meaningful difference in the lives of ([\d,]+) people\. The future is brighter because of you!$/, "आपकी लगन और संवेदना से $1 लोगों के जीवन में फ़र्क़ आया है। आपकी वजह से भविष्य बेहतर है!", "તમારી લગન અને સંવેદનાથી $1 લોકોના જીવનમાં ફરક આવ્યો છે. તમારા લીધે ભવિષ્ય વધુ સારું છે!"],
+  [/^([\d,]+) schemes? across ([\d,]+) (?:person|people) still waiting to be applied for$/, "$2 लोगों की $1 योजनाओं का आवेदन अभी बाकी है", "$2 લોકોની $1 યોજનાની અરજી હજી બાકી છે"],
+  [/^Showing the 200 most urgent of ([\d,]+)\.$/, "$1 में से सबसे ज़रूरी 200 दिख रहे हैं।", "$1 માંથી સૌથી જરૂરી 200 દેખાય છે."],
   // alerts: the text after the bold name
   [/^is enrolled but no intervention type has been assigned\.$/, "का पंजीकरण हुआ, पर कोई इंटरवेंशन नहीं चुना गया।", "ની નોંધણી થઈ, પણ કોઈ ઇન્ટરવેન્શન પસંદ નથી."],
-  [/^\((.+?)\) — enrolled (\d+) days ago but intervention has not started\. Field coordinator to follow up\.$/, "($1) — $2 दिन पहले पंजीकरण हुआ, पर इंटरवेंशन शुरू नहीं हुआ। फ़ॉलो-अप करें।", "($1) — $2 દિવસ પહેલાં નોંધણી થઈ, પણ ઇન્ટરવેન્શન શરૂ નથી થયું. ફોલો-અપ કરો."],
-  [/^\((.+?)\) — intervention in progress for (\d+) days\. Endline likely due — please schedule\.$/, "($1) — $2 दिन से इंटरवेंशन चालू है। एंडलाइन का समय आ गया होगा — तय करें।", "($1) — $2 દિવસથી ઇન્ટરવેન્શન ચાલુ છે. એન્ડલાઇનનો સમય આવ્યો હશે — નક્કી કરો."],
-  [/^\((.+?)\) — enrolled (\d+) days ago, still at baseline stage with no intervention started\. Requires urgent field follow-up\.$/, "($1) — $2 दिन पहले पंजीकरण हुआ, अब भी बेसलाइन पर, इंटरवेंशन शुरू नहीं। जल्दी फ़ॉलो-अप ज़रूरी।", "($1) — $2 દિવસ પહેલાં નોંધણી થઈ, હજી બેઝલાઇન પર, ઇન્ટરવેન્શન શરૂ નથી. તાત્કાલિક ફોલો-અપ જરૂરી."],
-  [/^\((.+?)\) — advocacy-tagged but no schemes logged in (\d+) days since enrolment\. Log at least one scheme via Advocacy → Log\.$/, "($1) — सरकारी लाभ में है, पर पंजीकरण के $2 दिन बाद भी कोई योजना दर्ज नहीं। कम से कम एक योजना दर्ज करें।", "($1) — સરકારી લાભમાં છે, પણ નોંધણીના $2 દિવસ પછી પણ કોઈ યોજના નોંધાઈ નથી. ઓછામાં ઓછી એક યોજના નોંધો."],
+  [/^\((.+?)\) — enrolled ([\d,]+) days ago but intervention has not started\. Field coordinator to follow up\.$/, "($1) — $2 दिन पहले पंजीकरण हुआ, पर इंटरवेंशन शुरू नहीं हुआ। फ़ॉलो-अप करें।", "($1) — $2 દિવસ પહેલાં નોંધણી થઈ, પણ ઇન્ટરવેન્શન શરૂ નથી થયું. ફોલો-અપ કરો."],
+  [/^\((.+?)\) — intervention in progress for ([\d,]+) days\. Endline likely due — please schedule\.$/, "($1) — $2 दिन से इंटरवेंशन चालू है। एंडलाइन का समय आ गया होगा — तय करें।", "($1) — $2 દિવસથી ઇન્ટરવેન્શન ચાલુ છે. એન્ડલાઇનનો સમય આવ્યો હશે — નક્કી કરો."],
+  [/^\((.+?)\) — enrolled ([\d,]+) days ago, still at baseline stage with no intervention started\. Requires urgent field follow-up\.$/, "($1) — $2 दिन पहले पंजीकरण हुआ, अब भी बेसलाइन पर, इंटरवेंशन शुरू नहीं। जल्दी फ़ॉलो-अप ज़रूरी।", "($1) — $2 દિવસ પહેલાં નોંધણી થઈ, હજી બેઝલાઇન પર, ઇન્ટરવેન્શન શરૂ નથી. તાત્કાલિક ફોલો-અપ જરૂરી."],
+  [/^\((.+?)\) — advocacy-tagged but no schemes logged in ([\d,]+) days since enrolment\. Log at least one scheme via Advocacy → Log\.$/, "($1) — सरकारी लाभ में है, पर पंजीकरण के $2 दिन बाद भी कोई योजना दर्ज नहीं। कम से कम एक योजना दर्ज करें।", "($1) — સરકારી લાભમાં છે, પણ નોંધણીના $2 દિવસ પછી પણ કોઈ યોજના નોંધાઈ નથી. ઓછામાં ઓછી એક યોજના નોંધો."],
   [/^\((.+?)\) —$/, "($1) —", "($1) —"],
   [/^no baseline income recorded$/, "बेसलाइन आय दर्ज नहीं", "બેઝલાઇન આવક નોંધાઈ નથી"],
   [/^\. Impact cannot be measured for this person, and no endline income should be entered until the baseline is filled in\.$/, "। इस व्यक्ति का असर नहीं मापा जा सकता; बेसलाइन भरने से पहले एंडलाइन आय न डालें।", ". આ વ્યક્તિની અસર માપી શકાતી નથી; બેઝલાઇન ભર્યા પહેલાં એન્ડલાઇન આવક ન નાખો."],
@@ -40162,6 +40305,7 @@ async function doLogout() {
   try {
     stateFilter = ''; ngoFilter = ''; fcFilter = '';
     try { _v13RptReturn = null; } catch (_) {}   // V26.1: and what a Reports click had borrowed
+    try { _v262ClosePicker(); } catch (_) {}   // V26.2: and the partner tick-box list
     // V19.5: signing out does NOT reload the page, so this flag had to be
     // cleared here - otherwise the second person to sign in on a shared
     // laptop got no warning and no count when their scope was missing.
@@ -40887,7 +41031,7 @@ function _v362ComputeOneSummary(records, advRecords, ngoScope, prefiltered) {
     // session reading these sees precisely what it would have counted itself
     // had it held every record.
     today: (function () {
-      try { return _v401TodayStats(recs, advRecords); }
+      try { return _v401TodayStats(recs, ngoScope ? advRecords.filter(a => a && scopedBidSet.has(a.bid)) : advRecords); }   // V26.2 (review C)
       catch (e) { console.warn('[V22.4] today payload failed:', e && e.message); return null; }
     })(),
     meta: { computedAt: Date.now(), scope: ngoScope || 'global', recordsInScope: recs.length },
@@ -42600,7 +42744,7 @@ function _renderCoordAlerts() {
   coordList.innerHTML = (_v221Stuck.people ? `<div style="padding:8px 14px;color:var(--gray2);font-size:12px">` +
       `${_v221Stuck.rows} scheme${_v221Stuck.rows === 1 ? '' : 's'} across ${_v221Stuck.people} ` +
       `${_v221Stuck.people === 1 ? 'person' : 'people'} still waiting to be applied for</div>` : '')
-    + (_more > 0 ? `<div style="padding:8px 14px;color:var(--gray2);font-size:12px">Showing the ${_V221_PAGE} most urgent of ${_sorted.length}.</div>` : '')
+    + (_more > 0 ? `<div style="padding:8px 14px;color:var(--gray2);font-size:12px">Showing the ${_V221_PAGE} most urgent of ${_v261N(_sorted.length)}.</div>` : '')
     + _sorted.slice(0, _V221_PAGE).map(a => `
     <div class="alert alert-${a.type}" ${a.id ? `onclick="openDrawer('${a.id}')" style="cursor:pointer"` : ''}
       style="margin-bottom:8px;border-radius:8px;padding:10px 14px;display:flex;align-items:flex-start;gap:10px;
