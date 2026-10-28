@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V26.2-LIVE
+  KRSF Beneficiary Impact Tracker  -  V26.3-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,20 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V26.3-LIVE (2026-10-28 - Reports: beneficiaries first, then schemes).
+
+    + Reports, Coordinators and Partners tabs: each Advocacy box shows the
+      beneficiaries first and the scheme entries second, each figure with
+      its word underneath ("31,888 beneficiaries  54,576 schemes"), and its
+      All-time line the same way (owner's sketch, 28 Oct). The date window
+      ("October 2026") is said once, in the Advocacy and Livelihood
+      headings, not under every figure; a box keeps only a note that adds
+      something ("dated from 30 Jul").
+    + Look only: every figure is the one V26.2 showed, counted the same way.
+      Donor logins still see no beneficiary count (their stored figures
+      carry none). 0 bytes of Firebase.
+    + Tests: 117 files. The V26.3 checks are in _specs/v263.
+
   V26.2-LIVE (2026-10-22 - choose several partners at once).
 
     + The partner menu has "Choose several partners..." (admin and donor
@@ -667,39 +681,6 @@
     + Tests: 80 files. v230meter drives the real meter: two writes at the same
       moment, a second write straight after, more work, and a write that fails.
       On V22.9 it goes red with the tally at -5 and the reconnects tripled.
-
-  V22.9-LIVE (2026-09-22 - the coordinator's card does the common jobs).
-
-    + A COORDINATOR NO LONGER HAS TO OPEN A HOUSEHOLD TO WORK ON IT. Agreed as
-      demo "V1.3" (_specs/card-shortcuts/). On a livelihood card the stage
-      reads Baseline / Intervention / Endline and is a button; each card has
-      "+ Add income" (livelihood, any stage) and "+ Add scheme". A second
-      filter row, Intervention and Stage, sits under the scheme filter, and
-      each row shows only if the coordinator has that kind of household.
-      ⛔ EVERY BUTTON IS A SHORTCUT, NOT A NEW SAVE. The stage pill calls the
-      profile's own updateStatus; Add income opens the same Log Income form
-      (same ids, same submit functions); Add scheme opens the same Log
-      Advocacy form. v229 saves through each card button AND the matching
-      profile button and demands identical records. The short words live on
-      that one pill: stageLabel() and every other screen are unchanged.
-
-    + ⛔ THE ADD SCHEME SAVE REWRITES THE HOUSEHOLD'S WHOLE SCHEME LIST, so
-      the schemes already logged are still IN the form - hidden, and saved
-      with it exactly as before. Leaving them out would have erased them. The
-      first build hid the wrong rows: the prefill adds one row per logged
-      scheme and NO blank row, so "all but the last" left an old scheme
-      showing where the new one should be. v229 caught it; mutants t1/t2 now
-      guard both halves.
-
-    + No new Firebase read. Measured in v229: the card paths read the same
-      bytes as the profile paths (0 extra), and the filters work on what the
-      phone already holds. The file is ~23 KB larger, mostly styles.
-
-    + Tests: 79 files. The V22.9 regression passed 2,356 checks across 39
-      suites, plus v229's 50. The five suites that went red on the first run
-      all failed one line - this count, which still said 78. v220users does
-      not run on V22.8 either (its import never starts in the harness) and is
-      a separate, pre-existing fault.
 
   ============================================================================
   Everything before this point lives in CHANGELOG.md, beside this file.
@@ -3242,27 +3223,39 @@ body[data-shell="coord"] .coord-card {
 .v246-kcards{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .v246-kcards .rpt-kpi{padding:12px 14px;min-width:0}
 .v246-kcards .rpt-kpi-val{font-size:22px}
-/* V26.0: "58 | 36 ben" - the people behind the entries, beside the figure and on the
-   All-time line. Neither part ever breaks or spills: where the browser measures boxes
-   (cqi) both are drawn smaller in a narrow box, but never below a readable size
-   (figure 15px, "ben" 10px; All-time 10px); only if even that does not fit - the
-   narrowest boxes - "| N ben" sits just under the figure. --nv / --nb are each part's
-   width per px of type, so the line is sized for the figure's real size (22, or 18 on
-   a phone). Elsewhere the V25.9 sizes, wrapping the same way. */
-.v26-vrow{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:6px;margin-top:6px;min-width:0}
-.v26-vrow .rpt-kpi-val{margin-top:0;white-space:nowrap}
-.v26-ben{font-size:12px;font-weight:600;color:#185FA5;white-space:nowrap;font-variant-numeric:tabular-nums}
-.v26-sep{color:#85B7EB;font-weight:400}
-.v26-arow{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:5px;margin-top:6px;padding-top:6px;border-top:1px dashed var(--rbd);min-width:0}
-.v26-arow .rpt-kpi-all{margin:0;padding:0;border:0;white-space:nowrap}
-.v26-arow .v26-ben{font-size:11.5px}
+/* V26.3: beneficiaries first, then schemes - two figures side by side, each with its word
+   underneath, and the All-time line the same way (owner's sketch, 28 Oct). Both figures are
+   sized together so the pair stays on one line in its box: --nb / --ns are each figure's
+   characters (.62 of the type size each). A column is as wide as its figure or its word,
+   whichever is wider ("beneficiaries" 70px, "schemes" 48px at 11px; 63 / 44 at 10px), so the
+   size meets three limits: both figures; "beneficiaries" beside the scheme figure; the
+   beneficiary figure beside "schemes". Where the browser measures boxes (cqi) the figures
+   shrink to fit, never below 14px (All-time 10px). A box too narrow for the two words side by
+   side (under 130px; All-time 119px - phones) stacks them, and each figure is then sized to the
+   whole width, as large as the usual size. Otherwise only where even that
+   cannot fit - the narrowest phone boxes - "schemes" sits under "beneficiaries"; nothing is
+   ever cut off or spills out of its box. The scheme figure stays the box's .rpt-kpi-val and
+   .rpt-kpi-all; the beneficiary figure keeps .v26-ben. */
+.v263-pair{display:flex;flex-wrap:wrap;align-items:flex-start;row-gap:4px;margin-top:6px;min-width:0}
+.v263-c{display:flex;flex-direction:column;min-width:0}
+.v263-bc{margin-right:12px}   /* the 12px between the two, as a margin: older phone browsers have no flex gap */
+.v246-kcards .v263-pair .v263-n{font-size:22px;font-weight:700;letter-spacing:-.02em;line-height:1.15;color:var(--ink);white-space:nowrap;font-variant-numeric:tabular-nums;margin:0;padding:0;border:0}
+.v263-u{font-size:11px;font-weight:500;color:var(--ink3);white-space:nowrap;margin-top:1px;letter-spacing:0}
+@media(max-width:480px){ .v263-pair{--v263v:18} .v246-kcards .v263-pair .v263-n{font-size:18px} }
+.v263-arow{margin-top:8px;padding-top:6px;border-top:1px dashed var(--rbd)}
+.v263-at{font-size:11px;color:var(--ink2)}
+.v263-arow .v263-pair{margin-top:2px}
+.v246-kcards .v263-arow .v263-n{font-size:13px;letter-spacing:0}
+.v263-arow .v263-u{font-size:10px}
 @supports (width:1cqi){
-.v26-vrow,.v26-arow{container-type:inline-size}
-.v26-vrow .rpt-kpi-val{font-size:clamp(15px, calc(100cqi * var(--v26v,22) / (var(--nv,5) * var(--v26v,22) + var(--nb,8) * 12 + 8)), calc(var(--v26v,22) * 1px))!important}
-.v26-vrow .v26-ben{font-size:clamp(10px, calc(100cqi * 12 / (var(--nv,5) * var(--v26v,22) + var(--nb,8) * 12 + 8)), 12px)}
-.v26-arow .rpt-kpi-all,.v26-arow .v26-ben{font-size:clamp(10px, calc(100cqi * 11.5 / ((var(--nv,10) + var(--nb,8)) * 11.5 + 8)), 11.5px)}
+.v263-pair{container-type:inline-size}
+.v246-kcards .v263-pair .v263-n{font-size:clamp(14px, calc(100cqi / (var(--ns,5) * .62)), calc(var(--v263v,22) * 1px))}
+.v246-kcards .v263-p2 .v263-n{font-size:clamp(14px, min(calc((100cqi - 12px) / ((var(--nb,5) + var(--ns,5)) * .62)), calc((100cqi - 82px) / (var(--ns,5) * .62)), calc((100cqi - 60px) / (var(--nb,5) * .62))), calc(var(--v263v,22) * 1px))}
+.v246-kcards .v263-arow .v263-pair .v263-n{font-size:clamp(10px, calc(100cqi / (var(--ns,5) * .62)), 13px)}
+.v246-kcards .v263-arow .v263-p2 .v263-n{font-size:clamp(10px, min(calc((100cqi - 12px) / ((var(--nb,5) + var(--ns,5)) * .62)), calc((100cqi - 75px) / (var(--ns,5) * .62)), calc((100cqi - 56px) / (var(--nb,5) * .62))), 13px)}
+@container (max-width:129.9px){ .v246-kcards .v263-p2 .v263-n{font-size:clamp(14px, calc(100cqi / (max(var(--nb,5), var(--ns,5)) * .62)), calc(var(--v263v,22) * 1px))} }
+@container (max-width:118.9px){ .v246-kcards .v263-arow .v263-p2 .v263-n{font-size:clamp(10px, calc(100cqi / (max(var(--nb,5), var(--ns,5)) * .62)), 13px)} }
 }
-@media(max-width:480px){ .v26-vrow{--v26v:18} }
 /* the smallest phones: "INTERVENTION" ran 5px out of its box (V25.9 too) */
 @media(max-width:400px){ .v246-kcards .rpt-kpi-lab{letter-spacing:.01em;gap:4px} }
 .rpt-tbl tr.v246-grp th{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:8px 12px 4px;text-align:center;border-bottom:0;cursor:default}
@@ -4793,7 +4786,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V26.2-LIVE';
+const APP_VERSION = 'V26.3-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -30648,7 +30641,7 @@ function _rptRenderFc(A, nowMs, rowScope) {
     ['Enrolled',          'users',  sum('livelihoodWin'),   win, allT(sum('livelihood'))],
     ['Intervention',      'sprout', sum('interventionWin'), win, allT(sum('intervention'))],
     ['Endline',           'check',  sum('endlineWin'),      win, allT(sum('endline'))]
-  ])
+  ], win)
   + `<div class="rpt-card">
       <div class="rpt-card-h rpt-card-h-row">
         <div class="rpt-hg">
@@ -31268,7 +31261,7 @@ function _rptRenderNgo(A) {
     ['Enrolled',          'users',  sum('livelihoodWin'),   win, allT(sum('livelihood'))],
     ['Intervention',      'sprout', sum('interventionWin'), win, allT(sum('intervention'))],
     ['Endline',           'check',  sum('endlineWin'),      win, allT(sum('endline'))]
-  ])
+  ], win)
   + `<div class="rpt-card">
     <div class="rpt-card-h rpt-card-h-row">
       <div class="rpt-hg">
@@ -31391,32 +31384,50 @@ function _v26Before(A) {
     return !!A.inWin(new Date(Math.min.apply(null, t) - 86400000).toISOString());
   } catch (_) { return true; }
 }
-function _v246KpiGroups(adv, liv) {
-  const one = c => {
+// V26.3: (owner, 28 Oct) beneficiaries FIRST, then schemes - each figure with its word under it,
+// the All-time line the same way. The date window is said once, in the group headings (period =
+// the caller's _rptWinLabel()); a box keeps only a note that adds something to it. Look only:
+// every figure is the value the caller passed, exactly as V26.2 drew it. ben = [people in the
+// window, people all-time], null for donor logins (no people shown, never "0 beneficiaries").
+function _v246KpiGroups(adv, liv, period) {
+  const per = String(period || '');
+  const Per = per ? per.charAt(0).toUpperCase() + per.slice(1) : '';
+  const fmt = v => typeof v === 'number' ? v.toLocaleString('en-IN') : v;
+  const note = t => { t = String(t || ''); if (!per) return t; if (t === per) return '';
+    return t.indexOf(per + ' · ') === 0 ? t.slice(per.length + 3) : t; };
+  const lab = (label, icon) => `<div class="rpt-kpi-lab"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${_RPT_ICONS[icon] || ''}</svg>${escHtml(label)}</div>`;
+  const subRow = t => t ? `<div class="rpt-kpi-sub">${escHtml(t)}</div>` : '';
+  // b = beneficiaries (null: not shown, and no v263-p2 / size hint), v = scheme entries;
+  // --nb / --ns = each figure's characters, for the sizing in the styles
+  const pair = (b, v, cls) => {
+    const bt = b == null ? null : fmt(b), vt = fmt(v);
+    return `<div class="v263-pair${bt == null ? '' : ' v263-p2'}" style="${bt == null ? '' : '--nb:' + String(bt).length + ';'}--ns:${String(vt).length}">` +
+      (bt == null ? '' : `<div class="v263-c v263-bc"><span class="v263-n v26-ben">${bt}</span><span class="v263-u">beneficiaries</span></div>`) +
+      `<div class="v263-c"><span class="v263-n ${cls}">${vt}</span><span class="v263-u">schemes</span></div></div>`;
+  };
+  const advOne = c => {
     const [label, icon, val, sub, allTime, ben] = c;
-    const fmt = v => typeof v === 'number' ? v.toLocaleString('en-IN') : v;
-    // V26.0: ben = [people in the window, people all-time]; the figure itself stays
-    // alone in .rpt-kpi-val and the All-time figure alone in .rpt-kpi-all
-    const bw = ben && typeof ben[0] === 'number' ? fmt(ben[0]) + ' ben' : null;
-    const ba = ben && typeof ben[1] === 'number' ? fmt(ben[1]) + ' ben' : null;
-    // each part's width per px of type (characters x .62); the CSS multiplies by the real size
-    const wd = t => (String(t).length * .62).toFixed(2);
-    const valRow = bw
-      ? `<div class="v26-vrow" style="--nv:${wd(fmt(val))};--nb:${wd('| ' + bw)}"><div class="rpt-kpi-val">${fmt(val)}</div><span class="v26-ben"><span class="v26-sep">|</span> ${bw}</span></div>`
-      : `<div class="rpt-kpi-val">${fmt(val)}</div>`;
-    const allRow = allTime == null ? '' : ba
-      ? `<div class="v26-arow" style="--nv:${wd('All-time ' + fmt(allTime))};--nb:${wd('| ' + ba)}"><div class="rpt-kpi-all">All-time <b>${fmt(allTime)}</b></div><span class="v26-ben"><span class="v26-sep">|</span> ${ba}</span></div>`
-      : `<div class="rpt-kpi-all">All-time <b>${fmt(allTime)}</b></div>`;
+    const bw = ben && typeof ben[0] === 'number' ? ben[0] : null;
+    const ba = ben && typeof ben[1] === 'number' ? ben[1] : null;
     return `<div class="rpt-kpi">
-      <div class="rpt-kpi-lab"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${_RPT_ICONS[icon] || ''}</svg>${escHtml(label)}</div>
-      ${valRow}
-      <div class="rpt-kpi-sub">${escHtml(sub || '')}</div>
-      ${allRow}
+      ${lab(label, icon)}
+      ${pair(bw, val, 'rpt-kpi-val')}
+      ${subRow(note(sub))}
+      ${allTime == null ? '' : '<div class="v263-arow"><div class="v263-at">All-time</div>' + pair(ba, allTime, 'rpt-kpi-all') + '</div>'}
+    </div>`;
+  };
+  const livOne = c => {
+    const [label, icon, val, sub, allTime] = c;
+    return `<div class="rpt-kpi">
+      ${lab(label, icon)}
+      <div class="rpt-kpi-val">${fmt(val)}</div>
+      ${subRow(note(sub))}
+      ${allTime == null ? '' : `<div class="rpt-kpi-all">All-time <b>${fmt(allTime)}</b></div>`}
     </div>`;
   };
   return `<div class="v246-kgroups">
-    <div class="v246-kg adv"><div class="v246-kg-lab">Advocacy <span>· scheme entries${adv.some(c => c[5]) ? ' | beneficiaries' : ''}</span></div><div class="v246-kcards">${adv.map(one).join('')}</div></div>
-    <div class="v246-kg liv"><div class="v246-kg-lab">Livelihood <span>· households</span></div><div class="v246-kcards">${liv.map(one).join('')}</div></div>
+    <div class="v246-kg adv"><div class="v246-kg-lab">Advocacy${Per ? ' <span>· ' + escHtml(Per) + '</span>' : ''}</div><div class="v246-kcards">${adv.map(advOne).join('')}</div></div>
+    <div class="v246-kg liv"><div class="v246-kg-lab">Livelihood <span>· households${Per ? ' · ' + escHtml(Per) : ''}</span></div><div class="v246-kcards">${liv.map(livOne).join('')}</div></div>
   </div>`;
 }
 function _rptKpiRow(cards) {
