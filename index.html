@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V26.3-LIVE
+  KRSF Beneficiary Impact Tracker  -  V26.5-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,36 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V26.5-LIVE (2026-10-29 - phones stop downloading their lists for nothing).
+
+    + A coordinator's phone downloaded both its lists again on many days when
+      nothing of theirs had changed (28 Oct export: 947 MB of the 1,270 MB
+      coordinators used in a month). One partner save told every coordinator
+      in that partner to download again, one office save told all of them,
+      and a coordinator's own save told their own phone. Now a save tells
+      only the coordinators whose households it changed, and the phone that
+      made the save stays up to date. Repair tools tell only the owners of
+      what they wrote. (V26.4, team leaders who may edit, stays parked.)
+    + Measured on a copy of the real data: a partner edit sent 56 phones to
+      download again, now 1; an office edit 550, now 1. One coordinator's
+      phone over 10 days of its own work: 0.10 MB downloaded, was 1.44 MB.
+    + Gaps the extra downloads used to hide, now fixed: a household enrolled
+      with no signal, and a scheme change made with no signal, show on the
+      phone the next day; a scheme change made on one phone, or by the
+      partner or office, reaches the coordinator's other phone.
+    + Nothing new is downloaded on opening. A save reads one ~50-byte marker
+      per coordinator it changed. Once, after the update, each coordinator's
+      phone fetches its list one more time. Saves measured against V26.3:
+      no difference beyond normal swing.
+    + Reports (owner's screenshots, 29 Oct): every big figure in the six
+      boxes is one size, and keeps that size when the date chip changes; a
+      Livelihood box shows "households" under its figure and its All-time
+      line in the same place as an Advocacy box. The boxes of Enrollment
+      Trends and Livelihood Impact use the same figure size. The TODAY BY
+      PARTNER table is no longer in Reports (it stays on the Dashboard).
+      Look only, 0 Firebase.
+    + Tests: 117 files. The V26.5 checks are in _specs/v265.
+
   V26.3-LIVE (2026-10-28 - Reports: beneficiaries first, then schemes).
 
     + Reports, Coordinators and Partners tabs: each Advocacy box shows the
@@ -653,34 +683,6 @@
       "No schemes logged yet" drops "open record to add". Approved on the demo.
 
     + Tests: 81 files.
-
-  V23.0-LIVE (2026-09-23 - the usage screen's own counters).
-
-    + ⛔ THE ENROLMENT COLUMN WENT NEGATIVE (-23 on 22 September). The meter
-      COPIED the session's enrolment count, wrote it, and subtracted it after
-      the write. Four things trigger that write - a five-minute timer, a minute
-      after sign-in, the tab being hidden, the page closing - so two of them
-      overlapping carried the same figure and BOTH subtracted it. The tally
-      went below zero and the next write added a negative number to the day's
-      total. The four saved-copy counters beside it were already TAKEN (read
-      and zeroed in one step, and given back if the write fails); enrolments
-      and reconnects now follow the same rule.
-
-    + ⛔ RECONNECTS WERE NEVER CLEARED, so every write re-added the whole
-      session's count. One row read 135 on 22 September during offline
-      testing; the real number is far lower.
-
-    + AND ONLY ONE WRITE AT A TIME. Each one reads the day's record, waits,
-      then writes - so two in flight read the same "before" and each add their
-      own on top. The bytes had the same exposure, not just the counters.
-
-    + Nothing here touches a household, an enrolment or a scheme record. This
-      is the Bandwidth screen's own bookkeeping. Figures already stored stay as
-      they are; the column is trustworthy from this version onwards.
-
-    + Tests: 80 files. v230meter drives the real meter: two writes at the same
-      moment, a second write straight after, more work, and a write that fails.
-      On V22.9 it goes red with the tally at -5 and the reconnects tripled.
 
   ============================================================================
   Everything before this point lives in CHANGELOG.md, beside this file.
@@ -3256,6 +3258,54 @@ body[data-shell="coord"] .coord-card {
 @container (max-width:129.9px){ .v246-kcards .v263-p2 .v263-n{font-size:clamp(14px, calc(100cqi / (max(var(--nb,5), var(--ns,5)) * .62)), calc(var(--v263v,22) * 1px))} }
 @container (max-width:118.9px){ .v246-kcards .v263-arow .v263-p2 .v263-n{font-size:clamp(10px, calc(100cqi / (max(var(--nb,5), var(--ns,5)) * .62)), 13px)} }
 }
+/* V26.5 (owner, 29 Oct): every big figure in the six boxes the same size, every All-time figure
+   the same size, and the All-time line at the same height in every box. The size is worked out
+   from --gnb / --gns, the longest figures on the page (window and all-time), with V26.3's three
+   limits - so whatever fits the most crowded box is used in all six, and it stays put when the
+   date chip changes. A Livelihood box (one figure) takes the same size as an Advocacy box (two).
+   The All-time line sits at the foot of its box and the boxes of a row are one height, so a
+   heading on two lines or a note in one box does not push its line out of step. */
+.v246-kgroups.v265-eq .v246-kcards{flex:1 1 auto}
+.v246-kgroups.v265-eq .v246-kcards .rpt-kpi{display:flex;flex-direction:column}
+.v246-kgroups.v265-eq .v246-kcards .rpt-kpi > .v263-arow{margin-top:auto;padding-top:0;border-top:0}
+.v246-kgroups.v265-eq .v246-kcards .v263-arow > .v263-at{margin-top:8px;padding-top:6px;border-top:1px dashed var(--rbd)}
+@supports (width:1cqi){
+.v246-kgroups.v265-eq2 .v246-kcards .v263-pair .v263-n{font-size:clamp(14px, min(calc((100cqi - 12px) / ((var(--gnb,5) + var(--gns,5)) * .62)), calc((100cqi - 82px) / (var(--gns,5) * .62)), calc((100cqi - 60px) / (var(--gnb,5) * .62))), calc(var(--v263v,22) * 1px))}
+.v246-kgroups.v265-eq2 .v246-kcards .v263-arow .v263-pair .v263-n{font-size:clamp(10px, min(calc((100cqi - 12px) / ((var(--gnb,5) + var(--gns,5)) * .62)), calc((100cqi - 75px) / (var(--gns,5) * .62)), calc((100cqi - 56px) / (var(--gnb,5) * .62))), 13px)}
+.v246-kgroups.v265-eq1 .v246-kcards .v263-pair .v263-n{font-size:clamp(14px, calc(100cqi / (var(--gns,5) * .62)), calc(var(--v263v,22) * 1px))}
+.v246-kgroups.v265-eq1 .v246-kcards .v263-arow .v263-pair .v263-n{font-size:clamp(10px, calc(100cqi / (var(--gns,5) * .62)), 13px)}
+@container (max-width:129.9px){ .v246-kgroups.v265-eq2 .v246-kcards .v263-pair .v263-n{font-size:clamp(14px, calc(100cqi / (max(var(--gnb,5), var(--gns,5)) * .62)), calc(var(--v263v,22) * 1px))} }
+@container (max-width:118.9px){ .v246-kgroups.v265-eq2 .v246-kcards .v263-arow .v263-pair .v263-n{font-size:clamp(10px, calc(100cqi / (max(var(--gnb,5), var(--gns,5)) * .62)), 13px)} }
+.v246-kgroups.v265-eq .v246-kcards .v263-pair .v263-n{min-width:calc(var(--gns,5) * .62em)}
+.v246-kgroups.v265-eq2 .v246-kcards .v263-pair .v26-ben{min-width:calc(var(--gnb,5) * .62em)}
+/* the three columns stay exactly equal: on a 360 px phone "INTERVENTION" used to widen its own
+   column, so that box's figure came out larger (look test). (Not a container query on the box:
+   that switches off the shared rows below.) */
+.v246-kgroups.v265-eq .v246-kcards{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+/* on a phone 400 px wide or less a heading with its icon is wider than an equal box
+   ("INTERVENTION" ran into the box's margin): every box drops its heading icon there,
+   all six alike */
+@media(max-width:400px){ .v246-kgroups.v265-eq .v246-kcards .rpt-kpi-lab svg{display:none} .v246-kgroups.v265-eq .v246-kcards .rpt-kpi-lab{letter-spacing:0} }
+/* (V26.5, look test at 480 px) Two more things make a row of boxes line up. Each figure column is
+   as wide as the longest figure on the page (above), so every box decides "side by side" or
+   "one under the other" the same way - a box with 1,83,736 / 3,14,890 used to stack while its
+   neighbours did not. And the three boxes of a row share their rows - heading, figures, note,
+   All-time - so a heading on two lines in one box moves the figures of all three together.
+   Browsers without subgrid keep the flex layout above (All-time at the foot). */
+@supports (grid-template-rows: subgrid){
+.v246-kgroups.v265-eq .v246-kcards{grid-template-rows:auto auto 1fr auto;row-gap:0}
+.v246-kgroups.v265-eq .v246-kcards .rpt-kpi{display:grid;grid-row:1 / span 4;grid-template-rows:subgrid;row-gap:0}
+.v246-kgroups.v265-eq .v246-kcards .rpt-kpi > .rpt-kpi-lab{grid-row:1}
+.v246-kgroups.v265-eq .v246-kcards .rpt-kpi > .v263-pair{grid-row:2;align-self:start}
+.v246-kgroups.v265-eq .v246-kcards .rpt-kpi > .rpt-kpi-sub{grid-row:3;align-self:start}
+.v246-kgroups.v265-eq .v246-kcards .rpt-kpi > .v263-arow{grid-row:4;align-self:start;margin-top:0}
+}
+/* (V26.5, owner 29 Oct: "the font thing needs to be applied across the report") The figure boxes
+   of Enrollment Trends and Livelihood Impact use the same big-figure size as the Advocacy and
+   Livelihood boxes: 22 px, 18 px on a phone (they were 24 px, 20 px). */
+.rpt-kpis .rpt-kpi-val{font-size:22px}
+@media(max-width:480px){ .rpt-kpis .rpt-kpi-val{font-size:18px} }
 /* the smallest phones: "INTERVENTION" ran 5px out of its box (V25.9 too) */
 @media(max-width:400px){ .v246-kcards .rpt-kpi-lab{letter-spacing:.01em;gap:4px} }
 .rpt-tbl tr.v246-grp th{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:8px 12px 4px;text-align:center;border-bottom:0;cursor:default}
@@ -4786,7 +4836,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V26.3-LIVE';
+const APP_VERSION = 'V26.5-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -5132,6 +5182,7 @@ async function _idbDelete(key) {
 function _pantryKey(userId) { return 'benef-pantry-' + userId; }
 async function _pantryWrite(userId, records, lastSyncTs) {
   if (!userId) return false;
+  _pantryWrite._v265Gen = (_pantryWrite._v265Gen || 0) + 1;   // V26.5: see _v265AfterOwnSends
   return await _idbSet(_pantryKey(userId), {
     userId: userId, schemaVersion: PANTRY_SCHEMA_VERSION, ts: Date.now(),
     lastSyncTs: (typeof lastSyncTs === 'number') ? lastSyncTs : Date.now(),
@@ -5881,6 +5932,361 @@ function _v196RepairIfArmed() {
   } catch (_) {}
 }
 let _v196PumpBusy = false;
+// ═══════════════════════════════════════════════════════════════════════════
+// V26.5 — A PHONE NO LONGER DOWNLOADS ITS WHOLE LIST AGAIN FOR NOTHING
+// Owner, 2026-10-29: "i need measurements that it saves firebase without
+// affecting the speed and without affecting any existing features."
+// Measured on the 28 Oct export (28 Sep - 27 Oct, 486 coordinators): on 1,406
+// coordinator-days the phone opened its saved copy and then downloaded BOTH its
+// lists again - 947 MB of the 1,270 MB coordinators used. Two causes:
+//   1. one partner save moved the marker (_fc_meta) of EVERY coordinator in that
+//      partner, one office save moved ALL of them - not just the coordinator whose
+//      household changed. Phones re-downloaded on 83% of days after such a save,
+//      44% otherwise. saveData now marks only the owners of what it wrote.
+//   2. a coordinator's own save stamped the marker a millisecond AFTER the phone's
+//      own saved copy, so the next daily check thought the copy was behind.
+//      Now, when the marker shows nobody else has changed anything since this
+//      phone last checked, the marker is stamped no later than the copy. When it
+//      cannot show that (somebody else did change something, or the read failed),
+//      the phone fetches next time exactly as before - and a flag makes sure of it.
+// And the two gaps that the needless re-downloads used to paper over:
+//   3. a household enrolled with no signal reached the server but was missing from
+//      the coordinator's own list the next day; a scheme change made with no signal
+//      showed the OLD status the next day. The waiting line now brings the phone's
+//      saved copies up to date once it has sent.
+//   4. changes other people make through the one-record and scheme-record paths now
+//      move the owner's marker too (they never did; the daily office save hid it).
+// ⛔ WHAT A COORDINATOR'S DAILY CHECK COMPARES (review round 1). It compared the
+// marker with the TIME OF THE SAVED COPY - but that time moves whenever this phone
+// rewrites its copy (a Save with no change, a refused save that took the server's
+// version, the waiting line), so a change somebody else made before that moment
+// was hidden. V26.3 papered over it by re-downloading almost every day. A phone
+// now remembers the last marker time it CONFIRMED with the server ("seen") and
+// compares the marker with that; the copy's own time is used only until the first
+// check on this build has run. Marker times are written in server time, so a
+// device whose clock is wrong cannot hide a change either.
+// ═══════════════════════════════════════════════════════════════════════════
+let _v265PS = null;   // what the waiting line sent this pass: { benef: [ids], adv: [keys] }
+function _v265Key(k, uid) { return 'krsf_v265_' + k + '_' + uid; }
+function _v265Now() { try { return (typeof _v19ServerNow === 'function') ? _v19ServerNow() : Date.now(); } catch (_) { return Date.now(); } }
+// ⛔ MARKER TIMES ARE STAMPED BY THE SERVER, WHEN THE WRITE LANDS (review round 2).
+// A time worked out on the device before a slow write could arrive AFTER this
+// phone had confirmed a later time, and the change was hidden for good.
+function _v265TS() {
+  try { if (window.firebase && firebase.database && firebase.database.ServerValue) return firebase.database.ServerValue.TIMESTAMP; } catch (_) {}
+  return _v265Now();
+}
+// the server's clock is known on this device (its offset arrives with the connection)
+function _v265ClockKnown() { try { return typeof _v19ServerOffsetMs === 'number'; } catch (_) { return false; } }
+// the marker time this phone's saved copy is known to include (set only by a check
+// that read the marker from the server, or by a careful own save)
+function _v265GetSeen(uid) { try { return parseInt(localStorage.getItem(_v265Key('seen', uid)), 10) || 0; } catch (_) { return 0; } }
+function _v265SetSeen(uid, ts) { try { if (typeof ts === 'number' && ts > 0) localStorage.setItem(_v265Key('seen', uid), String(ts)); } catch (_) {} }
+// the same for the fleet "everyone fetch" switch
+function _v265GetFleetSeen(uid) { try { return parseInt(localStorage.getItem(_v265Key('fleet', uid)), 10) || 0; } catch (_) { return 0; } }
+function _v265SetFleetSeen(uid, ts) { try { if (typeof ts === 'number' && ts > 0) localStorage.setItem(_v265Key('fleet', uid), String(ts)); } catch (_) {} }
+// "fetch at the next check, whatever the marker says" - holds WHEN it was set, so a
+// download that started before it cannot clear it
+function _v265IsDirty(uid) { try { return localStorage.getItem(_v265Key('dirty', uid)) != null; } catch (_) { return false; } }
+function _v265SetDirty(uid) { try { localStorage.setItem(_v265Key('dirty', uid), String(Date.now())); } catch (_) {} }
+function _v265ClearDirty(uid, upTo) {
+  try {
+    const v = localStorage.getItem(_v265Key('dirty', uid));
+    if (v != null && (parseInt(v, 10) || 0) <= upTo) localStorage.removeItem(_v265Key('dirty', uid));
+  } catch (_) {}
+}
+// the signed-in coordinator's own households in memory (the same count _v359UpdateFcMeta writes)
+function _v265OwnCount() {
+  try {
+    const u = (typeof currentUser === 'function') ? currentUser() : null;
+    if (!u || u.role !== 'coordinator') return null;
+    let c = 0;
+    for (const r of RecordCache.benef.values()) if (r && r.createdBy === u.userId) c++;
+    return c;
+  } catch (_) { return null; }
+}
+// owners of what a save wrote or deleted: the owner each written record has now,
+// and the owner each written or deleted id had in this device's copy BEFORE the
+// save (read before the copy is rebuilt) - a household moved away or deleted still
+// tells its old owner. An out object never filled = nothing was written.
+function _v265OwnersOf(out, cache) {
+  const s = new Set();
+  try {
+    if (!out || !out.ok) return s;
+    (out.owners || []).forEach(function (o) { if (o) s.add(o); });
+    let unknown = false;
+    (out.ids || []).forEach(function (id) { const r = cache && cache.get(id); if (r && r.createdBy) s.add(r.createdBy); });
+    (out.dels || []).forEach(function (id) { if (!(cache && cache.get(id))) unknown = true; });
+    // a deleted id this device's copy does not hold: its owner cannot be named,
+    // so do what V26.3 did - tell every owner in the copy
+    if (unknown && cache) for (const r of cache.values()) if (r && r.createdBy) s.add(r.createdBy);
+  } catch (_) {}
+  return s;
+}
+// somebody else's records changed without their household count changing: move
+// only the time on their marker (an upload; nothing is downloaded). A coordinator's
+// own records are left to the careful own-save path - unless includeMe: then
+// their own marker moves too, and every device of theirs (this one included)
+// fetches at its next check, exactly as V26.3 did after every own save.
+function _v265TouchOthers(owners, includeMe) {
+  try {
+    if (!owners || !owners.size || !FB || !FB.db) return;
+    const u = (typeof currentUser === 'function') ? currentUser() : null;
+    const me = (u && u.role === 'coordinator') ? u.userId : null;
+    const ids = Array.from(owners).filter(function (id) { return id && (includeMe || id !== me); });
+    if (!ids.length) return;
+    // ⛔ skip only people this device KNOWS are not coordinators (review round 5): a
+    // coordinator added after this device saved its user list (bulk import) is not on
+    // it, and must still be told. A marker for an unknown id is an upload only - every
+    // phone reads just its own marker, nothing downloads the whole list of markers.
+    let notCoord = null;
+    try {
+      const us = (typeof loadUsers === 'function') ? (loadUsers() || []) : [];
+      if (us.length) notCoord = new Set(us.filter(function (x) { return x && x.id && x.role !== 'coordinator'; }).map(function (x) { return x.id; }));
+    } catch (_) {}
+    ids.forEach(function (id) {
+      if (notCoord && notCoord.has(id) && id !== me) return;
+      try {
+        fbRef('_fc_meta/' + id).update({ lastChangeTs: _v265TS() })
+          .catch(function (e) { console.warn('[V26.5] marker not moved for', id, e && e.message); });
+      } catch (_) {}
+    });
+  } catch (_) {}
+}
+// ── the office repair tools write records directly (review rounds 1 and 2) ──
+// While one runs, every write it makes to households or scheme records is noted
+// (the database calls are watched, nothing is changed); when it finishes, only
+// the owners of what it really wrote are told. A cancelled or refused run writes
+// nothing and tells nobody.
+let _v265ToolDepth = 0, _v265ToolW = null, _v265OrigFbRef = null, _v265OrigDbRef = null, _v265DbRefOwn = false;
+function _v265NoteWrite(path, val) {
+  try {
+    if (!_v265ToolW) return;
+    let p = String(path || '').replace(/^\/+/, '');
+    if (p.indexOf(FB_NAMESPACE + '/') === 0) p = p.slice(FB_NAMESPACE.length + 1);
+    else if (p === FB_NAMESPACE) p = '';
+    const m = /^(beneficiaries|advocacy)\/([^\/]+)/.exec(p);
+    if (m) {
+      const c = m[1] === 'beneficiaries' ? RecordCache.benef : RecordCache.adv;
+      _v265ToolW.push([m[1], m[2]]);
+      const old = c && c.get(m[2]); if (old && old.createdBy) _v265ToolW.owners.add(old.createdBy);
+      if (val && typeof val === 'object' && typeof val.createdBy === 'string') _v265ToolW.owners.add(val.createdBy);
+      if (m[1] === 'beneficiaries' && p === 'beneficiaries/' + m[2] + '/createdBy' && typeof val === 'string') _v265ToolW.owners.add(val);
+      if (m[1] === 'advocacy' && p === 'advocacy/' + m[2] + '/createdBy' && typeof val === 'string') _v265ToolW.owners.add(val);
+    } else if ((p === '' || p === 'beneficiaries' || p === 'advocacy') && val && typeof val === 'object') {
+      Object.keys(val).forEach(function (k) { _v265NoteWrite((p ? p + '/' : '') + k, val[k]); });
+    }
+  } catch (_) {}
+}
+function _v265Spy(ref, path) {
+  try {
+    if (!ref || ref._v265Spy) return ref;
+    ['set', 'update', 'remove', 'transaction', 'setWithPriority'].forEach(function (mth) {
+      const f = ref[mth]; if (typeof f !== 'function') return;
+      ref[mth] = function (a) {
+        try {
+          if (mth === 'update' && a && typeof a === 'object') Object.keys(a).forEach(function (k) { _v265NoteWrite(path ? path + '/' + k : k, a[k]); });
+          else _v265NoteWrite(path, (mth === 'set' || mth === 'setWithPriority') ? a : null);
+        } catch (_) {}
+        return f.apply(ref, arguments);
+      };
+    });
+    const ch = ref.child;
+    if (typeof ch === 'function') ref.child = function (k) { return _v265Spy(ch.call(ref, k), path ? path + '/' + k : String(k)); };
+    ref._v265Spy = true;
+  } catch (_) {}
+  return ref;
+}
+function _v265ToolStart() {
+  if (_v265ToolDepth++ > 0) return;
+  _v265ToolW = []; _v265ToolW.owners = new Set();
+  try {
+    _v265OrigFbRef = window.fbRef;
+    window.fbRef = function (p) { return _v265Spy(_v265OrigFbRef(p), FB_NAMESPACE + '/' + p); };
+    if (FB && FB.db) {
+      _v265DbRefOwn = Object.prototype.hasOwnProperty.call(FB.db, 'ref');
+      _v265OrigDbRef = FB.db.ref;
+      FB.db.ref = function (p) { return _v265Spy(_v265OrigDbRef.apply(FB.db, arguments), p ? String(p) : ''); };
+    }
+  } catch (_) {}
+}
+function _v265ToolEnd() {
+  if (--_v265ToolDepth > 0) return;
+  try { if (_v265OrigFbRef) window.fbRef = _v265OrigFbRef; } catch (_) {}
+  try { if (FB && FB.db && _v265OrigDbRef) { if (_v265DbRefOwn) FB.db.ref = _v265OrigDbRef; else delete FB.db.ref; } } catch (_) {}
+  _v265OrigFbRef = null; _v265OrigDbRef = null;
+  const w = _v265ToolW; _v265ToolW = null;
+  try {
+    if (!w || !w.length) return;   // wrote nothing: tell nobody
+    const owners = w.owners;
+    w.forEach(function (x) {
+      const r = (x[0] === 'beneficiaries' ? RecordCache.benef : RecordCache.adv).get(x[1]);
+      if (r && r.createdBy) owners.add(r.createdBy);
+    });
+    console.log('[V26.5] repair tool wrote ' + w.length + ' record path(s); telling ' + owners.size + ' coordinator(s)');
+    _v265TouchOthers(owners, true);
+  } catch (_) {}
+}
+// A coordinator's OWN save; this phone's saved copy already holds it. One read
+// of the ~50-byte marker (a transaction) decides:
+//   nobody else moved it since this phone last confirmed it (and its count is
+//     what this phone had) -> move it on and remember the new time: this phone
+//     stays current, the coordinator's other devices fetch;
+//   anything else -> stamp it now (exactly as before) and flag a fetch.
+// count: the new household count, or null to keep the marker's count.
+// trustCount: false when that count comes from a partial list (then the old way).
+// copyP: the write of this phone's saved copy; a clean result needs it to have
+// reached the phone's storage (a copy that failed to save must be fetched again).
+async function _v265OwnMarker(uid, count, countBefore, trustCount, copyP) {
+  if (!FB || !FB.db || !uid) return false;
+  const hasCount = (typeof count === 'number');
+  const later = function (p) { return Promise.race([p, new Promise(function (res) { setTimeout(function () { res(null); }, 15000); })]); };
+  const fallback = async function () {
+    _v265SetDirty(uid);
+    // never waits for ever: with no signal a write does not settle
+    try { await later(hasCount ? _v359UpdateFcMeta([uid]) : fbRef('_fc_meta/' + uid).update({ lastChangeTs: _v265TS() })); } catch (_) {}
+    return false;
+  };
+  if (hasCount && !trustCount) return fallback();
+  if (copyP) {
+    let wrote = false;
+    // only a write that reported success (a merge reports nothing: not counted)
+    try { wrote = (await later(Promise.resolve(copyP).then(function (v) { return v === true; }, function () { return false; }))) === true; } catch (_) {}
+    if (!wrote) return fallback();
+  }
+  // the server's clock must be known here: a clean time is set on this device
+  if (!_v265ClockKnown()) return fallback();
+  const seen = _v265GetSeen(uid);
+  let lastOk = false, lastTs = 0;
+  try {
+    const r = await later(
+      fbRef('_fc_meta/' + uid).transaction(function (cur) {
+        lastOk = !!(seen > 0 && cur && typeof cur === 'object'
+          && typeof cur.lastChangeTs === 'number' && cur.lastChangeTs <= seen
+          && typeof cur.count === 'number'
+          && (typeof countBefore !== 'number' || cur.count === countBefore));
+        // a second under the server's time: a change stamped by the server after
+        // this lands is always later than it
+        // (and never below the time already there: this device's idea of the server's
+        // clock can run a little behind it - review round 5; but a time far in the future,
+        // stamped by an older build on a phone whose clock runs ahead, is brought back to
+        // at most 5 minutes ahead - no phone's "seen" is ever later than the server's now,
+        // so nothing is hidden, and the phone stops fetching every day - review round 6)
+        lastTs = lastOk ? Math.max(_v265Now() - 1000, cur.lastChangeTs + 1)
+          : Math.max(_v265Now(), Math.min(((cur && typeof cur.lastChangeTs === 'number') ? cur.lastChangeTs : 0) + 1, _v265Now() + 300000));
+        const c = hasCount ? count : ((cur && typeof cur.count === 'number') ? cur.count : null);
+        return (c == null) ? { lastChangeTs: lastTs } : { count: c, lastChangeTs: lastTs };
+      }, undefined, false));
+    if (r && r.committed) {
+      if (lastOk) _v265SetSeen(uid, lastTs); else _v265SetDirty(uid);
+      return lastOk;
+    }
+  } catch (e) { console.warn('[V26.5] marker check failed:', e && e.message); }
+  return fallback();
+}
+// after the daily check DOWNLOADED this phone's list from the server (meta and
+// fleetTs were read before the download began)
+function _v265AfterRefresh(uid, meta, fleetTs, f0, after) {
+  try {
+    // ⛔ only a download that really finished: the fetch swallows its own errors
+    // and returns at once when one is already running
+    // (the proof carries the time that download BEGAN: one already running when
+    // this check read the marker does not count)
+    if (!((_v337BenefOneShotFetch._v265OkAt || 0) >= f0)) return;
+    if (!after || !Array.isArray(after.records)) return;
+    _v265ClearDirty(uid, f0);
+    // ⛔ a marker time in the future (an older build on a device whose clock runs
+    // ahead) is never remembered as seen beyond the server's own now
+    const cap = _v265Now();
+    if (meta && typeof meta.lastChangeTs === 'number') _v265SetSeen(uid, Math.min(meta.lastChangeTs, cap));
+    if (typeof fleetTs === 'number') _v265SetFleetSeen(uid, Math.min(fleetTs, cap));
+    const nRec = after.records.length;
+    if (meta && typeof meta.count === 'number' && typeof meta.lastChangeTs === 'number' && meta.count === nRec) return;
+    // ⛔ A WRONG COUNT ON THE MARKER made this phone fetch every single day (43
+    // coordinators on 28 Oct). Correct it to what was just downloaded - keeping its
+    // time - but only if nobody moved it meanwhile; a missing marker is created.
+    const want = (meta && typeof meta.lastChangeTs === 'number') ? meta : null;
+    const t0 = _v265Now() - 1000;
+    fbRef('_fc_meta/' + uid).transaction(function (cur) {
+      if (cur == null) return { count: nRec, lastChangeTs: want ? want.lastChangeTs : t0 };
+      if (want && cur.lastChangeTs === want.lastChangeTs && cur.count === want.count) return { count: nRec, lastChangeTs: cur.lastChangeTs };
+      return;   // moved meanwhile: leave it, the next check sees the move
+    }, undefined, false).then(function (r) {
+      if (r && r.committed && !want) _v265SetSeen(uid, t0);
+    }).catch(function () {});
+  } catch (_) {}
+}
+// write a copy built from what was read when the counter stood at g0 - and, before
+// the first try AND before the one retry, only if no other write of that copy has
+// started since (the retry used to skip that check - review round 3)
+async function _v265GuardedWrite(fn, g0, writeFn) {
+  let want = g0;
+  for (let i = 0; i < 2; i++) {
+    if ((fn._v265Gen || 0) !== want) return false;
+    let ok = false;
+    try { const p = writeFn(); want = fn._v265Gen || 0; ok = (await p) === true; } catch (_) { ok = false; }
+    if (ok) return true;
+  }
+  return false;
+}
+// the waiting line sent this coordinator's own work: put exactly what was sent
+// into this phone's saved copies (they used to keep the old version until
+// something else made the phone fetch), then tell the coordinator's other devices.
+// ⛔ ADDED INTO the copy, never a replacement of it: the list in memory can be
+// partial or empty (a failed download, a list never opened) - review round 1.
+async function _v265AfterOwnSends(u, ps) {
+  if (!u || !u.userId || u.role !== 'coordinator') return;
+  const uid = u.userId;
+  let any = false, count = null, before = null;
+  // ⛔ READ, ADD, WRITE BACK - and if anything else rewrote the copy in between
+  // (a download finishing), step aside and fetch next time: writing the older copy
+  // back would undo that download (review round 2)
+  let bad = false;
+  if (ps.benef.length) {
+    try {
+      const g0 = _pantryWrite._v265Gen || 0;
+      const ex = await _pantryRead(uid);
+      if (!ex) bad = true;   // no copy here (or unreadable): the next check fetches
+      else {
+        const byId = new Map();
+        for (const r of ex.records) if (r && r.id) byId.set(r.id, r);
+        let b0 = 0; byId.forEach(function (r) { if (r.createdBy === uid) b0++; });
+        let put = 0;
+        ps.benef.forEach(function (id) { const r = RecordCache.benef.get(id); if (r && r.id) { byId.set(r.id, r); put++; } else bad = true; });   // not in memory: fetch next time (review round 4)
+        if (put) {
+          let b1 = 0; byId.forEach(function (r) { if (r.createdBy === uid) b1++; });
+          const ok = await _v265GuardedWrite(_pantryWrite, g0,
+            function () { return _pantryWrite(uid, Array.from(byId.values()), ex.lastSyncTs); });
+          if (ok) { any = true; count = b1; before = b0; } else bad = true;
+        } else bad = true;
+      }
+    } catch (e) { bad = true; console.warn('[V26.5] saved copy not updated after sending:', e && e.message); }
+  }
+  if (ps.adv.length) {
+    try {
+      const g0 = _advPantryWrite._v265Gen || 0;
+      const ea = await _advPantryRead(uid);
+      if (!ea) any = true;   // no scheme copy: the next opening downloads the scheme records anyway
+      else {
+        const byK = new Map();
+        for (const r of ea.records) if (r && r.__fbk) byK.set(r.__fbk, r);
+        let put = 0;
+        ps.adv.forEach(function (k) { const r = RecordCache.adv.get(k); if (r && r.__fbk) { byK.set(r.__fbk, r); put++; } });
+        if (put) {
+          const ok = await _v265GuardedWrite(_advPantryWrite, g0,
+            function () { return _advPantryWrite(uid, Array.from(byK.values()), ea.lastSyncTs); });
+          if (ok) any = true; else bad = true;
+        } else bad = true;
+      }
+    } catch (e) { bad = true; console.warn('[V26.5] scheme copy not updated after sending:', e && e.message); }
+  }
+  if (bad) _v265SetDirty(uid);
+  // not awaited: the waiting line never waits on the network for this. A household
+  // whose copy could not be updated still moves the marker (the count stays the
+  // marker's own), so the coordinator's other devices hear of it.
+  if (any || bad) _v265OwnMarker(uid, (any && !bad) ? count : null, (any && !bad) ? before : null, true).catch(function () {});
+}
+
 async function _v196Pump() {
   if (_v196PumpBusy) return;
   if (navigator.onLine === false) return;
@@ -5894,6 +6300,7 @@ async function _v196Pump() {
   // twelve sends. Everything before this line is synchronous.
   _v196PumpBusy = true;
   let _v196SentThisRun = 0;
+  _v265PS = { benef: [], adv: [] };   // V26.5
   const ids = await _v196OutboxIds(u.userId);
   if (ids === null) {
     console.warn('[V19.6] could not read the waiting line - leaving it alone');
@@ -6092,6 +6499,7 @@ async function _v196Pump() {
           try { if (typeof _v367InvalidateIndex === 'function') _v367InvalidateIndex(); } catch (_) {}
           try { if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache(); } catch (_) {}
           item.benefSent = true;
+          if (_v265PS) _v265PS.benef.push(bid);   // V26.5: into the saved copy (it arrived)
           // on the phone's own store at once, so a reload or a records refresh
           // does not put the old copy back as "not yet sent"
           await _idbSet(_v196ItemKey(u.userId, iid), item);
@@ -6113,8 +6521,9 @@ async function _v196Pump() {
       try {
         const rec = JSON.parse(JSON.stringify(item.benef));
         const g = await _v196Guard(fbWriteChangedRecords('beneficiaries', [rec], 'id', 'lastBenef',
-          function (r) { if (r && r.id) RecordCache.benef.set(r.id, r); }), _v196WaitMs());
+          function (r) { if (r && r.id) RecordCache.benef.set(r.id, r); }, { v265Pump: true }), _v196WaitMs());
         if (g.timedOut) break;
+        if (_v265PS) _v265PS.benef.push(rec.id);   // V26.5
       } catch (e) {
         item.tries = (item.tries || 0) + 1;
         window._v196Counters.failed += 1;
@@ -6161,6 +6570,7 @@ async function _v196Pump() {
           const _pgw = await _v196Guard(fbRef('beneficiaries/' + bid + '/photoUrl').set(url), _v196WaitMs());
           if (!_pgw.timedOut) {
             item.photo = null;
+            if (_v265PS) _v265PS.benef.push(bid);   // V26.5: the copy gets the photo too
             try {
               const rec2 = RecordCache.benef.get(bid);
               if (rec2) {
@@ -6205,6 +6615,10 @@ async function _v196Pump() {
     // unhandled error every forty seconds.
     console.warn('[V19.6] the sender stopped early:', e && e.message);
   } finally {
+    // V26.5: the saved copies follow what was just sent (see _v265AfterOwnSends;
+    // it reads and writes this phone's storage only - never waits on the network)
+    if (_v265PS && (_v265PS.benef.length || _v265PS.adv.length)) { try { await _v265AfterOwnSends(u, _v265PS); } catch (_) {} }
+    _v265PS = null;
     _v196PumpBusy = false;
     try { fbUpdatePill(); } catch (_) {}
     // ⛔ only when something actually moved. One item that can never be sent
@@ -6663,16 +7077,18 @@ async function _v197SendRows(item) {
       if (brec && !((brec.interventions || []).includes(ADV_TAG))) {
         brec.interventions = (brec.interventions || []).concat([ADV_TAG]);
         const bw = await _v196Guard(fbWriteChangedRecords('beneficiaries', [brec], 'id', 'lastBenef',
-          function (r) { if (r && r.id) RecordCache.benef.set(r.id, r); }), _v196WaitMs());
+          function (r) { if (r && r.id) RecordCache.benef.set(r.id, r); }, { v265Pump: true }), _v196WaitMs());
         if (bw.timedOut) return 'retry';
+        if (_v265PS) _v265PS.benef.push(item.bid);   // V26.5
       }
     } catch (e) { console.warn('[V19.8] could not tag ' + item.bid + ':', e && e.message); }
   }
   if (fbk) rec.__fbk = fbk;
   const stamped = fbStampAdvKey(rec);
   const w = await _v196Guard(fbWriteChangedRecords('advocacy', [stamped], '__fbk', 'lastAdv',
-    function (r) { if (r && r.__fbk) RecordCache.adv.set(r.__fbk, r); }), _v196WaitMs());
+    function (r) { if (r && r.__fbk) RecordCache.adv.set(r.__fbk, r); }, { v265Pump: true }), _v196WaitMs());
   if (w.timedOut) return 'retry';
+  if (_v265PS && stamped && stamped.__fbk) _v265PS.adv.push(stamped.__fbk);   // V26.5
   return 'sent';
 }
 
@@ -6695,6 +7111,7 @@ async function _pantryClear(userId) {
 function _advPantryKey(userId) { return 'adv-pantry-' + userId; }
 async function _advPantryWrite(userId, records, lastSyncTs) {
   if (!userId) return false;
+  _advPantryWrite._v265Gen = (_advPantryWrite._v265Gen || 0) + 1;   // V26.5: see _v265AfterOwnSends
   return await _idbSet(_advPantryKey(userId), {
     userId: userId, schemaVersion: PANTRY_SCHEMA_VERSION, ts: Date.now(),
     lastSyncTs: (typeof lastSyncTs === 'number') ? lastSyncTs : Date.now(),
@@ -8474,8 +8891,9 @@ function _hydrateBenefCache(arr) {
       // enrolls before opening their list would otherwise overwrite a
       // 50-record pantry with the single record they just saved — collapsing
       // their Home count, Reports totals and re-locking earned badges.
-      if (FB.benefCachePartial) _pantryMerge(u.userId, Array.from(RecordCache.benef.values()));
-      else _pantryWrite(u.userId, Array.from(RecordCache.benef.values()));
+      // V26.5: kept so a save can tell whether this copy really reached storage
+      _hydrateBenefCache._v265P = FB.benefCachePartial ? _pantryMerge(u.userId, Array.from(RecordCache.benef.values()))
+        : _pantryWrite(u.userId, Array.from(RecordCache.benef.values()));
     }
   } catch (e) {}
   // V8.2: same repaint hook as _hydrateAdvCache — beneficiaries arriving after
@@ -8512,8 +8930,9 @@ function _hydrateAdvCache(arr) {
   try {
     const u = (typeof currentUser === 'function') ? currentUser() : null;
     if (u && u.userId) {
-      if (FB.advCachePartial) _advPantryMerge(u.userId, Array.from(RecordCache.adv.values()));
-      else _advPantryWrite(u.userId, Array.from(RecordCache.adv.values()));
+      // V26.5: kept so a save can tell whether this copy really reached storage
+      _hydrateAdvCache._v265P = FB.advCachePartial ? _advPantryMerge(u.userId, Array.from(RecordCache.adv.values()))
+        : _advPantryWrite(u.userId, Array.from(RecordCache.adv.values()));
     }
   } catch (e) {}
   // V8.2: advocacy has just landed — repaint the coordinator tab the FC is
@@ -10100,6 +10519,7 @@ async function _v337BenefOneShotFetch(query, opts) {
   opts = opts || {};
   if (_v337BenefOneShotFetch._inFlight) return;
   _v337BenefOneShotFetch._inFlight = true;
+  const _v265Began = Date.now();   // V26.5: see _v265AfterRefresh
   try {
     const u = (typeof currentUser === 'function') ? currentUser() : null;
     if (u && u.userId && !opts.force) {
@@ -10159,8 +10579,9 @@ async function _v337BenefOneShotFetch(query, opts) {
       // successful one, and that device then re-downloaded its whole slice
       // every session, forever, with nothing anywhere saying so. Verify, retry
       // once, and count the failure where the Bandwidth screen can show it.
-      await _v192VerifiedPantryWrite('benef', u.userId,
+      const _v265w = await _v192VerifiedPantryWrite('benef', u.userId,
         function () { return _pantryWrite(u.userId, Array.from(RecordCache.benef.values())); });
+      if (_v265w) _v337BenefOneShotFetch._v265OkAt = _v265Began;   // V26.5: WHEN this download began
     }
     try { renderCurrentView(); } catch(_){}
   } catch (e) {
@@ -11771,7 +12192,7 @@ async function _v247CheckBeforeSave(coll, writes, lastMap, quiet) {
 }
 
 // Push a per-collection diff to Firebase. Queues on failure for retry.
-async function fbSyncCollection(coll, newArr, idField, lastMapRef) {
+async function fbSyncCollection(coll, newArr, idField, lastMapRef, _v265Out) {
   // V310-S2: throws SaveError on any failure. Caller (the save* function)
   // is responsible for catching and surfacing to the user. No more queuing
   // to localStorage — the queue layer is removed.
@@ -11879,6 +12300,11 @@ async function fbSyncCollection(coll, newArr, idField, lastMapRef) {
     }
   }));
   diff.deletes = survivingDeletes;
+  // V26.5: tell the caller exactly which records this save writes or deletes
+  if (_v265Out) { try { _v265Out.ok = true;
+    _v265Out.ids = diff.writes.map(function (w) { return w.id; }).concat(diff.deletes);
+    _v265Out.dels = diff.deletes.slice();
+    _v265Out.owners = diff.writes.map(function (w) { return w && w.value && w.value.createdBy; }); } catch (_) {} }
   if (diff.writes.length === 0 && diff.deletes.length === 0) return;
   // ── V371 [Guard 1]: Pre-save tombstone cap ────────────────────────────────
   // Forensic finding: Bhavishaben's 386-record loss (Jun 5) and Anilbhai's
@@ -12034,6 +12460,16 @@ async function fbWriteChangedRecords(coll, changed, idField, lastMapRef, cacheSe
       FB[lastMapRef], !!opts.quiet);
   }
   const u = (typeof currentUser === 'function') ? currentUser() : null;
+  // V26.5: whose records these are, before this write changes anything
+  const _v265O = new Set();
+  try {
+    const _c = coll === 'beneficiaries' ? RecordCache.benef : (coll === 'advocacy' ? RecordCache.adv : null);
+    if (_c) for (const rec of changed) {
+      const id = rec && rec[idField]; if (!id) continue;
+      if (rec.createdBy) _v265O.add(rec.createdBy);
+      const old = _c.get(id); if (old && old.createdBy) _v265O.add(old.createdBy);
+    }
+  } catch (_) {}
   const now = Date.now();
   const updates = {};
   for (const rec of changed) {
@@ -12063,6 +12499,10 @@ async function fbWriteChangedRecords(coll, changed, idField, lastMapRef, cacheSe
     FB.pendingWrites--;
     fbUpdatePill();
   }
+  // V26.5: tell the owners. A coordinator's own one-record write moves their own
+  // marker too (all their devices fetch, as before) - except the waiting line's,
+  // which brings this phone's copy up to date itself (_v265AfterOwnSends).
+  _v265TouchOthers(_v265O, !(opts && opts.v265Pump));
   // Success: advance the diff baseline and the cache for ONLY these records.
   // We deliberately do not clear or rebuild the whole cache/map — untouched
   // records are not ours to move.
@@ -12475,17 +12915,19 @@ async function saveData(arr) {
   // DELETION still bumps that coordinator's _fc_meta. See the meta block below
   // for why this matters — without it a deleted record never disappears from
   // the owner's other devices.
-  const _v101OwnersBefore = new Set();
-  try {
-    for (const rec of RecordCache.benef.values()) {
-      if (rec && rec.createdBy) _v101OwnersBefore.add(rec.createdBy);
-    }
-  } catch (_) {}
+  // V26.5: replaced by _v265OwnersOf below, which reads each changed or deleted
+  // record's owner from this copy before it is rebuilt - the V10.1 promise kept.
+  const _v265Out = {};
+  let _v265Own = null, _v265Before = null, _v265CopyP = null;
   // V24.7: open from here until the cache is rebuilt - see _v247SaveOpen
   FB._v247Saving = (FB._v247Saving || 0) + 1;
   try {
-    await fbSyncCollection('beneficiaries', arr || [], 'id', 'lastBenef');
+    await fbSyncCollection('beneficiaries', arr || [], 'id', 'lastBenef', _v265Out);
+    _v265Own = _v265OwnersOf(_v265Out, RecordCache.benef);   // V26.5: before the copy is rebuilt
+    _v265Before = _v265OwnCount();
+    _hydrateBenefCache._v265P = null;
     _hydrateBenefCache(Array.isArray(arr) ? arr : []);
+    _v265CopyP = _hydrateBenefCache._v265P;   // V26.5: the saved copy's write
     _v185ReseatLastMap('benef');   // ⛔ see the note on _v185ReseatLastMap
   } finally { FB._v247Saving--; }
   // V362: queue a summary write (debounced 2 sec) so viewer's numbers stay
@@ -12502,10 +12944,12 @@ async function saveData(arr) {
   // treats missing meta as "always refetch" which is the safe fallback.
   try {
     if (typeof _v359UpdateFcMeta === 'function') {
-      const affectedFCs = new Set();
-      for (const rec of (Array.isArray(arr) ? arr : [])) {
-        if (rec && rec.createdBy) affectedFCs.add(rec.createdBy);
-      }
+      // ⛔ V26.5: ONLY THE COORDINATORS WHOSE RECORDS THIS SAVE REALLY CHANGED.
+      // This was every owner in the whole array: one partner save moved the marker
+      // of every coordinator in that partner, one office save moved all 570, and
+      // each of those phones downloaded both its lists again the next day.
+      // (28 Oct export: 83% of days after such a save, against 44% otherwise.)
+      const affectedFCs = _v265Own || new Set();
       // V10.1 DELETION FIX. This set was built ONLY from records still present
       // in `arr`. A deleted record is by definition absent, so if it was that
       // coordinator's last record their _fc_meta was never bumped — and the
@@ -12517,9 +12961,13 @@ async function saveData(arr) {
       // the phone after a Refresh.
       // Adding the owners captured BEFORE the write means a deletion always
       // moves that coordinator's count, so their devices notice.
-      try {
-        for (const uid of _v101OwnersBefore) if (uid) affectedFCs.add(uid);
-      } catch (_) {}
+      // (the deleted records' owners are in the set: _v265OwnersOf read them)
+      // V26.5: the coordinator's own save - see _v265OwnMarker
+      const _v265U = (typeof currentUser === 'function') ? currentUser() : null;
+      if (_v265U && _v265U.role === 'coordinator' && affectedFCs.has(_v265U.userId)) {
+        affectedFCs.delete(_v265U.userId);
+        _v265OwnMarker(_v265U.userId, _v265OwnCount(), _v265Before, !FB.benefCachePartial, _v265CopyP || Promise.resolve(false));
+      }
       if (affectedFCs.size > 0) _v359UpdateFcMeta(Array.from(affectedFCs));
     }
   } catch(_) {}
@@ -13521,6 +13969,7 @@ async function _v25WriteLivRename(froms, to, ids) {
   const u = (typeof currentUser === 'function') ? currentUser() : null;
   const who = u ? (u.username || u.userId || 'admin') : 'admin';
   const queue = ids.slice();
+  const _v265Ren = new Set();   // V26.5: owners of what was renamed
   const one = async function (id) {
     let r = null;
     FB.pendingWrites++;
@@ -13556,11 +14005,13 @@ async function _v25WriteLivRename(froms, to, ids) {
     if (!FB.lastBenef) FB.lastBenef = {};
     FB.lastBenef[id] = fbHash(v);
     res.changed++;
+    if (v.createdBy) _v265Ren.add(v.createdBy);
   };
   const workers = [];
   for (let k = 0; k < 8; k++) workers.push((async function () { while (queue.length) await one(queue.shift()); })());
   await Promise.all(workers);
   try { fbUpdatePill(); } catch (_) {}
+  _v265TouchOthers(_v265Ren);   // V26.5
   if (res.changed) {
     try { if (typeof _v367InvalidateIndex === 'function') _v367InvalidateIndex(); } catch (_) {}
     try { if (typeof _v357DataVersion !== 'undefined') _v357DataVersion = (_v357DataVersion || 0) + 1; } catch (_) {}
@@ -13596,6 +14047,7 @@ async function _v25WriteSchemeRename(oldName, newName, keys) {
   const u = (typeof currentUser === 'function') ? currentUser() : null;
   const who = u ? (u.username || u.userId || 'admin') : 'admin';
   const queue = keys.slice();
+  const _v265Ren = new Set();   // V26.5: owners of what was renamed
   const one = async function (key) {
     let r = null, rows = 0;
     FB.pendingWrites++;
@@ -13633,12 +14085,14 @@ async function _v25WriteSchemeRename(oldName, newName, keys) {
     if (!FB.lastAdv) FB.lastAdv = {};
     FB.lastAdv[key] = fbHash(v);
     res.records++;
+    if (v.createdBy) _v265Ren.add(v.createdBy);
     res.rows += rows;
   };
   const workers = [];
   for (let k = 0; k < 8; k++) workers.push((async function () { while (queue.length) await one(queue.shift()); })());
   await Promise.all(workers);
   try { fbUpdatePill(); } catch (_) {}
+  _v265TouchOthers(_v265Ren);   // V26.5
   if (res.records) {
     try { if (typeof _v357DataVersion !== 'undefined') _v357DataVersion = (_v357DataVersion || 0) + 1; } catch (_) {}
     try { if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache(); } catch (_) {}
@@ -24587,11 +25041,24 @@ async function saveAdv(arr) {
     return;
   }
   FB._v247Saving = (FB._v247Saving || 0) + 1;   // V24.7: see _v247SaveOpen
+  let _v265AdvOwners = null, _v265ACopyP = null;
   try {
-    await fbSyncCollection('advocacy', stamped, '__fbk', 'lastAdv');
+    const _v265AO = {};
+    await fbSyncCollection('advocacy', stamped, '__fbk', 'lastAdv', _v265AO);
+    _v265AdvOwners = _v265OwnersOf(_v265AO, RecordCache.adv);   // V26.5: before the copy is rebuilt
+    _hydrateAdvCache._v265P = null;
     _hydrateAdvCache(stamped);
+    _v265ACopyP = _hydrateAdvCache._v265P;   // V26.5: the saved copy's write
     _v185ReseatLastMap('adv');   // ⛔ see the note on _v185ReseatLastMap
   } finally { FB._v247Saving--; }
+  _v265TouchOthers(_v265AdvOwners);   // V26.5
+  // V26.5: a coordinator's own scheme change reaches their other devices too
+  // (this phone's scheme copy was just rewritten by _hydrateAdvCache)
+  try {
+    const _v265U = (typeof currentUser === 'function') ? currentUser() : null;
+    if (_v265U && _v265U.role === 'coordinator' && _v265AdvOwners && _v265AdvOwners.has(_v265U.userId))
+      _v265OwnMarker(_v265U.userId, null, null, true, _v265ACopyP || Promise.resolve(false)).catch(function () {});
+  } catch (_) {}
   // V362: queue a summary write (debounced) so viewer reflects new advocacy
   // amounts within seconds.
   try { if (typeof _v362QueueSummaryWrite === 'function') _v362QueueSummaryWrite(); } catch(_) {}
@@ -31397,13 +31864,13 @@ function _v246KpiGroups(adv, liv, period) {
     return t.indexOf(per + ' · ') === 0 ? t.slice(per.length + 3) : t; };
   const lab = (label, icon) => `<div class="rpt-kpi-lab"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${_RPT_ICONS[icon] || ''}</svg>${escHtml(label)}</div>`;
   const subRow = t => t ? `<div class="rpt-kpi-sub">${escHtml(t)}</div>` : '';
-  // b = beneficiaries (null: not shown, and no v263-p2 / size hint), v = scheme entries;
-  // --nb / --ns = each figure's characters, for the sizing in the styles
-  const pair = (b, v, cls) => {
+  // b = beneficiaries (null: not shown, and no v263-p2 / size hint), v = the figure, u = its word
+  // (scheme entries; "households" in a Livelihood box - V26.5); --nb / --ns = each figure's characters
+  const pair = (b, v, cls, u) => {
     const bt = b == null ? null : fmt(b), vt = fmt(v);
     return `<div class="v263-pair${bt == null ? '' : ' v263-p2'}" style="${bt == null ? '' : '--nb:' + String(bt).length + ';'}--ns:${String(vt).length}">` +
       (bt == null ? '' : `<div class="v263-c v263-bc"><span class="v263-n v26-ben">${bt}</span><span class="v263-u">beneficiaries</span></div>`) +
-      `<div class="v263-c"><span class="v263-n ${cls}">${vt}</span><span class="v263-u">schemes</span></div></div>`;
+      `<div class="v263-c"><span class="v263-n ${cls}">${vt}</span><span class="v263-u">${u || 'schemes'}</span></div></div>`;
   };
   const advOne = c => {
     const [label, icon, val, sub, allTime, ben] = c;
@@ -31416,16 +31883,38 @@ function _v246KpiGroups(adv, liv, period) {
       ${allTime == null ? '' : '<div class="v263-arow"><div class="v263-at">All-time</div>' + pair(ba, allTime, 'rpt-kpi-all') + '</div>'}
     </div>`;
   };
+  // V26.5 (owner, 29 Oct): a Livelihood box is drawn like an Advocacy box - its figure with
+  // "households" under it, and "All-time" on its own line with the figure and word below - so
+  // the All-time lines of all six boxes sit at the same height
   const livOne = c => {
     const [label, icon, val, sub, allTime] = c;
     return `<div class="rpt-kpi">
       ${lab(label, icon)}
-      <div class="rpt-kpi-val">${fmt(val)}</div>
+      ${pair(null, val, 'rpt-kpi-val', 'households')}
       ${subRow(note(sub))}
-      ${allTime == null ? '' : `<div class="rpt-kpi-all">All-time <b>${fmt(allTime)}</b></div>`}
+      ${allTime == null ? '' : '<div class="v263-arow"><div class="v263-at">All-time</div>' + pair(null, allTime, 'rpt-kpi-all', 'households') + '</div>'}
     </div>`;
   };
-  return `<div class="v246-kgroups">
+  // V26.5 (owner, 29 Oct): ONE size for every big figure in the six boxes, and one for every
+  // All-time figure, fitted to the longest figures on the page - the window's AND the all-time
+  // ones - so the size neither differs from box to box nor jumps when the date chip changes.
+  // The six boxes are always the same width (two equal groups, three equal columns), so the
+  // styles size every box from the same two lengths: --gnb (beneficiary figures) and --gns
+  // (scheme and household figures). No beneficiaries shown (donor logins): v265-eq1.
+  const len = v => v == null ? 0 : String(fmt(v)).length;
+  let gnb = 0, gns = 0, hasBen = false;
+  adv.forEach(function (c) {
+    gns = Math.max(gns, len(c[2]), len(c[4]));
+    const ben = c[5];
+    if (ben && (typeof ben[0] === 'number' || typeof ben[1] === 'number')) {
+      hasBen = true;
+      gnb = Math.max(gnb, len(typeof ben[0] === 'number' ? ben[0] : null), len(typeof ben[1] === 'number' ? ben[1] : null));
+    }
+  });
+  liv.forEach(function (c) { gns = Math.max(gns, len(c[2]), len(c[4])); });
+  const eqCls = 'v265-eq ' + (hasBen ? 'v265-eq2' : 'v265-eq1');
+  const eqVars = '--gns:' + Math.max(gns, 1) + (hasBen ? ';--gnb:' + Math.max(gnb, 1) : '');
+  return `<div class="v246-kgroups ${eqCls}" style="${eqVars}">
     <div class="v246-kg adv"><div class="v246-kg-lab">Advocacy${Per ? ' <span>· ' + escHtml(Per) + '</span>' : ''}</div><div class="v246-kcards">${adv.map(advOne).join('')}</div></div>
     <div class="v246-kg liv"><div class="v246-kg-lab">Livelihood <span>· households${Per ? ' · ' + escHtml(Per) : ''}</span></div><div class="v246-kcards">${liv.map(livOne).join('')}</div></div>
   </div>`;
@@ -32306,13 +32795,13 @@ function renderReports() {
   // the top of Coordinators for a partner - who has no Partners tab, because
   // V12.7 removes it (it exists to compare partners, and they can only ever
   // see themselves). One place each; never on two tabs at once.
-  const _v207Here = fleet ? 'ngo' : 'fc';
-  const _v207Card = (rptTab === _v207Here) ? _v207TodayByNgo({ margin: '0 0 16px' }) : '';
+  // V26.5 (owner, 29 Oct): the TODAY BY PARTNER table is no longer drawn in Reports - it is on the
+  // Dashboard. (V20.7 put it at the top of Partners for the office, of Coordinators for a partner.)
 
-  if (rptTab === 'fc') { body = _v207Card + _rptRenderFc(_A, now, _v256D ? _v256RowScope(_A) : _v216RowScope(allB)); }
+  if (rptTab === 'fc') { body = _rptRenderFc(_A, now, _v256D ? _v256RowScope(_A) : _v216RowScope(allB)); }
 
   // ══ TAB 2 : NGO COMPARISON (V12) ═════════════════════════════════════════
-  if (rptTab === 'ngo') { body = _v207Card + _rptRenderNgo(_A); }
+  if (rptTab === 'ngo') { body = _rptRenderNgo(_A); }
 
   // ══ TAB 2 : ENROLLMENT TRENDS ════════════════════════════════════════════
   if (rptTab === 'trend') {
@@ -40407,7 +40896,8 @@ async function _v359UpdateFcMeta(fcUserIds) {
       }
     } catch (_) {}
     try {
-      await fbRef('_fc_meta/' + uid).set({ count: count, lastChangeTs: nowMs });
+      // V26.5: stamped by the server when it lands (see _v265TS)
+      await fbRef('_fc_meta/' + uid).set({ count: count, lastChangeTs: (typeof _v265TS === 'function') ? _v265TS() : nowMs });
     } catch (e) {
       // Best-effort. Audit log is now also writing per-action; meta missing one
       // update doesn't cause stale data (smart-check still refetches if meta is
@@ -40532,12 +41022,30 @@ async function _v359SmartCheckAndRefreshBenef(u, reason) {
                       meta.count === pantryCount &&
                       (meta.lastChangeTs || 0) <= pantryTs;
   const fleetOk = fleetTs <= pantryTs;
-  if (metaMatches && fleetOk) {
+  // V26.5: on a coordinator's phone, "up to date" means the marker (and the fleet
+  // switch) are no later than what this phone last CONFIRMED with the server - the
+  // copy's own time moves on local rewrites and hid other people's changes. Until
+  // this phone's first check on this build, the old rule (the copy's time) stands.
+  const _v265Co = (u.role === 'coordinator');
+  const _v265S = _v265Co ? _v265GetSeen(u.userId) : 0;
+  const _v265FS = _v265Co ? _v265GetFleetSeen(u.userId) : 0;
+  const _v265MetaOk = (_v265S > 0)
+    ? !!(meta && typeof meta.count === 'number' && meta.count === pantryCount
+         && typeof meta.lastChangeTs === 'number' && meta.lastChangeTs <= _v265S)
+    : metaMatches;
+  const _v265FleetOk = (_v265FS > 0) ? (fleetTs <= _v265FS) : fleetOk;
+  // and a save on this phone that could not show nobody else had changed anything
+  // since then leaves a flag: fetch
+  const _v265Must = _v265Co && _v265IsDirty(u.userId);
+  if (_v265MetaOk && _v265FleetOk && !_v265Must) {
+    // (nothing is remembered here: "seen" comes only from a real download or a
+    // careful own save - the old rule can be fooled, so it never sets it)
     console.log('[V359 smart-check]', reason, '— pantry is current, no fetch needed');
     return { result: 'current' };
   }
   // Pantry is behind. Run the existing scoped one-shot fetch with force:true.
   console.log('[V359 smart-check]', reason, '— pantry behind, fetching fresh');
+  const _v265F0 = Date.now();   // V26.5
   try {
     if (u.role === 'coordinator') {
       await _v337BenefOneShotFetch(
@@ -40554,6 +41062,7 @@ async function _v359SmartCheckAndRefreshBenef(u, reason) {
       if (typeof _adminBenefRestFetch === 'function') await _adminBenefRestFetch();
     }
     const afterPantry = await _pantryRead(u.userId);
+    if (u.role === 'coordinator') _v265AfterRefresh(u.userId, meta, fleetTs, _v265F0, afterPantry);   // V26.5
     return { result: 'refreshed', count: (afterPantry && afterPantry.records) ? afterPantry.records.length : 0 };
   } catch (e) {
     return { result: 'error', err: e && e.message };
@@ -47889,6 +48398,22 @@ async function _v241AfterOwnerWrite(uids) {
 // V24.1: this device's saved scheme records, rewritten from what it now holds.
 // A coordinator's phone reopens from this copy and does not ask the database
 // for scheme changes, so anything written without it is gone on that phone.
+// V26.5: see _v265ToolStart / _v265ToolEnd
+(function () {
+  ['_v222RunStampFix', '_v222UndoStampFix', '_advBackfillRun', '_dedupRelinkAdvocacy', '_schemeRenameRunBackfill'].forEach(function (name) {
+    try {
+      const f = window[name];
+      if (typeof f !== 'function' || f._v265) return;
+      const w = async function () {
+        _v265ToolStart();
+        try { return await f.apply(this, arguments); }
+        finally { try { _v265ToolEnd(); } catch (_) {} }
+      };
+      w._v265 = true;
+      window[name] = w;
+    } catch (_) {}
+  });
+})();
 async function _v241SaveAdvCopy() {
   const u = (typeof currentUser === 'function') ? currentUser() : null;
   if (!u || !u.userId) return;
