@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V26.5-LIVE
+  KRSF Beneficiary Impact Tracker  -  V26.6-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,42 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V26.6-LIVE (2026-11-01 - a partner's Refresh downloads only its own changes).
+
+    + ⛔ ONE PARTNER REFRESH COULD COST A WHOLE PARTNER. On 31 Oct the Bhiloda
+      partner login used 39.44 MB in one session; the office used 4.84 MB.
+      The database cannot ask "this partner's records changed since X" in one
+      question, so a Refresh downloaded everybody's changes since the last
+      one - or, after about a week, the whole partner again (Bhiloda 37 MB).
+    + Now every save also leaves a small note in the same write: "partner P,
+      record R, changed at T". A Refresh by a partner or donor reads only its
+      own notes and fetches only the records they name. Records are not one
+      byte bigger; nobody else downloads more. Team leaders and coordinators:
+      unchanged.
+    + ⛔ Used only when smaller than V26.5's way: a login holding over 30% of
+      the data keeps V26.5's way; a list too busy to fit is given up after at
+      most a quarter of that Refresh's budget and remembered on the phone, so
+      the same busy stretch is not paid for twice; once a month a Refresh
+      takes the own data again (only when notes are in use).
+    + The office fills any gap (a phone still on an old version, a note the
+      database refused): after each office catch-up it notes, in lists of its
+      own, every record changed since its last check, from what it already
+      holds. Until the office has done that within the last 7 days, a
+      Refresh does what V26.5 did. Known cost: when a Refresh cannot use the
+      notes, it catches up from the office's last check, not its own.
+    + ⛔ Fixed on the way (V26.5 and before): after a save, the next catch-up
+      started at that save and skipped other people's changes made earlier.
+      The office's now starts where its copy really ends (it may read a
+      little more on a day it saves before catching up); a partner's or
+      donor's, once its Refreshes use the notes, at its bookmark.
+    + Needs the new database rules (Rules-V26.6.json = V21.5 + the notes),
+      published BEFORE this file. Without them a partner's or donor's Refresh
+      is V26.5's, plus one 0.2 KB read.
+    + Measured on a copy of the real data: the Bhiloda partner's Refreshes over real days
+      (7 Oct, 26 Sep, 1-3 Oct, and a 7-day gap 19-25 Sep): V26.5 52.0 MB,
+      V26.6 11.6 MB, every record the same.
+    + Tests: 117 files. The V26.6 checks are in _specs/v266.
+
   V26.5-LIVE (2026-10-29 - phones stop downloading their lists for nothing).
 
     + A coordinator's phone downloaded both its lists again on many days when
@@ -653,36 +689,6 @@
       saved figure and every other screen are untouched. No Firebase change.
     + Tests: 81 files. v231 now measures the gap between the ₹ and the typed
       digits, and fails on the V23.1 build.
-
-  V23.1-LIVE (2026-09-23 - search at typing speed, and the daily check runs).
-
-    + ⛔ SEARCH FROZE FOR 0.6-1.5 SECONDS ON EVERY LETTER for admin and partner
-      logins. All Beneficiaries and Integrated deep-copied all 1,39,422 scheme
-      records on every keystroke - only to build a cache key - and Advocacy
-      rebuilt its per-household map from ~2.4 lakh rows each time. Measured on
-      the practice copy of the real data: All Beneficiaries 0.7-1.2 s per
-      letter before, under 0.1 s after. Both screens now use the read-only
-      reader the dashboard has used since V17.7; the Advocacy map is kept until
-      the data or the chips change. Nothing is written; no Firebase change.
-
-    + ⛔ THE ONCE-A-DAY COORDINATOR CHECK OFTEN NEVER RAN. It ran only when the
-      app was opened fresh, and it judged "checked today" by the saved copy's
-      time - which moves on every LOCAL save. So a phone left open in the
-      background, or one that had saved anything after 4 AM, kept a household
-      the office had deleted (Guru's own phone, 23 Sep). It now also runs when
-      the app comes back to the screen, and "checked" means the server
-      answered. ~50 bytes per coordinator per day; a full refetch only when
-      that coordinator's records really changed. A phone's first V23.1 check
-      falls back to the old rule, so there is no fleet-wide re-download.
-      ⛔ The check's own comparison was deliberately NOT changed: judged by the
-      server time instead, a coordinator's own saves would have looked like
-      office changes and re-downloaded their list every day.
-
-    + The coordinator card: cards stand apart, "+ Add income / + Add scheme"
-      read as buttons, the phone Log income boxes match every other box, and
-      "No schemes logged yet" drops "open record to add". Approved on the demo.
-
-    + Tests: 81 files.
 
   ============================================================================
   Everything before this point lives in CHANGELOG.md, beside this file.
@@ -4836,7 +4842,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V26.5-LIVE';
+const APP_VERSION = 'V26.6-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -7483,6 +7489,781 @@ async function _v247FullReload(u, why) {
   }
   return { ok: true, how: 'full', n: _v247CountChanged(oldB, FB.lastBenef) + _v247CountChanged(oldA, FB.lastAdv) };
 }
+// ═══════════════════════════════════════════════════════════════════════════
+// V26.6 — A PARTNER'S REFRESH DOWNLOADS ONLY ITS OWN CHANGES
+// Owner, 2026-10-31 (Bandwidth screen, 31 Oct): the Bhiloda partner login used
+// 39.44 MB in ONE session while the office used 4.84 MB. The database can ask
+// "what changed since X" or "which records are partner P's", never both at once
+// (no combined index), so a partner's Refresh downloaded EVERYBODY's changes
+// since its last Refresh, or - after about a week - its whole partner again
+// (Bhiloda 37 MB, Poshina 16.5 MB, Khedbrahma 11 MB on the 8 Oct copy).
+//
+// Now every save also leaves a small NOTE, in the same write as the record:
+//   _pchg/<partner>/b/<household id>   or   _pchg/<partner>/a/<scheme key>
+//     = { t: server time, e: the record's edit time }
+// under the record's partner, the partner it came from when it moved, and -
+// for a scheme record - its household's partner. A partner's or donor's
+// Refresh asks for its own notes since its bookmark (indexed on t) and fetches
+// only the records they name, and not those it already holds at that version.
+// Records are not one byte bigger, so nobody else downloads more.
+//
+// ⛔ WHEN A NOTE IS MISSING. A phone still on an older version writes none;
+// neither does a save while the rules do not allow it yet. The OFFICE fills
+// the gaps: after each of its catch-ups (which download every changed record
+// anyway) it notes every record changed since its last repair, from what it
+// already holds, in lists of its own (br / ar) so it can never overwrite a
+// newer note a phone wrote. _pchg/_m = { ep, on, rep }: "notes are complete
+// for every change after <on>, checked by the office up to <rep>"; <ep> names
+// this run of notes - if it ever has to start again, every bookmark made under
+// the old one is thrown away rather than trusted. Without _m (rules not
+// published, office not yet on V26.6) a Refresh does exactly what V26.5 did.
+//
+// ⛔ THE OFFICE'S COPY MUST REALLY BE COMPLETE. Its catch-up used to start at
+// the newest record it held - after the office itself saved something, that
+// was the save, and other people's changes made earlier were skipped for good
+// (V26.5 and before). It now never starts later than the end of what its copy
+// is known to hold (_v266Admin.cov, kept beside the saved copy).
+//
+// ⛔ DELETIONS still travel by tombstone, exactly as before. The catch-up that
+// folds the fetched records in is the SAME function V26.5 uses (scope rule,
+// moved-out eviction, tombstones, saved copy) - only the list it is handed is
+// smaller. Team leaders are not changed: their Refresh is V26.5's.
+// ═══════════════════════════════════════════════════════════════════════════
+// ⛔ NEVER MORE THAN V26.5. A Refresh from notes is used only when it is the
+// smaller download: its budget is a part (0.6) of what V26.5's way is expected
+// to cost (the smaller of everyone's changes and the own data). The notes are
+// asked for a list at a time, each list capped at what is left of that budget,
+// and all the notes read together at a quarter of it - so a busy day stops
+// after at most a quarter and V26.5's way runs instead; the busy list is then
+// remembered on the device and not asked for again until it has passed.
+// ⛔ ONLY FOR A LOGIN HOLDING UNDER 30% OF THE DATABASE. Its own changes are
+// then a small part of everyone's. Over a month the notes plus one own-data
+// download (below) cost a login of share s about s x 1.9 of V26.5's daily
+// catch-ups: below 30% always less; a big donor keeps V26.5's way untouched.
+// ⛔ A REFRESH FROM NOTES MOVES THE EVERYONE'S-CHANGES BOOKMARK only to the
+// office's last check (notes are complete up to there), and the next V26.5-way
+// catch-up starts there, not at the newest record held (see _v266Ahead): a
+// change an old phone made after the check has no note yet, and V26.5's way
+// must still bring it. (Costs the changes since the office's check, once.)
+// ⛔ ONCE A MONTH, THE OWN DATA AGAIN (30 days after the last one, a first
+// download counting as one) - only when the notes would be used.
+const _V266_ON = true;
+const _V266_REP_MAX_AGE_MS = 7 * 86400000;       // notes not checked by the office for this long: do as V26.5
+const _V266_HEAL_MS = 30 * 86400000;             // the own data again this long after the last time
+const _V266_MAX_SHARE = 0.3;                     // notes only for a login holding less than this share
+const _V266_REC_BYTES = 700;                     // one record fetched by key, with its overhead (a little over the 8 Oct average)
+const _V266_EST_SHARE = 0.6;                     // the notes' budget: this part of what V26.5's way is expected to cost
+const _V266_NOTES_SHARE = 0.25;                  // all the notes one Refresh reads: at most this part of its budget
+const _V266_FUTURE_MS = 3600000;                 // the office's "checked to" this far ahead of the clock: not trusted
+const _V266_NOTE_BYTES = 70;                     // one note as it arrives (key + {t, e})
+const _V266_CONC = 32;                           // record fetches in flight at once (one connection, so cheap)
+const _V266_WAIT_MS = 20000;                     // one record fetch that has not answered = failed
+const _V266_HOLD_MS = 6 * 3600 * 1000;           // after the database refused a note, save without for this long
+const _V266_CHUNK = 2000;                        // notes per write when the office repairs
+const _V266_INLINE_MAX = 2000;                   // more notes than this in one save: sent after the records
+const _V266_FLEET_BYTES = 172e6;                 // the whole database's records as the own-data rule counts them (8 Oct: 155,874 + ~154,000)
+function _v266Code(ngo) {
+  const c = (ngo && typeof ngo === 'string') ? _v363SafeKey(ngo) : '';
+  // ⛔ a key the database would refuse would make it refuse the RECORD too
+  if (!c || c === '_m' || c.length > 200 || /[\u0000-\u001f\u007f]/.test(c)) return '';
+  return c;
+}
+// a moment on this device's clock, on the database's clock - 0 until this
+// device has heard how far apart the two are
+function _v266ServerAt(deviceMs) {
+  try { return (typeof _v19ServerOffsetMs === 'number' && deviceMs > 0) ? deviceMs + _v19ServerOffsetMs : 0; } catch (_) { return 0; }
+}
+function _v266Denied(e) {
+  try { return /permission[_ ]denied/i.test(String((e && e.code) || '') + ' ' + String((e && e.message) || e || '')); } catch (_) { return false; }
+}
+function _v266Held() {
+  try { const x = parseInt(localStorage.getItem('krsf_v266_denied') || '0', 10) || 0; return x > 0 && Date.now() - x < _V266_HOLD_MS; } catch (_) { return false; }
+}
+function _v266Hold() { try { localStorage.setItem('krsf_v266_denied', String(Date.now())); } catch (_) {} }
+// ⛔ A SAVE ON THIS DEVICE (or the database's newer copy taken in after a save was
+// refused) puts a record newer than the everyone's-changes bookmark into its list:
+// V26.5's next catch-up then started at that record and passed over other people's
+// changes made before it. Counted here (one number on the device, per login); the
+// next catch-up starts at the bookmark while it is not 0 - see _v266Ahead.
+function _v266SavedKey(uid) { return 'krsf_v266_sv_' + uid; }
+function _v266SavedN(uid) { try { return parseInt(localStorage.getItem(_v266SavedKey(uid)) || '0', 10) || 0; } catch (_) { return 0; } }
+function _v266MarkSaved() {
+  try { const u = (typeof currentUser === 'function') ? currentUser() : null; if (u && _v266Roles(u) && u.userId) localStorage.setItem(_v266SavedKey(u.userId), String(_v266SavedN(u.userId) + 1)); } catch (_) {}
+}
+let _v266Sv0 = null;   // { uid, n }: the count when this Refresh began
+function _v266SvStart(u) { try { _v266Sv0 = (u && u.userId) ? { uid: u.userId, n: _v266SavedN(u.userId) } : null; } catch (_) { _v266Sv0 = null; } }
+// after a catch-up that started at the bookmark and finished: the saves before it are covered
+function _v266SvDone(uid) {
+  try {
+    if (!_v266Sv0 || _v266Sv0.uid !== uid) return;
+    const left = Math.max(0, _v266SavedN(uid) - _v266Sv0.n);
+    if (left > 0) localStorage.setItem(_v266SavedKey(uid), String(left)); else localStorage.removeItem(_v266SavedKey(uid));
+    _v266Sv0 = null;
+  } catch (_) {}
+}
+// the notes for records about to be written: [{ key, rec }]. lastMap = this
+// device's last confirmed copy (JSON), which still holds the partner a moved
+// record came from - nothing is downloaded to know it.
+function _v266NotesFor(coll, items, lastMap) {
+  const out = {};
+  try {
+    if (!_V266_ON || (coll !== 'beneficiaries' && coll !== 'advocacy')) return out;
+    const SV = _v242SrvTime();
+    if (!SV) return out;
+    const isB = coll === 'beneficiaries';
+    let moved = false;
+    for (const it of (items || [])) {
+      const rec = it && it.rec, key = it && it.key;
+      if (!rec || typeof rec !== 'object' || !key || typeof key !== 'string') continue;
+      const codes = new Set();
+      const add = function (nm) { const c = _v266Code(nm); if (c) codes.add(c); };
+      add(rec.ngo);
+      const prev = (lastMap && typeof _v247Prev === 'function') ? _v247Prev(lastMap, key) : null;
+      if (prev) add(prev.ngo);
+      if (prev && prev.ngo && prev.ngo !== rec.ngo && typeof currentUser === 'function' && (currentUser() || {}).role === 'admin') {
+        _v266AddPrev(isB ? _v266Admin.prevB : _v266Admin.prevA, key, prev.ngo);
+        moved = true;
+      }
+      if (!isB && rec.bid) { const hh = RecordCache.benef.get(rec.bid); if (hh) add(hh.ngo); }
+      for (const c of codes) out[FB_NAMESPACE + '/_pchg/' + c + '/' + (isB ? 'b' : 'a') + '/' + key] = { t: SV, e: SV };
+    }
+    // (once for the whole save: a 37,000-household rename must not copy the list 37,000 times)
+    if (moved) _v266SavePrev((currentUser() || {}).userId);
+  } catch (e) { console.warn('[V26.6] notes not built:', e && e.message); return {}; }
+  return out;
+}
+// ⛔ THE RECORD WRITE MUST NEVER DEPEND ON THE NOTES. They go in the SAME write
+// (one answer from the database, nothing extra downloaded). If the database
+// refuses that write for permission - the rules allowing _pchg not published
+// yet - the write is repeated WITHOUT the notes, exactly as V26.5 sent it, and
+// notes stop for 6 hours. Any other failure is thrown exactly as before.
+async function _v266Update(updates, notes) {
+  _v266MarkSaved();
+  const nk = notes ? Object.keys(notes).length : 0;
+  if (!nk || _v266Held()) return FB.db.ref().update(updates);
+  // a very large save (an import): the notes would make one write too big -
+  // the records go exactly as V26.5 sent them, the notes after (best effort;
+  // their edit time then differs from the record's, so a partner just fetches)
+  if (nk > _V266_INLINE_MAX) {
+    const r = await FB.db.ref().update(updates);
+    try { await _v266WriteNotes(notes); } catch (_) {}
+    return r;
+  }
+  try { return await FB.db.ref().update(Object.assign({}, updates, notes)); }
+  catch (e) {
+    if (!_v266Denied(e)) throw e;
+    _v266Hold();
+    console.warn('[V26.6] the database refused the change notes - saving without them');
+    return FB.db.ref().update(updates);
+  }
+}
+// notes for records written one by one by a database transaction (the office's
+// rename tools): gathered and sent together, best effort - the office repair
+// covers anything not sent
+let _v266Pend = {}, _v266PendT = null;
+function _v266NoteLater(coll, rec) {
+  try {
+    const key = rec && (coll === 'beneficiaries' ? rec.id : rec.__fbk);
+    Object.assign(_v266Pend, _v266NotesFor(coll, [{ key: key, rec: rec }], null));
+    if (!_v266PendT) _v266PendT = setTimeout(_v266FlushLater, 1500);
+  } catch (_) {}
+}
+async function _v266WriteNotes(notes) {
+  const keys = Object.keys(notes || {});
+  for (let i = 0; i < keys.length; i += _V266_CHUNK) {
+    const part = {};
+    keys.slice(i, i + _V266_CHUNK).forEach(function (k) { part[k] = notes[k]; });
+    try { await FB.db.ref().update(part); }
+    catch (e) { if (_v266Denied(e)) _v266Hold(); console.warn('[V26.6] notes not written:', e && e.message); return false; }
+  }
+  return true;
+}
+async function _v266FlushLater() {
+  _v266PendT = null;
+  const p = _v266Pend; _v266Pend = {};
+  if (!Object.keys(p).length || _v266Held() || !FB.db) return;
+  await _v266WriteNotes(p);
+}
+// scheme records moved to another coordinator / partner by the office tool
+function _v266NotesForMoves(slice) {
+  const out = {};
+  try {
+    if (!_V266_ON) return out;
+    const SV = _v242SrvTime();
+    if (!SV) return out;
+    (slice || []).forEach(function (m) {
+      if (!m || !m.key) return;
+      const codes = new Set();
+      const hh = m.bid ? RecordCache.benef.get(m.bid) : null;
+      [m.fromNgo, m.toNgo, hh && hh.ngo].forEach(function (nm) { const c = _v266Code(nm); if (c) codes.add(c); });
+      codes.forEach(function (c) { out[FB_NAMESPACE + '/_pchg/' + c + '/a/' + m.key] = { t: SV, e: SV }; });
+    });
+  } catch (_) { return {}; }
+  return out;
+}
+
+// ── the office: what its copy holds, and filling the gaps ──────────────────
+// cov.b / cov.a = { s, e }: this device's copy holds every change to the
+// households / scheme records whose edit time is in [s, e] (s = 1: every change
+// up to e). On disk (beside the saved copy, so both go together) only when the
+// saved copy was written. live: brought up to date in THIS session.
+// prevB / prevA: every partner a record had before catch-ups brought it moved
+// (a Set per record, until the next repair). cold: this session's copy came
+// from a first download, which cannot know where records moved from.
+const _v266Admin = { cov: null, live: { b: false, a: false }, prevB: new Map(), prevA: new Map(), busy: false, timer: null, cold: false };
+function _v266AddPrev(map, key, ngo) {
+  if (!key || !ngo) return;
+  let s = map.get(key);
+  if (!s) map.set(key, s = new Set());
+  s.add(ngo);
+}
+// ⛔ on disk too: a laptop closed before the repair still tells the old partner next time
+async function _v266SavePrev(uid) {
+  try {
+    if (!uid) return;
+    const o = { b: [], a: [] };
+    _v266Admin.prevB.forEach(function (s, k) { o.b.push([k, Array.from(s)]); });
+    _v266Admin.prevA.forEach(function (s, k) { o.a.push([k, Array.from(s)]); });
+    await _idbSet('v266-prev-' + uid, o);
+  } catch (_) {}
+}
+function _v266CovOk(x) {
+  const s = x ? Number(x.s) : 0, e = x ? Number(x.e) : 0;
+  return (s > 0 && isFinite(e) && e >= s) ? { s: s, e: e } : null;
+}
+async function _v266CovGet(uid) {
+  if (_v266Admin.cov && _v266Admin.cov.uid === uid) return _v266Admin.cov;
+  let v = null;
+  try { v = await _idbGet('v266-cov-' + uid); } catch (_) {}
+  if (_v266Admin.cov && _v266Admin.cov.uid === uid) return _v266Admin.cov;   // filled while this one waited
+  const b = _v266CovOk(v && v.b), a = _v266CovOk(v && v.a);
+  if (v && v.cold === true) _v266Admin.cold = true;   // a first download whose repair never ran
+  let pv = null;
+  try { pv = await _idbGet('v266-prev-' + uid); } catch (_) {}
+  if (_v266Admin.cov && _v266Admin.cov.uid === uid) return _v266Admin.cov;
+  try { for (const L of [['b', _v266Admin.prevB], ['a', _v266Admin.prevA]]) for (const x of ((pv && Array.isArray(pv[L[0]])) ? pv[L[0]] : []))
+    if (Array.isArray(x) && Array.isArray(x[1])) x[1].forEach(function (nm) { _v266AddPrev(L[1], x[0], nm); }); } catch (_) {}
+  _v266Admin.cov = { uid: uid, b: b, a: a, disk: { b: b, a: a } };
+  _v266Admin.live = { b: false, a: false };
+  return _v266Admin.cov;
+}
+// where an office catch-up starts: never after the end of what its copy holds
+async function _v266AdminFrom(kind, uid, from) {
+  try {
+    if (!_V266_ON || !uid) return from;
+    const c = (await _v266CovGet(uid))[kind];
+    let f = from;
+    if (c && c.e < f) f = c.e;
+    return Math.max(1, f);
+  } catch (_) { return from; }
+}
+// after an office catch-up from <from> sent at device time <d0> (or a first
+// download: from = 1), with the saved copy written (saved) or not.
+// ⛔ seq0 = the save counter when it was sent. A save during the catch-up
+// rebuilds the copy from its own older list when it returns, which can drop
+// what the catch-up brought - the copy is then not known to hold it, and the
+// next catch-up starts at the old end again.
+async function _v266AdminCovDone(kind, uid, from, d0, saved, seq0) {
+  try {
+    const q = _v266ServerAt(d0);
+    if (!_V266_ON || !uid || !(q > 0) || !(from > 0)) return;
+    await _v266SavePrev(uid);
+    if (window._v247WriteSeq !== seq0 || _v247SaveOpen()) { console.log('[V26.6] a save ran during the office catch-up - its end is not recorded'); return; }
+    const cv = await _v266CovGet(uid);
+    const c = cv[kind], end = q - _V184_CLOCK_MARGIN_MS;
+    if (from <= 1) _v266Admin.cold = true;
+    const joined = !!c && from <= c.e;
+    const s = from <= 1 ? 1 : (joined ? Math.min(c.s, from) : from);
+    const e = Math.max(end, joined ? c.e : 0);
+    if (!(e >= s)) return;
+    cv[kind] = { s: s, e: e };
+    _v266Admin.live[kind] = true;
+    // ⛔ on disk only together with the saved copy it describes; a saved copy
+    // that did not land is not trusted at all next time
+    cv.disk[kind] = saved ? { s: s, e: e } : null;
+    try { await _idbSet('v266-cov-' + uid, { b: cv.disk.b, a: cv.disk.a, cold: _v266Admin.cold }); } catch (_) {}
+  } catch (_) {}
+}
+function _v266AdminRepairSoon() {
+  try {
+    if (_v266Admin.timer) clearTimeout(_v266Admin.timer);
+    _v266Admin.timer = setTimeout(function () {
+      _v266Admin.timer = null;
+      _v266AdminRepair().catch(function (e) { console.warn('[V26.6] office repair failed:', e && e.message); });
+    }, 5000);
+  } catch (_) {}
+}
+async function _v266AdminRepair() {
+  const u = (typeof currentUser === 'function') ? currentUser() : null;
+  if (!_V266_ON || !u || u.role !== 'admin' || !u.userId || !FB.db || !FB.online || _v266Admin.busy) return;
+  if (!_v266Admin.live.b || !_v266Admin.live.a) return;
+  if (!FB.benefReplayComplete || !FB.advReplayComplete || FB.benefCachePartial || FB.advCachePartial) return;
+  if (!RecordCache.benef.size || !RecordCache.adv.size) return;
+  if (FB.pendingWrites > 0 || (FB._v247Saving || 0) > 0) { _v266AdminRepairSoon(); return; }
+  const SV = _v242SrvTime();
+  if (!SV) return;
+  _v266Admin.busy = true;
+  try {
+    const cv = await _v266CovGet(u.userId);
+    if (!cv.b || !cv.a) return;
+    const covS = Math.max(cv.b.s, cv.a.s), covE = Math.min(cv.b.e, cv.a.e);
+    if (!(covE >= covS)) return;
+    const M = (await fbRef('_pchg/_m').once('value')).val();
+    const good = !!(M && typeof M === 'object' && M.ep && Number(M.on) > 0 && Number(M.rep) > 0);
+    const rep0 = good ? Number(M.rep) : 0;
+    let next, from = 0;
+    // (a first download made after the last check holds records moved since
+    // without knowing their old partner: the notes start over instead)
+    if (good && rep0 - _V184_CLOCK_MARGIN_MS >= covS && !_v266Admin.cold) {
+      if (covE <= rep0) return;   // already checked this far
+      from = rep0 - _V184_CLOCK_MARGIN_MS;
+      next = null;
+    } else {
+      // the very first time - or this copy does not reach back to the notes'
+      // last check (a saved copy that did not land, another laptop): notes are
+      // complete from now on. ⛔ Never an extra download here: every partner's
+      // bookmark made under the old run is then thrown away, and its next
+      // Refresh is V26.5's - no more than V26.5, and no gap.
+      next = { ep: Date.now().toString(36) + Math.random().toString(36).slice(2, 8), on: covE, rep: covE };
+    }
+    const notes = {};
+    let k = 0;
+    // (what was known moved when this repair began - only that is forgotten after it)
+    const seenMv = { b: new Map(), a: new Map() };
+    _v266Admin.prevB.forEach(function (s, id) { seenMv.b.set(id, s.size); });
+    _v266Admin.prevA.forEach(function (s, id) { seenMv.a.set(id, s.size); });
+    if (from > 0) {
+      const put = function (codes, list, key, rec) {
+        const e = (typeof rec._lastEditedAt === 'number' && isFinite(rec._lastEditedAt)) ? rec._lastEditedAt : 0;
+        for (const c of codes) { notes[FB_NAMESPACE + '/_pchg/' + c + '/' + list + '/' + key] = { t: SV, e: e }; k++; }
+      };
+      for (const [id, r] of RecordCache.benef) {
+        if (!r || typeof r._lastEditedAt !== 'number' || r._lastEditedAt < from || !id) continue;
+        const codes = new Set();
+        [r.ngo].concat(Array.from(_v266Admin.prevB.get(id) || [])).forEach(function (nm) { const c = _v266Code(nm); if (c) codes.add(c); });
+        put(codes, 'br', id, r);
+      }
+      for (const [key, a] of RecordCache.adv) {
+        if (!a || typeof a._lastEditedAt !== 'number' || a._lastEditedAt < from || !key) continue;
+        const codes = new Set();
+        const hh = a.bid ? RecordCache.benef.get(a.bid) : null;
+        [a.ngo, hh && hh.ngo].concat(Array.from(_v266Admin.prevA.get(key) || [])).forEach(function (nm) { const c = _v266Code(nm); if (c) codes.add(c); });
+        put(codes, 'ar', key, a);
+      }
+    }
+    if (k && !(await _v266WriteNotes(notes))) return;   // _m not moved: the next repair starts from the same point
+    // a record moved again while the notes were being written keeps its partners for the next repair
+    seenMv.b.forEach(function (n, id) { const s = _v266Admin.prevB.get(id); if (s && s.size === n) _v266Admin.prevB.delete(id); });
+    seenMv.a.forEach(function (n, id) { const s = _v266Admin.prevA.get(id); if (s && s.size === n) _v266Admin.prevA.delete(id); });
+    await _v266SavePrev(u.userId);
+    // plain writes, nothing read back (a transaction would download _m again).
+    // Two laptops at once: the later "checked to" may be the smaller - that only
+    // makes the next repair note a little more, never less.
+    if (next) {
+      await fbRef('_pchg/_m').set(next); _v266Admin.cold = false;
+      try { await _idbSet('v266-cov-' + u.userId, { b: cv.disk.b, a: cv.disk.a, cold: false }); } catch (_) {}
+    }
+    else await fbRef('_pchg/_m/rep').set(covE);
+    console.log('[V26.6] office repair: ' + k + ' notes, checked to ' + covE + (next ? ' (notes started)' : ''));
+  } catch (e) {
+    if (_v266Denied(e)) _v266Hold();
+    throw e;
+  } finally { _v266Admin.busy = false; }
+}
+
+// ── a partner's / donor's Refresh ──────────────────────────────────────────
+function _v266Codes(u) {
+  const s = new Set();
+  let bad = false;
+  const add = function (nm) { const c = _v266Code(nm); if (c) s.add(c); else bad = true; };
+  if (!u) return [];
+  if (u.role === 'ngo') add(u.ngo);
+  else if (u.role === 'scopedViewer') (Array.isArray(u.assignedNgos) ? u.assignedNgos : []).forEach(add);
+  // ⛔ a partner whose notes cannot be named would be left out silently: V26.5's way instead
+  return bad ? [] : Array.from(s).sort();
+}
+function _v266Roles(u) { return !!u && (u.role === 'ngo' || u.role === 'scopedViewer'); }
+// this login's bookmarks in the notes:
+//   L    { '<partner>|<list>': time of the newest note read from that list } - this run of notes (ep) only
+//   K    { '<partner>|<list>': that note's key } - the next read starts right after it (a note's
+//        time is the database's own: no margin needed, the office's last batch is not read again)
+//   full the time the own data was last taken again, less 5 minutes
+//   came households that came in from another partner, scheme records still owed
+//   safe everything changed before it is surely on this device (the office's
+//        last check when notes were read, a first download, a catch-up after
+//        the notes started over) - for any run of notes
+// ⛔ A LIST IS READ FROM ITS OWN BOOKMARK, never from the everyone's-changes
+// bookmark: that one moves when V26.5's way catches up, and V26.5's way starts
+// at the newest record held - it can pass over a change that no note carried
+// yet. The office's note for it is written later, after this bookmark, so it
+// is still read. full and safe hold for any run of notes.
+async function _v266GetW(uid) {
+  try {
+    const v = await _idbGet('v266-w-' + uid);
+    if (v && typeof v === 'object' && v.L && typeof v.L === 'object' && !Array.isArray(v.L))
+      return { ep: String(v.ep || ''), L: v.L, K: (v.K && typeof v.K === 'object' && !Array.isArray(v.K)) ? v.K : {}, full: Number(v.full) || 0, safe: Number(v.safe) || 0, pend: Number(v.pend) || 0,
+        cold: (v.cold && typeof v.cold === 'object') ? { b: Number(v.cold.b) || 0, a: Number(v.cold.a) || 0 } : { b: 0, a: 0 }, came: Array.isArray(v.came) ? v.came : [] };
+  } catch (_) {}
+  return { ep: '', L: {}, K: {}, full: 0, safe: 0, pend: 0, cold: { b: 0, a: 0 }, came: [] };
+}
+// a sorts after b in the database's key order (keys that are 32-bit numbers first, by number)
+function _v266IntKey(k) { return (/^(0|-?[1-9][0-9]{0,9})$/.test(k) && Math.abs(Number(k)) <= 2147483647) ? Number(k) : null; }
+function _v266KeyAfter(a, b) {
+  if (!b) return true;
+  const ia = _v266IntKey(a), ib = _v266IntKey(b);
+  if (ia !== null && ib !== null) return ia > ib;
+  if (ia !== null) return false;
+  if (ib !== null) return true;
+  return a > b;
+}
+async function _v266PutW(uid, W) { try { await _idbSet('v266-w-' + uid, W); } catch (_) {} }
+// after V26.5's way brought this login up to date (it starts at the everyone's-
+// changes bookmark - see _v266Ahead - and moves it to where it ended): every
+// change before that is here, so no list is read from before it again (and a
+// list known too busy is free again once V26.5's way has passed it)
+async function _v266AfterV5(u) {
+  try {
+    if (!_V266_ON || !_v266Roles(u) || !u.userId) return;
+    const W = await _v266GetW(u.userId);
+    const pb = Number(await _v184GetSeen('benef', u.userId)) || 0, pa = Number(await _v184GetSeen('adv', u.userId)) || 0;
+    for (const k in W.L) { const ls = String(k).split('|')[1] || ''; const p = ls.charAt(0) === 'b' ? pb : pa; if (p > (Number(W.L[k]) || 0)) { W.L[k] = p; delete W.K[k]; } }
+    if (_v266Sv0 && _v266Sv0.st) _v266SvDone(u.userId);   // (it started at the bookmark: the saves before it are covered)
+    W.safe = Math.max(W.safe, Math.min(pb, pa));
+    await _v266PutW(u.userId, W);
+  } catch (_) {}
+}
+// ⛔ AFTER A REFRESH FROM NOTES (or one that stopped half way) - OR, once this
+// device has used the notes, A SAVE ON IT (see _v266MarkSaved) - it holds records
+// newer than its everyone's-changes bookmark. V26.5's catch-up starts at the newest
+// record held, and would pass over other people's changes made before them - so it
+// starts at the bookmark instead. (Before this device has used notes, V26.5's way is
+// left exactly as it was: nothing extra is read.)
+async function _v266Ahead(u) {
+  try {
+    if (!_V266_ON || !_v266Roles(u) || !u.userId) return false;
+    const W = await _v266GetW(u.userId);
+    const sB = Number(await _v184GetSeen('benef', u.userId)) || 0, sA = Number(await _v184GetSeen('adv', u.userId)) || 0;
+    if (!(sB > 0) || !(sA > 0)) return false;
+    const s = Math.min(sB, sA) + _V184_CLOCK_MARGIN_MS;
+    for (const k in W.L) if (Number(W.L[k]) > s) return true;
+    if (W.pend > s) return true;
+    if (W.ep && _v266SavedN(u.userId) > 0) return true;
+  } catch (_) {}
+  return false;
+}
+// a first download of the own data, complete and saved (kind 'b' / 'a', at
+// server time tS): it counts as taking the own data again
+async function _v266ColdDone(u, kind, tS) {
+  try {
+    if (!_V266_ON || !_v266Roles(u) || !u.userId || !(tS > 0)) return;
+    const W = await _v266GetW(u.userId);
+    W.cold[kind] = tS;
+    if (W.cold.b > 0 && W.cold.a > 0 && Math.abs(W.cold.b - W.cold.a) < 3600000) {
+      const f = Math.min(W.cold.b, W.cold.a) - _V184_CLOCK_MARGIN_MS;
+      W.full = Math.max(W.full, f); W.safe = Math.max(W.safe, f); W.came = [];
+      W.cold = { b: 0, a: 0 };
+      try { await _idbSet('v266-full-' + u.userId, _v247Now()); } catch (_) {}
+    }
+    await _v266PutW(u.userId, W);
+  } catch (_) {}
+}
+// the own data again (V26.5's full reload); a partner's or donor's monthly clock restarts
+async function _v266Full(u, why) {
+  const d0 = _v247Now();
+  const r = await _v247FullReload(u, why);
+  try {
+    if (r && r.ok && _v266Roles(u) && u.userId) {
+      // ⛔ THE BOOKMARKS MOVE ONLY WITH THE SAVED COPY: _v266ColdDone moves them when the
+      // download's saved copy is written (a copy that did not land would load again next
+      // time, older than the bookmarks). Here only the monthly clock restarts.
+      await _idbSet('v266-full-' + u.userId, d0);
+      const W = await _v266GetW(u.userId);
+      if (W.full >= d0 - _V184_CLOCK_MARGIN_MS - 60000) _v266SvDone(u.userId);
+    }
+  } catch (_) {}
+  return r;
+}
+// ⛔ THE NOTES STARTED OVER (the office's copy could not vouch for the old run)
+// and this device's safe point is before the new run's start: a change an old
+// phone made in between may have no note at all. V26.5's way catches up from
+// the safe point - or takes the own data again when that is the smaller - and
+// the new run's bookmarks start where it ended.
+async function _v266Gap(u, own, g) {
+  const s0 = _v247Now();   // (already the database's clock)
+  const est = Math.max(0, s0 - g.from) / 86400000 * _V247_FLEET_BYTES_PER_DAY;
+  if (!(est <= own)) return _v266Full(u, 'the notes started over');
+  const cap = Math.max(1, RecordCache.benef.size + RecordCache.adv.size);
+  const rb = await _ngoIncrementalSync({ cap: cap, v266From: g.from });
+  if (!rb.ok) return (rb.reason === 'too-big' || rb.reason === 'no-watermark') ? _v266Full(u, rb.reason) : rb;
+  const ra = await _advNgoIncrementalSync({ cap: Math.max(1, cap - (rb.got || 0)), v266From: g.from });
+  if (!ra.ok) return (ra.reason === 'too-big' || ra.reason === 'no-watermark') ? _v266Full(u, ra.reason) : ra;
+  if (rb.pantryOk !== false && ra.pantryOk !== false) {
+    const s = Math.max(s0 - _V184_CLOCK_MARGIN_MS, Math.min(g.on, s0)), L = {};
+    for (const c of _v266Codes(u)) for (const l of ['b', 'br', 'a', 'ar']) L[c + '|' + l] = s;
+    const W = await _v266GetW(u.userId);
+    await _v266PutW(u.userId, Object.assign({}, W, { ep: g.ep, L: L, K: {}, safe: Math.max(W.safe, s), pend: 0 }));
+    _v266SvDone(u.userId);
+  }
+  return { ok: true, how: 'changes', n: (rb.added + rb.removed) + (ra.added + ra.removed), v266gap: true };
+}
+// records by key, 32 at a time, and one more try for any that did not answer:
+// { val: { key: record }, bad: how many were not fetched }. A deleted record is
+// simply absent (its tombstone removes it, as before).
+async function _v266Fetch(coll, keys) {
+  const out = {};
+  let left = keys.slice();
+  for (let round = 0; round < 2 && left.length; round++) {
+    const q = left.slice(), failed = [];
+    const one = async function () {
+      let k;
+      while ((k = q.shift()) !== undefined) {
+        let tm = null;
+        try {
+          const v = await Promise.race([
+            fbRef(coll + '/' + k).once('value').then(function (s) { return s.val(); }),
+            new Promise(function (_, rej) { tm = setTimeout(function () { rej(new Error('timeout')); }, _V266_WAIT_MS); }),
+          ]);
+          if (v && typeof v === 'object') out[k] = v;
+        } catch (_) { failed.push(k); }
+        finally { if (tm) clearTimeout(tm); }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(_V266_CONC, q.length) }, one));
+    left = failed;
+  }
+  return { val: out, bad: left.length };
+}
+// the scheme records of households that have just come into this login's
+// lists from another partner, when it holds none of theirs: a scheme record
+// is not always re-tagged when its household moves (637 on the 31 Oct copy),
+// so no note names it. Asked by household (indexed on bid), as the full
+// download's top-up does - V26.5 brought these only with the own data again.
+async function _v266SchemesOf(bids) {
+  const out = {};
+  let bad = 0;
+  const q = bids.slice();
+  const one = async function () {
+    let id;
+    while ((id = q.shift()) !== undefined) {
+      let tm = null;
+      try {
+        const v = await Promise.race([
+          fbRef('advocacy').orderByChild('bid').equalTo(id).once('value').then(function (s) { return s.val(); }),
+          new Promise(function (_, rej) { tm = setTimeout(function () { rej(new Error('timeout')); }, _V266_WAIT_MS); }),
+        ]);
+        for (const k in (v || {})) if (v[k] && typeof v[k] === 'object') out[k] = v[k];
+      } catch (_) { bad++; }
+      finally { if (tm) clearTimeout(tm); }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(_V266_CONC, q.length) }, one));
+  return { val: out, bad: bad };
+}
+// null = use V26.5's way (nothing of this was folded in).
+// own = this login's own data, est = everyone's changes since its bookmark:
+// V26.5's way costs the smaller of the two, and this never costs more.
+// ⛔ A GIVE-UP IS PAID ONCE. When a list held more notes than the budget left
+// room for, the time of the last note read is kept on this device (one number;
+// nothing on the database). Until a Refresh would start that list after it -
+// that is, until V26.5's way has brought this copy past that busy stretch -
+// the list is not asked for again: V26.5's way decides at once. Wrong only
+// towards V26.5's way (a month on, it is forgotten).
+async function _v266GetBail(uid) {
+  try { const v = await _idbGet('v266-bail-' + uid); if (v && typeof v === 'object' && !Array.isArray(v)) return v; } catch (_) {}
+  return {};
+}
+function _v266BailCovers(rec, st) {
+  return !!rec && Number(rec.e) >= st && _v247Now() - Number(rec.at) < _V266_HEAL_MS;
+}
+async function _v266SaveBail(uid, B, key, v) {
+  try {
+    let e = 0;
+    for (const k in v) { const x = Number(v[k] && v[k].t) || 0; if (x > e) e = x; }
+    if (!(e > 0)) return;
+    B[key] = { e: e, at: _v247Now() };
+    for (const k in B) if (!(B[k] && _v247Now() - Number(B[k].at) < _V266_HEAL_MS)) delete B[k];
+    await _idbSet('v266-bail-' + uid, B);
+  } catch (_) {}
+}
+async function _v266Refresh(u, own, est) {
+  try {
+    if (!_V266_ON || !_v266Roles(u) || !u.userId || !FB.db || !_v247DeltaScope(u)) return null;
+    if (RecordCache.benef.size === 0) return null;
+    // ⛔ the budget is what V26.5's way is expected to cost, and only a part of
+    // that: the expectation counts 6 MB a day, a usual day is about 4 MB
+    const budget = Math.min(own, _V266_EST_SHARE * est);
+    if (!(budget > 0) || !isFinite(budget)) return null;
+    // ⛔ A LOGIN HOLDING A BIG SHARE OF THE DATABASE (a donor with many
+    // partners): its own changes are most of everyone's - V26.5's single
+    // download is the smaller. Not even the notes are asked for.
+    if (own > _V266_MAX_SHARE * _V266_FLEET_BYTES) return null;
+    const codes = _v266Codes(u);
+    if (!codes.length) return null;
+    const seenB = await _v184GetSeen('benef', u.userId), seenA = await _v184GetSeen('adv', u.userId);
+    if (!(seenB > 0) || !(seenA > 0)) return null;
+    // ⛔ before the new rules are published the database refuses this read:
+    // that is "no notes", never a failed Refresh
+    let m = null;
+    try { m = (await fbRef('_pchg/_m').once('value')).val(); } catch (_) { return null; }
+    if (!m || typeof m !== 'object' || !m.ep || !(Number(m.on) > 0) || !(Number(m.rep) > 0)) return null;
+    const now = _v247Now();   // (already the database's clock)
+    if (now - Number(m.rep) > _V266_REP_MAX_AGE_MS) return null;   // the office has not checked for a week
+    if (Number(m.rep) > now + _V266_FUTURE_MS) return null;        // a clock far ahead: not trusted
+    // once a month, the own data again - only when the notes would otherwise be
+    // used (V26.5's way is left exactly as it was). The first time, the clock
+    // starts somewhere in the last two weeks, so the partners do not all take
+    // their own data again in the same week.
+    let F = 0;
+    try { F = Number(await _idbGet('v266-full-' + u.userId)) || 0; } catch (_) {}
+    if (!F) { try { await _idbSet('v266-full-' + u.userId, _v247Now() - Math.floor(Math.random() * 15 * 86400000)); } catch (_) {} }
+    else if (_v247Now() - F > _V266_HEAL_MS) return { v266Full: true };
+    const ep = String(m.ep);
+    const W0 = await _v266GetW(u.userId);
+    const same = W0.ep === ep;   // bookmarks made under another run of notes are not trusted
+    const L0 = same ? W0.L : {};
+    const safe0 = W0.ep ? W0.safe : Math.max(W0.safe, Math.min(seenB, seenA));
+    const from = {};
+    let low = false;
+    for (const c of codes) for (const kind of ['b', 'a']) for (const list of [kind, kind + 'r']) {
+      const key = c + '|' + list;
+      // (a list not read yet in this run of notes: from the safe point too)
+      let f = same ? Math.max(Number(L0[key]) || 0, W0.full) : W0.full;
+      if (!(Number(L0[key]) > 0)) f = Math.max(f, safe0);
+      if (f < Number(m.on)) low = true;   // notes are complete only after <on>
+      from[key] = f;
+    }
+    if (low) return (W0.ep && !same && safe0 > 0) ? { v266Gap: true, from: safe0, ep: ep, on: Number(m.on) } : null;
+    // where each list is read from: right after its last note read, when that is its
+    // bookmark; otherwise 5 minutes before the bookmark
+    const K0 = same ? W0.K : {};
+    const BL = await _v266GetBail(u.userId);
+    const rd = {};
+    for (const key in from) {
+      const lk = (typeof K0[key] === 'string' && K0[key] && Number(L0[key]) > 0 && from[key] === Number(L0[key])) ? K0[key] : '';
+      rd[key] = lk ? { st: from[key], lk: lk } : { st: Math.max(1, from[key] - _V184_CLOCK_MARGIN_MS), lk: '' };
+      // ⛔ A GIVE-UP IS PAID ONCE: a list known too busy stops this Refresh before anything is read
+      if (_v266BailCovers(BL[key], rd[key].st)) return null;
+    }
+    // a record this device already holds at exactly that version is not fetched
+    const held = function (kind, k, x) {
+      const r = (kind === 'b' ? RecordCache.benef : RecordCache.adv).get(k);
+      return !!r && typeof r._lastEditedAt === 'number' && r._lastEditedAt === Number(x.e);
+    };
+    // every note since each list's bookmark (less 5 minutes): the phones' and
+    // the office's, every partner of this login - a list at a time, each capped
+    // at what is left of the budget (the notes, and the records they would fetch)
+    const ent = { b: new Map(), a: new Map() }, maxT = {}, maxK = {};
+    let left = budget, notesLeft = _V266_NOTES_SHARE * budget, lastKey = '', lastV = null;
+    for (const c of codes) {
+      for (const kind of ['b', 'a']) {
+        let nMain = 0;
+        for (const list of [kind, kind + 'r']) {
+          const key = c + '|' + list;
+          maxT[key] = 0; maxK[key] = '';
+          // (as if every note named a record still to fetch - except, in the
+          // office's list, as many as the phones' list already named: those are
+          // mostly the same records again)
+          // (and all the notes of this Refresh together: at most a quarter of the budget)
+          const cap = Math.min(Math.floor(left / (_V266_NOTE_BYTES + _V266_REC_BYTES)) + (list === kind ? 0 : nMain),
+            Math.floor(notesLeft / _V266_NOTE_BYTES));
+          // (the budget used up by the lists before: the last one read is the busy one)
+          if (cap < 1) { if (lastV) await _v266SaveBail(u.userId, BL, lastKey, lastV); return null; }
+          const st = rd[key].st, lk = rd[key].lk;
+          let v;
+          try {
+            const q = fbRef('_pchg/' + c + '/' + list).orderByChild('t');
+            v = (await (lk ? q.startAt(st, lk) : q.startAt(st)).limitToFirst(cap + 1 + (lk ? 1 : 0)).once('value')).val() || {};
+          } catch (e) { if (_v266Denied(e)) return null; throw e; }
+          if (lk && v[lk] && Number(v[lk].t) === st) delete v[lk];   // (the last note read before, still the same)
+          if (Object.keys(v).length) { lastKey = key; lastV = v; }
+          const ks = Object.keys(v);
+          if (ks.length > cap) { await _v266SaveBail(u.userId, BL, key, v); return null; }   // more than the budget leaves room for: V26.5's way is the smaller
+          if (list === kind) nMain = ks.length;
+          left -= ks.length * _V266_NOTE_BYTES;
+          notesLeft -= ks.length * _V266_NOTE_BYTES;
+          for (const k of ks) {
+            const x = v[k];
+            if (!x || typeof x !== 'object') continue;
+            const tt = Number(x.t) || 0;
+            if (tt > maxT[key] || (tt === maxT[key] && _v266KeyAfter(k, maxK[key]))) { maxT[key] = tt; maxK[key] = k; }
+            const had = ent[kind].get(k);
+            if (!had) { ent[kind].set(k, x); if (!held(kind, k, x)) left -= _V266_REC_BYTES; }
+            else if ((Number(x.e) || 0) > (Number(had.e) || 0)) { if (held(kind, k, had) && !held(kind, k, x)) left -= _V266_REC_BYTES; ent[kind].set(k, x); }
+          }
+          if (left < 0) { await _v266SaveBail(u.userId, BL, key, v); return null; }   // ⛔ NEVER MORE THAN V26.5: nothing fetched, V26.5's way decides
+        }
+      }
+    }
+    const seq0 = window._v247WriteSeq, pendNow = _v247Now();
+    const needB = [];
+    for (const [k, x] of ent.b) if (!held('b', k, x)) needB.push(k);
+    const heldBefore = new Set(needB.filter(function (k) { return RecordCache.benef.has(k); }));
+    const fb = needB.length ? await _v266Fetch('beneficiaries', needB) : { val: {}, bad: 0 };
+    // ⛔ a save on this device while the records were on their way: what was
+    // fetched may be older than what it saved. Nothing folded, bookmarks kept.
+    if (window._v247WriteSeq !== seq0 || _v247SaveOpen()) return { ok: false, reason: 'save-in-flight' };
+    // (on disk before anything is folded: this device is about to hold records newer than its bookmark)
+    await _v266PutW(u.userId, Object.assign({}, W0, { pend: pendNow }));
+    const rb = await _ngoIncrementalSync({ v266Val: fb.val });
+    if (!rb.ok) return rb;
+    const needA = [];
+    for (const [k, x] of ent.a) if (!held('a', k, x)) needA.push(k);
+    // households that came in from another partner - or new ones - holding no
+    // scheme record here (a new one with none costs one small empty answer)
+    const advBids = new Set();
+    RecordCache.adv.forEach(function (a) { if (a && a.bid) advBids.add(a.bid); });
+    for (const k of ent.a.keys()) advBids.add(String(k).split('__')[0]);
+    const came = [];
+    for (const k of (W0.came || [])) { const h = RecordCache.benef.get(k); if (h && !advBids.has(k) && came.indexOf(k) < 0) came.push(k); }
+    for (const k of needB) {
+      const h = RecordCache.benef.get(k);
+      if (heldBefore.has(k) || !h || advBids.has(k) || came.indexOf(k) >= 0) continue;
+      came.push(k);
+    }
+    // owed until fetched: on disk before anything else can stop this Refresh
+    await _v266PutW(u.userId, Object.assign({}, W0, { came: came.slice(0, 5000), pend: pendNow }));
+    const fa = needA.length ? await _v266Fetch('advocacy', needA) : { val: {}, bad: 0 };
+    // (within the budget too: a big move waits for the monthly own data instead)
+    const cameNow = came.length * _V266_REC_BYTES <= left;
+    const fs = (came.length && cameNow) ? await _v266SchemesOf(came) : { val: {}, bad: 0 };
+    const owed = (cameNow && !fs.bad) ? [] : came.slice(0, 5000);
+    if (window._v247WriteSeq !== seq0 || _v247SaveOpen()) return { ok: false, reason: 'save-in-flight' };
+    const ra = await _advNgoIncrementalSync({ v266Val: Object.assign({}, fs.val, fa.val) });
+    if (!ra.ok) return ra;
+    // some did not answer, twice: what came is kept (each is the database's
+    // own latest), the bookmarks stay, so the next Refresh asks again
+    if (fb.bad || fa.bad || fs.bad) {
+      console.warn('[V26.6] Refresh from notes: ' + (fb.bad + fa.bad + fs.bad) + ' records did not arrive');
+      return { ok: false, reason: 'error' };
+    }
+    // the bookmarks move only for what is saved on this device
+    const L2 = Object.assign({}, L0), K2 = Object.assign({}, K0);
+    for (const c of codes) for (const kind of ['b', 'a']) for (const list of [kind, kind + 'r']) {
+      const key = c + '|' + list, ok = kind === 'b' ? rb.pantryOk !== false : ra.pantryOk !== false;
+      if (!ok) continue;
+      const was = Number(L2[key]) || 0, nl = Math.max(was, maxT[key] || 0, from[key]);
+      if (maxT[key] > 0 && nl === maxT[key]) K2[key] = maxK[key];
+      else if (nl !== was) delete K2[key];
+      L2[key] = nl;
+    }
+    const upTo = Math.min(now, Number(m.rep)) - _V184_CLOCK_MARGIN_MS;
+    await _v266PutW(u.userId, Object.assign({}, W0, { ep: ep, L: L2, K: K2, pend: pendNow,
+      safe: (rb.pantryOk !== false && ra.pantryOk !== false) ? Math.max(safe0, upTo) : safe0, came: owed }));
+    // ⛔ everything of this login's changed up to the office's last check is now
+    // here (every list was read from before it): the everyone's-changes bookmark
+    // may move there - and only when the saved copy holds it
+    if (rb.pantryOk !== false && ra.pantryOk !== false && upTo > 0) {
+      await _v184SetSeen('benef', u.userId, upTo);
+      await _v184SetSeen('adv', u.userId, upTo);
+    }
+    console.log('[V26.6] Refresh from notes: ' + needB.length + ' households, ' + needA.length + ' scheme records, ' + came.length + ' moved-in households’ schemes fetched');
+    return { ok: true, how: 'changes', n: (rb.added + rb.removed) + (ra.added + ra.removed), v266: true };
+  } catch (e) {
+    console.warn('[V26.6] Refresh from notes failed:', e && e.message);
+    return { ok: false, reason: 'error' };
+  }
+}
+
 async function _v247DoRefresh(u) {
   const t0 = _v247Now();
   // [V25.6] a donor on Reports: the Reports figures, kept on the device until now
@@ -7508,8 +8289,12 @@ async function _v247DoRefresh(u) {
   const nb = RecordCache.benef.size, na = RecordCache.adv.size;
   const own = nb * 560 + na * 550;   // bytes per record, measured on the 26 Sep export
   // where each catch-up would start - the same point the catch-up itself uses
-  const hb = Math.max(_v247NewestStamp(RecordCache.benef), await _v184GetSeen('benef', u.userId));
-  const ha = Math.max(_v247NewestStamp(RecordCache.adv), await _v184GetSeen('adv', u.userId));
+  // V26.6: after a Refresh from notes (or a save here) the catch-up starts at the everyone's-changes bookmark (see _v266Ahead)
+  _v266SvStart(u);
+  const _v266A = await _v266Ahead(u);
+  if (_v266Sv0) _v266Sv0.st = _v266A;
+  const hb = _v266A ? await _v184GetSeen('benef', u.userId) : Math.max(_v247NewestStamp(RecordCache.benef), await _v184GetSeen('benef', u.userId));
+  const ha = _v266A ? await _v184GetSeen('adv', u.userId) : Math.max(_v247NewestStamp(RecordCache.adv), await _v184GetSeen('adv', u.userId));
   const from = (hb && ha) ? Math.min(hb, ha) : 0;
   const est = from ? Math.max(0, t0 - from) / 86400000 * _V247_FLEET_BYTES_PER_DAY : Infinity;
   if (!(est <= own)) {
@@ -7518,8 +8303,13 @@ async function _v247DoRefresh(u) {
     // signed in, say). Nothing downloaded, not counted.
     const a = _v247GetAsOf(u.userId);
     if (a && t0 - a < 10 * 60000) return { ok: true, how: 'recent', n: 0, free: true, at: a };
-    return _v247FullReload(u, 'expected smaller');
   }
+  // V26.6: this login's own changes, by their notes - only when that is the smaller download
+  const _v266R = await _v266Refresh(u, own, est);
+  if (_v266R && _v266R.v266Full) return _v266Full(u, 'the monthly check');
+  if (_v266R && _v266R.v266Gap) return _v266Gap(u, own, _v266R);
+  if (_v266R) return _v266R;
+  if (!(est <= own)) return _v266Full(u, 'expected smaller');
   // ⛔ CAPPED. If everyone's changes turn out bigger than the own data after
   // all (a very heavy day), the download stops at that size, nothing is used,
   // and the own data is taken instead.
@@ -7527,9 +8317,10 @@ async function _v247DoRefresh(u) {
   // (no starting point at all - a copy saved before V24.7 holding no scheme
   // records - is answered the same way: the own data again)
   const rb = await _ngoIncrementalSync({ cap: cap });
-  if (!rb.ok) return (rb.reason === 'too-big' || rb.reason === 'no-watermark') ? _v247FullReload(u, rb.reason) : rb;
+  if (!rb.ok) return (rb.reason === 'too-big' || rb.reason === 'no-watermark') ? _v266Full(u, rb.reason) : rb;   // V26.6: restarts the monthly clock
   const ra = await _advNgoIncrementalSync({ cap: Math.max(1, cap - (rb.got || 0)) });
-  if (!ra.ok) return (ra.reason === 'too-big' || ra.reason === 'no-watermark') ? _v247FullReload(u, ra.reason) : ra;
+  if (!ra.ok) return (ra.reason === 'too-big' || ra.reason === 'no-watermark') ? _v266Full(u, ra.reason) : ra;   // V26.6
+  if (rb.pantryOk !== false && ra.pantryOk !== false) await _v266AfterV5(u);   // V26.6: where V26.5's way ended, for the notes
   return { ok: true, how: 'changes', n: (rb.added + rb.removed) + (ra.added + ra.removed) };
 }
 async function _v247Refresh() {
@@ -7835,15 +8626,26 @@ async function _ngoIncrementalSync(opts) {
     // idempotent and the node is tiny, so the cheap direction is the safe one.
     const _seenB = await _v184GetSeen('benef', u.userId);
     if (_seenB > highWater) highWater = _seenB;
+    if (!opts.v266Val && opts.cap > 0 && await _v266Ahead(u)) highWater = _seenB;   // V26.6: see _v266Ahead
+    if (opts.v266From > 0) highWater = opts.v266From;   // V26.6: see _v266Gap
+    // V26.6: a catch-up without a cap (the list opened from the saved copy, the repair after a
+    // save) starts where V26.5's did - but while this device holds records past its bookmark
+    // it does not move the bookmark past them (see _v266Ahead). Nothing more is read.
+    var _v266KeepB = !opts.v266Val && !(opts.cap > 0) && await _v266Ahead(u);
     if (highWater === 0) return { ok: false, reason: 'no-watermark' };
     const _v247T0 = _v247Now();
     // V24.7: the Refresh passes a cap - the own data's size in records. The
     // database stops sending at that many, and if it reached the cap the own
     // data again is the cheaper answer: stop before anything is touched.
-    let _v247Q = fbRef('beneficiaries').orderByChild('_lastEditedAt').startAt(highWater + 1);
-    if (opts.cap > 0) _v247Q = _v247Q.limitToFirst(opts.cap);
-    const snap = await _v247Q.once('value');
-    const val = snap.val() || {};
+    // V26.6: a Refresh that fetched just this login's own changes hands them in
+    let val;
+    if (opts.v266Val) val = opts.v266Val;
+    else {
+      let _v247Q = fbRef('beneficiaries').orderByChild('_lastEditedAt').startAt(highWater + 1);
+      if (opts.cap > 0) _v247Q = _v247Q.limitToFirst(opts.cap);
+      const snap = await _v247Q.once('value');
+      val = snap.val() || {};
+    }
     const _v247Got = Object.keys(val).length;
     if (opts.cap > 0 && _v247Got >= opts.cap) return { ok: false, reason: 'too-big', got: _v247Got };
     // ⛔ V24.7: a save that opened while this was downloading rebuilds the cache
@@ -7932,7 +8734,7 @@ async function _ngoIncrementalSync(opts) {
     // copy actually on disk. Advancing past records that did not persist would
     // hide them from every future window.
     if (_pantryOkB) {
-      await _v184SetSeen('benef', u.userId, _newSeenB);
+      if (!opts.v266Val && !_v266KeepB) await _v184SetSeen('benef', u.userId, _newSeenB);   // V26.6: own changes only - see _v266Refresh
       _v247SetAsOf('benef', u.userId, _v247T0);   // V24.7: "Data saved on"
       // V19 [2]: ⛔ AND THE TOMBSTONE WATERMARK MOVES WITH IT, for exactly
       // the same reason. If the pantry write did not land, the next cold boot
@@ -7947,7 +8749,7 @@ async function _ngoIncrementalSync(opts) {
     console.log('[V347] NGO benef sync: +' + added + ' / -' + removed +
                 (reassignedOut ? ' / reassigned-out ' + reassignedOut : '') +
                 (_pantryOkB ? ' [V18.4 seen ' + _newSeenB + ']' : ' [V18.4 watermark held back]'));
-    return { ok: true, added: added, removed: removed + reassignedOut, got: _v247Got };
+    return { ok: true, added: added, removed: removed + reassignedOut, got: _v247Got, pantryOk: _pantryOkB };
   } catch (e) { console.warn('[V347] NGO benef sync failed:', e);
     return { ok: false, reason: 'error', error: (e && e.message) || String(e) };
   } finally { _ngoIncrementalSync_inFlight = false; }
@@ -7989,7 +8791,9 @@ async function _adminIncrementalSync() {
     // never fetched - 21 rows missed a scheme rename that way (24 Sep).
     // Partner logins have had this margin since V18.4.
     const _v234From = Math.max(1, highWater - _V184_CLOCK_MARGIN_MS);
-    const snap = await fbRef('beneficiaries').orderByChild('_lastEditedAt').startAt(_v234From).once('value');
+    const _v266S = await _v266AdminFrom('b', u.userId, _v234From);   // V26.6: never after the end of what this copy holds
+    const _v266D = Date.now(), _v266Q = window._v247WriteSeq;   // V26.6: this copy is complete up to here once the answer is in
+    const snap = await fbRef('beneficiaries').orderByChild('_lastEditedAt').startAt(_v266S).once('value');
     const val = snap.val() || {};
     let added = 0;
     for (const id in val) {
@@ -7998,6 +8802,7 @@ async function _adminIncrementalSync() {
       const _h = fbHash(r);
       // already held exactly as sent - the overlap must not rewrite the saved copy
       if (FB.lastBenef && FB.lastBenef[r.id] === _h && RecordCache.benef.has(r.id)) continue;
+      { const _o = RecordCache.benef.get(r.id); if (_o && _o.ngo && _o.ngo !== r.ngo) _v266AddPrev(_v266Admin.prevB, r.id, _o.ngo); }   // V26.6
       RecordCache.benef.set(r.id, r);
       if (!FB.lastBenef) FB.lastBenef = {};
       FB.lastBenef[r.id] = _h;
@@ -8062,6 +8867,7 @@ async function _adminIncrementalSync() {
     // V19 [2]: gated on the pantry, same discipline as the NGO syncs.
     if (_pantryOkAdminB) _v19SetTombWatermark('beneficiaries', tombs.newestTs);
     else console.warn('[V19] admin pantry write failed - tombstone watermark held back');
+    await _v266AdminCovDone('b', u.userId, _v266S, _v266D, _pantryOkAdminB, _v266Q); _v266AdminRepairSoon();   // V26.6
     console.log('[V347] admin benef sync: +' + added + ' / -' + removed +
                 (_pantryOkAdminB ? '' : ' [V19 tombstone watermark held back]'));
     return { ok: true, added, removed };
@@ -8094,12 +8900,20 @@ async function _advNgoIncrementalSync(opts) {
     // because the two collections advance independently.
     const _seenA = await _v184GetSeen('adv', u.userId);
     if (_seenA > highWater) highWater = _seenA;
+    if (!opts.v266Val && opts.cap > 0 && await _v266Ahead(u)) highWater = _seenA;   // V26.6: see _v266Ahead
+    if (opts.v266From > 0) highWater = opts.v266From;   // V26.6: see _v266Gap
+    var _v266KeepA = !opts.v266Val && !(opts.cap > 0) && await _v266Ahead(u);   // V26.6: see the household sync
     if (highWater === 0) return { ok: false, reason: 'no-watermark' };
     const _v247T0 = _v247Now();
-    let _v247Q = fbRef('advocacy').orderByChild('_lastEditedAt').startAt(highWater + 1);   // V24.7: see the household sync
-    if (opts.cap > 0) _v247Q = _v247Q.limitToFirst(opts.cap);
-    const snap = await _v247Q.once('value');
-    const val = snap.val() || {};
+    // V26.6: see the household sync
+    let val;
+    if (opts.v266Val) val = opts.v266Val;
+    else {
+      let _v247Q = fbRef('advocacy').orderByChild('_lastEditedAt').startAt(highWater + 1);   // V24.7: see the household sync
+      if (opts.cap > 0) _v247Q = _v247Q.limitToFirst(opts.cap);
+      const snap = await _v247Q.once('value');
+      val = snap.val() || {};
+    }
     const _v247Got = Object.keys(val).length;
     if (opts.cap > 0 && _v247Got >= opts.cap) return { ok: false, reason: 'too-big', got: _v247Got };
     // ⛔ V24.7: a save that opened while this was downloading rebuilds the cache
@@ -8184,7 +8998,7 @@ async function _advNgoIncrementalSync(opts) {
       try { renderCurrentView(); } catch(_){}
     }
     if (_pantryOkA) {
-      await _v184SetSeen('adv', u.userId, _newSeenA);
+      if (!opts.v266Val && !_v266KeepA) await _v184SetSeen('adv', u.userId, _newSeenA);   // V26.6: see the household sync
       _v247SetAsOf('adv', u.userId, _v247T0);   // V24.7: "Data saved on"
       // V19 [2]: ⛔ AND THE TOMBSTONE WATERMARK MOVES WITH IT, for exactly
       // the same reason. If the pantry write did not land, the next cold boot
@@ -8199,7 +9013,7 @@ async function _advNgoIncrementalSync(opts) {
     console.log('[V347] NGO adv sync: +' + added + ' / -' + removed +
                 (reassignedOut ? ' / reassigned-out ' + reassignedOut : '') +
                 (_pantryOkA ? ' [V18.4 seen ' + _newSeenA + ']' : ' [V18.4 watermark held back]'));
-    return { ok: true, added: added, removed: removed + reassignedOut, got: _v247Got };
+    return { ok: true, added: added, removed: removed + reassignedOut, got: _v247Got, pantryOk: _pantryOkA };
   } catch (e) { console.warn('[V347] NGO adv sync failed:', e);
     return { ok: false, reason: 'error', error: (e && e.message) || String(e) };
   } finally { _advNgoIncrementalSync_inFlight = false; }
@@ -8229,7 +9043,9 @@ async function _advAdminIncrementalSync() {
     if (highWater === 0) return { ok: false, reason: 'no-watermark' };
     // ⛔ V23.4: same 5-minute overlap as the beneficiary sync - see there.
     const _v234From = Math.max(1, highWater - _V184_CLOCK_MARGIN_MS);
-    const snap = await fbRef('advocacy').orderByChild('_lastEditedAt').startAt(_v234From).once('value');
+    const _v266S = await _v266AdminFrom('a', u.userId, _v234From);   // V26.6: see the household sync
+    const _v266D = Date.now(), _v266Q = window._v247WriteSeq;
+    const snap = await fbRef('advocacy').orderByChild('_lastEditedAt').startAt(_v266S).once('value');
     const val = snap.val() || {};
     let added = 0;
     for (const fbKey in val) {
@@ -8239,6 +9055,7 @@ async function _advAdminIncrementalSync() {
       const key = record.__fbk || fbKey;
       const _h = fbHash(record);
       if (FB.lastAdv && FB.lastAdv[key] === _h && RecordCache.adv.has(key)) continue;
+      { const _o = RecordCache.adv.get(key); if (_o && _o.ngo && _o.ngo !== record.ngo) _v266AddPrev(_v266Admin.prevA, key, _o.ngo); }   // V26.6
       RecordCache.adv.set(key, record);
       if (!FB.lastAdv) FB.lastAdv = {};
       FB.lastAdv[key] = _h;
@@ -8295,6 +9112,7 @@ async function _advAdminIncrementalSync() {
     // V19 [2]: gated on the pantry, same discipline as the NGO syncs.
     if (_pantryOkAdminA) _v19SetTombWatermark('advocacy', tombs.newestTs);
     else console.warn('[V19] admin advocacy pantry write failed - tombstone watermark held back');
+    await _v266AdminCovDone('a', u.userId, _v266S, _v266D, _pantryOkAdminA, _v266Q); _v266AdminRepairSoon();   // V26.6
     console.log('[V347] admin adv sync: +' + added + ' / -' + removed +
                 (_pantryOkAdminA ? '' : ' [V19 tombstone watermark held back]'));
     try { await _v242FetchMissingHouseholds(); } catch (_) {}   // V24.2
@@ -10162,6 +10980,7 @@ async function _adminBenefRestFetch() {
     const dbUrl = FB.db.app.options.databaseURL;
     const base  = dbUrl + '/' + FB_NAMESPACE + '/beneficiaries.json';
     const auth  = authToken ? '&auth=' + authToken : '';
+    const _v266D0 = Date.now(), _v266Q0 = window._v247WriteSeq;   // V26.6: everything changed before this is in the download
 
     RecordCache.benef.clear();
     FB.lastBenef = {};
@@ -10229,8 +11048,9 @@ async function _adminBenefRestFetch() {
     _banner(total, true);
     fbUpdatePill();
     if (_u347b && _u347b.userId) {
-      await _v192VerifiedPantryWrite('benef', _u347b.userId,
+      const _v266P = await _v192VerifiedPantryWrite('benef', _u347b.userId,
         function () { return _pantryWrite(_u347b.userId, Array.from(RecordCache.benef.values())); });
+      if (_u347b.role === 'admin') { await _v266AdminCovDone('b', _u347b.userId, 1, _v266D0, _v266P, _v266Q0); _v266AdminRepairSoon(); }   // V26.6
     }
     // V382: single final render now that all records are loaded.
     try { renderCurrentView(); } catch(_) {}
@@ -10301,6 +11121,7 @@ async function _adminAdvRestFetch() {
     const dbUrl = FB.db.app.options.databaseURL;
     const base  = dbUrl + '/' + FB_NAMESPACE + '/advocacy.json';
     const auth  = authToken ? '&auth=' + authToken : '';
+    const _v266D0 = Date.now(), _v266Q0 = window._v247WriteSeq;   // V26.6: see the household download
 
     RecordCache.adv.clear();
     FB.lastAdv = {};
@@ -10344,8 +11165,9 @@ async function _adminAdvRestFetch() {
     FB.advReplayComplete = true;
     fbUpdatePill();
     if (_u347a && _u347a.userId) {
-      await _v192VerifiedPantryWrite('adv', _u347a.userId,
+      const _v266P = await _v192VerifiedPantryWrite('adv', _u347a.userId,
         function () { return _advPantryWrite(_u347a.userId, Array.from(RecordCache.adv.values())); });
+      if (_u347a.role === 'admin') { await _v266AdminCovDone('a', _u347a.userId, 1, _v266D0, _v266P, _v266Q0); _v266AdminRepairSoon(); }   // V26.6
     }
     // V382: single final render after all advocacy records loaded.
     try { renderCurrentView(); } catch(_) {}
@@ -11046,6 +11868,7 @@ async function _v375ScopedBenefMultiFetch(ngos, opts) {
         const _t0s = _v247D0 + _v19ServerOffsetMs;
         await _v184SetSeen('benef', u.userId, _t0s - _V184_CLOCK_MARGIN_MS);
         _v247SetAsOf('benef', u.userId, _t0s);
+        await _v266ColdDone(u, 'b', _t0s);   // V26.6: counts as the own data again
       } else if (_v247Saved) {
         _v247SetAsOf('benef', u.userId, _v247D0);   // the "Data saved on" line only
       }
@@ -11616,6 +12439,7 @@ async function _v375ScopedAdvMultiFetch(ngos, opts) {
         const _t0s = _v247D0 + _v19ServerOffsetMs;
         await _v184SetSeen('adv', u.userId, _t0s - _V184_CLOCK_MARGIN_MS);
         _v247SetAsOf('adv', u.userId, _t0s);
+        await _v266ColdDone(u, 'a', _t0s);   // V26.6
       } else if (_v247Saved) {
         _v247SetAsOf('adv', u.userId, _v247D0);
       }
@@ -12031,6 +12855,7 @@ async function _v247FindStale(coll, writes, lastMap) {
 }
 // The database's version replaces this device's - cache and last-map together.
 function _v247TakeServerCopies(coll, stale) {
+  try { _v266MarkSaved(); } catch (_) {}   // V26.6: see _v266MarkSaved
   const u = (typeof currentUser === 'function') ? currentUser() : null;
   const isB = coll === 'beneficiaries';
   const cache = isB ? RecordCache.benef : RecordCache.adv;
@@ -12367,6 +13192,7 @@ async function fbSyncCollection(coll, newArr, idField, lastMapRef, _v265Out) {
   // Build multi-path update
   const updates = {};
   for (const w of diff.writes) updates[`${FB_NAMESPACE}/${coll}/${w.id}`] = _v242Payload(w.value);   // V24.2
+  const _v266N = _v266NotesFor(coll, diff.writes.map(function (w) { return { key: w.id, rec: w.value }; }), FB[lastMapRef]);   // V26.6
   for (const d of diff.deletes) {
     updates[`${FB_NAMESPACE}/${coll}/${d}`] = null;
     // V347: tombstone the delete so incremental syncs propagate it.
@@ -12394,7 +13220,7 @@ async function fbSyncCollection(coll, newArr, idField, lastMapRef, _v265Out) {
     FB.pendingWrites++;
     window._v247WriteSeq = (window._v247WriteSeq || 0) + 1;   // V24.7: see _v247QuietForSwap
     fbUpdatePill();
-    await FB.db.ref().update(updates);
+    await _v266Update(updates, _v266N);   // V26.6: the records, and their change notes
   } catch(e) {
     // Rollback FB[lastMapRef] so the next save sees the same diff and retries.
     FB[lastMapRef] = oldLastMap;
@@ -12487,11 +13313,12 @@ async function fbWriteChangedRecords(coll, changed, idField, lastMapRef, cacheSe
   }
   const ids = Object.keys(updates);
   if (ids.length === 0) return 0;
+  const _v266N = _v266NotesFor(coll, changed.map(function (rec) { return { key: rec && rec[idField], rec: rec }; }), FB[lastMapRef]);   // V26.6
   try {
     FB.pendingWrites++;
     window._v247WriteSeq = (window._v247WriteSeq || 0) + 1;   // V24.7: see _v247QuietForSwap
     fbUpdatePill();
-    await FB.db.ref().update(updates);
+    await _v266Update(updates, _v266N);   // V26.6: the records, and their change notes
   } catch (e) {
     console.warn(`[V320] fbWriteChangedRecords failed for ${coll}:`, e);
     throw new SaveError('write-failed', e);
@@ -14004,6 +14831,7 @@ async function _v25WriteLivRename(froms, to, ids) {
     RecordCache.benef.set(id, v);
     if (!FB.lastBenef) FB.lastBenef = {};
     FB.lastBenef[id] = fbHash(v);
+    _v266NoteLater('beneficiaries', v);   // V26.6
     res.changed++;
     if (v.createdBy) _v265Ren.add(v.createdBy);
   };
@@ -14084,6 +14912,7 @@ async function _v25WriteSchemeRename(oldName, newName, keys) {
     RecordCache.adv.set(key, v);
     if (!FB.lastAdv) FB.lastAdv = {};
     FB.lastAdv[key] = fbHash(v);
+    _v266NoteLater('advocacy', v);   // V26.6
     res.records++;
     if (v.createdBy) _v265Ren.add(v.createdBy);
     res.rows += rows;
@@ -48187,6 +49016,7 @@ async function _v222RunStampFix() {
     for (let i = 0; i < _v222Scan.moves.length; i += _V222_CHUNK) {
       const slice = _v222Scan.moves.slice(i, i + _V222_CHUNK);
       const updates = {};
+      const _v266M = [];   // V26.6
       for (const m of slice) {
         // read it back first: somebody may have moved this person again, or
         // the record may be gone
@@ -48198,8 +49028,9 @@ async function _v222RunStampFix() {
         if (fresh.ngo === should) { skipped.push({ key: m.key, why: 'already correct' }); continue; }
         updates[FB_NAMESPACE + '/advocacy/' + m.key + '/ngo'] = should;
         done.push({ key: m.key, from: fresh.ngo, to: should });
+        _v266M.push({ key: m.key, fromNgo: fresh.ngo, toNgo: should, bid: fresh.bid });   // V26.6
       }
-      if (Object.keys(updates).length) await FB.db.ref().update(updates);
+      if (Object.keys(updates).length) await _v266Update(updates, _v266NotesForMoves(_v266M));   // V26.6: both partners hear of it
       _v222Scan.progress = { done: Math.min(i + _V222_CHUNK, _v222Scan.moves.length), total: _v222Scan.moves.length };
       renderAdminStampFix();
     }
@@ -48253,10 +49084,12 @@ async function _v222UndoStampFix(batchId) {
   try {
     for (let i = 0; i < batch.moves.length; i += _V222_CHUNK) {
       const updates = {};
+      const _v266M = [];   // V26.6
       batch.moves.slice(i, i + _V222_CHUNK).forEach(function (m) {
-        if (m && m.key && m.from) { updates[FB_NAMESPACE + '/advocacy/' + m.key + '/ngo'] = m.from; back++; }
+        if (m && m.key && m.from) { updates[FB_NAMESPACE + '/advocacy/' + m.key + '/ngo'] = m.from; back++;
+          _v266M.push({ key: m.key, fromNgo: m.to, toNgo: m.from, bid: (RecordCache.adv.get(m.key) || {}).bid }); }   // V26.6
       });
-      if (Object.keys(updates).length) await FB.db.ref().update(updates);
+      if (Object.keys(updates).length) await _v266Update(updates, _v266NotesForMoves(_v266M));   // V26.6
     }
     try {
       batch.moves.forEach(function (m) { const rec = RecordCache.adv.get(m.key); if (rec) rec.ngo = m.from; });
@@ -48357,7 +49190,7 @@ async function _v240WriteSchemeMoves(moves, onChunk) {
       if (m.fromBy) who.add(m.fromBy);
       if (m.toBy) who.add(m.toBy);
     });
-    await FB.db.ref().update(updates);
+    await _v266Update(updates, _v266NotesForMoves(slice));   // V26.6: both partners hear of the move
     slice.forEach(function (m) {
       const r = RecordCache.adv.get(m.key);
       if (!r) return;
@@ -51036,8 +51869,12 @@ async function _advBackfillRun() {
       if (!c.hasNgo) updates[`${path}/ngo`] = c.ngo;
       if (!c.hasCreatedBy) updates[`${path}/createdBy`] = c.createdBy;
     }
+    const _v266M = slice.filter(function (c) { return c && c.fbKey; }).map(function (c) {   // V26.6
+      const r = RecordCache.adv.get(c.fbKey) || {};
+      return { key: c.fbKey, fromNgo: r.ngo, toNgo: c.ngo, bid: r.bid || c.bid };
+    });
     try {
-      await FB.db.ref().update(updates);
+      await _v266Update(updates, _v266NotesForMoves(_v266M));   // V26.6
       _advBackfillState.fixed += slice.length;
       _advBackfillState.processed += slice.length;
       _advBackfillLog(`Batch ${Math.ceil((i+BATCH)/BATCH)}: fixed ${slice.length} records (${_advBackfillState.processed}/${cands.length})`);
@@ -51440,6 +52277,7 @@ async function _dedupFix() {
       delete recovered.id;
 
       await fbRef('beneficiaries/' + newId).set({ ...recovered, id: newId });
+      _v266NoteLater('beneficiaries', { ...recovered, id: newId });   // V26.6
       RecordCache.benef.set(newId, { ...recovered, id: newId });
 
       auditLog('create', 'beneficiary', newId, victim.name,
@@ -51732,6 +52570,7 @@ async function _dedupRelinkAdvocacy() {
         // Update bid to the recovered beneficiary's new ID
         try {
           await fbRef('advocacy/' + fbKey).update({ bid: newBid });
+          _v266NoteLater('advocacy', Object.assign({}, RecordCache.adv.get(fbKey) || {}, { __fbk: fbKey, bid: newBid }));   // V26.6
           // Update in RecordCache too
           const advArr = loadAdv();
           const idx = advArr.findIndex(a => a.__fbk === fbKey || a.id === fbKey);
