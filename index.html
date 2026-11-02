@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V26.6-LIVE
+  KRSF Beneficiary Impact Tracker  -  V26.8-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,48 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V26.8-LIVE (2026-11-02 - the Enroll button no longer covers "Next").
+
+    + Owner's phone screenshot: on a coordinator's Home list the green
+      "+ Enroll" button sat right on top of "Next ->", so the next page
+      could not be reached. The button floats 78-122 px above the bottom of
+      the screen; the list left only 84 px under its last row, so the page
+      buttons ended at 88-124 px - under it, on every phone, however far
+      you scrolled.
+    + Now the Home list has 64 px more room at the bottom: scrolled to the
+      end, Prev and Next (or the last card) sit clear above Enroll (and
+      above "Install app" on the left, same height). Nothing else moves.
+    + The page row reads "1,098 total" with the Indian comma, the same as
+      "Showing 10 of 1,098" just above it. On a 375 px phone, from page
+      100 on, that longer line puts Next on a second line (small phones
+      already did this) - still clear of Enroll.
+    + Display only: 0 Firebase bytes, no reads, no writes, no logic.
+    + Tests: 117 files. The V26.8 checks are in _specs/v268.
+
+  V26.7-LIVE (2026-11-02 - Recent Updates shows each deletion once).
+
+    + Owner: "I deleted 5 beneficiaries. But why so many items come on recent
+      updates?" The card showed 12 red rows. A deletion is written to the
+      audit log twice - by the Delete button ("Bulk-deleted from X", with the
+      name) and by the save underneath ("Removed via sync-path diff", V371's
+      trail, so nothing can vanish without a trace) - and the advocacy record
+      removed with a household gets a sync-path line of its own, shown as
+      "—". Nothing extra had been deleted.
+    + Now the card folds a sync-path line into the Delete button's line for
+      the same household, by the same person, written from 10 minutes
+      before it to 2 minutes after: 5 deletions = 5 rows, "... - with its
+      advocacy record" where it had one (on the
+      real data a household has one, holding all its schemes). The 15 rows
+      are counted after folding, so real activity is not pushed off.
+    + ⛔ Display only. The stored audit log is unchanged; the Audit Log screen
+      still lists every line. 0 Firebase bytes, no reads, no writes.
+    + ⛔ A sync-path line with no Delete-button line still shows - a removal
+      nobody asked for is what V371 exists to show. An advocacy record
+      removed on its own now names its household instead of "—", and the
+      office's partner, state and coordinator filters place it there. Who
+      else sees such a line is unchanged.
+    + Tests: 117 files. The V26.7 checks are in _specs/v267.
+
   V26.6-LIVE (2026-11-01 - a partner's Refresh downloads only its own changes).
 
     + ⛔ ONE PARTNER REFRESH COULD COST A WHOLE PARTNER. On 31 Oct the Bhiloda
@@ -37,8 +79,8 @@
       The office's now starts where its copy really ends (it may read a
       little more on a day it saves before catching up); a partner's or
       donor's, once its Refreshes use the notes, at its bookmark.
-    + Needs the new database rules (Rules-V26.6.json = V21.5 + the notes),
-      published BEFORE this file. Without them a partner's or donor's Refresh
+    + Needs the new database rules (the live V11.1 + the notes; see
+      _specs/v266/REVIEW-NOTES.md), published BEFORE this file. Without them a partner's or donor's Refresh
       is V26.5's, plus one 0.2 KB read.
     + Measured on a copy of the real data: the Bhiloda partner's Refreshes over real days
       (7 Oct, 26 Sep, 1-3 Oct, and a 7-day gap 19-25 Sep): V26.5 52.0 MB,
@@ -626,69 +668,6 @@
     + "Recompute summary now" says whether it wrote; a press is no longer
       skipped by the one-minute rule meant for the automatic refreshes.
     + Tests: 83 files. v235 is red on V23.4.
-
-  V23.4-LIVE (2026-09-24 - a phone no longer re-sends its whole list).
-
-    + ⛔ A COORDINATOR'S PHONE COULD SEND EVERY ONE OF ITS RECORDS FROM ITS OWN
-      OLD COPY, undoing changes the office had made. On a weak signal the
-      start-up step finishes late, after the coordinator has already opened
-      their saved list; it then forgot which records the phone had already
-      saved, so the next ordinary edit sent all of them. Seen 10-50 times a
-      day since May. On 24 Sep Sanjaykumar Ninama's phone re-sent 1,043
-      households and 1,043 scheme records, putting "MANREGA" back on 172 rows
-      renamed that morning; on 21 Sep Shankarbhai Vanajara's phone put 621
-      scheme records back under KRSF.Vadali after his move to KRSF.Idar.
-      Now the start-up step leaves that memory alone whenever records are
-      already loaded; on a fresh start it behaves exactly as before.
-      No read, write or download is added - fewer are made, because other
-      devices no longer re-download records that were re-sent unchanged.
-    + Advocacy Management: a "Scheme Rename Backfill" button beside "Audit
-      Scheme Names", with a tooltip, and "Audit Scheme Names" gets one too. The screen already existed but could only
-      be opened from the browser console. It now also stamps every record it
-      renames, as the Rename button does - before, the admin's own list and the
-      partner logins kept showing the old name after a successful run.
-    + THE OLD SCHEME LIST CAME BACK ON SCREEN (Guru, 24 Sep - the database
-      was right, 27 schemes). The saved copy of the settings was dated 21 Sep
-      and was never refreshed; it now follows the one fresh read every start
-      already makes. And every scheme-list action in Advocacy Management
-      checks first that the tab is up to date, because each one writes the
-      WHOLE list from the tab's copy - an old tab would have wiped the 7
-      Maharashtra schemes and the renames. If it is out of date, nothing is
-      changed, logged or announced; the screen shows the latest list.
-    + The admin's record sync re-checks the 5 minutes before the newest
-      record it holds, as partner logins have since V18.4: a record that
-      reached the database a little late was skipped for good (21 rows missed
-      the MANREGA rename that way). Records already held unchanged are skipped.
-    + Includes V23.2 and V23.3.
-    + Tests: 82 files. v234 edits one record after the start-up step
-      re-runs and demands exactly one record is sent; red on V23.3.
-
-  V23.3-LIVE (2026-09-23 - a hard swipe no longer throws the Enroll form away).
-
-    + ⛔ ON A PHONE, A FAST SWIPE UP AT THE END OF THE ENROLL FORM SENT THE WHOLE
-      FORM OFF THE TOP OF THE SCREEN, leaving the list dimmed behind it (Guru's
-      screen recording on a coordinator login, 23 Sep). Nothing typed was lost -
-      swiping down brought it back - but it looked like the form had vanished.
-      Cause: the invisible screen-reader line under "Enroll & Generate ID"
-      (added V20.1) was anchored to the dim backdrop instead of the form, which
-      made the backdrop itself 1,489px scrollable. Its row now holds it inside
-      the form; the backdrop no longer scrolls at all. Every other pop-up was
-      checked and had no such overhang. No Firebase change; nothing saved
-      differently.
-    + Includes V23.2 (the rupee sign no longer covers the amount).
-    + Tests: 81 files. v231 now checks the Enroll backdrop cannot scroll and
-      the form still reaches its Enroll button; red on V23.2.
-
-  V23.2-LIVE (2026-09-23 - the rupee sign no longer covers the amount).
-
-    + THE ₹ SAT ON TOP OF THE FIRST DIGIT in the phone Log income (opened from
-      "+ Add income" on a card), so "6000" read as "₹000". The V23.1 rule that
-      made the boxes 48px tall also reset the left padding, and it out-ranked
-      the rule that made room for the ₹. A stronger rule now keeps 34px clear.
-      Only that one box on the phone form changes; the profile Log income, the
-      saved figure and every other screen are untouched. No Firebase change.
-    + Tests: 81 files. v231 now measures the gap between the ₹ and the typed
-      digits, and fails on the V23.1 build.
 
   ============================================================================
   Everything before this point lives in CHANGELOG.md, beside this file.
@@ -2803,6 +2782,12 @@ body[data-shell="coord"] .coord-card {
 }
 .coord-pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
 .coord-pagination .page-info { color: var(--gray2); font-weight: 600; }
+/* V26.8: the floating Enroll button (.coord-fab) sits 78-122 px above the bottom
+   of the screen, and .coord-body leaves only 84 px under the list - so, scrolled
+   to the end, the page buttons ended at 88-124 px: right under it, on every phone
+   (owner's screenshot, 2 Nov 2026). 84 + 64 = 148 px clears it with room for a
+   larger phone font. Home only: Enroll shows only on Home. Display only. */
+#coord-panel-home { padding-bottom: 64px; }
 .coord-sheet-backdrop {
   position: fixed; inset: 0; background: rgba(15,23,42,0.45);
   z-index: 9998; opacity: 0; transition: opacity .18s ease;
@@ -4842,7 +4827,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V26.6-LIVE';
+const APP_VERSION = 'V26.8-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -29193,6 +29178,113 @@ function _v258AuditText(s) {
   }).join('; ');
 }
 
+// ── V26.7: Recent Updates shows each deletion once ──────────────────────────
+// Owner, 2 Nov 2026: "I deleted 5 beneficiaries. But why so many items come on
+// recent updates?" - the card listed 12 red rows. A deletion is written to the
+// audit log twice: by the Delete button ("Bulk-deleted from X", with the name)
+// and by the save underneath (V371: "Removed via sync-path diff", kept so that
+// no record can ever disappear without a trace). Each advocacy record removed
+// together with its household gets a sync-path line of its own, with no name -
+// the two "—" rows.
+// This card now folds a sync-path line into the Delete button's line for the
+// same household, by the same person, written from 10 minutes before it to 2
+// minutes after (clock jitter); the household's advocacy record becomes
+// "- with its advocacy record" on that one row. (On the
+// real data every household has exactly ONE advocacy record, holding all its
+// schemes, so "1 scheme record" would read wrong for a family with four.)
+// ⛔ DISPLAY ONLY. The stored audit log is not changed and its entries are not
+// touched (the Audit Log screen still lists every line); 0 bytes, no reads.
+// ⛔ A sync-path line WITHOUT a matching Delete-button line STAYS on the card - a
+// removal nobody asked for is exactly what V371 exists to show. An advocacy record
+// removed on its own now names its household (the record's key is
+// '<household id>__<scheme>', see fbStampAdvKey) instead of "—", and the office's
+// partner/state/coordinator filters place it by that household. WHO ELSE sees such
+// a line is unchanged from V26.6 (a partner login seeing it while a donor over the
+// same partner could not would be two answers to one question).
+// Known limit: the old re-link tool (V324) changes a record's bid but not its key;
+// such a record (none on the 8 Oct data) would be named by its old household.
+const _V267_SYNC_DEL = 'Removed via sync-path diff (V371 traced)';
+// ⛔ The Delete button writes its line AFTER its saves finished, and the saves write
+// their sync-path lines as they go (same device clock) - so a sync-path line that
+// belongs to a delete is a little BEFORE it, never well after. Review 2: a symmetric
+// 30-minute window would also swallow an unexplained removal written 25 minutes
+// earlier, or one made after the delete.
+const _V267_BEFORE_MS = 10 * 60 * 1000;
+const _V267_AFTER_MS = 2 * 60 * 1000;
+function _v267IsSyncDel(e) {
+  return !!e && e.action === 'delete' && e.summary === _V267_SYNC_DEL
+    && (e.recordType === 'beneficiary' || e.recordType === 'advocacy');
+}
+// The household a removed advocacy record belonged to, from its key; '' when unknown.
+function _v267SyncBid(e) {
+  if (!_v267IsSyncDel(e) || e.recordType !== 'advocacy') return '';
+  const k = String(e.recordId || '');
+  const i = k.indexOf('__');
+  if (i <= 0) return '';
+  const bid = k.slice(0, i);
+  return bid === 'nobid' ? '' : bid;
+}
+// The scheme part of that key, in words ('ayushman_bharat' -> 'ayushman bharat');
+// '' for 'unknown' - the key almost every record has, its schemes being inside it.
+function _v267SyncScheme(e) {
+  const k = String((e && e.recordId) || '');
+  const i = k.indexOf('__');
+  const s = i > 0 ? k.slice(i + 2).replace(/_+/g, ' ').trim() : '';
+  return s === 'unknown' ? '' : s;
+}
+// "- with its advocacy record" / "- with its 2 advocacy records"
+function _v267WithText(n) {
+  return n > 0 ? ' — with its ' + (n === 1 ? 'advocacy record' : n + ' advocacy records') : '';
+}
+function _v267Ts(e) {
+  const t = Date.parse((e && e.ts) || '');
+  return isFinite(t) ? t : NaN;
+}
+function _v267Who(e) { return e ? String(e.userId || e.username || '') : ''; }
+// -> { list: the audit without the folded lines (a NEW array; entries untouched),
+//      extra: Map(Delete-button entry -> number of advocacy records folded into it) }
+function _v267FoldDeletes(audit) {
+  const out = { list: audit, extra: new Map() };
+  if (!Array.isArray(audit) || !audit.length) return out;
+  const byBid = new Map();   // household id -> the Delete-button lines that name it
+  for (const e of audit) {
+    if (!e || e.action !== 'delete' || e.recordType !== 'beneficiary' || !e.recordId || _v267IsSyncDel(e)) continue;
+    const t = _v267Ts(e);
+    if (!isFinite(t)) continue;
+    let a = byBid.get(e.recordId);
+    if (!a) byBid.set(e.recordId, a = []);
+    a.push({ e: e, t: t });
+  }
+  if (!byBid.size) return out;
+  const drop = new Set();
+  const keys = new Map();   // Delete-button line -> the advocacy record keys folded into it
+  for (const e of audit) {
+    if (!_v267IsSyncDel(e)) continue;
+    const bid = e.recordType === 'beneficiary' ? e.recordId : _v267SyncBid(e);
+    const cands = bid ? byBid.get(bid) : null;
+    if (!cands) continue;
+    const t = _v267Ts(e);
+    if (!isFinite(t)) continue;
+    let best = null, bd = Infinity;
+    for (const c of cands) {
+      if (_v267Who(c.e) !== _v267Who(e)) continue;   // the same person's delete only
+      const d = c.t - t;                              // > 0: the sync line came first
+      if (d <= _V267_BEFORE_MS && d >= -_V267_AFTER_MS && Math.abs(d) < bd) { best = c.e; bd = Math.abs(d); }
+    }
+    if (!best) continue;
+    drop.add(e);
+    if (e.recordType === 'advocacy') {
+      // each advocacy record once: a save that failed and was retried logs its lines again
+      let s = keys.get(best);
+      if (!s) keys.set(best, s = new Set());
+      s.add(String(e.recordId));
+    }
+  }
+  keys.forEach(function (s, best) { out.extra.set(best, s.size); });
+  if (drop.size) out.list = audit.filter(function (e) { return !drop.has(e); });
+  return out;
+}
+
 function _renderDashboardRecentUpdates(list) {
   // V22.4: a donor's session holds no records. The card then works from the
   // small lookup that travelled with the stored summary - the same fifty-odd
@@ -29260,6 +29352,9 @@ function _renderDashboardRecentUpdates(list) {
 
   let audit = [];
   try { audit = loadAudit(); } catch(e) { audit = []; }
+  // V26.7: one row per deletion (see _v267FoldDeletes); the stored log is untouched
+  const _v267F = _v267FoldDeletes(audit);
+  audit = _v267F.list;
 
   // Scope widening for coordinators: also include events *they* logged, even
   // if the beneficiary was later reassigned to another coordinator. Without
@@ -29299,7 +29394,7 @@ function _renderDashboardRecentUpdates(list) {
     // honest outcome when nothing can tell us where it belonged.
     if (e.recordType === 'beneficiary') return ngoOfId(e.recordId) || e.ngo || null;
     if (hasId(e.recordId)) return ngoOfId(e.recordId) || null;   // status_change: recordId IS the bid
-    const bid = advBidByAdvId[e.recordId];
+    const bid = advBidByAdvId[e.recordId] || _v267SyncBid(e);   // V26.7: a removed advocacy record names its household in its key
     return bid ? (ngoOfId(bid) || e.ngo || null) : (e.ngo || null);
   };
 
@@ -29346,7 +29441,7 @@ function _renderDashboardRecentUpdates(list) {
         if (ngoFilter && !_v262NgoHas(ngoFilter, _v19EventNgo(e))) return false;   // V26.2
         if (stateFilter || fcFilter) {
           const _rec4 = _v19Rec(e.recordType === 'beneficiary' ? e.recordId
-            : (hasId(e.recordId) ? e.recordId : advBidByAdvId[e.recordId]));
+            : (hasId(e.recordId) ? e.recordId : (advBidByAdvId[e.recordId] || _v267SyncBid(e))));   // V26.7
           // ⛔ Fresh review: only 8 of 137,298 records HAVE a .state field -
           // the state lives inside district ("Aravalli, Gujarat"), and every
           // other consumer of stateFilter matches district segments. Testing
@@ -29487,6 +29582,8 @@ function _renderDashboardRecentUpdates(list) {
         const resolved = advBidByAdvId[e.recordId];
         if (resolved && (visibleIds.has(resolved) || isAdmin)) {
           bid = resolved;  // shape 1: update events on advocacy records
+        } else if (_v267SyncBid(e) && (visibleIds.has(_v267SyncBid(e)) || isAdmin)) {
+          bid = _v267SyncBid(e);  // V26.7: an advocacy record removed by a save - its key names the household
         } else {
           // Legacy fallback: advocacy record was deleted, match by name
           const match = [...visibleIds].find(id => nameOfId(id) === e.recordLabel);
@@ -29503,7 +29600,11 @@ function _renderDashboardRecentUpdates(list) {
     const beneficiaryName = (e.recordType === 'advocacy' && bid && hasId(bid))
       ? escHtml(nameOfId(bid))
       : escHtml(e.recordLabel || '');
-    const summary = escHtml(_v258AuditText(e.summary||''));   // V25.8
+    // V26.7: "- with its advocacy record" when one was removed with this household;
+    // a lone removed advocacy record says what it is
+    const _v267Sc = (_v267IsSyncDel(e) && e.recordType === 'advocacy')
+      ? 'Advocacy record' + (_v267SyncScheme(e) ? ' (' + _v267SyncScheme(e) + ')' : '') + ': ' : '';
+    const summary = escHtml(_v267Sc + _v258AuditText(e.summary||'') + _v267WithText(_v267F.extra.get(e) || 0));   // V25.8, V26.7
     const displayName = (e.userId && fullNameById[e.userId]) || e.username || '—';
     const who = escHtml(displayName + (e.role==='admin'?' (Admin)':e.role==='ngo'?' (NGO)':e.role==='coordinator'?' (FC)':''));
     const ebid = bid ? escHtml(bid) : '';
@@ -45457,7 +45558,7 @@ function coordRenderList() {
   if (_pagEl && _pgInfo && _pgPrev && _pgNext) {
     if (list.length > _coordPageSize) {
       _pagEl.style.display = 'flex';
-      _pgInfo.textContent = 'Page ' + _coordPage + ' of ' + _totalPages + ' · ' + list.length + ' total';
+      _pgInfo.textContent = 'Page ' + _coordPage + ' of ' + _totalPages + ' · ' + _v261N(list.length) + ' total';   // V26.8: 1,098 as in "Showing 10 of 1,098"
       _pgPrev.disabled = (_coordPage <= 1);
       _pgNext.disabled = (_coordPage >= _totalPages);
     } else {
