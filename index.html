@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V26.8-LIVE
+  KRSF Beneficiary Impact Tracker  -  V26.9-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,32 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V26.9-LIVE (2026-11-11 - everyone's PIN is moved out of the shared staff list).
+
+    + Security audit finding: every staff login downloaded every person's
+      scrambled PIN with the staff list, and a 6-digit PIN scrambled once
+      can be worked out on a laptop in seconds - the admin's included.
+    + Now a PIN's scramble lives in a private place (/pins) that no phone
+      can read. The sign-in server reads it from there. Admin -> Users ->
+      "Protect PINs" moves every existing PIN in two checked steps: copy
+      all, then (only if every one is confirmed safe) remove them from the
+      shared list. Until that is done, nothing changes for anyone.
+      (A phone's own saved copy of the staff list keeps old PIN scrambles
+      until that list next refreshes; nobody else can read them.)
+    + Each phone keeps one strongly scrambled copy of ONLY the PIN of
+      whoever signed in on it, so that person can still sign in when the
+      server cannot be reached. A phone that still holds the old list uses
+      it once and makes that copy, so the update locks nobody out. A person
+      the phone has never seen, with no signal, must connect once.
+    + Saving a user never writes a record without its PIN unless the PIN is
+      already safe in the private place; changing, resetting, creating and
+      importing PINs write there.
+    + Firebase: the staff list gets smaller (no PIN in it); +1 tiny read
+      when a user record is saved. No new download elsewhere.
+    + Needs the new rules (/pins) and the new sign-in functions published
+      BEFORE this file is uploaded.
+    + Tests: 117 files. The V26.9 checks are in _specs/v269.
+
   V26.8-LIVE (2026-11-02 - the Enroll button no longer covers "Next").
 
     + Owner's phone screenshot: on a coordinator's Home list the green
@@ -4827,7 +4853,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V26.8-LIVE';
+const APP_VERSION = 'V26.9-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -14248,7 +14274,64 @@ async function saveUsers(arr) {
 // saveUsers() is kept as-is for any legacy callsite that genuinely wants
 // a full-array sync — but all in-tree callsites are migrated below.
 
-async function saveOneUser(record) {
+// ════════════════════════════════════════════════════════════════════════════
+// V26.9 (security step 3): PIN SCRAMBLES LIVE IN /pins/<userId>, WHICH NO PHONE CAN READ.
+// Until now every staff login downloaded every person's scrambled PIN with the staff
+// list, and a 6-digit PIN scrambled once with SHA-256 can be worked out in seconds.
+// The sign-in server reads /pins first (then the old place, so nothing breaks while
+// accounts are being moved). A phone keeps ONE strongly scrambled copy (PBKDF2) of
+// only the PIN of whoever signed in on it, so that person can still sign in when the
+// server cannot be reached. ⛔ A user record is never written WITHOUT its hash unless
+// the hash is already safe in /pins - see saveOneUser.
+// ════════════════════════════════════════════════════════════════════════════
+const _V269_ITER = 100000;
+const _V269_PV = 'krsf_v269_pv_';
+let _v269PinSaving = null;
+async function _v269Pbkdf(pin, saltHex, iter) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(String(pin)), 'PBKDF2', false, ['deriveBits']);
+  const salt = new Uint8Array((saltHex.match(/../g) || []).map(function (h) { return parseInt(h, 16); }));
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: salt, iterations: iter }, key, 256);
+  return _toHex(bits);
+}
+function _v269HasVerifier(uid) {
+  try { return !!(uid && localStorage.getItem(_V269_PV + uid)); } catch (_) { return false; }
+}
+async function _v269SaveVerifier(uid, pin) {
+  try {
+    if (!uid || !pin || !(typeof crypto !== 'undefined' && crypto.subtle)) return false;
+    const salt = _newSalt();
+    const h = await _v269Pbkdf(pin, salt, _V269_ITER);
+    localStorage.setItem(_V269_PV + uid, 'p2$' + _V269_ITER + '$' + salt + '$' + h);
+    return true;
+  } catch (_) { return false; }
+}
+async function _v269CheckVerifier(uid, pin) {
+  try {
+    const s = localStorage.getItem(_V269_PV + uid);
+    const p = s ? s.split('$') : [];
+    if (p.length !== 4 || p[0] !== 'p2') return false;
+    return (await _v269Pbkdf(pin, p[2], parseInt(p[1], 10))) === p[3];
+  } catch (_) { return false; }
+}
+// The phone's own check of a typed PIN (used only when the server could not answer, or to
+// confirm a CURRENT pin). 1) this phone's saved copy; 2) an OLD saved hash still in the
+// phone's list (then the saved copy is made from the typed PIN, so the update locks nobody
+// out); 3) nothing to check against -> _v269 = 'none'.
+async function _v269VerifyLocal(user, pin, noSave) {
+  if (_v269PinSaving) { try { await _v269PinSaving; } catch (_) {} }
+  if (user && user.id && _v269HasVerifier(user.id)) {
+    return { ok: await _v269CheckVerifier(user.id, pin), legacy: false, _v269: 'verifier' };
+  }
+  if (user && user.passwordHash) {
+    const r = await _verifyPassword(pin, user.passwordHash);
+    if (r.ok && !noSave) { try { await _v269SaveVerifier(user.id, pin); } catch (_) {} }
+    r._v269 = 'hash';
+    return r;
+  }
+  return { ok: false, legacy: false, _v269: 'none' };
+}
+
+async function saveOneUser(record, opts) {
   // Single-record write — only touches /users/<id>. Other users untouched.
   if (FB.initFailed) throw new SaveError('init-failed');
   if (!FB.online) throw new SaveError('offline');
@@ -14270,14 +14353,43 @@ async function saveOneUser(record) {
     throw new SaveError('bad-record', new Error('saveOneUser: record must have an id'));
   }
   // Single-path write — no diff, no other records touched
-  await fbRef('users/' + record.id).set(record);
+  // ⛔ V26.9: THE RECORD THAT IS WRITTEN NEVER COMES FROM THIS PHONE'S COPY OF THE HASH.
+  //  - a PIN being set (opts.pinHash): ONE atomic write puts the record (without a hash)
+  //    in /users and the hash in /pins. If /pins refuses (rules not yet carrying it) the
+  //    hash goes in the record the old way, so a PIN change is never lost.
+  //  - anything else: the hash that is ALREADY in the database stays exactly as it is (one
+  //    tiny read). If that read fails the save is refused - writing without it would wipe
+  //    the only copy of somebody's PIN while accounts are still being moved.
+  const _toWrite = JSON.parse(JSON.stringify(record));
+  const _pinHash = (opts && typeof opts.pinHash === 'string' && opts.pinHash) ? opts.pinHash : null;
+  delete _toWrite.passwordHash;
+  if (_pinHash) {
+    try {
+      const _up = {};
+      _up['users/' + record.id] = _toWrite;
+      _up['pins/' + record.id] = _pinHash;
+      await fbRef('').update(_up);
+    } catch (_e269) {
+      console.warn('[V26.9] /pins refused the PIN - saving it in the record the old way:', _e269 && _e269.message);
+      _toWrite.passwordHash = _pinHash;
+      await fbRef('users/' + record.id).set(_toWrite);
+    }
+  } else {
+    let _dbHash = null;
+    try {
+      const _hs = await fbRef('users/' + record.id + '/passwordHash').once('value');
+      _dbHash = _hs.val();
+    } catch (_e269r) { throw new SaveError('offline', _e269r); }
+    if (typeof _dbHash === 'string' && _dbHash) _toWrite.passwordHash = _dbHash;
+    await fbRef('users/' + record.id).set(_toWrite);
+  }
   // V381 [Fix #1 from adversarial review]: deep-clone before storing in
   // any in-memory map. The caller (e.g. partner-rename cascade) still
   // holds the original reference and may mutate it for the next iteration.
   // Storing the live reference would let those post-write mutations
   // silently corrupt our cache. _hydrateUsersCache did this defensively
   // via JSON parse/stringify; saveOneUser must do the same.
-  const stored = JSON.parse(JSON.stringify(record));
+  const stored = JSON.parse(JSON.stringify(_toWrite));
   RecordCache.users.set(stored.id, stored);
   RecordCache.primed = true;
   // Update FB.lastUsers so any subsequent diff-based call (e.g. legacy
@@ -35040,6 +35152,7 @@ function renderAdminUsers() {
           <button class="btn btn-sm" onclick="openBulkAssignTool()" title="Assign many beneficiaries (e.g. freshly bulk-imported, still-unassigned) to a Field Coordinator at once">📥 Bulk Assign FC${_rptTip("Hands a coordinator a batch of people in one go, normally straight after a bulk import. It offers only people inside the partner you pick, and by default only those who have no coordinator yet, so it does not quietly take anyone off somebody else. Nothing changes until you confirm.")}</button>
           ${_v11IsAdmin?`<button class="btn btn-sm" onclick="adminRefreshUsers()" title="Fetch the staff list from the server again. Use this if somebody added a user on another device and you cannot see them here.">↻ Refresh users${_rptTip("Fetches the staff list from the server again. Use it when somebody added or changed a user on another device and you cannot see them here. It only reads - nothing is written and nobody is affected.")}</button>`:''}
           ${_v11IsAdmin?`<button class="btn btn-sm" onclick="adminRequirePinChange()" title="Ask the people currently listed below to choose their own PIN next time they open the app. Filter by NGO first to do one NGO at a time. Does not change anyone's password and cannot lock anyone out.">🔑 Require PIN change${_v11PendingCount?` <span style="color:var(--gray2);font-weight:400">(${_v11PendingCount} asked)</span>`:''}${_rptTip("Asks the people currently listed below to choose their own PIN the next time they open the app. Their present password keeps working until they do, so nobody is locked out and no password is changed. Filter by partner first if you want to do one partner at a time; it tells you how many will be asked and does nothing until you confirm.")}</button>`:''}
+          ${_v11IsAdmin?`<button class="btn btn-sm" onclick="_v269PinTool()" title="Move every person's scrambled PIN to a private place that no phone can read. Safe, checked step by step, and it can be undone.">🔒 Protect PINs</button>`:''}
           ${_v11IsAdmin?`<button class="btn btn-sm" onclick="_v11ShowAdoption()" title="How many people have signed in through the new server login. This is the number that decides when the database rules can safely be tightened.">🔐 Login adoption${_rptTip("Shows how many people have signed in through the server login rather than the old way. It only reads and changes nothing. This is the number that decides when the database can safely be locked down further.")}</button>`:''}
           <button class="btn btn-sm" onclick="nav('admin_user_import')" title="Create many accounts at once from a spreadsheet">📥 Import Users${_rptTip("Creates many staff accounts in one go from a spreadsheet - name, username, password, role and partner, one row each. It checks every row and shows you what will happen before anything is created, skips anyone whose username already exists rather than touching their account, and gives you one Undo afterwards. Nothing changes until you confirm.")}</button>
           <button class="btn btn-primary btn-sm" onclick="adminNewUser()">+ Add User</button>
@@ -35332,10 +35445,11 @@ async function _adminSaveUserInner() {
     // V376-TL: persist assignedFcIds for Team Leader role. Other roles get null.
     users[idx].assignedFcIds = (role === 'scopedViewerByFc') ? assignedFcIds : null;
     // V308.1 (Bug 3 fix): use SHA-256+salt instead of legacy scramble.
-    if (pw) users[idx].passwordHash = await _hashPassword(pw);
+    let _adminPinHash = null;   // V26.9: a new PIN goes to /pins
+    if (pw) { _adminPinHash = await _hashPassword(pw); delete users[idx].passwordHash; }
     // V381: single-record write. Replaces saveUsers(users) which diff-synced
     // the WHOLE array and could clobber other admins' concurrent additions.
-    try { await saveOneUser(users[idx]); } catch (e) {
+    try { await saveOneUser(users[idx], _adminPinHash ? { pinHash: _adminPinHash } : undefined); } catch (e) {
       return showErr((e instanceof SaveError) ? e.message : 'Could not save user.');
     }
     // Audit: diff skips passwordHash (never log hashes either)
@@ -35381,11 +35495,12 @@ async function _adminSaveUserInner() {
     // Create mode — password required
     if (!pw) return showErr('Password is required for new users.');
     if (pw.length < 4) return showErr('Password must be at least 4 characters.');
+    const _newPinHash = await _hashPassword(pw);   // V26.9: goes to /pins in saveOneUser
     const newUser = {
       id: 'u-' + Date.now().toString(36) + Math.random().toString(36).slice(2,6),
       username, fullName,
       // V308.1 (Bug 3 fix): SHA-256+salt instead of reversible scramble.
-      passwordHash: await _hashPassword(pw),
+      // (V26.9: the hash is no longer part of the record - see saveOneUser.)
       role, ngo: (role === 'admin' || role === 'viewer' || role === 'scopedViewer') ? null : ngo,
       // V362/V375: viewer/scopedViewer NGO scoping
       // (viewer: empty array = global. scopedViewer: form requires non-empty.)
@@ -35397,7 +35512,7 @@ async function _adminSaveUserInner() {
     // V381: single-record write — only adds newUser's path, leaves all
     // other users in Firebase untouched. Eliminates the stale-cache
     // clobber that wiped Sanjay Bhanat + tl1bhiloda on 9 June 2026.
-    try { await saveOneUser(newUser); } catch (e) {
+    try { await saveOneUser(newUser, { pinHash: _newPinHash }); } catch (e) {
       return showErr((e instanceof SaveError) ? e.message : 'Could not create user.');
     }
     auditLog('create', 'user', newUser.id, username,
@@ -38751,6 +38866,7 @@ async function saveMyAccount() {
   if (idx < 0) return showErr('Your account was not found.');
   const rec = users[idx];
 
+  let _myPinHash = null;   // V26.9
   const fullName = document.getElementById('myacct-fullname').value.trim();
   const phone    = document.getElementById('myacct-phone').value.trim();
   const curpw    = document.getElementById('myacct-curpw').value;
@@ -38765,12 +38881,22 @@ async function saveMyAccount() {
     // V308.1 (Bug 3 fix): verify current via _verifyPassword (accepts legacy
     // sc_* and new sha2_*), then store the new one with SHA-256+salt.
     let curOk;
-    try { curOk = await _verifyPassword(curpw, rec.passwordHash); }
+    try {
+      curOk = await _v269VerifyLocal(rec, curpw, true);
+      if (curOk._v269 === 'none') {
+        // V26.9: nothing on this phone to check against - ask the server (it checks the live PIN).
+        const _sv = await _v11ServerLogin(rec.username, curpw);
+        if (_sv.status === 'ok') curOk = { ok: true };
+        else if (_sv.status === 'rejected') curOk = { ok: false };
+        else return showErr('Cannot check your current password right now. Please connect to the internet and try again.');
+      }
+    }
     catch (e) { return showErr('Verification failed: ' + (e && e.message ? e.message : 'crypto error')); }
     if (!curOk.ok)        return showErr('Current password is incorrect.');
     if (newpw !== newpw2) return showErr('New password and confirmation do not match.');
     if (newpw.length < 4) return showErr('New password must be at least 4 characters.');
-    rec.passwordHash = await _hashPassword(newpw);
+    _myPinHash = await _hashPassword(newpw);   // V26.9: goes to /pins in saveOneUser below
+    delete rec.passwordHash;
     // V10: keep the real Firebase Auth account in step. If we change only the
     // app's hash, the Auth account keeps the OLD password — the exact desync
     // that would lock this user out once rules require a real session. We have
@@ -38805,11 +38931,12 @@ async function saveMyAccount() {
   users[idx] = rec;
   // V381: single-record write. Self-profile edit only touches my own user
   // record — no diff against other users' records means no clobber risk.
-  try { await saveOneUser(rec); } catch (e) {
+  try { await saveOneUser(rec, _myPinHash ? { pinHash: _myPinHash } : undefined); } catch (e) {
     const msg = (e instanceof SaveError) ? e.message : 'Could not save changes.';
     if (typeof toast === 'function') toast(msg, 'error', 8000);
     return;
   }
+  if (_myPinHash) { try { await _v269SaveVerifier(rec.id, newpw); } catch (_) {} }   // V26.9
 
   // Audit: log what actually changed. Never log the password itself.
   const parts = [];
@@ -40225,7 +40352,7 @@ function _v11RecordSeen(userId, mode) {
 // Returns true if the user is signed in and the app has rendered; false means
 // "could not complete — fall through to the ordinary client path", which is
 // always safe because the client path re-verifies the typed password itself.
-async function _v11FinishServerLogin(res, typedUsername) {
+async function _v11FinishServerLogin(res, typedUsername, typedPin) {
   const user = res.user;
 
   // ⛔ V21.5: THE INACTIVE CHECK HAS TO BE HERE, NOT ONLY ON THE FALLBACK.
@@ -40267,6 +40394,12 @@ async function _v11FinishServerLogin(res, typedUsername) {
       return true;
     }
   }
+
+  // V26.9: the server has just proved this PIN (and the account is active, or we
+  // returned above). Keep a strongly scrambled copy on THIS phone so this person can
+  // still sign in here when the server cannot be reached. Not awaited - the browser
+  // does the work off the main thread; the phone's own check waits for it if needed.
+  try { if (typedPin && user && user.id) _v269PinSaving = _v269SaveVerifier(user.id, typedPin); } catch (_) {}
 
   // Exchange the signed token for a real Firebase session. This is what makes
   // the session genuinely this person's: auth.uid becomes their app user id,
@@ -40401,6 +40534,7 @@ async function _v11ChangePin(userId, currentPin, newPin) {
       try { body = await resp.json(); } catch (_) {}
       if (resp.ok && body && body.result && body.result.ok) {
         await _v11AfterPinWrite(userId, false);
+        try { await _v269SaveVerifier(userId, newPin); } catch (_) {}   // V26.9: this phone keeps the NEW PIN
         return { ok: true, via: 'server' };
       }
 
@@ -40422,15 +40556,18 @@ async function _v11ChangePin(userId, currentPin, newPin) {
     const idx = all.findIndex(x => x.id === userId);
     if (idx < 0) return { ok: false, message: 'Could not find your account on this device. Please sign out and in again.' };
     const rec = all[idx];
-    const check = await _verifyPassword(currentPin, rec.passwordHash);
+    const check = await _v269VerifyLocal(rec, currentPin, true);
+    if (check._v269 === 'none') return { ok: false, message: 'Cannot check your current PIN right now. Please connect to the internet and try again.' };
     if (!check.ok) return { ok: false, message: 'Your current PIN is incorrect.' };
-    const same = await _verifyPassword(newPin, rec.passwordHash);
+    const same = await _v269VerifyLocal(rec, newPin, true);
     if (same.ok) return { ok: false, message: 'Your new PIN must be different from the current one.' };
 
-    rec.passwordHash = await _hashPassword(newPin);
+    const _nh = await _hashPassword(newPin);
+    delete rec.passwordHash;
     delete rec.mustChangePin;
     rec.pinChangedAt = Date.now();
-    await saveOneUser(rec);
+    await saveOneUser(rec, { pinHash: _nh });
+    try { await _v269SaveVerifier(userId, newPin); } catch (_) {}   // V26.9
     // saveOneUser already writes through to the cache and the pantry, so this
     // is belt-and-braces; it also keeps both PIN-change paths ending in exactly
     // the same state, which is what makes them safe to reason about together.
@@ -40592,11 +40729,12 @@ async function _v11AdminResetPin(userId, newPin) {
     const idx = all.findIndex(x => x.id === userId);
     if (idx < 0) return { ok: false, message: 'That user is not in this device\'s list. Try Refresh first.' };
     const rec = all[idx];
-    rec.passwordHash  = await _hashPassword(newPin);
+    const _nh = await _hashPassword(newPin);
+    delete rec.passwordHash;
     rec.mustChangePin = true;
     rec.pinResetAt    = Date.now();
     try { const me = currentUser(); if (me) rec.pinResetBy = me.userId; } catch (_) {}
-    await saveOneUser(rec);
+    await saveOneUser(rec, { pinHash: _nh });
     // bumpFleet = true here. An admin reset is rare and deliberate, and it is
     // exactly the case where the OLD PIN must stop working everywhere at once,
     // so it is worth making every device refresh its user list.
@@ -40857,6 +40995,44 @@ async function adminRefreshUsers() {
 // Read on demand only — an admin opening the Users page should not pay for this
 // every time. The number that matters is "still falling back": while that is
 // above zero, tightening the database rules would lock those people out.
+// ── V26.9: the one-time move of every PIN to /pins. The SERVER does it (it is the only
+// thing that can read /pins), in steps that check each other; nothing is removed from the
+// shared staff list unless every PIN is first confirmed safe in /pins. Admin only.
+async function _v269PinsCall(action) {
+  try {
+    const idToken = await FB.auth.currentUser.getIdToken();
+    const h = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken };
+    const ac = await _v11AppCheckHeader();
+    if (ac) h['X-Firebase-AppCheck'] = ac;
+    const resp = await fetch(V11_FN_BASE + '/pinsMigrate', { method: 'POST', headers: h, body: JSON.stringify({ data: { action: action } }) });
+    let body = null; try { body = await resp.json(); } catch (_) {}
+    if (resp.ok && body && body.result) return { ok: true, r: body.result };
+    return { ok: false, msg: (body && body.error && body.error.message) || ('server answered ' + resp.status) };
+  } catch (e) { return { ok: false, msg: (e && e.message) || 'no connection' }; }
+}
+function _v269PinCounts(r) {
+  return 'People: ' + r.users + '\nStill in the shared staff list: ' + r.hashInUsers + '\nSafe in the private place: ' + r.inPins +
+    '\nNot yet safe: ' + r.hashInUsersButNotInPins;
+}
+async function _v269PinTool() {
+  const me = currentUser();
+  if (!me || me.role !== 'admin') return toast('Only Admin can do this.', 'error');
+  const say = (m, t) => showConfirmModal(m, { okLabel: 'OK', cancelLabel: 'Close', title: t || 'Protect PINs' });
+  let s = await _v269PinsCall('status');
+  if (!s.ok) return say('Could not check: ' + s.msg + '\n\nNothing was changed.');
+  if (s.r.hashInUsers === 0) return say(_v269PinCounts(s.r) + '\n\nAll PINs are already in the private place. Nothing to do.');
+  if (s.r.hashInUsersButNotInPins > 0) {
+    if (!await showConfirmModal(_v269PinCounts(s.r) + '\n\nStep 1 copies every PIN to the private place. Nothing is removed yet; sign-in keeps working exactly as now.', { okLabel: 'Copy PINs now', title: 'Protect PINs - step 1 of 2' })) return;
+    s = await _v269PinsCall('copy');
+    if (!s.ok) return say('Step 1 failed: ' + s.msg + '\n\nNothing was removed.');
+  }
+  if (s.r.hashInUsersButNotInPins > 0) return say(_v269PinCounts(s.r) + '\n\nSome PINs could not be copied. Nothing was removed. Please tell Claude.');
+  if (!await showConfirmModal(_v269PinCounts(s.r) + '\n\nEvery PIN is now safe in the private place.\nStep 2 removes the PINs from the shared staff list. Sign-in is not affected. This can be undone with the server restore step.', { okLabel: 'Remove from shared list', danger: true, title: 'Protect PINs - step 2 of 2' })) return;
+  s = await _v269PinsCall('finish');
+  if (!s.ok) return say('Step 2 was refused: ' + s.msg + '\n\nNothing was removed.');
+  return say(_v269PinCounts(s.r) + '\n\nDone. PINs are no longer in the shared staff list.');
+}
+
 async function _v11ShowAdoption() {
   let seen = {};
   try {
@@ -40999,7 +41175,7 @@ async function _doLoginInner() {
       const _sr = await _v11ServerLogin(u, p);
 
       if (_sr.status === 'ok') {
-        const done = await _v11FinishServerLogin(_sr, u);
+        const done = await _v11FinishServerLogin(_sr, u, p);
         if (done) return;
         // Token exchange failed — fall through and let the client path sign
         // this person in the old way. Their PIN was already proven correct.
@@ -41168,9 +41344,16 @@ async function _doLoginInner() {
   // their stored hash upgrades transparently on this login.
   let result;
   try {
-    result = await _verifyPassword(p, user.passwordHash);
+    result = await _v269VerifyLocal(user, p);
   } catch (e) {
     err.textContent = 'Login failed: ' + (e && e.message ? e.message : 'crypto error'); err.style.display = 'block'; return;
+  }
+  // V26.9: nothing on this phone to check the PIN against (no saved copy, and the staff list
+  // no longer carries PINs) - that is not a wrong PIN, so say what is actually needed.
+  if (!result.ok && result._v269 === 'none') {
+    err.textContent = 'Cannot reach the server right now. Please check your internet and try again.';
+    err.style.display = 'block';
+    return;
   }
 
   // V10.1: the SAME stale-cache problem V407 solved for unknown usernames also
@@ -41187,7 +41370,9 @@ async function _doLoginInner() {
   // or a run of typos cannot turn into repeated ~150 KB reads. A correct
   // password therefore always works on the first try after a reset, with no
   // cache clearing, no reinstall, and no waiting.
-  if (!result.ok && FB && FB.db && !_v407UsersFreshCheckDone) {
+  // V26.9: that re-download only helps when the phone's record carries a PIN to compare; with a saved
+  // copy and a list without PINs it would cost ~100 KB for nothing.
+  if (!result.ok && FB && FB.db && !_v407UsersFreshCheckDone && !(result._v269 === 'verifier' && !user.passwordHash)) {
     _v407UsersFreshCheckDone = true;
     try {
       const freshSnap = await Promise.race([
@@ -41259,10 +41444,11 @@ async function _doLoginInner() {
       const fresh = loadUsers();
       const idx = fresh.findIndex(x => x.id === user.id);
       if (idx >= 0) {
-        fresh[idx].passwordHash = upgraded;
+        delete fresh[idx].passwordHash;
         // V381: single-record write. Password hash upgrade after legacy
         // login — only touches the logging-in user's record. Safe.
-        try { await saveOneUser(fresh[idx]); }
+        // V26.9: the upgraded hash goes to /pins.
+        try { await saveOneUser(fresh[idx], { pinHash: upgraded }); }
         catch (e2) { console.warn('[V381] password-hash upgrade Firebase write failed:', e2); }
       }
     } catch (e) {
@@ -48827,11 +49013,11 @@ async function _v220Confirm() {
     if (i % 5 === 0) renderAdminUserImport();
     if (takenNow.has(r.username)) { skippedLate.push(r.username); continue; }
     try {
+      const _impPinHash = await _hashPassword(r.password);   // V26.9: goes to /pins in saveOneUser
       const rec = {
         id: 'u-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
         username: r.username,
         fullName: r.fullName,
-        passwordHash: await _hashPassword(r.password),
         role: r.role,
         ngo: (r.role === 'coordinator' || r.role === 'scopedViewerByFc') ? r.partner : null,
         assignedNgos: (r.role === 'viewer' || r.role === 'scopedViewer') ? r.assigned : null,
@@ -48847,7 +49033,7 @@ async function _v220Confirm() {
         if (missing.length) throw new Error('these coordinators from the same file were not created: ' + missing.join(', '));
         if (!rec.assignedFcIds || !rec.assignedFcIds.length) throw new Error('none of this Team Leader\'s coordinators could be found');
       }
-      await saveOneUser(rec);
+      await saveOneUser(rec, { pinHash: _impPinHash });
       idByUsername.set(r.username, rec.id);
       takenNow.add(r.username);
       created.push({ username: r.username, fullName: r.fullName, id: rec.id });
