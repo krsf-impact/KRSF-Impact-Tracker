@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V26.10-LIVE
+  KRSF Beneficiary Impact Tracker  -  V26.11-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,24 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V26.11-LIVE (2026-11-12 - only the office's phone can delete a household or scheme record).
+
+    + A save compares "what this phone thinks the database holds" with the
+      list on the phone; anything missing from the list was sent as a
+      delete. On a stale or half-loaded phone that could delete a household
+      nobody meant to delete (1 coordinator case in the month to 10 Nov;
+      the 386- and 209-household losses earlier this year had the same
+      cause, limited since V371 to 5 per save). Deleting has been office-
+      only in the app since V12, so now a save from any other login never
+      sends a delete: the household stays in the database, untouched, and
+      stays on that phone too (its database copy is put back - no extra read)
+      (more than 5 missing is still refused as "Save blocked", as before).
+    + Needed before the next security step (only the office may delete),
+      so that a stray delete is never refused and never holds up that
+      person's other saves.
+    + Firebase: 0 added reads or writes (one fewer stray delete).
+    + Tests: 117 files. The V26.11 checks are in _specs/v2611.
+
   V26.10-LIVE (2026-11-12 - stored text can no longer run as script; Refresh no longer trusts future-dated notes).
 
     + Security audit: any staff login could store text that a screen later
@@ -681,20 +699,6 @@
       asks for "add" or "replace"; "replace" shows in red how much it removes;
       only "replace" ever removes. The template comes with "add" filled in.
     + Tests: 85 files. v237 is red on V23.6.
-
-  V23.6-LIVE (2026-09-26 - the start-up step no longer puts old lists back).
-
-    + ⛔ AFTER A SIGN-IN THE SCREEN COULD SHOW AN OLD LIVELIHOOD AND SCHEME LIST
-      (Guru's admin tab, 25 Sep 23:06: 29 schemes in the database, 20 shown,
-      and the livelihood types from before that evening's renames). The
-      start-up step and the fresh read of the lists run side by side after a
-      sign-in; when the fresh read finished first, the start-up step wrote its
-      older saved copy over it. It now never writes over a fresh read.
-      Coordinators' enrolment forms could show old names the same way.
-    + Livelihood type Add, Rename and Remove check first that the tab is up to
-      date, as the scheme buttons do since V23.4 - each writes the whole list,
-      so an old tab would have put the old types back. ~0.3 KB, admin only.
-    + Tests: 84 files. v236 is red on V23.5.
 
   ============================================================================
   Everything before this point lives in CHANGELOG.md, beside this file.
@@ -4919,7 +4923,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V26.10-LIVE';
+const APP_VERSION = 'V26.11-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -13177,6 +13181,7 @@ async function fbSyncCollection(coll, newArr, idField, lastMapRef, _v265Out) {
   // awaited read per record. The serial loop cost N round-trips for N deletes
   // (~100ms each — a 100-record bulk delete spent 10+ seconds just verifying).
   // The reads are independent; Firebase pipelines them over one socket.
+  const _v2611Live = {};   // V26.11: the live copy the guard below reads anyway (no extra read)
   await Promise.all(diff.deletes.map(async (d) => {
     try {
       const snap = await FB.db.ref(`${FB_NAMESPACE}/${coll}/${d}`).once('value');
@@ -13201,6 +13206,7 @@ async function fbSyncCollection(coll, newArr, idField, lastMapRef, _v265Out) {
         // Either the record is genuinely gone, OR it still exists and is
         // still in our scope (an intentional delete). Both cases: proceed
         // with the delete.
+        if (snap.exists()) _v2611Live[d] = snap.val();   // V26.11
         survivingDeletes.push(d);
       }
     } catch (e) {
@@ -13212,6 +13218,34 @@ async function fbSyncCollection(coll, newArr, idField, lastMapRef, _v265Out) {
     }
   }));
   diff.deletes = survivingDeletes;
+  // ⛔ V26.11: ONLY THE OFFICE DELETES (the app since V12; the database rules from security step 6c).
+  // A household or scheme record missing from any other login's list (1 to 5 of them) is a stale or half-loaded copy,
+  // never a delete (1 coordinator case in the month to 10 Nov 2026; the 386 / 209 losses had this cause).
+  // Keep what this phone last knew for it - the same as the reassign guard above - so a copy that
+  // reappears is not pushed back as a fresh write.
+  if ((coll === 'beneficiaries' || coll === 'advocacy') && diff.deletes.length
+      && !(_guardUser && _guardUser.role === 'admin')) {
+    // More than 5 missing = a badly stale list: refuse the save exactly as the V371 cap below always has
+    // (V26.10 behaviour: the phone keeps its copy, and no figures are published from a short list).
+    if (diff.deletes.length > 5) {
+      console.error('[V26.11] BLOCKED save: ' + diff.deletes.length + ' ' + coll + ' records missing from this list.');
+      throw new SaveError('tombstone-cap', new Error(
+        'Save blocked — would delete ' + diff.deletes.length + ' records, '
+        + 'exceeding the safety cap of 5. Refresh the app and try again. '
+        + 'If you actually meant to delete this many, use the bulk-delete UI.'));
+    }
+    for (const d of diff.deletes) {
+      if (oldLastMapForGuard && d in oldLastMapForGuard) diff.newMap[d] = oldLastMapForGuard[d];
+      // Put the database copy back into this list, so this phone keeps it on screen, in its saved copy
+      // and in its own record count (the same count the office sees). Not a write: it is not in diff.writes.
+      const live = _v2611Live[d];
+      if (live && typeof live === 'object' && Array.isArray(newArr)) {
+        const back = Object.assign({}, live); back[idField] = d; newArr.push(back);
+      }
+    }
+    console.warn('[V26.11] not sending ' + diff.deletes.length + ' ' + coll + ' delete(s): only the office deletes.');
+    diff.deletes = [];
+  }
   // V26.5: tell the caller exactly which records this save writes or deletes
   if (_v265Out) { try { _v265Out.ok = true;
     _v265Out.ids = diff.writes.map(function (w) { return w.id; }).concat(diff.deletes);
