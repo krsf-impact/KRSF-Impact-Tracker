@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V26.9-LIVE
+  KRSF Beneficiary Impact Tracker  -  V26.10-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,25 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V26.10-LIVE (2026-11-12 - stored text can no longer run as script; Refresh no longer trusts future-dated notes).
+
+    + Security audit: any staff login could store text that a screen later
+      treated as program code - on the admin's, a partner's or a coordinator's
+      own phone (a household or scheme name, a remark, an id, an audit row,
+      a stored figure, a photo id, an imported cell...). Now every such place
+      shows the text as plain text, and the click handlers that carry an id or
+      name pass it safely. 150 places on the screens, found by the audit and by
+      a sweep of the whole file. Normal names (apostrophes, &, Gujarati, Hindi)
+      look and click exactly as before; an id or scheme name with an apostrophe
+      now WORKS in click handlers, where it used to break.
+    + A partner's, donor's or team leader's Refresh no longer believes a change
+      note or a rename dated in the future (a forged or mistaken date used to
+      make Refresh skip real saves for weeks). A forged "office checked up to"
+      marker is overwritten on the office's next repair. Honest data: identical
+      behaviour and identical Firebase bytes.
+    + Firebase: 0 added reads or writes. File +~5 KB.
+    + Tests: 117 files. The V26.10 checks are in _specs/v2610.
+
   V26.9-LIVE (2026-11-11 - everyone's PIN is moved out of the shared staff list).
 
     + Security audit finding: every staff login downloaded every person's
@@ -676,24 +695,6 @@
       date, as the scheme buttons do since V23.4 - each writes the whole list,
       so an old tab would have put the old types back. ~0.3 KB, admin only.
     + Tests: 84 files. v236 is red on V23.5.
-
-  V23.5-LIVE (2026-09-25 - scheme state tags stay; donors see renamed names).
-
-    + ⛔ SETTING A SCHEME'S DEFAULT AMOUNT, OR SWITCHING SCHEME/DOCUMENT, WIPED
-      ITS STATE TAGS (Guru, 25 Sep: "it comes back to default after a few
-      minutes; the second time it works"). Both rebuilt the scheme's settings
-      from the fields they knew and dropped the rest. Each now changes its own
-      field only. Tags already wiped need setting once more.
-    + Donors and team leaders now see renamed livelihood types and schemes.
-      They work from a saved copy for up to 30 days and never sync, so they
-      kept the old names. Each rename now goes on a short list the app already
-      reads at start, and these two read-only roles apply it to their copy,
-      only to records older than the rename. No download or write for them.
-    + "|" is refused in livelihood type and scheme names - the import file
-      separates names with it, so "Poultry | Duckery" could never be imported.
-    + "Recompute summary now" says whether it wrote; a press is no longer
-      skipped by the one-minute rule meant for the automatic refreshes.
-    + Tests: 83 files. v235 is red on V23.4.
 
   ============================================================================
   Everything before this point lives in CHANGELOG.md, beside this file.
@@ -4781,6 +4782,71 @@ function escHtml(s) {
     return ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c];
   });
 }
+// V26.10: a stored value that sits INSIDE a JavaScript string of an inline handler,
+// e.g. onclick="openDrawer('${_v2610js(id)}')".  escHtml alone does NOT protect there: the
+// browser turns &#39; back into ' BEFORE the handler is compiled, so a quote in the value
+// ends the string. Backslash first, then the quote, then line breaks (written as \n, so the
+// value the handler receives is exactly the stored one), then HTML-escape for the attribute.
+// For ordinary text (ids, names, D'Souza, Gujarati) the handler receives the same value as before.
+function _v2610js(s) {
+  return escHtml(String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+    .replace(/\r/g, '\\r').replace(/\n/g, '\\n')
+    .split(String.fromCharCode(8232)).join('\\u2028').split(String.fromCharCode(8233)).join('\\u2029'));
+}
+// V26.10: a stored figure that must be a number. A number stays itself; a number written as text
+// becomes a number; anything else (markup, words) becomes 0.
+function _v2610Num(v) {
+  if (typeof v === 'number') return isFinite(v) ? v : 0;
+  if (typeof v === 'string' && /^\s*-?\d+(\.\d+)?\s*$/.test(v)) return Number(v);
+  return 0;
+}
+// V26.10: _v261N for a figure box: numbers read as before; text that is not a number is shown
+// as text, never as markup.
+function _v2610N(v) {
+  const r = (typeof _v261N === 'function') ? _v261N(v) : v;
+  return (typeof r === 'number') ? r : escHtml(r);
+}
+// V26.10: an amount in a modal: a number is grouped as before; text is shown as text.
+function _v2610Loc(v) {
+  return (typeof v === 'number') ? v.toLocaleString('en-IN') : escHtml(v);
+}
+// V26.10: the stored dashboard figures (_summary/.../dash) are written by phones, not only by the
+// office, so every figure is made a number and every name a plain string before any screen
+// draws it. Honest figures are numbers already and pass through unchanged.
+function _v2610CleanDash(o) {
+  if (!o || typeof o !== 'object') return o;
+  ['total', 'endlineCount', 'totalAdded', 'schemeBenefits', 'totalImpact'].forEach(function (k) {
+    if (k in o) o[k] = _v2610Num(o[k]);
+  });
+  ['byState', 'byIntervention'].forEach(function (k) {
+    if (o[k] && typeof o[k] === 'object') {
+      const c = {};
+      Object.keys(o[k]).forEach(function (n) { c[n] = _v2610Num(o[k][n]); });
+      o[k] = c;
+    }
+  });
+  ['stateNames', 'districtNames'].forEach(function (k) {
+    if (Array.isArray(o[k])) o[k] = o[k].map(function (s) { return String(s == null ? '' : s); });
+  });
+  if (Array.isArray(o.topNgos)) {
+    o.topNgos = o.topNgos.map(function (r) {
+      r = r || {};
+      return Object.assign({}, r, { name: String(r.name == null ? '' : r.name), count: _v2610Num(r.count),
+        income: _v2610Num(r.income), schemes: _v2610Num(r.schemes), total: _v2610Num(r.total) });
+    });
+  }
+  if (o.trend && typeof o.trend === 'object') {
+    const T = o.trend;
+    if (Array.isArray(T.months)) T.months = T.months.map(function (m) {
+      m = m || {};
+      return Object.assign({}, m, { label: String(m.label == null ? '' : m.label) });
+    });
+    ['cumCounts', 'newPerMonth', 'impactCum', 'impactNewPerMonth'].forEach(function (k) {
+      if (Array.isArray(T[k])) T[k] = T[k].map(_v2610Num);
+    });
+  }
+  return o;
+}
 
 // =============================================================================
 // V16  FIREBASE SYNC LAYER  (NEW IN V16)
@@ -4853,7 +4919,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V26.9-LIVE';
+const APP_VERSION = 'V26.10-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -7820,7 +7886,7 @@ async function _v266AdminRepair() {
     const covS = Math.max(cv.b.s, cv.a.s), covE = Math.min(cv.b.e, cv.a.e);
     if (!(covE >= covS)) return;
     const M = (await fbRef('_pchg/_m').once('value')).val();
-    const good = !!(M && typeof M === 'object' && M.ep && Number(M.on) > 0 && Number(M.rep) > 0);
+    const good = !!(M && typeof M === 'object' && M.ep && Number(M.on) > 0 && Number(M.rep) > 0 && Number(M.rep) <= _v247Now() + _V266_FUTURE_MS);   // V26.10
     const rep0 = good ? Number(M.rep) : 0;
     let next, from = 0;
     // (a first download made after the last check holds records moved since
@@ -8089,12 +8155,20 @@ function _v266BailCovers(rec, st) {
 async function _v266SaveBail(uid, B, key, v) {
   try {
     let e = 0;
-    for (const k in v) { const x = Number(v[k] && v[k].t) || 0; if (x > e) e = x; }
+    for (const k in v) { const x = Number(v[k] && v[k].t) || 0; if (x > e && x <= _v247Now()) e = x; }   // V26.10: not a forged one from the future
     if (!(e > 0)) return;
     B[key] = { e: e, at: _v247Now() };
     for (const k in B) if (!(B[k] && _v247Now() - Number(B[k].at) < _V266_HEAL_MS)) delete B[k];
     await _idbSet('v266-bail-' + uid, B);
   } catch (_) {}
+}
+// V26.10: a list bookmark ahead of the database's clock can only come from a forged note
+// (or an older build that took one): it would hide every real note after it. Forgotten
+// - the list is then read from the safe point, which is only ever an extra read.
+function _v2610CleanL(L, now) {
+  const out = {};
+  for (const k in L) if (!(Number(L[k]) > now + _V266_FUTURE_MS)) out[k] = L[k];
+  return out;
 }
 async function _v266Refresh(u, own, est) {
   try {
@@ -8131,7 +8205,7 @@ async function _v266Refresh(u, own, est) {
     const ep = String(m.ep);
     const W0 = await _v266GetW(u.userId);
     const same = W0.ep === ep;   // bookmarks made under another run of notes are not trusted
-    const L0 = same ? W0.L : {};
+    const L0 = same ? _v2610CleanL(W0.L, now) : {};
     const safe0 = W0.ep ? W0.safe : Math.max(W0.safe, Math.min(seenB, seenA));
     const from = {};
     let low = false;
@@ -8186,6 +8260,7 @@ async function _v266Refresh(u, own, est) {
             v = (await (lk ? q.startAt(st, lk) : q.startAt(st)).limitToFirst(cap + 1 + (lk ? 1 : 0)).once('value')).val() || {};
           } catch (e) { if (_v266Denied(e)) return null; throw e; }
           if (lk && v[lk] && Number(v[lk].t) === st) delete v[lk];   // (the last note read before, still the same)
+          const nowQ = _v247Now();   // V26.10: no honest note is stamped later than the database's clock now
           if (Object.keys(v).length) { lastKey = key; lastV = v; }
           const ks = Object.keys(v);
           if (ks.length > cap) { await _v266SaveBail(u.userId, BL, key, v); return null; }   // more than the budget leaves room for: V26.5's way is the smaller
@@ -8196,7 +8271,8 @@ async function _v266Refresh(u, own, est) {
             const x = v[k];
             if (!x || typeof x !== 'object') continue;
             const tt = Number(x.t) || 0;
-            if (tt > maxT[key] || (tt === maxT[key] && _v266KeyAfter(k, maxK[key]))) { maxT[key] = tt; maxK[key] = k; }
+            // (a note from the future is still fetched for - harmless - but is not the bookmark)
+            if (tt <= nowQ && (tt > maxT[key] || (tt === maxT[key] && _v266KeyAfter(k, maxK[key])))) { maxT[key] = tt; maxK[key] = k; }
             const had = ent[kind].get(k);
             if (!had) { ent[kind].set(k, x); if (!held(kind, k, x)) left -= _V266_REC_BYTES; }
             else if ((Number(x.e) || 0) > (Number(had.e) || 0)) { if (held(kind, k, had) && !held(kind, k, x)) left -= _V266_REC_BYTES; ent[kind].set(k, x); }
@@ -14670,12 +14746,19 @@ function _v235BarRefused(name) {
 // that put the old name back - and is shown exactly as it is.
 const _V235_RENAMES_KEY = 'krsf_renames_v1';
 const _V235_RENAMES_MAX = 100;
+// V26.10: an office rename is stamped with the database's clock when it is made, so one dated
+// later than that (10 minutes' slack; a day while this device has not yet heard the database's
+// clock) was not made by the office. Dropped: it would otherwise match EVERY saved record
+// forever (a record is renamed only when older than the entry) and never expire.
+function _v2610RenameCeil() {
+  try { return _v19ServerNow() + (_v265ClockKnown() ? 600000 : 86400000); } catch (_) { return Infinity; }
+}
 function _v235NormRenames(raw) {
   const arr = Array.isArray(raw) ? raw : ((raw && typeof raw === 'object') ? Object.values(raw) : []);
   return arr.filter(function (r) {
     return r && (r.kind === 'liv' || r.kind === 'scheme')
       && typeof r.from === 'string' && typeof r.to === 'string'
-      && r.from && r.to && r.from !== r.to && Number(r.at) > 0;
+      && r.from && r.to && r.from !== r.to && Number(r.at) > 0 && Number(r.at) <= _v2610RenameCeil();
   }).map(function (r) { return { kind: r.kind, from: r.from, to: r.to, at: Number(r.at) }; })
     .sort(function (a, b) { return a.at - b.at; });
 }
@@ -15895,7 +15978,7 @@ function _v405GalleryInnerHtml(b) {
   const photos = Array.isArray(b.photos) ? b.photos : [];
   const canAdd = _v405CanAddPhoto(b);
   const canDel = _v405CanDeletePhoto();
-  const bidEsc = escHtml(b.id);
+  const bidEsc = _v2610js(b.id);   // V26.10: used only inside JavaScript strings of the handlers below
   const tiles = photos.map(function(ph, i) {
     const gpsBadge = (ph.lat != null && ph.lng != null)
       ? '<span style="position:absolute;bottom:3px;left:3px;background:rgba(0,0,0,.55);color:#fff;font-size:10px;padding:1px 4px;border-radius:4px;line-height:1.4" title="Has GPS location">📍</span>'
@@ -15904,7 +15987,7 @@ function _v405GalleryInnerHtml(b) {
       ? '<button onclick="event.stopPropagation();_v405DeletePhoto(\'' + bidEsc + '\',' + i + ')" title="Remove photo" style="position:absolute;top:3px;right:3px;width:20px;height:20px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;border:none;font-size:11px;cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center;padding:0">✕</button>'
       : '';
     return '<div onclick="_v405ViewPhoto(\'' + bidEsc + '\',' + i + ')" style="position:relative;aspect-ratio:1;border-radius:8px;overflow:hidden;cursor:zoom-in;background:var(--gray4);border:1px solid var(--gray3)">'
-      + '<img src="' + _v405ThumbUrl(ph.p) + '" loading="lazy" alt="Beneficiary photo" style="width:100%;height:100%;object-fit:cover;display:block">'
+      + '<img src="' + escHtml(_v405ThumbUrl(ph.p)) + '" loading="lazy" alt="Beneficiary photo" style="width:100%;height:100%;object-fit:cover;display:block">'
       + gpsBadge + delBtn
       + '</div>';
   }).join('');
@@ -16583,8 +16666,8 @@ function showBeneficiaryPhotos(id) {
     // Escape src for use in onclick — it's a data: URL (base64) or http url; use JSON.stringify to be safe
     const srcJs = JSON.stringify(src);
     return '<div style="flex:1;min-width:240px;border:2px solid ' + borderColor + ';border-radius:10px;overflow:hidden;background:#000;cursor:zoom-in" '
-      + 'onclick="openLightbox(' + srcJs + ', ' + JSON.stringify(label + ' · ' + date) + ')" title="Tap to zoom">'
-      + '<img src="' + src + '" style="width:100%;height:260px;object-fit:cover;display:block" alt="' + label + ' photo">'
+      + 'onclick="openLightbox(\'' + _v2610js(src) + '\', \'' + _v2610js(label + ' · ' + date) + '\')" title="Tap to zoom">'
+      + '<img src="' + escHtml(src) + '" style="width:100%;height:260px;object-fit:cover;display:block" alt="' + label + ' photo">'
       + '<div style="padding:8px 10px;background:#fff">'
       + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;color:' + labelColor + '">' + label + '</div>'
       + '<div style="font-size:11px;color:var(--gray2);margin-top:2px">' + date + '</div>'
@@ -16598,8 +16681,8 @@ function showBeneficiaryPhotos(id) {
   const endCard  = photoCard(b.endlinePhotoUrl || b.endlinePhoto,  'Endline',  fmtD(b.endlineDate) || '—', b.endlineLat, b.endlineLng, '#10B981', '#146B38');
   document.getElementById('show-photos-body').innerHTML =
     '<div style="padding:12px 16px;background:var(--navy4);border-radius:8px;margin-bottom:14px">'
-    + '<div style="font-size:15px;font-weight:700;color:var(--navy)">' + (b.name || '—') + ' <span style="font-weight:400;color:var(--gray2);font-size:12px">· ' + b.id + '</span></div>'
-    + '<div style="font-size:12px;color:var(--gray2);margin-top:3px">' + (b.village || '—') + (b.district ? ', ' + b.district : '') + '</div>'
+    + '<div style="font-size:15px;font-weight:700;color:var(--navy)">' + escHtml(b.name || '—') + ' <span style="font-weight:400;color:var(--gray2);font-size:12px">· ' + escHtml(b.id) + '</span></div>'
+    + '<div style="font-size:12px;color:var(--gray2);margin-top:3px">' + escHtml(b.village || '—') + (b.district ? ', ' + escHtml(b.district) : '') + '</div>'
     + incomeLine
     + '</div>'
     + '<div style="display:flex;gap:14px;flex-wrap:wrap">' + baseCard + endCard + '</div>'
@@ -17944,10 +18027,11 @@ function openDrawer(id) {
       const _hn = escHtml(_head.name || '(no name)');
       const _hr = escHtml(b.relation || 'family member');
       const _hid = escHtml(b.headId);
+const _hidJs = _v2610js(b.headId);   // V26.10: for the JavaScript string of the click handler
       _familyHeadHtml = `
         <div style="background:#F0F9FF;border:1px solid #93C5FD;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:13px;color:var(--navy);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <span style="font-size:18px">👨‍👩‍👧</span>
-          <span><b>${_hr}</b> of <a href="javascript:void(0)" onclick="closeDrawer();setTimeout(()=>openDrawer('${_hid}'),100)" style="color:var(--navy);font-weight:700;text-decoration:underline">${_hn}</a></span>
+          <span><b>${_hr}</b> of <a href="javascript:void(0)" onclick="closeDrawer();setTimeout(()=>openDrawer('${_hidJs}'),100)" style="color:var(--navy);font-weight:700;text-decoration:underline">${_hn}</a></span>
           <span style="color:var(--gray2);font-size:11px">(${_hid})</span>
         </div>`;
     } else {
@@ -17987,7 +18071,7 @@ function openDrawer(id) {
             Batch <code>${escHtml(_bsSnap.batchId||'')}</code> applied by <b>${_byName}</b> on ${_atDate}.
             Restores ${_rowCount} row${_rowCount===1?'':'s'} for <b>${_scheme}</b> from <b>${_toS}</b> back to <b>${_fromS}</b>.
           </div>
-          <button class="btn btn-sm" style="color:#92400E;border-color:#FBBF24" onclick="_undoBulkStatusForBeneficiary('${_bidEsc}')">↶ Undo bulk status update</button>
+          <button class="btn btn-sm" style="color:#92400E;border-color:#FBBF24" onclick="_undoBulkStatusForBeneficiary('${_v2610js(b.id)}')">↶ Undo bulk status update</button>
         </div>`;
     }
   }
@@ -18019,7 +18103,7 @@ function openDrawer(id) {
               const _fn = escHtml(f.name || '(no name)');
               const _fr = escHtml(f.relation || '—');
               const _fid = escHtml(f.id || '');
-              return `<div onclick="closeDrawer();setTimeout(()=>openDrawer('${_fid}'),100)" style="cursor:pointer;padding:8px 10px;background:var(--navy4);border:1px solid var(--navy3);border-radius:6px;display:flex;align-items:center;gap:8px;font-size:13px" title="View this family member's record">
+              return `<div onclick="closeDrawer();setTimeout(()=>openDrawer('${_v2610js(f.id || '')}'),100)" style="cursor:pointer;padding:8px 10px;background:var(--navy4);border:1px solid var(--navy3);border-radius:6px;display:flex;align-items:center;gap:8px;font-size:13px" title="View this family member's record">
                 <span style="background:var(--navy3);color:var(--navy);font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;text-transform:uppercase;letter-spacing:.03em">${_fr}</span>
                 <span style="font-weight:600;color:var(--gray1)">${_fn}</span>
                 <span style="color:var(--gray2);font-size:11px;margin-left:auto">${_fid} →</span>
@@ -18035,7 +18119,7 @@ function openDrawer(id) {
     ${_bulkStatusBannerHtml}
     ${hasLiv ? `<div class="ds">
       <div class="ds-title">Status</div>
-      <span class="status-pill ${SC[_v174Stage(b)]||''}" style="font-size:13px;padding:5px 12px"><span class="dot"></span>${stageLabel(_v174Stage(b))}</span>
+      <span class="status-pill ${SC[_v174Stage(b)]||''}" style="font-size:13px;padding:5px 12px"><span class="dot"></span>${escHtml(stageLabel(_v174Stage(b)))}</span>
     </div>` : `<div class="ds">
       <div class="ds-title">Programme</div>
       <span class="pill pill-purple" style="font-size:13px;padding:5px 12px">Advocacy only</span>
@@ -18091,7 +18175,7 @@ function openDrawer(id) {
         </div>
       </div>
       <div style="display:flex;justify-content:flex-end;margin-bottom:14px">
-        <button class="btn btn-primary btn-sm" onclick="openLogIncomeFor('${b.id}')" style="font-size:12px;padding:6px 14px">+ Log Income</button>
+        <button class="btn btn-primary btn-sm" onclick="openLogIncomeFor('${_v2610js(b.id)}')" style="font-size:12px;padding:6px 14px">+ Log Income</button>
       </div>
       `;
     })() : ''}
@@ -18151,16 +18235,16 @@ function openDrawer(id) {
     ${hasLiv ? `<div class="ds"><div class="ds-title">Update Progress</div>
       <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
         <div style="font-size:12px;color:var(--gray2)">
-          Current stage: <strong style="color:${STAGE_COLORS[_v174Stage(b)]||'var(--gray2)'}">${stageLabel(_v174Stage(b))}</strong>${b.status==='Intervention In Progress' && b.inProgressDate ? ` · Logged on ${fmtD(b.inProgressDate)}` : ''}${b.status==='Completed' && b.endlineDate ? ` · Endline on ${fmtD(b.endlineDate)}` : ''}
+          Current stage: <strong style="color:${STAGE_COLORS[_v174Stage(b)]||'var(--gray2)'}">${escHtml(stageLabel(_v174Stage(b)))}</strong>${b.status==='Intervention In Progress' && b.inProgressDate ? ` · Logged on ${fmtD(b.inProgressDate)}` : ''}${b.status==='Completed' && b.endlineDate ? ` · Endline on ${fmtD(b.endlineDate)}` : ''}
         </div>
         ${/* V17.4: a blank stage used to fall through BOTH tests to the else,
               printing "✓ Lifecycle complete" for a beneficiary who had done
               nothing at all — the most damaging thing the app could say about
               her, and it said it under a "Current stage: —". */''}
         ${_v174Stage(b) === 'Enrolled'
-          ? `<button class="btn btn-sm btn-primary" onclick="updateStatus('${b.id}','Intervention In Progress')">Intervention In Progress</button>`
+          ? `<button class="btn btn-sm btn-primary" onclick="updateStatus('${_v2610js(b.id)}','Intervention In Progress')">Intervention In Progress</button>`
           : _v174Stage(b) === 'Intervention In Progress'
-            ? `<button class="btn btn-sm btn-primary" onclick="openLogIncomeFor('${b.id}')">+ Log Income to Complete</button>`
+            ? `<button class="btn btn-sm btn-primary" onclick="openLogIncomeFor('${_v2610js(b.id)}')">+ Log Income to Complete</button>`
             : `<span style="font-size:12px;color:var(--green);font-weight:600">✓ Lifecycle complete</span>`}
       </div>
       ${_u && (_u.role === 'ngo' || _u.role === 'admin') && _v174Stage(b) !== 'Enrolled'
@@ -18171,9 +18255,9 @@ function openDrawer(id) {
            <div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--gray3);font-size:11px;color:var(--gray2)">
              <span style="margin-right:8px">NGO Partner actions:</span>
              ${b.status === 'Intervention In Progress'
-               ? `<button class="btn btn-sm" style="color:var(--amber);border-color:var(--amber);font-size:11px;padding:4px 10px" onclick="updateStatus('${b.id}','Enrolled')" title="Revert this record from Intervention In Progress back to Enrolled. The in-progress date is cleared but other data is kept.">↶ Revert to Enrolled</button>`
-               : `<button class="btn btn-sm" style="color:var(--amber);border-color:var(--amber);font-size:11px;padding:4px 10px" onclick="updateStatus('${b.id}','Intervention In Progress')" title="Revert this record from Completed back to Intervention In Progress. The endline date, total endline income, and ALL income log entries are archived (not deleted) and can be restored; the in-progress date is kept.">↶ Revert to Intervention In Progress</button>`}
-             ${b._revertedEndline ? `<button class="btn btn-sm" style="color:var(--green);border-color:var(--green2);font-size:11px;padding:4px 10px;margin-left:6px" onclick="restoreRevertedEndline('${b.id}')" title="Restore the endline date, income and ${Array.isArray(b._revertedEndline.incomeLog)?b._revertedEndline.incomeLog.length:0} income-log entr${(Array.isArray(b._revertedEndline.incomeLog)&&b._revertedEndline.incomeLog.length===1)?'y':'ies'} archived when this record was last reverted, and mark it Completed again.">↺ Restore archived endline</button>` : ''}
+               ? `<button class="btn btn-sm" style="color:var(--amber);border-color:var(--amber);font-size:11px;padding:4px 10px" onclick="updateStatus('${_v2610js(b.id)}','Enrolled')" title="Revert this record from Intervention In Progress back to Enrolled. The in-progress date is cleared but other data is kept.">↶ Revert to Enrolled</button>`
+               : `<button class="btn btn-sm" style="color:var(--amber);border-color:var(--amber);font-size:11px;padding:4px 10px" onclick="updateStatus('${_v2610js(b.id)}','Intervention In Progress')" title="Revert this record from Completed back to Intervention In Progress. The endline date, total endline income, and ALL income log entries are archived (not deleted) and can be restored; the in-progress date is kept.">↶ Revert to Intervention In Progress</button>`}
+             ${b._revertedEndline ? `<button class="btn btn-sm" style="color:var(--green);border-color:var(--green2);font-size:11px;padding:4px 10px;margin-left:6px" onclick="restoreRevertedEndline('${_v2610js(b.id)}')" title="Restore the endline date, income and ${Array.isArray(b._revertedEndline.incomeLog)?b._revertedEndline.incomeLog.length:0} income-log entr${(Array.isArray(b._revertedEndline.incomeLog)&&b._revertedEndline.incomeLog.length===1)?'y':'ies'} archived when this record was last reverted, and mark it Completed again.">↺ Restore archived endline</button>` : ''}
            </div>`
         : ''}
     </div>` : ''}
@@ -18184,24 +18268,24 @@ function openDrawer(id) {
 
 
   document.getElementById('dr-actions').innerHTML = `
-    <button class="btn btn-primary" onclick="openEdit('${b.id}')">Edit Details</button>
+    <button class="btn btn-primary" onclick="openEdit('${_v2610js(b.id)}')">Edit Details</button>
     ${!b.headId
-      ? `<button class="btn" onclick="openEnrollAsFamilyMember('${b.id}')" title="Enroll a wife / daughter / other family member of this beneficiary — for advocacy, her own livelihood work, or both" style="color:var(--navy);border-color:var(--navy3)">+ Add Family Member</button>`
+      ? `<button class="btn" onclick="openEnrollAsFamilyMember('${_v2610js(b.id)}')" title="Enroll a wife / daughter / other family member of this beneficiary — for advocacy, her own livelihood work, or both" style="color:var(--navy);border-color:var(--navy3)">+ Add Family Member</button>`
       : ''}
     ${b.headId && !hasLiv
-      ? `<button class="btn" onclick="openAddLivelihoodToFamilyMember('${b.id}')" title="Start a livelihood intervention (dairy, vermicompost, etc.) for this family member" style="color:var(--green);border-color:var(--green2)">+ Add Livelihood Intervention</button>`
+      ? `<button class="btn" onclick="openAddLivelihoodToFamilyMember('${_v2610js(b.id)}')" title="Start a livelihood intervention (dairy, vermicompost, etc.) for this family member" style="color:var(--green);border-color:var(--green2)">+ Add Livelihood Intervention</button>`
       : ''}
     ${hasLiv && (Array.isArray(b.incomeLog) && b.incomeLog.length > 0 || b.endIncome != null
                  || (Array.isArray(b._v245DeletedIncome) && b._v245DeletedIncome.length > 0 && _v245CanManageIncome(b)))
-      ? `<button class="btn" onclick="openLogIncomeFor('${b.id}')">View / Manage Income Log</button>`
+      ? `<button class="btn" onclick="openLogIncomeFor('${_v2610js(b.id)}')">View / Manage Income Log</button>`
       : ''}
     ${(_u && (_u.role === 'admin' || _u.role === 'ngo'))
-      ? `<button class="btn" onclick="openReassign('${b.id}')" title="Reassign to different coordinator">Reassign</button>`
+      ? `<button class="btn" onclick="openReassign('${_v2610js(b.id)}')" title="Reassign to different coordinator">Reassign</button>`
       : ''}
     ${(_u && _u.role === 'admin')
-      ? `<button class="btn" onclick="printBeneficiary('${b.id}')" title="Print or save as PDF">🖚 Print</button>`
+      ? `<button class="btn" onclick="printBeneficiary('${_v2610js(b.id)}')" title="Print or save as PDF">🖚 Print</button>`
       : ''}
-    <button class="btn btn-sm" style="color:var(--red);border-color:var(--red);margin-left:auto" data-delete-action onclick="deleteBeneficiary('${b.id}')">Delete</button>
+    <button class="btn btn-sm" style="color:var(--red);border-color:var(--red);margin-left:auto" data-delete-action onclick="deleteBeneficiary('${_v2610js(b.id)}')">Delete</button>
   `;
   document.getElementById('drawer').classList.add('open');
   document.getElementById('drawer-backdrop').classList.add('open');
@@ -18405,8 +18489,8 @@ function _advShowStatusPop(el, bid, scheme, remarks, currentStatus) {
   const rows = ADV_STATUSES.map(s => {
     const c = _ADV_POP_COLORS[s] || {bg:'#F3F4F6',fg:'#374151'};
     const isActive = s === currentStatus;
-    return '<button onclick="event.stopPropagation();_advApplyStatus(\'' + bid + '\',\'' +
-      scheme.replace(/'/g,"\\''") + '\',\'' + (remarks||'').replace(/'/g,"\\''") + '\',\'' + s + '\')"'
+    return '<button onclick="event.stopPropagation();_advApplyStatus(\'' + _v2610js(bid) + '\',\'' +
+      _v2610js(scheme) + '\',\'' + _v2610js(remarks||'') + '\',\'' + s + '\')"'
       + ' style="display:block;width:100%;text-align:left;padding:6px 10px;border:none;cursor:pointer;'
       + 'font-size:12px;font-family:var(--font);border-radius:6px;margin:1px 0;'
       + 'background:' + (isActive ? c.bg : 'transparent') + ';'
@@ -19172,8 +19256,8 @@ function openEnrollAsFamilyMember(headId) {
     // was missing or unrecoverable), show a warning instead.
     const bannerMsg = document.getElementById('family-member-banner-msg');
     if (bannerMsg) {
-      const headLabel = (actualHead.name || '(no name)').replace(/</g,'&lt;');
-      const headId    = (actualHead.id || '').replace(/</g,'&lt;');
+      const headLabel = escHtml(actualHead.name || '(no name)');
+      const headId    = escHtml(actualHead.id || '');
       if (preFilledLabels.length > 0) {
         // Render each inherited field as "Label: value" with the value in
         // bold so it stands out. HTML-escape values defensively.
@@ -19820,7 +19904,7 @@ function openEdit(id) {
     const _v247oc = document.getElementById('btn-open-cam'); if (_v247oc) _v247oc.style.display = 'none';
     const _v247rt = document.getElementById('btn-retake'); if (_v247rt) _v247rt.style.display = 'inline-block';
     const gpsDiv = document.getElementById('gps-status');
-    if (b.lat) gpsDiv.innerHTML = '<span class="gps-badge">✓ GPS: ' + b.lat + ', ' + b.lng + ' (±' + (b.gpsAccuracy||'?') + 'm)</span>';
+    if (b.lat) gpsDiv.innerHTML = '<span class="gps-badge">✓ GPS: ' + escHtml(b.lat) + ', ' + escHtml(b.lng) + ' (±' + escHtml(b.gpsAccuracy||'?') + 'm)</span>';
   }
   // V4.1: livestock is a single number now (post-migration). Defensive read in
   // case migration somehow didn't run yet for an exotic record.
@@ -21222,8 +21306,8 @@ async function _submitEnrollInner() {
         if (warn && msg) {
           msg.innerHTML =
             `<b>${escHtml(name)}</b> from <b>${escHtml(village)}</b>` +
-            ` is already enrolled as <b>${existing.id}</b>` +
-            (existing.enrollDate ? ` on ${existing.enrollDate}` : '') + `.`;
+            ` is already enrolled as <b>${escHtml(existing.id)}</b>` +
+            (existing.enrollDate ? ` on ${escHtml(existing.enrollDate)}` : '') + `.`;
           warn.classList.add('show');
           const body = document.querySelector('#enroll-overlay .modal-body');
           if (body) body.scrollTop = 0;
@@ -22522,8 +22606,8 @@ function openEndlinePhotoModal(bid) {
     const gpsDiv = document.getElementById('elph-gps-status');
     if (gpsDiv && b.endlineLat) {
       gpsDiv.innerHTML = '<span class="gps-badge">✓ GPS (existing): ' +
-        b.endlineLat + ', ' + b.endlineLng +
-        ' (±' + (b.endlineGpsAccuracy || '?') + 'm)</span>';
+        escHtml(b.endlineLat) + ', ' + escHtml(b.endlineLng) +
+        ' (±' + escHtml(b.endlineGpsAccuracy || '?') + 'm)</span>';
     }
   } else {
     const btnOpen = document.getElementById('elph-btn-open-cam');
@@ -22804,7 +22888,7 @@ function openEndlineFor(id) {
     isEdit ? t('endline.save') : t('endline.submit');
   document.getElementById('el-body').innerHTML = `
     <div style="background:var(--navy4);border:1px solid var(--navy3);border-radius:8px;padding:12px;margin-bottom:16px;font-size:13px;color:var(--navy)">
-      <strong>${b.id}</strong> · ${t('endline.baselineDate')}: ${fmtD(b.enrollDate)} · ${t('endline.baselineIncome')}: <strong>${fmt(b.baseIncome)}</strong>
+      <strong>${escHtml(b.id)}</strong> · ${t('endline.baselineDate')}: ${fmtD(b.enrollDate)} · ${t('endline.baselineIncome')}: <strong>${fmt(b.baseIncome)}</strong>
       ${isEdit ? ` · <span style="color:var(--green);font-weight:600">${t('endline.prevSubmitted')} ${fmtD(b.endlineDate)}</span>` : ''}
     </div>
     <div class="msec">
@@ -22871,7 +22955,7 @@ function openEndlineFor(id) {
       const btnRet = document.getElementById('el-btn-retake');
       if (btnRet) btnRet.style.display = 'inline-block';
       const gpsDiv = document.getElementById('el-gps-status');
-      if (gpsDiv && b.endlineLat) gpsDiv.innerHTML = '<span class="gps-badge">✓ GPS: ' + b.endlineLat + ', ' + b.endlineLng + ' (±' + (b.endlineGpsAccuracy||'?') + 'm)</span>';
+      if (gpsDiv && b.endlineLat) gpsDiv.innerHTML = '<span class="gps-badge">✓ GPS: ' + escHtml(b.endlineLat) + ', ' + escHtml(b.endlineLng) + ' (±' + escHtml(b.endlineGpsAccuracy||'?') + 'm)</span>';
     }, 50);
   }
   document.getElementById('endline-overlay').classList.add('open');
@@ -23378,9 +23462,9 @@ function _renderLogIncomeBody(b) {
     const _tip = 'Enter ADDITIONAL income only: how much MORE the family earns now because of this intervention. Do NOT enter the total income.<br>Example: earned 35,000 before, 40,000 now, so enter 5,000.';
     document.getElementById('li-body').innerHTML = `
     <div class="v229-sum">
-      <div><div class="v229-sk">🔒 Baseline</div><div class="v229-sv">₹${(b.baseIncome||0).toLocaleString('en-IN')}</div></div>
+      <div><div class="v229-sk">🔒 Baseline</div><div class="v229-sv">₹${_v2610Loc(b.baseIncome||0)}</div></div>
       <div class="v229-div"></div>
-      <div><div class="v229-sk">New total</div><div class="v229-sv" style="color:${log.length ? (additionalTotal < 0 ? 'var(--red)' : 'var(--green)') : 'var(--gray2)'}">${log.length ? '₹' + grandTotal.toLocaleString('en-IN') : '—'}</div></div>
+      <div><div class="v229-sk">New total</div><div class="v229-sv" style="color:${log.length ? (additionalTotal < 0 ? 'var(--red)' : 'var(--green)') : 'var(--gray2)'}">${log.length ? '₹' + _v2610Loc(grandTotal) : '—'}</div></div>
       <div class="v229-cnt">${log.length} entr${log.length === 1 ? 'y' : 'ies'}</div>
     </div>
     ${log.length ? `<div class="v229-hist">${log.map((e, i) => _v248CardRow(b, e, i)).join('')}</div>` : ''}
@@ -23401,7 +23485,7 @@ function _renderLogIncomeBody(b) {
         </div>
         <div>
           <label class="v229-fl" for="li-date">Date *</label>
-          <input type="date" id="li-date" value="${formDate}" max="${today}">
+          <input type="date" id="li-date" value="${escHtml(formDate)}" max="${today}">
         </div>
       </div>
       <div>
@@ -23426,14 +23510,14 @@ function _renderLogIncomeBody(b) {
   document.getElementById('li-body').innerHTML = `
     <!-- Beneficiary header card -->
     <div style="background:var(--navy4);border:1px solid var(--navy3);border-radius:8px;padding:12px;margin-bottom:14px;font-size:13px;color:var(--navy)">
-      <strong>${b.id}</strong> · ${b.village||''}, ${b.district||''} · NGO: ${b.ngo||'—'}
+      <strong>${escHtml(b.id)}</strong> · ${escHtml(b.village||'')}, ${escHtml(b.district||'')} · NGO: ${escHtml(b.ngo||'—')}
     </div>
 
     <!-- Two-up Baseline | Endline summary, mirroring the drawer card -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
       <div style="background:#fff;border:1px solid var(--gray3);border-radius:8px;padding:10px">
         <div style="font-size:11px;color:var(--gray2);text-transform:uppercase;letter-spacing:.05em;font-weight:600">🔒 Existing (Baseline) Income</div>
-        <div style="font-size:18px;font-weight:700;margin-top:4px">₹${(b.baseIncome||0).toLocaleString('en-IN')}</div>
+        <div style="font-size:18px;font-weight:700;margin-top:4px">₹${_v2610Loc(b.baseIncome||0)}</div>
         <div style="font-size:10px;color:var(--gray2);margin-top:2px">Recorded ${fmtD(b.enrollDate)} — locked, cannot be changed here</div>
       </div>
       ${(() => {
@@ -23451,7 +23535,7 @@ function _renderLogIncomeBody(b) {
         return `
       <div style="background:${bg};border:1px solid ${border};border-radius:8px;padding:10px">
         <div style="font-size:11px;color:var(--gray2);text-transform:uppercase;letter-spacing:.05em;font-weight:600">New Total Income</div>
-        <div style="font-size:18px;font-weight:700;margin-top:4px;color:${valCol}">${hasLog ? '₹'+grandTotal.toLocaleString('en-IN') : '—'}</div>
+        <div style="font-size:18px;font-weight:700;margin-top:4px;color:${valCol}">${hasLog ? '₹'+_v2610Loc(grandTotal) : '—'}</div>
         <div style="font-size:10px;color:var(--gray2);margin-top:2px">${log.length} entr${log.length===1?'y':'ies'}${log.length ? ` · Additional ${additionalTotal>=0?'+':''}₹${Math.abs(additionalTotal).toLocaleString('en-IN')} (${pct})` : ''}</div>
       </div>`;
       })()}
@@ -23463,10 +23547,10 @@ function _renderLogIncomeBody(b) {
       <div style="background:#FFFBEB;border:1px solid #FBBF24;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12px">
         <div style="font-weight:600;color:#92400E;margin-bottom:4px">⏪ Last bulk endline update available to undo</div>
         <div style="color:var(--gray1);margin-bottom:8px">
-          Batch <code>${b._preBulkEndlineSnapshot.batchId}</code> applied by <b>${(b._preBulkEndlineSnapshot.by||'?').replace(/</g,'&lt;')}</b> on ${fmtD((b._preBulkEndlineSnapshot.at||'').split('T')[0])}.
-          Click to restore this record to its pre-bulk state (${(b._preBulkEndlineSnapshot.incomeLog||[]).length} entr${(b._preBulkEndlineSnapshot.incomeLog||[]).length===1?'y':'ies'}, status <b>${(b._preBulkEndlineSnapshot.status)||'—'}</b>).
+          Batch <code>${escHtml(b._preBulkEndlineSnapshot.batchId)}</code> applied by <b>${(b._preBulkEndlineSnapshot.by||'?').replace(/</g,'&lt;')}</b> on ${fmtD((b._preBulkEndlineSnapshot.at||'').split('T')[0])}.
+          Click to restore this record to its pre-bulk state (${(b._preBulkEndlineSnapshot.incomeLog||[]).length} entr${(b._preBulkEndlineSnapshot.incomeLog||[]).length===1?'y':'ies'}, status <b>${escHtml((b._preBulkEndlineSnapshot.status)||'—')}</b>).
         </div>
-        <button class="btn btn-sm" style="color:#92400E;border-color:#FBBF24" onclick="_undoBulkEndlineForBeneficiary('${b.id}')">↶ Restore pre-bulk state</button>
+        <button class="btn btn-sm" style="color:#92400E;border-color:#FBBF24" onclick="_undoBulkEndlineForBeneficiary('${_v2610js(b.id)}')">↶ Restore pre-bulk state</button>
       </div>
     ` : ''}
     ${entriesHtml}
@@ -23487,7 +23571,7 @@ function _renderLogIncomeBody(b) {
       <div class="frow">
         <div class="fg">
           <label>Date *</label>
-          <input type="date" id="li-date" value="${formDate}" max="${today}">
+          <input type="date" id="li-date" value="${escHtml(formDate)}" max="${today}">
         </div>
         <div class="fg">
           <label style="color:var(--navy);font-weight:600">Additional Amount (₹) *</label>
@@ -24334,17 +24418,17 @@ function renderNGO() {
     const clickHandler = _isFcMode
       ? (r._fcId === '__orphan__'
           ? ''
-          : `onclick="_v13RptDrill('${r._fcId.replace(/'/g, "\\'")}')"`)
-      : `onclick="_v13RptDrill('', '${r.name.replace(/'/g, "\\'")}')"`;
+          : `onclick="_v13RptDrill('${_v2610js(r._fcId)}')"`)
+      : `onclick="_v13RptDrill('', '${_v2610js(r.name)}')"`;
     const clickTitle = _isFcMode
-      ? (r._fcId === '__orphan__' ? 'Legacy / unknown creators — drill-down not available' : `Click to see ${r.name}'s beneficiaries`)
-      : `Click to see ${r.name}'s beneficiaries`;
+      ? (r._fcId === '__orphan__' ? 'Legacy / unknown creators — drill-down not available' : `Click to see ${escHtml(r.name)}'s beneficiaries`)
+      : `Click to see ${escHtml(r.name)}'s beneficiaries`;
 
     return `
       <tr style="border-bottom:1px solid #F3F4F6${r._fcId === '__orphan__' ? ';opacity:.7' : ''}" ${clickHandler} title="${clickTitle}">
         <td style="padding:10px 12px;text-align:left;font-weight:500;font-size:13px${r._inactive ? ';' + _V215_FADE : ''}">
-          ${r.name}${r._inactive ? _V215_CHIP : ''}
-          <div style="font-size:10px;color:var(--gray2);font-weight:400;margin-top:1px">${r.state}</div>
+          ${escHtml(r.name)}${r._inactive ? _V215_CHIP : ''}
+          <div style="font-size:10px;color:var(--gray2);font-weight:400;margin-top:1px">${escHtml(r.state)}</div>
         </td>
         <!-- LIVELIHOOD block -->
         <td style="padding:10px 8px;text-align:right;font-weight:500;font-variant-numeric:tabular-nums;border-left:2px solid var(--green2)">${_v261N(r.livBenef || 0)}</td>
@@ -24368,7 +24452,7 @@ function renderNGO() {
     ${(_isTL && _rptCanView(u)) ? `<div class="v260-tl-rpt"><button type="button" class="btn btn-primary btn-sm" onclick="nav('reports')">Open Reports</button></div>` : ''}
     <div class="card">
       <div class="card-head">
-        <div class="card-title">${_isFcMode ? `Field Coordinator Performance — ${u.ngo}` : 'NGO Partner Performance'}${filtLabel}${_v247SavedLine()}</div>
+        <div class="card-title">${_isFcMode ? `Field Coordinator Performance — ${escHtml(u.ngo)}` : 'NGO Partner Performance'}${filtLabel}${_v247SavedLine()}</div>
         <div style="font-size:11px;color:var(--gray2)">${rows.length} ${_isFcMode ? ('coordinator' + (rows.length!==1?'s':'')) : ('partner' + (rows.length!==1?'s':''))} · click any column to sort · click a row to drill into beneficiaries</div>
       </div>
       ${!hasRows ? '<div class="empty">No beneficiaries match the current filters.</div>' : `
@@ -24402,7 +24486,7 @@ function renderNGO() {
         <tbody>${bodyRows}</tbody>
         <tfoot>
           <tr style="background:#FAFAFA;border-top:2px solid var(--gray3);font-weight:600">
-            <td style="padding:12px 12px;text-align:left">${_isFcMode ? 'Total (' + u.ngo + ')' : 'Portfolio total'}</td>
+            <td style="padding:12px 12px;text-align:left">${_isFcMode ? 'Total (' + escHtml(u.ngo) + ')' : 'Portfolio total'}</td>
             <td style="padding:12px 8px;text-align:right;font-variant-numeric:tabular-nums;border-left:2px solid var(--green2)">${_v261N(portLivTotal)}</td>
             <td style="padding:12px 8px;text-align:right;font-variant-numeric:tabular-nums">${fmtCntPct(livStageAll['Enrolled'], portLivEnrPct)}</td>
             <td style="padding:12px 8px;text-align:right;font-variant-numeric:tabular-nums">${fmtCntPct(livStageAll['Intervention In Progress'], portLivProgPct)}</td>
@@ -24746,7 +24830,7 @@ function _v221Page(alerts) {
   }).map(p => p[0]);
   const shown = sorted.slice(0, _V221_PAGE);
   const more = sorted.length - shown.length;
-  return shown.map(a => `<div class="alert alert-${a.type}" ${a.id?`onclick="openDrawer('${a.id}')" style="cursor:pointer"`:''}><div class="alert-icon">${a.type==='green'?'✓':'!'}</div><div>${a.msg}</div></div>`).join('')
+  return shown.map(a => `<div class="alert alert-${a.type}" ${a.id?`onclick="openDrawer('${_v2610js(a.id)}')" style="cursor:pointer"`:''}><div class="alert-icon">${a.type==='green'?'✓':'!'}</div><div>${a.msg}</div></div>`).join('')
     + (more > 0 ? `<div style="padding:12px 14px;color:var(--gray2);font-size:13px">Showing the ${_V221_PAGE} most urgent of ${_v261N(alerts.length)}.</div>` : '');
 }
 function renderAlerts() {
@@ -24874,7 +24958,7 @@ function buildPopup(b) {
       <div class="map-popup-row"><span class="map-popup-label">Status</span><span class="map-popup-val">${escHtml(stageLabel(_v174Stage(b)))}</span></div>
       <div class="map-popup-row"><span class="map-popup-label">Baseline</span><span class="map-popup-val">${fmt(b.baseIncome)}/yr</span></div>
       ${deltaHtml}
-      <button class="map-popup-btn" onclick="closeMapPopupOpenDrawer('${escHtml(b.id)}')">View Full Profile</button>
+      <button class="map-popup-btn" onclick="closeMapPopupOpenDrawer('${_v2610js(b.id)}')">View Full Profile</button>
     </div>
   </div>`;
 }
@@ -25122,7 +25206,7 @@ function _v17MemberList(members) {
            + '<div style="max-height:132px;overflow-y:auto;margin:0 -2px">';
   shown.forEach(function (b) {
     const nm = String(b && b.name || '').trim() || '(no name)';
-    html += '<button type="button" onclick="closeMapPopupOpenDrawer(\'' + escHtml(String(b && b.id || '')) + '\')" '
+    html += '<button type="button" onclick="closeMapPopupOpenDrawer(\'' + _v2610js(b && b.id || '') + '\')" '
           + 'style="display:block;width:100%;text-align:left;background:none;border:0;padding:4px 2px;'
           + 'font:500 12px/1.3 DM Sans,system-ui,sans-serif;color:var(--navy2);cursor:pointer;'
           + 'border-bottom:1px solid #F1F3F7">'
@@ -26080,7 +26164,7 @@ function advAddSchemeRow(scheme, status, benefitRecd, benefitAmt, remarks) {
        <select onchange="advOnStatusChange(${rowId})" style="width:100%;padding:5px 6px;border:1px solid var(--gray3);border-radius:5px;font-size:12px;font-family:var(--font);background:#fff">${statusOpts}</select>
      </div>
      <div data-cell="amount" data-label="Amount (₹)" id="adv-amt-wrap-${rowId}" style="padding:6px 8px;border-right:1px solid var(--gray3);${showAmt?'':'visibility:hidden'}">
-       <input type="number" min="0" placeholder="0" value="${amtVal}" id="adv-amt-${rowId}"
+       <input type="number" min="0" placeholder="0" value="${escHtml(amtVal)}" id="adv-amt-${rowId}"
               style="width:100%;padding:5px 6px;border:1px solid var(--gray3);border-radius:5px;font-size:12px;font-family:var(--font);background:#fff;text-align:right">
      </div>
      <div data-cell="remarks" data-label="Remarks" style="padding:6px 8px;border-right:1px solid var(--gray3)">
@@ -26671,7 +26755,7 @@ function advSearch(q) {
   if (!q.trim()) { res.style.display='none'; _advSearchIdx = -1; return; }
   const matches = getData().filter(b => (b.name||'').toLowerCase().includes(q.toLowerCase())||(b.id||'').toLowerCase().includes(q.toLowerCase())).slice(0,8);
   if (!matches.length) { res.style.display='none'; _advSearchIdx = -1; return; }
-  res.innerHTML = matches.map((b, i) => `<div data-idx="${i}" data-bid="${escHtml(b.id)}" onclick="selectAdvBenef('${escHtml(b.id)}')" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--gray3);font-size:13px" onmouseover="this.style.background='var(--gray4)'" onmouseout="this.style.background=this.dataset.hl==='1'?'var(--navy4)':''"><span style="font-weight:500">${escHtml(b.name)}</span> <span style="color:var(--gray2);font-size:11px">${escHtml(b.id)} · ${escHtml(b.village)}</span></div>`).join('');
+  res.innerHTML = matches.map((b, i) => `<div data-idx="${i}" data-bid="${escHtml(b.id)}" onclick="selectAdvBenef('${_v2610js(b.id)}')" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--gray3);font-size:13px" onmouseover="this.style.background='var(--gray4)'" onmouseout="this.style.background=this.dataset.hl==='1'?'var(--navy4)':''"><span style="font-weight:500">${escHtml(b.name)}</span> <span style="color:var(--gray2);font-size:11px">${escHtml(b.id)} · ${escHtml(b.village)}</span></div>`).join('');
   res.style.display = 'block';
   _advSearchIdx = -1; // reset selection on every new query
 }
@@ -28058,14 +28142,14 @@ function _renderCumulativeBarChart(months, cumVals, deltaVals, fmt, unitLabel) {
       const bottomY = PAD_T + chartH;
       const r = 2;
       const path = `M${x.toFixed(1)},${bottomY.toFixed(1)} L${x.toFixed(1)},${(topY+r).toFixed(1)} Q${x.toFixed(1)},${topY.toFixed(1)} ${(x+r).toFixed(1)},${topY.toFixed(1)} L${(x+barW-r).toFixed(1)},${topY.toFixed(1)} Q${(x+barW).toFixed(1)},${topY.toFixed(1)} ${(x+barW).toFixed(1)},${(topY+r).toFixed(1)} L${(x+barW).toFixed(1)},${bottomY.toFixed(1)} Z`;
-      return `<path d="${path}" fill="${BAR_COLOR}"><title>${months[i].label}: ${fmt(v)} ${unitLabel}</title></path>
+      return `<path d="${path}" fill="${BAR_COLOR}"><title>${escHtml(months[i].label)}: ${fmt(v)} ${unitLabel}</title></path>
               <text x="${xCenter.toFixed(1)}" y="${(topY-4).toFixed(1)}" text-anchor="middle" font-size="9" font-weight="600" fill="${LABEL_COLOR}" font-family="ui-sans-serif,system-ui">${fmt(v)}</text>`;
     }).join('')}
     <!-- x-axis month labels -->
     ${months.map((m, i) => {
       const x = PAD_L + slotW * i + slotW/2;
       if (n >= 10 && i % 2 !== 0 && i !== n - 1) return '';
-      return `<text x="${x.toFixed(1)}" y="${H-PAD_B+14}" text-anchor="middle" font-size="9" fill="#6B7280" font-family="ui-sans-serif,system-ui">${m.label}</text>`;
+      return `<text x="${x.toFixed(1)}" y="${H-PAD_B+14}" text-anchor="middle" font-size="9" fill="#6B7280" font-family="ui-sans-serif,system-ui">${escHtml(m.label)}</text>`;
     }).join('')}
     <!-- monthly additions (new this month), same blue as the bars -->
     ${deltaVals.map((v, i) => {
@@ -28241,7 +28325,7 @@ function _renderDashboardTrendBands(T, advLatest) {
         <div class="card-head">
           <div class="card-title">Beneficiaries — Month on Month</div>
           <div style="font-size:11px;color:var(--gray2)">
-            ${hasBenData ? `<strong style="color:var(--navy)">${benStats.last}</strong> total · <span style="color:#3B82F6;font-weight:600">+${benStats.delta}</span> in last 12 mo${benStats.pct!==null?` (${benStats.pct>=0?'+':''}${benStats.pct}%)`:''}` : 'No data'}
+            ${hasBenData ? `<strong style="color:var(--navy)">${escHtml(benStats.last)}</strong> total · <span style="color:#3B82F6;font-weight:600">+${benStats.delta}</span> in last 12 mo${benStats.pct!==null?` (${benStats.pct>=0?'+':''}${benStats.pct}%)`:''}` : 'No data'}
           </div>
         </div>
         <div style="padding:14px 16px">
@@ -28343,7 +28427,7 @@ function _renderDashboardTopNGOs(rows, advLatest) {
               <tr data-ngo-row="${escHtml(r.name)}" onclick="_filterByNgoFromRow(this)" style="cursor:pointer" title="Click to filter to this NGO">
                 <td data-cell="rank" style="text-align:center;color:var(--gray2);font-weight:600">${i+1}</td>
                 <td data-cell="name" style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(r.name)}</td>
-                <td data-cell="ben" data-label="Beneficiaries" style="text-align:right"><span class="ngo-ben-full">${_v261N(r.count)}</span><span class="ngo-ben-abbr" style="display:none">${fmtNum(r.count)}</span></td>
+                <td data-cell="ben" data-label="Beneficiaries" style="text-align:right"><span class="ngo-ben-full">${_v2610N(r.count)}</span><span class="ngo-ben-abbr" style="display:none">${escHtml(fmtNum(r.count))}</span></td>
                 <td data-cell="income" data-label="Income Added" style="text-align:right;color:${r.income>0?'var(--green)':'var(--gray2)'};font-weight:${r.income>0?'600':'400'}">${r.income>0?fmt(r.income):'—'}</td>
                 <td data-cell="schemes" data-label="Scheme Benefits" style="text-align:right;color:${r.schemes>0?'var(--purple)':'var(--gray2)'};font-weight:${r.schemes>0?'600':'400'}">${r.schemes>0?fmt(r.schemes):'—'}</td>
                 <td data-cell="total" data-label="Total Impact" style="text-align:right;color:var(--navy);font-weight:700">${r.total>0?fmt(r.total):'—'}</td>
@@ -29087,14 +29171,14 @@ function renderDashboard() {
     A.trend = _v224TrendAgg(list, advLatest);
     A.topNgos = _v224TopNgoAgg(list, advLatest);
   }
-  const withEnd    = { length: A.endlineCount };
-  const totalAdded = A.totalAdded;
+  const withEnd    = { length: _v2610Num(A.endlineCount) };
+  const totalAdded = _v2610Num(A.totalAdded);
   // Unique beneficiaries per intervention — use a Set per record to guard
   // against duplicate entries in the interventions array (possible from old
   // seed data). Counts match Livelihood tab semantics: one beneficiary per
   // intervention type they participate in.
   const ic = A.byIntervention;
-  const total    = A.total;
+  const total    = _v2610Num(A.total);
 
   // ── 6 KPI tiles ──
   // Coverage metrics (row 1): unique beneficiaries, states, districts
@@ -29104,8 +29188,8 @@ function renderDashboard() {
   // Scheme benefits — only advocacy-driven (benefitRecd='Yes'), for beneficiaries
   // in the current filter. This is the additional impact from KRSF's advocacy
   // work, not baseline government coverage.
-  const schemeBenefits = A.schemeBenefits;
-  const totalImpact = A.totalImpact;
+  const schemeBenefits = _v2610Num(A.schemeBenefits);
+  const totalImpact = _v2610Num(A.totalImpact);
 
   updateAlertBadge();
 
@@ -29126,14 +29210,14 @@ function renderDashboard() {
   // the tile; min-width:0 is required for flex/grid children to allow shrinking.
   const tile = (label, val, sub, colorClass, valColor) => `<div class="stat ${colorClass||'s-blue'}${_V259_ICON[colorClass] ? ' k-tile k-fit' : ''}" style="padding:10px 12px;min-width:0">
     <div class="stat-label" style="font-size:10px">${_V259_ICON[colorClass] ? '<span class="k-ic" aria-hidden="true">' + _V259_ICON[colorClass] + '</span>' : ''}${label}</div>
-    <div class="stat-val odometer k-num" style="--kn:${String(_v261N(val)).length};font-size:18px;font-weight:700;word-break:break-word;line-height:1.15${valColor?';color:'+valColor:''}">${_v261N(val)}</div>
+    <div class="stat-val odometer k-num" style="--kn:${String(_v261N(val)).length};font-size:18px;font-weight:700;word-break:break-word;line-height:1.15${valColor?';color:'+valColor:''}">${_v2610N(val)}</div>
     ${sub?`<div class="stat-sub" style="font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${String(sub).replace(/"/g,'&quot;').replace(/<[^>]+>/g,'')}">${sub}</div>`:''}
   </div>`;
 
   document.getElementById('content').innerHTML = `
     <div class="stats stats-6" style="margin-bottom:18px">
       ${tile('Total Beneficiaries', total, filterBadges || 'Livelihood & Advocacy', 'k-blue')}
-      ${tile('States Covered', distinctStates.size, A.stateNames.length ? A.stateNames.join(', ') : '—', 'k-purple')}
+      ${tile('States Covered', distinctStates.size, A.stateNames.length ? A.stateNames.map(function (s) { return escHtml(s); }).join(', ') : '—', 'k-purple')}
       ${tile('Districts Covered', distinctDistricts.size, distinctDistricts.size===1 ? '1 district' : distinctDistricts.size+' districts', 'k-teal')}
       ${tile('Total Additional Income', totalAdded>0 ? '₹'+totalAdded.toLocaleString('en-IN') : '—', withEnd.length ? `From ${withEnd.length} endline${withEnd.length===1?'':'s'}` : 'No endlines yet', 'k-green', totalAdded>0?'var(--green)':'')}
       ${tile('Scheme Benefits', schemeBenefits>0 ? '₹'+schemeBenefits.toLocaleString('en-IN') : '—', 'Advocacy benefits received', 'k-amber', schemeBenefits>0?'var(--purple)':'')}
@@ -29149,7 +29233,7 @@ function renderDashboard() {
     ${_renderDashboardTopNGOs(A.topNgos)}
     <div class="chart2">
       <div class="card"><div class="card-head"><div class="card-title">No. of Beneficiaries by Intervention</div></div>
-        <div style="padding:12px 16px">${total===0?'<div class="empty">No beneficiaries enrolled yet</div>':Object.entries(ic).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="brow"><div class="blbl">${escHtml(k)}</div><div class="btrack"><div class="bfill" style="width:${Math.round(v/total*100)}%;background:${IC[k]||'var(--navy2)'}"></div></div><div class="bval">${_v261N(v)}</div></div>`).join('')}</div>
+        <div style="padding:12px 16px">${total===0?'<div class="empty">No beneficiaries enrolled yet</div>':Object.entries(ic).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="brow"><div class="blbl">${escHtml(k)}</div><div class="btrack"><div class="bfill" style="width:${Math.round(v/total*100)}%;background:${IC[k]||'var(--navy2)'}"></div></div><div class="bval">${_v2610N(v)}</div></div>`).join('')}</div>
       </div>
       <div class="card"><div class="card-head"><div class="card-title">No. of Beneficiaries by Geography</div></div>
         <div style="padding:12px 16px">
@@ -29183,7 +29267,7 @@ function renderDashboard() {
                 <div class="btrack">
                   ${count>0?`<div class="bfill" style="width:${w}%;background:${color}"></div>`:''}
                 </div>
-                <div class="bval" style="font-weight:600;color:${count>0?color:'var(--gray2)'}">${_v261N(count)}</div>
+                <div class="bval" style="font-weight:600;color:${count>0?color:'var(--gray2)'}">${_v2610N(count)}</div>
               </div>`;
             }).join('');
           })()}
@@ -29720,11 +29804,11 @@ function _renderDashboardRecentUpdates(list) {
     const displayName = (e.userId && fullNameById[e.userId]) || e.username || '—';
     const who = escHtml(displayName + (e.role==='admin'?' (Admin)':e.role==='ngo'?' (NGO)':e.role==='coordinator'?' (FC)':''));
     const ebid = bid ? escHtml(bid) : '';
-    return `<tr ${bid?`onclick="openDrawer('${ebid}')" style="cursor:pointer"`:''}>
+    return `<tr ${bid?`onclick="openDrawer('${_v2610js(bid)}')" style="cursor:pointer"`:''}>
       <td style="font-size:12px;color:var(--gray2);white-space:nowrap">${ago(e.ts)}</td>
       <td><div class="bname">${beneficiaryName||'—'}</div>${bid?`<div class="bid">${ebid}</div>`:''}</td>
       <td style="font-size:12px;color:var(--gray1)">${(bid && ngoOfId(bid)) ? escHtml(ngoOfId(bid)) : (e.ngo ? escHtml(e.ngo) : '—')}</td>
-      <td><span title="${label==='Stage Changed'?'The person moved along the livelihood lifecycle: Enrolled, Intervention In Progress, Endline Completed.':label==='Status Changed'?'One government scheme for this person changed: Need to Apply, Applied, Benefits Received or Rejected.':escHtml(label)}" style="display:inline-block;padding:2px 8px;border-radius:10px;background:${col}22;color:${col};font-size:10px;font-weight:600;text-transform:uppercase;white-space:nowrap">${label}</span></td>
+      <td><span title="${label==='Stage Changed'?'The person moved along the livelihood lifecycle: Enrolled, Intervention In Progress, Endline Completed.':label==='Status Changed'?'One government scheme for this person changed: Need to Apply, Applied, Benefits Received or Rejected.':escHtml(label)}" style="display:inline-block;padding:2px 8px;border-radius:10px;background:${col}22;color:${col};font-size:10px;font-weight:600;text-transform:uppercase;white-space:nowrap">${escHtml(label)}</span></td>
       <td style="font-size:12px;color:var(--gray1);line-height:1.4">${summary||'—'}</td>
       <td style="font-size:11px;color:var(--gray2);white-space:nowrap">${who}</td>
     </tr>`;
@@ -29811,7 +29895,7 @@ function _livBenTabFull(allB) {
 
   const chips = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
     <button class="btn btn-sm ${!livInterv?'btn-primary':''}" onclick="livInterv='';livSearch='';livCurrentPage=1;renderLivelihood()">All <span style="font-weight:400;opacity:.7">${_v261N(allB.length)}</span></button>
-    ${LIV_TYPES_DISPLAY.map(i=>`<button class="btn btn-sm ${livInterv===i?'btn-primary':''}" style="${ic[i]===0?'opacity:.35':''}" onclick="${ic[i]>0?`livInterv='${escHtml(i).replace(/'/g,'&#39;')}';livSearch='';livCurrentPage=1;renderLivelihood()`:''}">${escHtml(i)} <span style="font-weight:400;opacity:.7">${_v261N(ic[i])}</span></button>`).join('')}
+    ${LIV_TYPES_DISPLAY.map(i=>`<button class="btn btn-sm ${livInterv===i?'btn-primary':''}" style="${ic[i]===0?'opacity:.35':''}" onclick="${ic[i]>0?`livInterv='${_v2610js(i)}';livSearch='';livCurrentPage=1;renderLivelihood()`:''}">${escHtml(i)} <span style="font-weight:400;opacity:.7">${_v261N(ic[i])}</span></button>`).join('')}
   </div>`;
 
   // #6a V327 — Paginate livelihood list.
@@ -29823,7 +29907,7 @@ function _livBenTabFull(allB) {
   const _livPgEnd   = Math.min(_livPgStart + LIV_PAGE_SIZE, _livTotal);
   const _livPaged   = list.slice(_livPgStart, _livPgEnd);
 
-  const rows=_livPaged.map((b,i)=>`<tr onclick="openDrawer('${escHtml(b.id)}')">
+  const rows=_livPaged.map((b,i)=>`<tr onclick="openDrawer('${_v2610js(b.id)}')">
     <td style="color:var(--gray2);font-size:12px;text-align:center">${_livPgStart+i+1}</td>
     <td><div class="bname">${escHtml(b.name)}</div><div class="bid">${escHtml(b.id)}</div></td>
     <td>${escHtml(b.village)}<br><span style="font-size:11px;color:var(--gray2)">${escHtml(b.district)}</span></td>
@@ -30136,7 +30220,7 @@ function _advSchemeChips(allAdv, activeStatus) {
   const chips = [`<button class="btn btn-sm ${!advSchemeFilter?'btn-primary':''}" onclick="advSchemeFilter='';advBCurrentPage=1;renderAdvocacy()">All Schemes <span style="font-weight:400;opacity:.7">${_v261N(total)}</span></button>`];
   activeSchemes.forEach(s => {
     const cnt = ic[s]||0;
-    chips.push(`<button class="btn btn-sm ${advSchemeFilter===s?'btn-primary':''}" style="${cnt===0?'opacity:.35':''}" onclick="${cnt>0?`advSchemeFilter='${s}';advBCurrentPage=1;renderAdvocacy()`:''}">${s} <span style="font-weight:400;opacity:.7">${_v261N(cnt)}</span></button>`);
+    chips.push(`<button class="btn btn-sm ${advSchemeFilter===s?'btn-primary':''}" style="${cnt===0?'opacity:.35':''}" onclick="${cnt>0?`advSchemeFilter='${_v2610js(s)}';advBCurrentPage=1;renderAdvocacy()`:''}">${escHtml(s)} <span style="font-weight:400;opacity:.7">${_v261N(cnt)}</span></button>`);
   });
   if (otherCount > 0) {
     chips.push(`<button class="btn btn-sm ${advSchemeFilter==='__other__'?'btn-primary':''}" onclick="advSchemeFilter='__other__';advBCurrentPage=1;renderAdvocacy()">Other Schemes <span style="font-weight:400;opacity:.7">${_v261N(otherCount)}</span></button>`);
@@ -30217,13 +30301,13 @@ function _advBenTab2(allAdv, allB) {
       const c    = _ADV_POP_COLORS[ns] || {bg:'#F3F4F6', fg:'#6B7280'};
       const remarksClean = (sr.remarks || '').trim();
       const remarksShort = remarksClean.length > 18 ? remarksClean.slice(0,16) + '…' : remarksClean;
-      const labelExtra   = remarksShort ? ' · ' + remarksShort.replace(/</g,'&lt;') : '';
+      const labelExtra   = remarksShort ? ' · ' + escHtml(remarksShort) : '';
       const amtTip = (ns === 'Benefits Received' && sr.benefitAmt)
         ? ' · ₹' + Number(sr.benefitAmt).toLocaleString('en-IN') : '';
       const tip  = escHtml(ns) + amtTip + ' — click to change';
-      const sBid = escHtml(b.id).replace(/'/g,"&#39;");
-      const sSch = escHtml(sr.scheme).replace(/'/g,"&#39;");
-      const sRem = escHtml(sr.remarks||'').replace(/'/g,"&#39;");
+      const sBid = _v2610js(b.id);
+      const sSch = _v2610js(sr.scheme);
+      const sRem = _v2610js(sr.remarks||'');
       return '<span'
         + ' onclick="_advShowStatusPop(this,\'' + sBid + '\',\'' + sSch + '\',\'' + sRem + '\',\'' + ns + '\')"'
         + ' title="' + tip + '"'
@@ -30250,7 +30334,7 @@ function _advBenTab2(allAdv, allB) {
     const countSub = schemeRows.length > 1
       ? `<div style="font-size:11px;color:var(--gray2);margin-top:3px">${schemeRows.length} schemes tracked</div>`
       : '';
-    return `<tr onclick="openDrawer('${escHtml(b.id)}')" style="cursor:pointer">
+    return `<tr onclick="openDrawer('${_v2610js(b.id)}')" style="cursor:pointer">
       ${srNo}
       <td><div class="bname">${escHtml(b.name)}</div><div class="bid">${escHtml(b.id)}</div></td>
       <td>${escHtml(b.village)}<br><span style="font-size:11px;color:var(--gray2)">${escHtml(b.district)}</span></td>
@@ -30271,7 +30355,7 @@ function _advBenTab2(allAdv, allB) {
     + '</div>';
 
   return `<div class="card"><div class="card-head">
-    <div class="card-title">Beneficiaries${advStageF?' · '+(advStageF==='ALL_SUBMITTED_FILTER'?'All Applications Submitted':advStageF):''}${advSchemeFilter&&advSchemeFilter!=='__other__'?' · '+advSchemeFilter:advSchemeFilter==='__other__'?' · Other Schemes':''} <span style="font-size:12px;font-weight:400;color:var(--gray2)">${_v261N(_advBTotal)} beneficiar${_advBTotal===1?'y':'ies'}</span>${_v247SavedLine()}</div>
+    <div class="card-title">Beneficiaries${advStageF?' · '+(advStageF==='ALL_SUBMITTED_FILTER'?'All Applications Submitted':escHtml(advStageF)):''}${advSchemeFilter&&advSchemeFilter!=='__other__'?' · '+escHtml(advSchemeFilter):advSchemeFilter==='__other__'?' · Other Schemes':''} <span style="font-size:12px;font-weight:400;color:var(--gray2)">${_v261N(_advBTotal)} beneficiar${_advBTotal===1?'y':'ies'}</span>${_v247SavedLine()}</div>
     <div class="filters"><input id="adv-search-input" class="fsearch" placeholder="Search name or ID..." value="${advSearch2}" oninput="_searchDebounce('adv', this.value, () => { advSearch2 = _searchDebounceVal.adv; advBCurrentPage=1; renderAdvocacy('beneficiaries'); })">
     ${_canExport()?`<button class="btn btn-sm" onclick="exportAdvocacyCsv()" title="Download as CSV (opens in Excel)">📥 Export to Excel</button>`:''}
     <button class="btn btn-primary btn-sm" onclick="openAdvModal()">+ Log Advocacy</button></div></div>
@@ -30393,7 +30477,7 @@ function renderIntegrated(sub) {
     const impactCell = impact>0
       ? `<span style="font-weight:700;color:var(--navy)">₹${impact.toLocaleString('en-IN')}</span>`
       : `<span style="color:var(--gray2);font-size:12px">—</span>`;
-    return `<tr onclick="openDrawer('${escHtml(b.id)}')" style="cursor:pointer">
+    return `<tr onclick="openDrawer('${_v2610js(b.id)}')" style="cursor:pointer">
       <td style="color:var(--gray2);font-size:12px;text-align:center">${intStart + i + 1}</td>
       <td><div class="bname">${escHtml(b.name)}</div><div class="bid">${escHtml(b.id)}</div></td>
       <td>${escHtml(b.village)}<br><span style="font-size:11px;color:var(--gray2)">${escHtml(b.district)}</span></td>
@@ -30819,8 +30903,8 @@ function renderAllBeneficiaries() {
           const impactCell = impact>0
             ? `<span style="font-weight:700;color:var(--navy)">₹${impact.toLocaleString('en-IN')}</span>`
             : `<span style="color:var(--gray2);font-size:12px">—</span>`;
-          return `<tr style="background:${isSel?'var(--navy4)':''};cursor:pointer" onclick="openDrawer('${escHtml(b.id)}')">
-            <td style="padding:10px 10px" onclick="event.stopPropagation()"><input type="checkbox" ${isSel?'checked':''} onchange="toggleBeneficiary('${escHtml(b.id)}',this.checked)" style="cursor:pointer;width:15px;height:15px"></td>
+          return `<tr style="background:${isSel?'var(--navy4)':''};cursor:pointer" onclick="openDrawer('${_v2610js(b.id)}')">
+            <td style="padding:10px 10px" onclick="event.stopPropagation()"><input type="checkbox" ${isSel?'checked':''} onchange="toggleBeneficiary('${_v2610js(b.id)}',this.checked)" style="cursor:pointer;width:15px;height:15px"></td>
             <td style="color:var(--gray2);font-size:12px;text-align:center">${srNo}</td>
             <td><div class="bname">${escHtml(b.name)}${b.hasPhoto?` <span title="Has a photo — open the row to see it" style="font-size:12px" aria-label="has a photo">📷</span>`:''}</div><div class="bid">${escHtml(b.id)}</div></td>
             <td>${escHtml(b.village)}<br><span style="font-size:11px;color:var(--gray2)">${escHtml(b.district)}</span></td>
@@ -30986,14 +31070,14 @@ window.openDrawer = function(id) {
         : `<span style="color:var(--gray2);font-size:12px">—</span>`;
       return `<tr>
         <td style="font-size:11px;color:var(--gray2);vertical-align:top;padding:6px 10px;border-right:1px solid var(--gray3)">${fmtD(r.__createdAt)}</td>
-        <td style="font-size:12px;font-weight:500;padding:6px 10px">${r.scheme}</td>
+        <td style="font-size:12px;font-weight:500;padding:6px 10px">${escHtml(r.scheme)}</td>
         <td style="padding:6px 8px"><span class="pill ${ns.cls}" style="font-size:10px">${ns.label}</span></td>
         <td style="padding:6px 10px;text-align:right">${amtCell}</td>
       </tr>`;
     }).join('');
     const advSection=document.createElement('div');
     advSection.className='ds';
-    advSection.innerHTML=`<div class="ds-title" style="display:flex;align-items:center;justify-content:space-between"><span>🏛 Advocacy &amp; Scheme Linkage</span><button class="btn btn-sm btn-primary" onclick="openAdvModal('${capturedId}')">+ Log</button></div>${latestRows.length===0?'<div style="color:var(--gray2);font-size:13px;margin-top:8px">No advocacy records yet.</div>':`<div style="margin-top:8px;border:1px solid var(--gray3);border-radius:8px;overflow:hidden"><table style="width:100%;border-collapse:collapse"><thead><tr style="background:#FAFAFA;border-bottom:1px solid var(--gray3)"><th style="padding:7px 10px;font-size:10px;font-weight:600;color:var(--gray2);text-align:left">Last Updated</th><th style="padding:7px 10px;font-size:10px;font-weight:600;color:var(--gray2);text-align:left">Scheme</th><th style="padding:7px 10px;font-size:10px;font-weight:600;color:var(--gray2);text-align:left">Status</th><th style="padding:7px 10px;font-size:10px;font-weight:600;color:var(--gray2);text-align:right">Benefit (₹)</th></tr></thead><tbody>${tableRows}</tbody></table></div>`}`;
+    advSection.innerHTML=`<div class="ds-title" style="display:flex;align-items:center;justify-content:space-between"><span>🏛 Advocacy &amp; Scheme Linkage</span><button class="btn btn-sm btn-primary" onclick="openAdvModal('${_v2610js(capturedId)}')">+ Log</button></div>${latestRows.length===0?'<div style="color:var(--gray2);font-size:13px;margin-top:8px">No advocacy records yet.</div>':`<div style="margin-top:8px;border:1px solid var(--gray3);border-radius:8px;overflow:hidden"><table style="width:100%;border-collapse:collapse"><thead><tr style="background:#FAFAFA;border-bottom:1px solid var(--gray3)"><th style="padding:7px 10px;font-size:10px;font-weight:600;color:var(--gray2);text-align:left">Last Updated</th><th style="padding:7px 10px;font-size:10px;font-weight:600;color:var(--gray2);text-align:left">Scheme</th><th style="padding:7px 10px;font-size:10px;font-weight:600;color:var(--gray2);text-align:left">Status</th><th style="padding:7px 10px;font-size:10px;font-weight:600;color:var(--gray2);text-align:right">Benefit (₹)</th></tr></thead><tbody>${tableRows}</tbody></table></div>`}`;
     body.appendChild(advSection);
   }, 110);
 };
@@ -32085,7 +32169,7 @@ function _rptRenderFc(A, nowMs, rowScope) {
     const stale = a.last && (now - a.last) > 30 * 86400000;
     // V4.9: click-through to this FC's beneficiary list — reuses the same
     // fcFilter + nav('list') pattern the NGO Partners drill-down already uses.
-    const fcClick = `_v13RptDrill('${(a.u.id || '').replace(/'/g, "\\'")}')`;
+    const fcClick = `_v13RptDrill('${_v2610js(a.u.id || '')}')`;
     const _off = !!(a.u && _v215Inactive(a.u));
     return `<tr class="${(a === bestFc && !_off) ? 'rpt-top' : ''}" style="cursor:pointer" onclick="${fcClick}" title="Click to see ${esc(nm)}'s beneficiaries">
       <td><div class="rpt-person"><span class="rpt-av" style="background:${_rptNgoColor(a.u.ngo)}">${esc(inits)}</span><span><span class="rpt-pname" style="${_off ? _V215_FADE : ''}">${esc(nm)}${_off ? _V215_CHIP : ''}</span><span class="rpt-psub">${esc(a.u.ngo || '\u2014')}</span></span></div></td>
@@ -33602,7 +33686,7 @@ function _v256MakeA(packs, d) {
   const addSch = (m, r) => {
     let pm = m.get(r[0]); if (!pm) { pm = new Map(); m.set(r[0], pm); }
     const c = pm.get(r[1]) || [0, 0, 0, 0];
-    c[0] += r[2]; c[1] += r[3]; c[2] += r[4]; c[3] += r[5];
+    c[0] += _v256N(r[2]); c[1] += _v256N(r[3]); c[2] += _v256N(r[4]); c[3] += _v256N(r[5]);
     pm.set(r[1], c);
   };
   packs.forEach(p => {
@@ -33610,52 +33694,52 @@ function _v256MakeA(packs, d) {
     const bfc = _v256L(b.fc), names = _v256L(b.names), parts = _v256L(b.parts);
     _v256L(b.fc).forEach(r => {
       const a = fcFor(r[0]);
-      a.tot += r[1]; if (r[2] > a.last) a.last = r[2];
-      a.surveyed += r[3]; a.applied += r[4]; a.filed += r[4]; a.benefits += r[5]; a.recd += r[5];
-      a.livelihood += r[6]; a.intervention += r[7]; a.endline += r[8]; if (r[9]) a._held = 1;
+      a.tot += _v256N(r[1]); if (_v256N(r[2]) > a.last) a.last = _v256N(r[2]);
+      a.surveyed += _v256N(r[3]); a.applied += _v256N(r[4]); a.filed += _v256N(r[4]); a.benefits += _v256N(r[5]); a.recd += _v256N(r[5]);
+      a.livelihood += _v256N(r[6]); a.intervention += _v256N(r[7]); a.endline += _v256N(r[8]); if (r[9]) a._held = 1;
     });
     _v256L(w.fc).forEach(r => {
       const row = bfc[r[0]];
       if (!row) return;
       const a = fcFor(row[0]);
-      a.enrolledWin += r[1]; a.advWin += r[2]; a.appliedWin += r[3]; a.benefitsWin += r[4];
-      a.livelihoodWin += r[5]; a.interventionWin += r[6]; a.endlineWin += r[7];
+      a.enrolledWin += _v256N(r[1]); a.advWin += _v256N(r[2]); a.appliedWin += _v256N(r[3]); a.benefitsWin += _v256N(r[4]);
+      a.livelihoodWin += _v256N(r[5]); a.interventionWin += _v256N(r[6]); a.endlineWin += _v256N(r[7]);
     });
     _v256L(b.off).forEach(r => {
       const a = offFor(r[0]);
-      a.filed += r[1]; a.surveyed += r[2]; a.applied += r[3]; a.benefits += r[4]; a.livelihood += r[5]; a.intervention += r[6]; a.endline += r[7];
+      a.filed += _v256N(r[1]); a.surveyed += _v256N(r[2]); a.applied += _v256N(r[3]); a.benefits += _v256N(r[4]); a.livelihood += _v256N(r[5]); a.intervention += _v256N(r[6]); a.endline += _v256N(r[7]);
     });
     _v256L(w.off).forEach(r => {
       const a = offFor(r[0]);
-      a.enrolledWin += r[1]; a.advWin += r[2]; a.appliedWin += r[3]; a.benefitsWin += r[4];
-      a.livelihoodWin += r[5]; a.interventionWin += r[6]; a.endlineWin += r[7];
+      a.enrolledWin += _v256N(r[1]); a.advWin += _v256N(r[2]); a.appliedWin += _v256N(r[3]); a.benefitsWin += _v256N(r[4]);
+      a.livelihoodWin += _v256N(r[5]); a.interventionWin += _v256N(r[6]); a.endlineWin += _v256N(r[7]);
     });
     _v256L(b.pa).forEach(r => {
       const x = paFor(r[0]);
-      x.surveyed += r[1]; x.applied += r[2]; x.benefits += r[3]; x.livelihood += r[4]; x.intervention += r[5]; x.endline += r[6];
-      if (r[7] > x.last) x.last = r[7];
+      x.surveyed += _v256N(r[1]); x.applied += _v256N(r[2]); x.benefits += _v256N(r[3]); x.livelihood += _v256N(r[4]); x.intervention += _v256N(r[5]); x.endline += _v256N(r[6]);
+      if (_v256N(r[7]) > x.last) x.last = _v256N(r[7]);
     });
     _v256L(w.pa).forEach(r => {
       const x = paFor(r[0]);
-      x.advWin += r[1]; x.appliedWin += r[2]; x.benefitsWin += r[3]; x.livelihoodWin += r[4]; x.interventionWin += r[5]; x.endlineWin += r[6];
+      x.advWin += _v256N(r[1]); x.appliedWin += _v256N(r[2]); x.benefitsWin += _v256N(r[3]); x.livelihoodWin += _v256N(r[4]); x.interventionWin += _v256N(r[5]); x.endlineWin += _v256N(r[6]);
     });
-    _v256L(b.day).forEach(r => { const k = _v256Iso(_v256N(b.today) - r[0]); dayCounts.set(k, (dayCounts.get(k) || 0) + r[1]); });
-    _v256L(b.bday).forEach(r => { const k = _v256Iso(r[0]); benefitDayCounts.set(k, (benefitDayCounts.get(k) || 0) + r[1]); });
+    _v256L(b.day).forEach(r => { const k = _v256Iso(_v256N(b.today) - r[0]); dayCounts.set(k, (dayCounts.get(k) || 0) + _v256N(r[1])); });
+    _v256L(b.bday).forEach(r => { const k = _v256Iso(r[0]); benefitDayCounts.set(k, (benefitDayCounts.get(k) || 0) + _v256N(r[1])); });
     _v256L(b.vil).forEach(r => { const v = _v256Iso(r[1]); const c = villageFirst.get(r[0]); if (!c || v < c) villageFirst.set(r[0], v); });
     const L = _v256L(b.liv);
-    livN += L[0] || 0; endN += L[1] || 0; sumBase += L[2] || 0; sumEnd += L[3] || 0;
-    upliftBase += L[4] || 0; upliftAdded += L[5] || 0; overdue += L[6] || 0;
-    _v256L(b.stage).forEach(r => { stage[r[0]] = (stage[r[0]] || 0) + r[1]; });
-    _v256L(b.byInt).forEach(r => { const g = byInt.get(r[0]) || { n: 0, base: 0, end: 0 }; g.n += r[1]; g.base += r[2]; g.end += r[3]; byInt.set(r[0], g); });
-    _v256L(b.byNgoLiv).forEach(r => { const g = byNgoLiv.get(r[0]) || { n: 0, base: 0, end: 0 }; g.n += r[1]; g.base += r[2]; g.end += r[3]; byNgoLiv.set(r[0], g); });
+    livN += _v256N(L[0]); endN += _v256N(L[1]); sumBase += _v256N(L[2]); sumEnd += _v256N(L[3]);
+    upliftBase += _v256N(L[4]); upliftAdded += _v256N(L[5]); overdue += _v256N(L[6]);
+    _v256L(b.stage).forEach(r => { stage[r[0]] = (stage[r[0]] || 0) + _v256N(r[1]); });
+    _v256L(b.byInt).forEach(r => { const g = byInt.get(r[0]) || { n: 0, base: 0, end: 0 }; g.n += _v256N(r[1]); g.base += _v256N(r[2]); g.end += _v256N(r[3]); byInt.set(r[0], g); });
+    _v256L(b.byNgoLiv).forEach(r => { const g = byNgoLiv.get(r[0]) || { n: 0, base: 0, end: 0 }; g.n += _v256N(r[1]); g.base += _v256N(r[2]); g.end += _v256N(r[3]); byNgoLiv.set(r[0], g); });
     _v256L(b.sus).forEach(r => suspects.push({ id: r[0], name: r[1], ngo: r[2], createdBy: null, coord: r[3], baseIncome: r[4], endIncome: r[5] }));
     susN += _v256N(b.susN);
     const named = r => [parts[r[0]], names[r[1]], r[2], r[3], r[4], r[5]];
     _v256L(b.sch).forEach(r => addSch(schAll, named(r)));
     _v256L(w.sch).forEach(r => addSch(schWin, named(r)));
-    const T = _v256L(b.tot); totalEverEnrolled += T[0] || 0; advTotal += T[1] || 0;
+    const T = _v256L(b.tot); totalEverEnrolled += _v256N(T[0]); advTotal += _v256N(T[1]);
     enrolledWinTotal += _v256N(w.enr);
-    _v256L(w.nw).forEach(r => { const g = ngoWin.get(r[0]) || { n: 0, fcs: { size: 0 } }; g.n += r[1]; g.fcs.size += r[2]; ngoWin.set(r[0], g); });
+    _v256L(w.nw).forEach(r => { const g = ngoWin.get(r[0]) || { n: 0, fcs: { size: 0 } }; g.n += _v256N(r[1]); g.fcs.size += _v256N(r[2]); ngoWin.set(r[0], g); });
   });
   // (every day is kept: the trend chart reads only the days of its own window)
   const benefitsFellBack = !ALL && benefitDayCounts.size === 0;
@@ -33875,7 +33959,7 @@ function renderReports() {
       (!fleet ? '' : card('NGO comparison — window', 'Per FC = enrollments ÷ FCs who enrolled at least one beneficiary in the window.',
         tblWrap(`<table style="width:100%;border-collapse:collapse">
           <tr><th style="${TH}">NGO</th><th style="${THR}">Enrolled</th><th style="${THR}">Active FCs</th><th style="${THR}">Per FC</th><th style="${TH}">Share</th></tr>
-          ${ngoRows.map(([ngo, g]) => `<tr style="cursor:pointer" onclick="_v13RptDrill('', '${(ngo || '').replace(/'/g, "\\'")}')" title="Click to see ${esc(ngo || '—')}'s beneficiaries">
+          ${ngoRows.map(([ngo, g]) => `<tr style="cursor:pointer" onclick="_v13RptDrill('', '${_v2610js(ngo || '')}')" title="Click to see ${esc(ngo || '—')}'s beneficiaries">
             <td style="${TD}"><b>${esc(ngo || '—')}</b></td>
             <td style="${TDR}">${g.n.toLocaleString('en-IN')}</td>
             <td style="${TDR}">${g.fcs.size}</td>
@@ -34519,9 +34603,9 @@ function renderAdminPartners() {
       </td>
       <td style="text-align:center;font-weight:500">${_v261N(benefCount[p.name]||0)}</td>
       <td style="white-space:nowrap">
-        <button class="btn btn-sm" onclick="adminEditPartner('${escHtml(p.id)}')">Edit</button>
-        <button class="btn btn-sm" onclick="adminMergePartner('${escHtml(p.id)}')" title="Merge this partner into another (reassigns all beneficiaries and users, then deletes this partner)">Merge</button>
-        <button class="btn btn-sm" style="color:var(--red)" onclick="adminDeletePartner('${escHtml(p.id)}')">Delete</button>
+        <button class="btn btn-sm" onclick="adminEditPartner('${_v2610js(p.id)}')">Edit</button>
+        <button class="btn btn-sm" onclick="adminMergePartner('${_v2610js(p.id)}')" title="Merge this partner into another (reassigns all beneficiaries and users, then deletes this partner)">Merge</button>
+        <button class="btn btn-sm" style="color:var(--red)" onclick="adminDeletePartner('${_v2610js(p.id)}')">Delete</button>
       </td>
     </tr>`;
   }).join('');
@@ -34889,7 +34973,7 @@ function adminMergePartner(sourceId) {
       </select>
       <div style="display:flex;gap:8px;justify-content:flex-end">
         <button class="btn" onclick="document.getElementById('${modalId}').remove()">Cancel</button>
-        <button class="btn btn-primary" onclick="_adminMergePartnerConfirm('${escHtml(sourceId)}')">Merge</button>
+        <button class="btn btn-primary" onclick="_adminMergePartnerConfirm('${_v2610js(sourceId)}')">Merge</button>
       </div>
     </div>`;
   document.body.appendChild(div);
@@ -35082,7 +35166,7 @@ function renderAdminUsers() {
       scopedViewer:      ['#0EA5E9','Scoped Viewer'],
       scopedViewerByFc:  ['#DC2626','Team Leader']  // V376-TL
     };
-    const [c,l] = map[r] || ['#6B7280', r];
+    const [c,l] = (Object.prototype.hasOwnProperty.call(map, r) ? map[r] : null) || ['#6B7280', escHtml(String(r))];
     return `<span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:10px;background:${c}22;color:${c}">${l}</span>`;
   };
 
@@ -35100,10 +35184,10 @@ function renderAdminUsers() {
       <td style="font-size:13px">${u.ngo?escHtml(u.ngo):'<span style="color:var(--gray2)">—</span>'}</td>
       <td style="text-align:center;font-weight:500">${_v261N(owned)}</td>
       <td style="white-space:nowrap">
-        <button class="btn btn-sm" onclick="adminEditUser('${escHtml(u.id)}')">Edit</button>
-        ${_v11IsAdmin?`<button class="btn btn-sm" title="Give this person a temporary PIN. They must choose their own the next time they sign in." onclick="adminResetUserPin('${escHtml(u.id)}')">Reset PIN</button>`:''}
-        ${(_v11IsAdmin && !isMe)?`<button class="btn btn-sm" title="${_off?'Let this person sign in again and appear normally.':'This person has left or stopped working. They will not be able to sign in, and their name shows faded and last. Their beneficiaries do not move.'}" onclick="adminToggleInactive('${escHtml(u.id)}')">${_off?'Mark active':'Mark inactive'}</button>`:''}
-        ${isMe?'':`<button class="btn btn-sm" style="color:var(--red)" onclick="adminDeleteUser('${escHtml(u.id)}')">Delete</button>`}
+        <button class="btn btn-sm" onclick="adminEditUser('${_v2610js(u.id)}')">Edit</button>
+        ${_v11IsAdmin?`<button class="btn btn-sm" title="Give this person a temporary PIN. They must choose their own the next time they sign in." onclick="adminResetUserPin('${_v2610js(u.id)}')">Reset PIN</button>`:''}
+        ${(_v11IsAdmin && !isMe)?`<button class="btn btn-sm" title="${_off?'Let this person sign in again and appear normally.':'This person has left or stopped working. They will not be able to sign in, and their name shows faded and last. Their beneficiaries do not move.'}" onclick="adminToggleInactive('${_v2610js(u.id)}')">${_off?'Mark active':'Mark inactive'}</button>`:''}
+        ${isMe?'':`<button class="btn btn-sm" style="color:var(--red)" onclick="adminDeleteUser('${_v2610js(u.id)}')">Delete</button>`}
       </td>
     </tr>`;
   }).join('');
@@ -35653,7 +35737,7 @@ function renderAdminLivelihoods() {
 
   const rows = types.map((t, i) => `<tr>
     <td style="color:var(--gray2);font-size:12px;text-align:center">${i+1}</td>
-    <td><div class="bname">${t}</div></td>
+    <td><div class="bname">${escHtml(t)}</div></td>
     <td style="text-align:center;font-weight:500">${_v261N(usage[t]||0)}</td>
     <td style="white-space:nowrap">
       <button class="btn btn-sm" onclick="adminRenameLivType(${i})">Rename</button>
@@ -35825,7 +35909,7 @@ function renderAdminSchemes() {
     </td>`;
     return `<tr>
     <td style="color:var(--gray2);font-size:12px;text-align:center">${i+1}</td>
-    <td><div class="bname">${s}</div></td>
+    <td><div class="bname">${escHtml(s)}</div></td>
     ${typeCell}
     ${defCell}
     ${lockCell}
@@ -37175,18 +37259,18 @@ async function renderAdminBandwidth() {
       const bgStyle = i === 0 ? 'background:#FEE2E2' : (i < 3 ? 'background:#FEF3C7' : '');
       const colorStyle = i === 0 ? 'color:#7F1D1D;font-weight:600' : (i < 3 ? 'color:#78350F;font-weight:500' : '');
       return '<tr style="' + bgStyle + '">'
-        + '<td style="padding:8px 10px;font-size:13px">' + (r.fullName || r.userId || '—') + '</td>'
-        + '<td style="padding:8px 10px;font-size:12px;color:var(--gray2)">' + (r.role || '—') + '</td>'
+        + '<td style="padding:8px 10px;font-size:13px">' + escHtml(r.fullName || r.userId || '—') + '</td>'
+        + '<td style="padding:8px 10px;font-size:12px;color:var(--gray2)">' + escHtml(r.role || '—') + '</td>'
         + '<td style="padding:8px 10px;font-size:13px;text-align:right;' + colorStyle + '">' + _fmtBytes(r.bytes||0) + '</td>'
-        + '<td style="padding:8px 10px;font-size:12px;text-align:right">' + (r.sessions || 0) + '</td>'
-        + '<td style="padding:8px 10px;font-size:12px;text-align:right">' + (r.enrollments || 0) + '</td>'
-        + '<td style="padding:8px 10px;font-size:12px;text-align:right;color:' + ((r.reconnects||0) > 20 ? '#7F1D1D' : '#1F2937') + '">' + (r.reconnects || 0) + '</td>'
+        + '<td style="padding:8px 10px;font-size:12px;text-align:right">' + _v2610Num(r.sessions || 0) + '</td>'
+        + '<td style="padding:8px 10px;font-size:12px;text-align:right">' + _v2610Num(r.enrollments || 0) + '</td>'
+        + '<td style="padding:8px 10px;font-size:12px;text-align:right;color:' + ((r.reconnects||0) > 20 ? '#7F1D1D' : '#1F2937') + '">' + _v2610Num(r.reconnects || 0) + '</td>'
         // V19.2: the three cells that say whether the saved-copy machinery is
         // working for this account. 'Saved copy' reads hits/misses; a red
         // number under 'Problems' is save-failures + whole-database
         // fall-throughs, either of which explains an expensive day.
-        + '<td style="padding:8px 10px;font-size:12px;text-align:right">' + (r.pantryHit || 0) + ' / ' + (r.pantryMiss || 0) + '</td>'
-        + '<td style="padding:8px 10px;font-size:12px;text-align:right;color:' + (((r.saveFailed||0)+(r.fellThrough||0)) > 0 ? '#7F1D1D;font-weight:600' : '#1F2937') + '">' + ((r.saveFailed || 0) + (r.fellThrough || 0)) + '</td>'
+        + '<td style="padding:8px 10px;font-size:12px;text-align:right">' + _v2610Num(r.pantryHit || 0) + ' / ' + _v2610Num(r.pantryMiss || 0) + '</td>'
+        + '<td style="padding:8px 10px;font-size:12px;text-align:right;color:' + (((r.saveFailed||0)+(r.fellThrough||0)) > 0 ? '#7F1D1D;font-weight:600' : '#1F2937') + '">' + (_v2610Num(r.saveFailed || 0) + _v2610Num(r.fellThrough || 0)) + '</td>'
         + '<td style="padding:8px 10px;font-size:12px;text-align:right">' + Object.keys(r.machines || {}).length + '</td>'
         + '<td style="padding:8px 10px;font-size:12px">' + (r.how === 'installed' ? 'app' : (r.how ? 'browser' : '\u2014')) + '</td>'
         + '</tr>';
@@ -37287,7 +37371,7 @@ async function renderAdminBandwidth() {
       renderAdminBandwidth();
     });
   } catch (e) {
-    content.innerHTML = '<div class="empty">Error loading: ' + (e && e.message ? e.message : e) + '</div>';
+    content.innerHTML = '<div class="empty">Error loading: ' + escHtml(e && e.message ? e.message : e) + '</div>';
   }
 }
 
@@ -37338,13 +37422,13 @@ function renderAdminAuditLog() {
         const usernameHint = (displayName !== e.username && e.username) ? ` <span style="font-size:10px;color:var(--gray2)">(${escHtml(e.username)})</span>` : '';
         const who = escHtml(displayName) + usernameHint + (e.role ? ` <span style="font-size:10px;color:var(--gray2)">· ${escHtml(e.role)}${e.ngo?' · '+escHtml(e.ngo):''}</span>` : '');
         const summary = escHtml(_v258AuditText(e.summary || ''));   // V25.8
-        const recordLabel = (e.recordLabel||e.recordId||'').replace(/</g,'&lt;');
+        const recordLabel = escHtml(e.recordLabel||e.recordId||'');
         return `<tr>
           <td style="white-space:nowrap;font-size:11px;color:var(--gray1);font-family:monospace">${_formatAuditTs(e.ts)}</td>
           <td style="font-size:12px">${who}</td>
-          <td><span style="display:inline-block;padding:2px 8px;border-radius:10px;background:${col}22;color:${col};font-size:10px;font-weight:600;text-transform:uppercase">${label}</span></td>
-          <td style="font-size:12px;color:var(--gray1)">${rtype}</td>
-          <td style="font-size:12px"><div style="font-weight:500">${recordLabel}</div>${e.recordId && e.recordId !== e.recordLabel ? `<div style="font-size:10px;color:var(--gray2);font-family:monospace">${e.recordId}</div>` : ''}</td>
+          <td><span style="display:inline-block;padding:2px 8px;border-radius:10px;background:${col}22;color:${col};font-size:10px;font-weight:600;text-transform:uppercase">${escHtml(label)}</span></td>
+          <td style="font-size:12px;color:var(--gray1)">${escHtml(rtype)}</td>
+          <td style="font-size:12px"><div style="font-weight:500">${recordLabel}</div>${e.recordId && e.recordId !== e.recordLabel ? `<div style="font-size:10px;color:var(--gray2);font-family:monospace">${escHtml(e.recordId)}</div>` : ''}</td>
           <td style="font-size:12px;color:var(--gray1);line-height:1.4">${summary}</td>
         </tr>`;
       }).join('');
@@ -37365,15 +37449,15 @@ function renderAdminAuditLog() {
         <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
           <select class="fsel" onchange="_auditFilters.action=this.value;_auditFilters.page=0;renderAdminAuditLog()">
             <option value="">All Actions</option>
-            ${uniqActions.map(a => `<option value="${a}" ${_auditFilters.action===a?'selected':''}>${_auditActionLabel(a)}</option>`).join('')}
+            ${uniqActions.map(a => `<option value="${escHtml(a)}" ${_auditFilters.action===a?'selected':''}>${escHtml(_auditActionLabel(a))}</option>`).join('')}
           </select>
           <select class="fsel" onchange="_auditFilters.recordType=this.value;_auditFilters.page=0;renderAdminAuditLog()">
             <option value="">All Record Types</option>
-            ${uniqTypes.map(t => `<option value="${t}" ${_auditFilters.recordType===t?'selected':''}>${_auditRecordTypeLabel(t)}</option>`).join('')}
+            ${uniqTypes.map(t => `<option value="${escHtml(t)}" ${_auditFilters.recordType===t?'selected':''}>${escHtml(_auditRecordTypeLabel(t))}</option>`).join('')}
           </select>
           <select class="fsel" onchange="_auditFilters.user=this.value;_auditFilters.page=0;renderAdminAuditLog()">
             <option value="">All Users</option>
-            ${uniqUsers.map(u => `<option value="${u}" ${_auditFilters.user===u?'selected':''}>${u}</option>`).join('')}
+            ${uniqUsers.map(u => `<option value="${escHtml(u)}" ${_auditFilters.user===u?'selected':''}>${escHtml(u)}</option>`).join('')}
           </select>
           <label style="font-size:11px;color:var(--gray2)">From <input type="date" value="${_auditFilters.from}" onchange="_auditFilters.from=this.value;_auditFilters.page=0;renderAdminAuditLog()" style="font-size:12px;padding:4px 6px;border:1px solid var(--gray3);border-radius:5px"></label>
           <label style="font-size:11px;color:var(--gray2)">To <input type="date" value="${_auditFilters.to}" onchange="_auditFilters.to=this.value;_auditFilters.page=0;renderAdminAuditLog()" style="font-size:12px;padding:4px 6px;border:1px solid var(--gray3);border-radius:5px"></label>
@@ -39047,7 +39131,7 @@ function _transferRenderList() {
   _transferShown = match.slice(0, CAP).map(b => b.id);
   const rows = match.slice(0, CAP).map(b => `
     <label style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--gray4);cursor:pointer;font-size:12.5px">
-      <input type="checkbox" ${_transferSel.has(b.id) ? 'checked' : ''} onchange="_transferToggle('${escHtml(b.id)}', this)">
+      <input type="checkbox" ${_transferSel.has(b.id) ? 'checked' : ''} onchange="_transferToggle('${_v2610js(b.id)}', this)">
       <span style="font-weight:600;color:var(--navy);white-space:nowrap">${escHtml(b.id)}</span>
       <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(b.name || '—')}</span>
       <span style="color:var(--gray2);white-space:nowrap">${escHtml(b.village || '')}</span>
@@ -39237,7 +39321,7 @@ function _bulkAssignRenderList() {
   _bulkAssignShown = match.slice(0, CAP).map(b => b.id);
   const rows = match.slice(0, CAP).map(b => `
     <label style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--gray4);cursor:pointer;font-size:12.5px">
-      <input type="checkbox" ${_bulkAssignSel.has(b.id) ? 'checked' : ''} onchange="_bulkAssignToggle('${escHtml(b.id)}', this)">
+      <input type="checkbox" ${_bulkAssignSel.has(b.id) ? 'checked' : ''} onchange="_bulkAssignToggle('${_v2610js(b.id)}', this)">
       <span style="font-weight:600;color:var(--navy);white-space:nowrap">${escHtml(b.id)}</span>
       <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(b.name || '—')}</span>
       <span style="color:var(--gray2);white-space:nowrap">${escHtml(b.village || '')}</span>
@@ -39540,9 +39624,9 @@ function openReassign(bid) {
   pool.forEach(c => { (byNgo[c.ngo||'(no NGO)'] = byNgo[c.ngo||'(no NGO)']||[]).push(c); });
   const groups = Object.keys(byNgo).sort().map(ngoName => {
     const opts = byNgo[ngoName].map(c =>
-      `<option value="${c.id}">${c.fullName || c.username}</option>`
+      `<option value="${escHtml(c.id)}">${escHtml(c.fullName || c.username)}</option>`
     ).join('');
-    return `<optgroup label="${ngoName}">${opts}</optgroup>`;
+    return `<optgroup label="${escHtml(ngoName)}">${opts}</optgroup>`;
   }).join('');
 
   const currentOwner = allUsers.find(x => x.id === b.createdBy);
@@ -42479,6 +42563,7 @@ function _v224DecodeDash(A) {
   if (A.recent) {
     out.recent = { recs: A.recent.recs || {}, adv: A.recent.adv || {} };
   }
+  _v2610CleanDash(out);
   return out;
 }
 function _v224BuildDashPayload(list, advLatest) {
@@ -43815,7 +43900,7 @@ function mountViewerApp() {
   root.innerHTML =
     '<div style="background:var(--navy);color:#fff;padding:14px 16px;display:flex;align-items:center;justify-content:space-between">'
     +   '<div>'
-    +     '<div style="font-size:11px;opacity:0.7">KRSF Impact · ' + (u.fullName || u.username || 'Viewer') + '</div>'
+    +     '<div style="font-size:11px;opacity:0.7">KRSF Impact · ' + escHtml(u.fullName || u.username || 'Viewer') + '</div>'
     +     '<div style="font-size:13px;font-weight:600;margin-top:2px">' + scopeLabel + '</div>'
     +   '</div>'
     +   '<div style="display:flex;align-items:center;gap:8px">'
@@ -43931,7 +44016,7 @@ function _v362BuildTabDashboard(d) {
     html += '<div style="font-size:11px;color:#6B7280;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;margin-bottom:10px">Top 5 FCs by enrollment</div>';
     dd.topFCs.forEach(function(fc, i) {
       html += '<div style="display:flex;justify-content:space-between;padding:8px 0;border-top:'+(i===0?'none':'1px solid #F3F4F6')+'">'
-        + '<span style="font-size:13px">' + (fc.name || '?').substring(0, 28) + '</span>'
+        + '<span style="font-size:13px">' + escHtml(String(fc.name || '?').substring(0, 28)) + '</span>'
         + '<span style="font-size:13px;font-weight:600;color:var(--navy)">' + _v362Num(fc.count) + '</span>'
         + '</div>';
     });
@@ -43952,7 +44037,7 @@ function _v362BuildTabDashboard(d) {
       + '</tr></thead><tbody>';
     ngoRows.forEach(function(r, i) {
       html += '<tr style="border-top:1px solid #F3F4F6">'
-        + '<td style="padding:7px 4px;font-weight:600">' + (r.name || '').substring(0, 24) + '</td>'
+        + '<td style="padding:7px 4px;font-weight:600">' + escHtml(String(r.name || '').substring(0, 24)) + '</td>'
         + '<td style="text-align:right;padding:7px 4px;font-weight:600;color:var(--navy)">' + _v362Num(r.total) + '</td>'
         + '<td style="text-align:right;padding:7px 4px;color:#065F46;font-weight:'+((r.today||0)>0?'700':'400')+'">' + _v362Num(r.today) + '</td>'
         + '<td style="text-align:right;padding:7px 4px;color:#1D4ED8">' + _v362Num(r.yesterday) + '</td>'
@@ -44021,7 +44106,7 @@ function _v362BuildProgressSection(d) {
   for (let i = wks.length - 1; i >= 0; i--) {
     const w = wks[i];
     html += '<tr style="border-top:1px solid #F3F4F6;text-align:right">'
-      + '<td style="text-align:left;padding:6px 2px">' + w.week + '</td>'
+      + '<td style="text-align:left;padding:6px 2px">' + escHtml(w.week) + '</td>'
       + '<td style="padding:6px 2px">' + _v362Num(w.enrolled) + '</td>'
       + '<td style="padding:6px 2px">' + _v362Num(w.applied) + '</td>'
       + '<td style="padding:6px 2px;color:#065F46;font-weight:600">' + _v362Num(w.received) + '</td>'
@@ -44382,7 +44467,7 @@ function _renderCoordAlerts() {
       `${_v221Stuck.people === 1 ? 'person' : 'people'} still waiting to be applied for</div>` : '')
     + (_more > 0 ? `<div style="padding:8px 14px;color:var(--gray2);font-size:12px">Showing the ${_V221_PAGE} most urgent of ${_v261N(_sorted.length)}.</div>` : '')
     + _sorted.slice(0, _V221_PAGE).map(a => `
-    <div class="alert alert-${a.type}" ${a.id ? `onclick="openDrawer('${a.id}')" style="cursor:pointer"` : ''}
+    <div class="alert alert-${a.type}" ${a.id ? `onclick="openDrawer('${_v2610js(a.id)}')" style="cursor:pointer"` : ''}
       style="margin-bottom:8px;border-radius:8px;padding:10px 14px;display:flex;align-items:flex-start;gap:10px;
              background:${a.type==='red'?'#FEF2F2':a.type==='amber'?'#FFFBEB':'#F0FDF4'};
              border-left:4px solid ${a.type==='red'?'#EF4444':a.type==='amber'?'#F59E0B':'#10B981'}">
@@ -44465,7 +44550,7 @@ function coordOpenStatusSheet(bid, scheme, remarks, currentStatus) {
   } catch(_) {}
   const _esc = (typeof escHtml === 'function') ? escHtml :
               (s => String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])));
-  const _q = s => String(s == null ? '' : s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  const _q = s => _v2610js(s);
   const opts = STATUSES.map(s => {
     const c = COLORS[s] || {bg:'#F3F4F6', fg:'#374151'};
     const active = (s === currentStatus);
@@ -45797,8 +45882,8 @@ function coordCardHtml(b, advByBid) {
   const _v229St = hasLiv ? _v174Stage(b) : null;
   const _v229Short = {'Enrolled': 'Baseline', 'Intervention In Progress': 'Intervention', 'Completed': 'Endline'};
   const stagePill = (hasLiv && _v229Short[_v229St])
-    ? `<button type="button" class="coord-card-pill v229-stage" data-v229stage="${escHtml(b.id)}" data-state="idle" style="background:${sc.bg};color:${sc.fg}" onclick="event.stopPropagation();_v229StageTap('${String(b.id).replace(/'/g, "\\'")}', this)" aria-label="Stage: ${escHtml(stageLabel(_v229St))}"><span class="v229-icon"></span><span class="v229-lab">${_v229Short[_v229St]}${_v229St !== 'Completed' ? ' &#8250;' : ''}</span></button>`
-    : `<span class="coord-card-pill" style="background:${sc.bg};color:${sc.fg}">${stagePillLabel}</span>`;
+    ? `<button type="button" class="coord-card-pill v229-stage" data-v229stage="${escHtml(b.id)}" data-state="idle" style="background:${sc.bg};color:${sc.fg}" onclick="event.stopPropagation();_v229StageTap('${_v2610js(b.id)}', this)" aria-label="Stage: ${escHtml(stageLabel(_v229St))}"><span class="v229-icon"></span><span class="v229-lab">${_v229Short[_v229St]}${_v229St !== 'Completed' ? ' &#8250;' : ''}</span></button>`
+    : `<span class="coord-card-pill" style="background:${sc.bg};color:${sc.fg}">${escHtml(stagePillLabel)}</span>`;
   const progPills = [];
   // V6.8.1: Livelihood pill recoloured pink (was {bg:'#FEF3C7',fg:'#B45309'}
   // — the exact same amber pair as a "Need to Apply" scheme tag in
@@ -45813,7 +45898,7 @@ function coordCardHtml(b, advByBid) {
   // V6.8.1: village text built once so it can move up next to the ID.
   const villageTxt = esc(b.village || '—') + (b.district ? ', ' + esc((b.district.split(',')[0] || '').trim()) : '');
   return `
-    <div class="coord-card" onclick="openDrawer('${b.id}')">
+    <div class="coord-card" onclick="openDrawer('${_v2610js(b.id)}')">
       <div class="coord-card-top">
         <div style="min-width:0;flex:1 1 170px">
           <div class="coord-card-name">${esc(b.name)}</div>
@@ -45851,9 +45936,9 @@ function coordCardHtml(b, advByBid) {
           var html = rows.map(function(r){
             var status = _advNormStatus(r);
             var c = COL[status] || {bg:'#F3F4F6', fg:'#374151'};
-            var sId = String(b.id).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-            var sSc = String(r.scheme||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-            var sRk = String(r.remarks||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+            var sId = _v2610js(b.id);
+            var sSc = _v2610js(r.scheme||'');
+            var sRk = _v2610js(r.remarks||'');
             return '<span class="coord-scheme-tag" data-v229tag="' + esc(b.id + '|' + (r.scheme||'') + '|' + (r.remarks||'')) + '" data-state="idle" '
               + 'style="background:' + c.bg + ';color:' + c.fg + ';border-color:' + c.fg + '33" '
               + 'onclick="event.stopPropagation();coordOpenStatusSheet(\''+sId+'\',\''+sSc+'\',\''+sRk+'\',\''+status+'\')" '
@@ -45864,7 +45949,7 @@ function coordCardHtml(b, advByBid) {
       })()}
       ${(function(){
         // V22.9: shortcuts to the app's own two forms.
-        const _q = String(b.id).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        const _q = _v2610js(b.id);
         return '<div class="v229-actions">'
           + (hasLiv ? `<button type="button" class="v229-act" onclick="event.stopPropagation();_v229OpenIncome('${_q}')">+ Add income</button>` : '')
           + `<button type="button" class="v229-act" onclick="event.stopPropagation();_v229OpenAdv('${_q}')">+ Add scheme</button>`
@@ -49752,7 +49837,7 @@ function renderAdminSchemeOwners() {
     doneHtml = '<div style="background:' + (good ? '#ECFDF5' : '#FEF2F2') + ';border:1px solid ' + (good ? '#10B981' : '#EF4444')
       + ';border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:13px;color:' + (good ? '#065F46' : '#7F1D1D') + '">'
       + '<b>' + (good ? '\u2713 Done' : 'Stopped') + '</b> &mdash; ' + line
-      + (L.batchId && L.kind !== 'undo' ? ' <button class="btn btn-sm" style="margin-left:8px" onclick="_v240UndoOwnerFix(\'' + L.batchId + '\')">Put them back</button>' : '')
+      + (L.batchId && L.kind !== 'undo' ? ' <button class="btn btn-sm" style="margin-left:8px" onclick="_v240UndoOwnerFix(\'' + _v2610js(L.batchId) + '\')">Put them back</button>' : '')
       + '</div>';
   }
   el.innerHTML = _adminSecurityBanner() + '<div class="card"><div class="card-head"><div class="card-title">Scheme records by coordinator</div>'
@@ -50075,7 +50160,7 @@ function renderAdminDateFix() {
     doneHtml = '<div style="background:' + (good ? '#ECFDF5' : '#FEF2F2') + ';border:1px solid ' + (good ? '#10B981' : '#EF4444')
       + ';border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:13px;color:' + (good ? '#065F46' : '#7F1D1D') + '">'
       + '<b>' + (good ? '\u2713 Done' : 'Stopped') + '</b> &mdash; ' + line
-      + (L.kind === 'run' && L.batchId ? ' <button class="btn btn-sm" style="margin-left:8px" onclick="_v241UndoDateFix(\'' + L.batchId + '\')">Put them back</button>' : '')
+      + (L.kind === 'run' && L.batchId ? ' <button class="btn btn-sm" style="margin-left:8px" onclick="_v241UndoDateFix(\'' + _v2610js(L.batchId) + '\')">Put them back</button>' : '')
       + '</div>';
   }
   el.innerHTML = _adminSecurityBanner() + '<div class="card"><div class="card-head"><div class="card-title">Dates saved as numbers</div>'
@@ -50099,7 +50184,7 @@ function renderAdminStampFix() {
         return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:13px;padding:4px 0">'
           + '<span>' + escHtml(new Date(b.at).toLocaleString('en-IN')) + ' \u2014 ' + b.moves + ' record'
           + (b.moves === 1 ? '' : 's') + '</span>'
-          + '<button class="btn btn-sm" onclick="_v222UndoStampFix(\'' + b.id + '\')" '
+          + '<button class="btn btn-sm" onclick="_v222UndoStampFix(\'' + _v2610js(b.id) + '\')" '
           + (_v222Busy ? 'disabled' : '') + '>Put them back</button></div>';
       }).join('')
     + '<div style="font-size:12px;color:var(--gray2);margin-top:6px">A correction can be put back while you are '
@@ -50198,7 +50283,7 @@ function renderAdminUserImport() {
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn btn-primary btn-sm" onclick="nav('admin_users')">See the user list</button>
-            <button class="btn btn-sm" onclick="_v220Undo('${R.batchId}')" ${_v220Busy ? 'disabled' : ''}>Undo this import</button>
+            <button class="btn btn-sm" onclick="_v220Undo('${_v2610js(R.batchId)}')" ${_v220Busy ? 'disabled' : ''}>Undo this import</button>
             <button class="btn btn-sm" onclick="_v220Reset()">Import another file</button>
           </div>
         </div></div>
@@ -50281,7 +50366,7 @@ function renderAdminUserImport() {
           <td>${escHtml(new Date(b.at || Date.now()).toLocaleString('en-IN'))}</td>
           <td>${escHtml(b.by || '—')}</td>
           <td style="text-align:center">${b.users.length}</td>
-          <td><button class="btn btn-sm" onclick="_v220Undo('${b.id}')" ${_v220Busy ? 'disabled' : ''}>Undo</button></td>
+          <td><button class="btn btn-sm" onclick="_v220Undo('${_v2610js(b.id)}')" ${_v220Busy ? 'disabled' : ''}>Undo</button></td>
         </tr>`).join('')}
         </tbody></table></div>` : ''}
     </div>`;
@@ -50385,19 +50470,19 @@ function renderAdminImport() {
                   if (b.editedCount > 0)  activityBits.push(`<span style="color:var(--amber)">${b.editedCount} edited</span>`);
                   if (b.endlineCount > 0) activityBits.push(`<span style="color:var(--amber)">${b.endlineCount} endline</span>`);
                   const activityHtml = activityBits.length > 0 ? activityBits.join(', ') : '<span style="color:var(--gray2)">—</span>';
-                  const fileLabel = b.fileName ? `<div style="font-size:11px;color:var(--gray2);margin-top:2px">${b.fileName}</div>` : '';
+                  const fileLabel = b.fileName ? `<div style="font-size:11px;color:var(--gray2);margin-top:2px">${escHtml(b.fileName)}</div>` : '';
                   return `
                   <tr style="border-top:1px solid var(--gray3)">
                     <td style="padding:10px;font-family:var(--mono);font-size:12px;color:var(--gray1)">
-                      ${b.id}
+                      ${escHtml(b.id)}
                       ${fileLabel}
                     </td>
                     <td style="padding:10px;font-size:12px;color:var(--gray1)">${_fmtBatchDate(b.createdAt)}</td>
                     <td style="padding:10px;font-weight:600">${b.records.length}</td>
-                    <td style="padding:10px;font-size:12px">${[...b.partners].join(', ')}</td>
+                    <td style="padding:10px;font-size:12px">${escHtml([...b.partners].join(', '))}</td>
                     <td style="padding:10px;font-size:12px">${activityHtml}</td>
                     <td style="padding:8px 10px;text-align:right">
-                      <button class="btn btn-sm" style="color:var(--red);border-color:var(--red)" onclick="undoImportBatch('${b.id}')" title="Permanently delete every record in this batch">↶ Undo</button>
+                      <button class="btn btn-sm" style="color:var(--red);border-color:var(--red)" onclick="undoImportBatch('${_v2610js(b.id)}')" title="Permanently delete every record in this batch">↶ Undo</button>
                     </td>
                   </tr>`;
                 }).join('')}
@@ -50438,7 +50523,7 @@ function renderAdminImport() {
     <div style="max-width:1200px;margin:0 auto">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
         <h1 style="font-size:20px;margin:0">Import Preview</h1>
-        <span style="font-size:13px;color:var(--gray2)">${_importState.fileName} · ${v.length} rows</span>
+        <span style="font-size:13px;color:var(--gray2)">${escHtml(_importState.fileName)} · ${v.length} rows</span>
         <button class="btn btn-sm" style="margin-left:auto" onclick="_resetImportState()">Start over</button>
       </div>
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
@@ -50548,7 +50633,7 @@ function _renderImportSummary() {
       <div style="background:#fff;border:1px solid var(--gray3);border-radius:8px;padding:14px">
         <div style="font-weight:600;margin-bottom:10px;font-size:13px;text-transform:uppercase;color:var(--gray2);letter-spacing:.05em">Rows per partner</div>
         ${Object.entries(partnerDist).sort((a,b)=>b[1]-a[1]).map(([n,c]) =>
-          `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;border-bottom:1px solid var(--gray4)"><span>${n}</span><strong>${c}</strong></div>`
+          `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;border-bottom:1px solid var(--gray4)"><span>${escHtml(n)}</span><strong>${c}</strong></div>`
         ).join('')}
       </div>
       <div style="background:#fff;border:1px solid var(--gray3);border-radius:8px;padding:14px">
@@ -50556,7 +50641,7 @@ function _renderImportSummary() {
         ${topMessages.length === 0
           ? '<div style="color:var(--green);font-size:13px">No issues detected — all rows pass validation.</div>'
           : topMessages.map(([msg,c]) =>
-            `<div style="padding:5px 0;font-size:12px;border-bottom:1px solid var(--gray4)"><strong style="color:var(--gray1)">${c}×</strong> ${msg}</div>`
+            `<div style="padding:5px 0;font-size:12px;border-bottom:1px solid var(--gray4)"><strong style="color:var(--gray1)">${c}×</strong> ${escHtml(msg)}</div>`
           ).join('')}
       </div>
     </div>
@@ -50580,9 +50665,9 @@ function _renderImportDetail() {
     return `
       <tr onclick="_setImportActiveRow(${i})" style="cursor:pointer;background:${selected ? 'var(--navy3)' : 'transparent'}">
         <td style="padding:8px;text-align:center;width:40px"><span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${statusBg};color:${statusColor};font-weight:700;font-size:12px">${icon}</span></td>
-        <td style="padding:8px;font-weight:500">${r.parsed?.name || '(blank)'}${fmBadge}</td>
-        <td style="padding:8px;color:var(--gray2);font-size:12px">${r.parsed?.village || '—'}, ${r.parsed?.district || '—'}</td>
-        <td style="padding:8px;font-size:12px">${r.parsed?.ngo || '—'}</td>
+        <td style="padding:8px;font-weight:500">${escHtml(r.parsed?.name || '(blank)')}${fmBadge}</td>
+        <td style="padding:8px;color:var(--gray2);font-size:12px">${escHtml(r.parsed?.village || '—')}, ${escHtml(r.parsed?.district || '—')}</td>
+        <td style="padding:8px;font-size:12px">${escHtml(r.parsed?.ngo || '—')}</td>
         <td style="padding:8px;text-align:right;font-size:12px;color:var(--gray2)">${r.errors.length}E / ${r.warnings.length}W</td>
       </tr>
     `;
@@ -50627,27 +50712,27 @@ function _renderImportRowDetail(idx) {
           <span style="font-size:16px">👨‍👩‍👧</span>
           <span>Family member</span>
         </div>
-        <div style="font-size:12px;color:var(--gray1)">Will be linked to <b>${headName.replace(/</g,'&lt;')}</b> (row ${r.headRowIdx + 1}). Saved as advocacy-only — livelihood data on this row is ignored.</div>
+        <div style="font-size:12px;color:var(--gray1)">Will be linked to <b>${escHtml(headName)}</b> (row ${r.headRowIdx + 1}). Saved as advocacy-only — livelihood data on this row is ignored.</div>
       </div>`;
   }
   return `
     <div style="padding:16px">
-      <div style="font-weight:600;font-size:15px;margin-bottom:4px">${p.name || '(no name)'}</div>
-      <div style="color:var(--gray2);font-size:12px;margin-bottom:14px">Row ${idx + 1} · ${p.village || '—'} · ${p.ngo || '—'}</div>
+      <div style="font-weight:600;font-size:15px;margin-bottom:4px">${escHtml(p.name || '(no name)')}</div>
+      <div style="color:var(--gray2);font-size:12px;margin-bottom:14px">Row ${idx + 1} · ${escHtml(p.village || '—')} · ${escHtml(p.ngo || '—')}</div>
 
       ${_fmBlockHtml}
 
       ${r.errors.length > 0 ? `
         <div style="background:var(--red2);border-left:3px solid var(--red);border-radius:4px;padding:10px 12px;margin-bottom:12px">
           <div style="font-weight:600;color:var(--red);font-size:12px;margin-bottom:6px;text-transform:uppercase">Errors (blocks import)</div>
-          ${r.errors.map(e => `<div style="font-size:13px;color:var(--gray1);margin-bottom:4px">• ${e}</div>`).join('')}
+          ${r.errors.map(e => `<div style="font-size:13px;color:var(--gray1);margin-bottom:4px">• ${escHtml(e)}</div>`).join('')}
         </div>
       ` : ''}
 
       ${r.warnings.length > 0 ? `
         <div style="background:var(--amber2);border-left:3px solid var(--amber);border-radius:4px;padding:10px 12px;margin-bottom:12px">
           <div style="font-weight:600;color:var(--amber);font-size:12px;margin-bottom:6px;text-transform:uppercase">Warnings (review but allowed)</div>
-          ${r.warnings.map(w => `<div style="font-size:13px;color:var(--gray1);margin-bottom:4px">• ${w}</div>`).join('')}
+          ${r.warnings.map(w => `<div style="font-size:13px;color:var(--gray1);margin-bottom:4px">• ${escHtml(w)}</div>`).join('')}
         </div>
       ` : ''}
 
@@ -50662,8 +50747,8 @@ function _renderImportRowDetail(idx) {
         ${r.isFamilyMember
           ? `<div style="color:var(--gray2)">Stored as</div><div>Family member (advocacy-only)</div>`
           : `<div style="color:var(--gray2)">Baseline income</div><div>${p.baseIncome ? '₹' + p.baseIncome.toLocaleString('en-IN') : '—'}</div>
-             <div style="color:var(--gray2)">Household size</div><div>${p.hhSize || '—'}</div>`}
-        <div style="color:var(--gray2)">Interventions</div><div>${(p.interventions || []).join(', ') || '—'}</div>
+             <div style="color:var(--gray2)">Household size</div><div>${escHtml(p.hhSize || '—')}</div>`}
+        <div style="color:var(--gray2)">Interventions</div><div>${escHtml((p.interventions || []).join(', ') || '—')}</div>
         ${p.schemeRows && p.schemeRows.length > 0 ? `<div style="color:var(--gray2)">Schemes</div><div>${p.schemeRows.map(s => escHtml(s.scheme + (s.remarks ? ' [' + s.remarks + ']' : '') + ' (' + s.status + ')')).join(', ')}</div>` : ''}
         <div style="color:var(--gray2)">Coordinator</div><div>${escHtml(p.coord || '—')}</div>
       </div>
@@ -51541,15 +51626,15 @@ function _renderEndlineUndoPanel() {
         ${batches.map(b => `
           <div style="background:var(--gray4);border:1px solid var(--gray3);border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
             <div style="flex:1;min-width:200px">
-              <div style="font-size:13px;font-weight:600">${b.batchId}</div>
+              <div style="font-size:13px;font-weight:600">${escHtml(b.batchId)}</div>
               <div style="font-size:11px;color:var(--gray2);margin-top:2px">
-                ${fmtD((b.at||'').split('T')[0])} · ${(b.by||'').replace(/</g,'&lt;')}${b.fileName && b.fileName !== '(unknown file)' ? ` · <code style="font-size:10px">${b.fileName.replace(/</g,'&lt;')}</code>` : ''}
+                ${fmtD((b.at||'').split('T')[0])} · ${escHtml(b.by||'')}${b.fileName && b.fileName !== '(unknown file)' ? ` · <code style="font-size:10px">${escHtml(b.fileName)}</code>` : ''}
               </div>
             </div>
             <div style="font-size:12px;color:var(--gray1)">
               <strong>${b.bids.length}</strong> beneficiar${b.bids.length===1?'y':'ies'}
             </div>
-            <button class="btn btn-sm" onclick="_startEndlineUndo('${b.batchId}')">Review &amp; Undo</button>
+            <button class="btn btn-sm" onclick="_startEndlineUndo('${_v2610js(b.batchId)}')">Review &amp; Undo</button>
           </div>
         `).join('')}
       </div>
@@ -51570,7 +51655,7 @@ function _renderEndlineUndoReview() {
     return `
       <div style="max-width:700px;margin:0 auto;padding:40px">
         <h1 style="font-size:20px;margin-bottom:12px">Batch not found</h1>
-        <p style="color:var(--gray1)">The batch ${batchId.replace(/</g,'&lt;')} is no longer available. It may have been undone from another session.</p>
+        <p style="color:var(--gray1)">The batch ${escHtml(batchId)} is no longer available. It may have been undone from another session.</p>
         <button class="btn btn-primary" onclick="_cancelEndlineUndo()" style="margin-top:14px">Back</button>
       </div>
     `;
@@ -51591,27 +51676,27 @@ function _renderEndlineUndoReview() {
     const fmtMoney = n => n != null ? '₹'+n.toLocaleString('en-IN') : '—';
     return `
       <tr style="border-top:1px solid var(--gray3);${r.hasConflict?'background:#FFFBEB':''}">
-        <td style="padding:8px;font-size:11px;font-family:var(--mono,monospace);color:var(--gray1)">${r.bid}</td>
+        <td style="padding:8px;font-size:11px;font-family:var(--mono,monospace);color:var(--gray1)">${escHtml(r.bid)}</td>
         <td style="padding:8px;font-size:12px">
           <div style="font-weight:600">${r.name.replace(/</g,'&lt;')}</div>
           <div style="font-size:10px;color:var(--gray2)">${[r.village,r.district].filter(Boolean).join(', ').replace(/</g,'&lt;')}</div>
         </td>
         <td style="padding:8px;text-align:right;font-size:12px">
           <div>${fmtMoney(r.currentEndIncome)}</div>
-          <div style="font-size:10px;color:var(--gray2)">${r.currentStatus||'—'}</div>
+          <div style="font-size:10px;color:var(--gray2)">${escHtml(r.currentStatus||'—')}</div>
         </td>
         <td style="padding:8px;text-align:right;font-size:12px">
           <div style="font-weight:600">${fmtMoney(r.snapshotEndIncome)}</div>
-          <div style="font-size:10px;color:var(--gray2)">${r.snapshotStatus||'—'}</div>
+          <div style="font-size:10px;color:var(--gray2)">${escHtml(r.snapshotStatus||'—')}</div>
         </td>
         <td style="padding:8px;font-size:12px">
           ${r.hasConflict
-            ? `<span style="color:#92400E;font-weight:600">⚠ ${r.conflictReason}</span>`
+            ? `<span style="color:#92400E;font-weight:600">⚠ ${escHtml(r.conflictReason)}</span>`
             : `<span style="color:var(--gray2)">No post-batch edits</span>`}
         </td>
         <td style="padding:8px;text-align:center">
           <label style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:${keepColor};cursor:pointer">
-            <input type="checkbox" ${isExcluded ? '' : 'checked'} onchange="_toggleEndlineUndoExclusion('${r.bid}')">
+            <input type="checkbox" ${isExcluded ? '' : 'checked'} onchange="_toggleEndlineUndoExclusion('${_v2610js(r.bid)}')">
             <span>${isExcluded ? 'Skip' : 'Undo'}</span>
           </label>
         </td>
@@ -51622,12 +51707,12 @@ function _renderEndlineUndoReview() {
   return `
     <div style="max-width:1200px;margin:0 auto">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
-        <h1 style="font-size:22px;margin:0">Review Undo: ${batchId}</h1>
+        <h1 style="font-size:22px;margin:0">Review Undo: ${escHtml(batchId)}</h1>
         <button class="btn btn-sm" style="margin-left:auto" onclick="_cancelEndlineUndo()">Cancel</button>
       </div>
       <p style="color:var(--gray2);font-size:13px;margin-bottom:16px">
-        Batch from <strong>${fmtD((batchMeta.at||'').split('T')[0])}</strong> by <strong>${(batchMeta.by||'').replace(/</g,'&lt;')}</strong>.
-        ${batchMeta.fileName && batchMeta.fileName !== '(unknown file)' ? `File: <code>${batchMeta.fileName.replace(/</g,'&lt;')}</code>` : ''}
+        Batch from <strong>${fmtD((batchMeta.at||'').split('T')[0])}</strong> by <strong>${escHtml(batchMeta.by||'')}</strong>.
+        ${batchMeta.fileName && batchMeta.fileName !== '(unknown file)' ? `File: <code>${escHtml(batchMeta.fileName)}</code>` : ''}
       </p>
 
       ${conflictCount > 0 ? `
