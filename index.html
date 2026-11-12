@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V26.11-LIVE
+  KRSF Beneficiary Impact Tracker  -  V26.12-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,33 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V26.12-LIVE (2026-11-12 - every state gets its ID counter from the office).
+
+    + The first household ever enrolled in a new state used to make the
+      phone scan every household number in the database to find where to
+      start. From the next security step (coordinators read only their
+      own households) that scan is refused, and the phone would fall back
+      to the safety number KRSF-XX-1000001 for that state for good.
+    + So the office's phone, a while after sign-in, creates the counter
+      of every state that has no counter and no household yet (19 states
+      on 12 Nov: AN AP CH DL DN JH JK KA LA LD ML MP OD TN TR TS UK UP WB)
+      so that state's first ID is 0001 - except 9 states where a few
+      households were created and deleted in April-May (their numbers are
+      still in the audit log): those start after the highest number used,
+      so no number is ever given twice (Karnataka 0004, Madhya Pradesh and
+      Uttar Pradesh 0006, Jharkhand, Meghalaya, Odisha, Tamil Nadu,
+      Telangana and West Bengal 0002). Done once per office device. An
+      existing counter is never touched; a state that already has
+      households but no counter is left alone (none today).
+    + The 9 are set up as soon as the office opens V26.12 (today's rules
+      allow it). The 10 that start at 0 need the database rules of that
+      step (only the office may create a counter at 0); until those are
+      published, each office app-open tries once more (under 1 KB, office
+      only). Nothing else changes for anyone.
+    + Firebase: once per office device, the counter list (~1 KB) and 19
+      tiny checks; then nothing. 0 for every other login.
+    + Tests: 117 files. The V26.12 checks are in _specs/v2612.
+
   V26.11-LIVE (2026-11-12 - only the office's phone can delete a household or scheme record).
 
     + A save compares "what this phone thinks the database holds" with the
@@ -664,41 +691,6 @@
     + Tests: 88 files. v241 is red on V24.0 and on 17 broken copies; it runs
       Guru's case - 243 rows with no remarks to Benefits Received at the
       scheme's amount - and 9,157 rows on the whole database.
-
-  V24.0-LIVE (2026-09-26 - scheme records follow their household's coordinator).
-
-    + Transfer, Bulk Assign, Reassign and deleting a user moved the household
-      and left its scheme records with the old owner. A coordinator's phone
-      finds scheme records by owner, so the new coordinator's lists and counts
-      missed them (4,043 in the 26 Sep export). Each tool now moves them too -
-      only the owner (and the partner, if the household changed partner).
-    + "Scheme records by coordinator" in User Management finds the ones left
-      behind, shows who gains how many, corrects them in batches, and can put
-      a batch back. Partner, donor and office figures do not change.
-    + Tests: 87 files. v240 is red on V23.8; it also signs a coordinator in
-      and enrols at once, and demands exactly one household is sent.
-
-  V23.8-LIVE (2026-09-26 - imported households go straight to their coordinator).
-
-    + The household import's coord column now finds the coordinator's
-      account: their login (phone number), or their full name exactly as on
-      the account, in the same partner. The household and its scheme records
-      are saved under that coordinator and reach their phone at the next
-      check. Before, every imported household sat under the admin until Bulk
-      Assign. Anything less certain - no such account, two with that name,
-      another partner's, one who has left - is saved under the admin as
-      before, with a warning. The preview says who gets how many.
-    + Includes V23.7.
-    + Tests: 86 files. v238 is red on V23.7.
-
-  V23.7-LIVE (2026-09-26 - a blank cell no longer erases recorded income).
-
-    + ⛔ ENDLINE BULK UPDATE: A BLANK "mode" CELL ERASED INCOME ALREADY RECORDED
-      (practice site, 26 Sep: Rs 5,000 logged, Rs 15,000 uploaded, Rs 5,000
-      gone). Where income is already recorded a blank row is now refused and
-      asks for "add" or "replace"; "replace" shows in red how much it removes;
-      only "replace" ever removes. The template comes with "add" filled in.
-    + Tests: 85 files. v237 is red on V23.6.
 
   ============================================================================
   Everything before this point lives in CHANGELOG.md, beside this file.
@@ -4923,7 +4915,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V26.11-LIVE';
+const APP_VERSION = 'V26.12-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -6830,9 +6822,96 @@ async function _v196Boot() {
     // office, into a village - reached neither, and then had nothing to give.
     // The idle call stays as the unhurried follow-up.
     _v214StockNow();
+    _v2612CountersSoon();   // V26.12: office only, 20 s later
     _v196Idle(function () { _v196TopUpIfLow(); });
   } catch (e) { console.warn('[V19.6] boot failed:', e && e.message); }
   finally { _v196BootBusy = false; }
+}
+// ── V26.12: every state gets its ID counter, made by the office ──────────
+// The first enrolment in a state with no counter used to run a one-time scan of
+// every household number to find where to start. From security step 6e a
+// coordinator may no longer read that list, so the scan is refused and the
+// phone falls back to the safety number (KRSF-XX-1000001 ...) for that state for
+// good. So the office's phone creates each missing counter (first ID 0001, or the
+// number after the last one ever used - see below),
+// once, a while after sign-in - housekeeping, never on the way to the first screen.
+// ⛔ Only where the DATABASE holds no household of that state (asked of the
+// server, never this phone's list - CLAUDE.md §5), and only while the counter is
+// still absent: the transaction gives up on any value, so an existing counter is
+// never touched. 0 is what "absent" already meant to minting (_genIdCore starts
+// at 0 + 1) and to the reserve top-up (a counter of 0 is skipped, as absent was;
+// one above 0 is stocked from at once, with new numbers only).
+// ⛔ NEVER REUSE A NUMBER (owner, 12 Nov 2026). Nine of these states had households
+// created and deleted in April-May 2026 (before counters existed); their numbers
+// live on in the audit log. Those states start after the highest one used (20 Oct
+// 2026 backup; nothing can have been numbered there since, or its counter would
+// exist): Karnataka 3 -> first new ID 0004, and so on. The rest start at 0.
+// ⛔ THOSE NINE FIRST: today's database rules accept a new counter above 0 from any
+// app login, but a 0 only from the office once security step 6e is published. A
+// refusal stops the run (one try per app-open until then), so the nine come before
+// the first 0 - or a refused 0 would hold them back too.
+// Firebase: once per office device - the counter list (~1 KB) plus one tiny
+// "any household of this state?" check per missing state; afterwards nothing.
+const _V2612_KEY = 'krsf_v2612_counters_';
+const _V2612_USED = { JH: 1, KA: 3, ML: 1, MP: 5, OD: 1, TN: 1, TS: 1, UP: 5, WB: 1 };   // highest number ever used
+let _v2612Busy = false, _v2612Tries = 0, _v2612Timer = null;
+function _v2612CountersSoon(ms) {
+  try {
+    const u = (typeof currentUser === 'function') ? currentUser() : null;
+    if (!u || u.role !== 'admin' || !u.userId || _v2612Tries >= 3) return;
+    if (_v2612Timer) clearTimeout(_v2612Timer);
+    _v2612Timer = setTimeout(function () {
+      _v2612Timer = null;
+      _v2612EnsureStateCounters().catch(function (e) {   // a read failed (signal, sign-in not ready): try again later
+        console.warn('[V26.12] state counters:', e && e.message); _v2612CountersSoon(120000);
+      });
+    }, ms || 20000);
+  } catch (_) {}
+}
+function _v2612Codes() {
+  const s = {};
+  Object.keys(STATE_CODE).forEach(function (k) {
+    const c = STATE_CODE[k];
+    if (typeof c === 'string' && /^[A-Z]{2}$/.test(c)) s[c] = 1;
+  });
+  return Object.keys(s).sort(function (a, b) {   // the nine with a starting number first
+    const x = (_V2612_USED[a] ? 0 : 1) - (_V2612_USED[b] ? 0 : 1);
+    return x || (a < b ? -1 : a > b ? 1 : 0);
+  });
+}
+async function _v2612EnsureStateCounters() {
+  const u = (typeof currentUser === 'function') ? currentUser() : null;
+  if (!u || u.role !== 'admin' || !u.userId || !FB.db || _v2612Busy || _v2612Tries >= 3) return;
+  const codes = _v2612Codes();
+  const sig = codes.slice().sort().join(',');
+  const key = _V2612_KEY + u.userId;
+  try { if (localStorage.getItem(key) === sig) return; } catch (_) {}
+  if (!FB.online) { _v2612CountersSoon(120000); return; }
+  _v2612Busy = true; _v2612Tries++;
+  let done = false;
+  const made = [], held = [];
+  try {
+    const have = (await fbRef('id_counters').once('value')).val() || {};
+    let stop = false;
+    for (const c of codes) {
+      if (stop || (have[c] !== undefined && have[c] !== null)) continue;
+      const prefix = 'KRSF-' + c + '-';
+      const hh = await fbRef('beneficiaries').orderByKey().startAt(prefix).endAt(prefix + '\uf8ff').limitToFirst(1).once('value');
+      if (hh.exists()) { held.push(c); continue; }   // households but no counter: left exactly as it is
+      try {
+        const r = await fbRef('id_counters/' + c).transaction(function (cur) { const start = _V2612_USED[c] || 0; return cur === null ? start : undefined; }, undefined, false);
+        if (r && r.committed) made.push(c);
+      } catch (e) {
+        // refused (the database rules that allow it are not published yet): stop here, try at the next sign-in
+        console.warn('[V26.12] could not create the ' + c + ' counter:', e && e.message);
+        stop = true;
+      }
+    }
+    done = !stop;
+  } finally { _v2612Busy = false; }
+  if (made.length) console.log('[V26.12] ID counters created for: ' + made.join(', '));
+  if (held.length) console.warn('[V26.12] households already exist but no counter (left alone): ' + held.join(', '));
+  if (done) { try { localStorage.setItem(key, sig); } catch (_) {} }
 }
 // Reserve now, without waiting for the browser to be idle. Deliberately not
 // awaited: nothing on the login-to-first-screen path may block on it.
