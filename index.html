@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V26.12-LIVE
+  KRSF Beneficiary Impact Tracker  -  V27.0-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,35 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V27.0-LIVE (2026-11-13 - ready for the next database rules; a refused save says so).
+
+    + A save the database refuses is now named as refused ("the database
+      refused it - it was NOT saved. Please tell the office"), not as "no
+      internet". It is still kept on the phone and tried again, as before.
+    + The 6-hour pause of the change notes now starts only when the notes
+      themselves were the cause of a failed save.
+    + Typing limits on the phone: 300 characters in a text box, 1,000 in a
+      large one (the office has none). A text already longer is never
+      shortened.
+    + A coordinator editing a household keeps the household's partner (the
+      app used to stamp the coordinator's own partner on it). The locked box
+      says "Locked to this household's partner".
+    + Only the office moves the "minimum version" switch (the first time it
+      opens V27); other phones no longer try.
+    + Each login records its app version once per version (about 60 bytes,
+      written). Admin -> Login adoption shows "Versions in use".
+    + Ready for rules step C (partners, donors and team leaders read only
+      their own): once the database refuses such a login, its Refresh reads
+      only its own change notes (a team leader: only its coordinators'
+      records), never the whole database's changes. Before that step NOTHING
+      of this runs: under today's rules V27 reads what V26.12 reads.
+    + Firebase (local tests, 10 Nov data, V26.8 vs V27): every role
+      downloads the same at opening, lists, screen changes and Refresh
+      (within 5 KB). After rules step C: partner Refresh 406 -> 99 KB, team
+      leader 404 -> 67 KB.
+    + Tests: 117 files. The V27 checks are in _specs/v27 (real app 143/0,
+      25 of 25 break tests caught, regression same as V26.12).
+
   V26.12-LIVE (2026-11-12 - every state gets its ID counter from the office).
 
     + The first household ever enrolled in a new state used to make the
@@ -665,32 +694,6 @@
     + The dash row in Today by partner: "which households?" lists them and
       fetches them.
     + Tests: 89 files. v242 recreates the late arrival and is red on V24.1.
-
-  V24.1-LIVE (2026-09-27 - owner changes reach every copy; fresh copy; Excel dates).
-
-    + V24.0 wrote a scheme record's new owner with no edit time, so no other
-      laptop or partner login ever fetched it, and this laptop reopened on its
-      old copy (4,043 again; incognito showed 0). A save from such a copy put
-      the old owner back. The owner now travels with an edit time, this
-      laptop's copy is rewritten at once, and each coordinator who gains or
-      loses records gets the marker their daily check reads.
-    + Bandwidth Usage: "Download fresh copy" - this laptop only, once, refuses
-      while anything is waiting to be saved.
-    + The importer read an Excel date (46143) as the year 46143 - all 511
-      SeSTA households. It and the endline sheet now read the day it stands
-      for; "Dates saved as numbers" (Import Data) corrects the saved ones,
-      with a way back.
-    + Bulk Update Scheme Status froze the page on apply (a search of every
-      household for every scheme record, then a copy and re-save of all 1.5
-      lakh scheme records). It now looks households up, copies only the
-      records in scope and saves only the ones it changed; its per-household
-      undo does the same. And it had NEVER saved: its undo note was keyed by
-      each row's remarks, a blank remark is an empty key, and Firebase refuses
-      the whole write (no record in the 26 Sep export carries a note). The
-      note is now a list; an older keyed note still reads.
-    + Tests: 88 files. v241 is red on V24.0 and on 17 broken copies; it runs
-      Guru's case - 243 rows with no remarks to Benefits Received at the
-      scheme's amount - and 9,157 rows on the whole database.
 
   ============================================================================
   Everything before this point lives in CHANGELOG.md, beside this file.
@@ -4915,7 +4918,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V26.12-LIVE';
+const APP_VERSION = 'V27.0-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -5031,6 +5034,8 @@ class SaveError extends Error {
       // 'Save failed.' fallback, hiding the actual reason from the user.
       'tombstone-cap': 'Save blocked by the mass-delete safety cap. Use the bulk-delete tool for large deletions, or refresh the app and try again.',
       // V24.7: see _v247CheckFresh. Not a network error, so it is never queued.
+      // V27: the database itself said no (permission) - not a connection problem
+      'refused':      'The database refused this change - it was NOT saved. Please tell the office.',
       'stale-copy':   'Not saved: someone changed this record after the copy on this device was saved. The latest version is now on screen \u2014 please make your change again.',
     })[reason] || 'Save failed. Please try again.';
     super(msg);
@@ -5419,7 +5424,8 @@ function _v196CanReachServer() {
 }
 function _v196IsNetworkError(e) {
   const r = e && e.reason;
-  return r === 'offline' || r === 'no-db' || r === 'write-failed' || r === 'init-failed';
+  // V27: 'refused' still goes to the waiting line, so nothing typed is lost
+  return r === 'offline' || r === 'no-db' || r === 'write-failed' || r === 'init-failed' || r === 'refused';
 }
 
 // ── the reserved block of ID numbers ─────────────────────────────────────
@@ -6005,7 +6011,7 @@ function _v196RepairIfArmed() {
   window._v196StaleSaveArmed = false;
   try {
     const u = (typeof currentUser === 'function') ? currentUser() : null;
-    if (u && u.role === 'ngo' && typeof _ngoIncrementalSync === 'function') _ngoIncrementalSync();
+    if (u && u.role === 'ngo' && typeof _ngoIncrementalSync === 'function') _v27NgoSync('b');   // V27
     else if (u && u.role === 'admin' && typeof _adminIncrementalSync === 'function') _adminIncrementalSync();
     else console.log('[V19.8] local copy may be behind - it will catch up on the next refresh');
   } catch (_) {}
@@ -6416,7 +6422,7 @@ async function _v196Pump() {
         }
         if ((item.tries || 0) >= _V196_MAX_TRIES) {
           item.blocked = true;
-          item.blockedReason = 'tried ' + item.tries + ' times without success';
+          item.blockedReason = item.v27Refused ? 'the database refused it' : ('tried ' + item.tries + ' times without success');   // V27
           await _idbSet(_v196ItemKey(u.userId, iid), item);
           continue;
         }
@@ -6424,6 +6430,7 @@ async function _v196Pump() {
         try { res = await _v197SendRows(item); }
         catch (e) {
           item.tries = (item.tries || 0) + 1;
+          item.v27Refused = !!(e && (e.reason === 'refused' || _v266Denied(e)));   // V27 (a later failure that is only the connection clears it)
           window._v196Counters.failed += 1;
           await _idbSet(_v196ItemKey(u.userId, iid), item);
           console.warn('[V19.7] scheme change for ' + item.bid + ' did not send (will retry):',
@@ -6475,7 +6482,7 @@ async function _v196Pump() {
       // stopped saying "waiting to send". Stop, keep the work, say so once.
       if (!item.blocked && (item.tries || 0) >= _V196_MAX_TRIES) {
         item.blocked = true;
-        item.blockedReason = 'tried ' + item.tries + ' times without success';
+        item.blockedReason = item.v27Refused ? 'the database refused it' : ('tried ' + item.tries + ' times without success');   // V27
         await _idbSet(_v196ItemKey(u.userId, iid), item);
       }
       if (item.blocked) {
@@ -6605,6 +6612,7 @@ async function _v196Pump() {
         if (_v265PS) _v265PS.benef.push(rec.id);   // V26.5
       } catch (e) {
         item.tries = (item.tries || 0) + 1;
+        item.v27Refused = !!(e && (e.reason === 'refused' || _v266Denied(e)));   // V27 (a later failure that is only the connection clears it)
         window._v196Counters.failed += 1;
         await _idbSet(_v196ItemKey(u.userId, iid), item);
         console.warn('[V19.6] send failed for ' + bid + ' (will retry):', e && e.message);
@@ -7812,9 +7820,13 @@ async function _v266Update(updates, notes) {
   try { return await FB.db.ref().update(Object.assign({}, updates, notes)); }
   catch (e) {
     if (!_v266Denied(e)) throw e;
+    console.warn('[V26.6] the database refused the save with its change notes - trying without them');
+    // V27: the pause starts only when the records go WITHOUT the notes - then the notes
+    // were the cause. A refusal of the records themselves (a rule on the household) is
+    // thrown on as before and no longer stops this phone's notes for 6 hours.
+    const r2 = await FB.db.ref().update(updates);
     _v266Hold();
-    console.warn('[V26.6] the database refused the change notes - saving without them');
-    return FB.db.ref().update(updates);
+    return r2;
   }
 }
 // notes for records written one by one by a database transaction (the office's
@@ -8042,7 +8054,7 @@ function _v266Codes(u) {
   // ⛔ a partner whose notes cannot be named would be left out silently: V26.5's way instead
   return bad ? [] : Array.from(s).sort();
 }
-function _v266Roles(u) { return !!u && (u.role === 'ngo' || u.role === 'scopedViewer'); }
+function _v266Roles(u) { return !!u && (u.role === 'ngo' || u.role === 'scopedViewer' || (u.role === 'scopedViewerByFc' && _v27F6Get(u))); }   // V27: team leaders under 6f
 // this login's bookmarks in the notes:
 //   L    { '<partner>|<list>': time of the newest note read from that list } - this run of notes (ep) only
 //   K    { '<partner>|<list>': that note's key } - the next read starts right after it (a note's
@@ -8171,6 +8183,7 @@ async function _v266Gap(u, own, g) {
 // simply absent (its tombstone removes it, as before).
 async function _v266Fetch(coll, keys) {
   const out = {};
+  const denied = [];   // V27: refused to this login (6f) - it has left its scope; never retried
   let left = keys.slice();
   for (let round = 0; round < 2 && left.length; round++) {
     const q = left.slice(), failed = [];
@@ -8184,14 +8197,14 @@ async function _v266Fetch(coll, keys) {
             new Promise(function (_, rej) { tm = setTimeout(function () { rej(new Error('timeout')); }, _V266_WAIT_MS); }),
           ]);
           if (v && typeof v === 'object') out[k] = v;
-        } catch (_) { failed.push(k); }
+        } catch (e) { if (_v266Denied(e)) denied.push(k); else failed.push(k); }   // V27
         finally { if (tm) clearTimeout(tm); }
       }
     };
     await Promise.all(Array.from({ length: Math.min(_V266_CONC, q.length) }, one));
     left = failed;
   }
-  return { val: out, bad: left.length };
+  return { val: out, bad: left.length, denied: denied };
 }
 // the scheme records of households that have just come into this login's
 // lists from another partner, when it holds none of theirs: a scheme record
@@ -8402,7 +8415,8 @@ async function _v266Refresh(u, own, est) {
     if (!ra.ok) return ra;
     // some did not answer, twice: what came is kept (each is the database's
     // own latest), the bookmarks stay, so the next Refresh asks again
-    if (fb.bad || fa.bad || fs.bad) {
+    if ((fb.denied || []).length || (fa.denied || []).length) _v27F6Set(u);   // V27
+    if (fb.bad || fa.bad || fs.bad || (fb.denied || []).length || (fa.denied || []).length) {
       console.warn('[V26.6] Refresh from notes: ' + (fb.bad + fa.bad + fs.bad) + ' records did not arrive');
       return { ok: false, reason: 'error' };
     }
@@ -8427,6 +8441,430 @@ async function _v266Refresh(u, own, est) {
       await _v184SetSeen('adv', u.userId, upTo);
     }
     console.log('[V26.6] Refresh from notes: ' + needB.length + ' households, ' + needA.length + ' scheme records, ' + came.length + ' moved-in households’ schemes fetched');
+    return { ok: true, how: 'changes', n: (rb.added + rb.removed) + (ra.added + ra.removed), v266: true };
+  } catch (e) {
+    console.warn('[V26.6] Refresh from notes failed:', e && e.message);
+    return { ok: false, reason: 'error' };
+  }
+}
+// ══════════════════════════════════════════════════════════════════════════
+// V27 — 6f: partners, donors and team leaders read only their own
+// ══════════════════════════════════════════════════════════════════════════
+// Once the database's rules are tightened (owner's rules step C), these logins
+// may no longer ask for "everyone's changes since my bookmark", and may not read
+// a household or scheme record that is not theirs. Until then NOTHING here runs:
+// every path below starts only after the database has refused this login once
+// (a remembered mark on this device, renewed while it keeps happening). So under
+// today's rules V27 reads exactly what V26.12 reads.
+// With the mark:
+//  - Refresh reads this login's own change notes (as partners and donors already
+//    do when that is the smaller), for every size of login, and team leaders too
+//    (the notes of the partners their households belong to, keeping only their own
+//    coordinators' records: an unknown household is first asked "who enrolled
+//    you?" - one small field - and fetched only if it is theirs).
+//  - The budget is the own data's size: the notes are used whenever they cost less
+//    than taking the own data again (the only other way left).
+//  - A record the database refuses to this login has left its scope (a household
+//    moved to another partner / coordinator): it is taken out of the list, cache
+//    and last-copy TOGETHER (the V8.6 rule), exactly as a moved record is today.
+//  - Opening a partner's list from the saved copy catches up from the notes (it
+//    used to ask for everyone's changes) - never the own data again from there.
+//  - ⛔ The login holding a large share of the database (a donor with many
+//    partners) never takes its own data again automatically (about 180 MB): if
+//    the notes cannot be used, the Refresh fails and says so; nothing is read.
+const _V27_F6_MS = 7 * 86400000;     // the mark lasts a week after the last refusal
+const _V27_PROBE_BYTES = 150;        // one "who enrolled you?" read, request + answer
+// the 6f Refresh's own give-ups (a list known too busy for the OWN-data budget), kept apart from V26.6's, which
+// are measured against one day of everyone's changes - far smaller: shared, V26.6's give-up on the first Refresh
+// after the lock sent the 6f Refresh straight to the whole own data (final check, 13 Nov)
+async function _v27GetBail(uid) {
+  try { const v = await _idbGet('v27-bail-' + uid); if (v && typeof v === 'object' && !Array.isArray(v)) return v; } catch (_) {}
+  return {};
+}
+async function _v27SaveBail(uid, B, key, v) {
+  try {
+    let e = 0;
+    for (const k in v) { const x = Number(v[k] && v[k].t) || 0; if (x > e && x <= _v247Now()) e = x; }
+    if (!(e > 0)) return;
+    B[key] = { e: e, at: _v247Now() };
+    for (const k in B) if (!(B[k] && _v247Now() - Number(B[k].at) < _V266_HEAL_MS)) delete B[k];
+    await _idbSet('v27-bail-' + uid, B);
+  } catch (_) {}
+}
+function _v27F6Key(u) { return 'krsf_v27_f6_' + ((u && u.userId) || ''); }
+function _v27F6Get(u) {
+  try {
+    if (!u || !u.userId) return false;
+    const x = parseInt(localStorage.getItem(_v27F6Key(u)) || '0', 10) || 0;
+    return x > 0 && Date.now() - x < _V27_F6_MS;
+  } catch (_) { return false; }
+}
+function _v27F6Set(u) {
+  try {
+    if (!u || !u.userId) return;
+    if (u.role !== 'ngo' && u.role !== 'scopedViewer' && u.role !== 'scopedViewerByFc') return;
+    // (review F5) only a real signed-in session: an anonymous fallback session is refused
+    // everything under today's rules too, and must not switch this login to 6f for a week
+    try { const cu = firebase.auth().currentUser; if (!cu || cu.isAnonymous) return; } catch (_) { return; }
+    localStorage.setItem(_v27F6Key(u), String(Date.now()));
+    localStorage.setItem(_v27F6Key(u) + '_r', String(Date.now()));   // (the last real refusal)
+    console.warn('[V27] the database refused a read outside this login’s own records: reading only its own from now on (6f)');
+  } catch (_) {}
+}
+// (review round 2) renewed quietly while this login's own reads keep working: the 6f paths
+// are never refused, so without this every login went back to the old way once a week
+function _v27F6Renew(u) {
+  try {
+    if (!_v27F6Get(u)) return;
+    // (review round 3) only within 30 days of a real refusal: if the rules are ever taken back,
+    // the login returns to the old way within a month; under the lock one cheap refusal renews it
+    const r = parseInt(localStorage.getItem(_v27F6Key(u) + '_r') || '0', 10) || 0;
+    if (r > 0 && Date.now() - r < 30 * 86400000) localStorage.setItem(_v27F6Key(u), String(Date.now()));
+  } catch (_) {}
+}
+function _v27IsRefused(r) { return !!r && r.ok === false && /permission[_ ]denied/i.test(String(r.error || '')); }
+// a team leader's notes lists: the partners its households belong to (and its own)
+function _v27TlCodes(u) {
+  const s = new Set();
+  let bad = false;
+  const add = function (nm) { const c = _v266Code(nm); if (c) s.add(c); else bad = true; };
+  if (u && u.ngo) add(u.ngo);
+  RecordCache.benef.forEach(function (b) { if (b && b.ngo) add(b.ngo); });
+  // (review R3-2) and the partner of each of its coordinators: a new coordinator, or one moved
+  // to a partner this login holds nothing under yet, still has its new work noted there
+  (Array.isArray(u && u.assignedFcIds) ? u.assignedFcIds : []).forEach(function (fc) {
+    const r = RecordCache.users && RecordCache.users.get(fc);
+    if (r && r.ngo) add(r.ngo);
+  });
+  // ⛔ a partner whose notes cannot be named would be left out silently
+  return bad ? [] : Array.from(s).sort();
+}
+// a team leader keeps only its own coordinators' records from the notes:
+// households it holds are fetched (the database answers, or refuses one that has
+// left - taken out); one it does not hold is first asked who enrolled it.
+// Returns { asked, refund }: refund = what the budget had set aside to fetch the
+// records now dropped (they are not fetched); { bail: true } when the questions
+// alone would cost more than the budget left (nothing asked - review F1); or false
+// when an answer did not come (nothing is folded then and the bookmarks stay: the
+// next Refresh asks again).
+const _v27TlSeen = new Map();   // path -> answer, this session only
+async function _v27TlKeep(u, ent, left) {
+  const fcs = new Set(Array.isArray(u.assignedFcIds) ? u.assignedFcIds : []);
+  const ask = [];
+  for (const k of ent.b.keys()) if (!RecordCache.benef.has(k)) ask.push(k);
+  // (review round 2) a scheme record on a household this login does not hold is still
+  // its own when one of its coordinators typed it (the team's scope, as V26.12's catch-up):
+  // one it holds is fetched (the database answers, or refuses one that has left - taken
+  // out); one it does not hold is asked "who typed you?" - at most this many questions
+  const askA0 = [];
+  for (const k of ent.a.keys()) { const bid = String(k).split('__')[0]; if (!RecordCache.benef.has(bid) && !RecordCache.adv.has(k)) askA0.push(k); }
+  if ((ask.length + askA0.length) * _V27_PROBE_BYTES > left) return { bail: true };
+  // who enrolled / typed it: the value, or '' when the database refuses to say (not this team's)
+  const probe = async function (path) {
+    if (_v27TlSeen.has(path)) return _v27TlSeen.get(path);
+    let tm = null;
+    try {
+      return await Promise.race([
+        fbRef(path).once('value').then(function (s) { const v = s.val(); const a = v == null ? '' : String(v); if (_v27TlSeen.size < 20000) _v27TlSeen.set(path, a); return a; }),
+        new Promise(function (_, rej) { tm = setTimeout(function () { rej(new Error('timeout')); }, _V266_WAIT_MS); }),
+      ]);
+    } catch (e) { if (_v266Denied(e)) { if (_v27TlSeen.size < 20000) _v27TlSeen.set(path, ''); return ''; } throw e; }
+    finally { if (tm) clearTimeout(tm); }
+  };
+  const run = async function (keys, pathOf, found) {
+    const q = keys.slice();
+    let bad = 0;
+    const one = async function () {
+      let k;
+      while ((k = q.shift()) !== undefined) {
+        try { const v = await probe(pathOf(k)); if (v && fcs.has(v)) found.add(k); } catch (_) { bad++; }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(_V266_CONC, q.length) }, one));
+    return bad;
+  };
+  const mine = new Set(), mineA = new Set();
+  if (await run(ask, function (k) { return 'beneficiaries/' + k + '/createdBy'; }, mine)) return false;
+  // (only those whose household turned out not to be the team's)
+  const askA = askA0.filter(function (k) { return !mine.has(String(k).split('__')[0]); });
+  if (await run(askA, function (k) { return 'advocacy/' + k + '/createdBy'; }, mineA)) return false;
+  let refund = 0;
+  // (a household not held was never "held" - each had a record fetch set aside)
+  for (const k of ask) if (!mine.has(k)) { ent.b.delete(k); refund += _V266_REC_BYTES; }
+  for (const k of Array.from(ent.a.keys())) {
+    const bid = String(k).split('__')[0];
+    if (RecordCache.benef.has(bid) || mine.has(bid) || RecordCache.adv.has(k) || mineA.has(k)) continue;
+    ent.a.delete(k); refund += _V266_REC_BYTES;
+  }
+  return { asked: ask.length + askA.length, refund: refund };
+}
+// the Refresh under 6f: the notes, or the own data again when that is the smaller
+async function _v27DoRefresh6f(u, own, est) {
+  const big = own > _V266_MAX_SHARE * _V266_FLEET_BYTES;
+  // (review F3) a catch-up already reading the notes: wait for it, then read on from where it got to
+  if (_v27CatchP) { try { await _v27CatchP; } catch (_) {} }
+  const r = await _v27Refresh6f(u, own, est, false);
+  const bigNo = function (why) {   // ⛔ never ~180 MB by itself: say so, read nothing more
+    console.warn('[V27] Refresh not possible from the change notes (' + why + ') - the whole data is NOT downloaded for this login; please tell the office');
+    return { ok: false, reason: 'error', error: 'the change notes could not be used (' + why + ')' };
+  };
+  const done = function (x) { if (x && x.ok) _v27F6Renew(u); return x; };
+  // (review round 4) the own data again because the notes cannot be used: at most once a day per login -
+  // a cause that does not go away (a partner name with no notes code, ...) must not cost it on every Refresh
+  const fullK = 'krsf_v27_full_' + u.userId;
+  const fullOnce = async function (why) {
+    let at = 0; try { at = parseInt(localStorage.getItem(fullK) || '0', 10) || 0; } catch (_) {}
+    if (at > 0 && Date.now() - at < 86400000) {
+      console.warn('[V27] the own data was already taken again today - not again (' + why + '); please tell the office if this repeats');
+      return { ok: false, reason: 'error', error: 'already downloaded again today (' + why + ')' };
+    }
+    const x = await _v266Full(u, why);
+    if (x && x.ok) { try { localStorage.setItem(fullK, String(Date.now())); } catch (_) {} }
+    return done(x);
+  };
+  if (r && r.v266Full) return done(await _v266Full(u, 'the monthly check'));
+  if (r && r.v27Bail) return big ? bigNo('too many changes, or a gap in the notes') : fullOnce('the notes would cost more than the own data, or have a gap');
+  if (r) return done(r);
+  return big ? bigNo('no notes yet') : fullOnce('the notes cannot be used');
+}
+// a partner's list opened from the saved copy (and the two older sync buttons):
+// the notes only - never the own data again from here (that waits for Refresh)
+let _v27CatchP = null, _v27CatchSeq = null, _v27CatchDone = false;
+async function _v27CatchUp6f(u) {
+  // (an answer already given is shared for 5 s - unless this device saved since: then it is asked again)
+  if (_v27CatchP && (!_v27CatchDone || _v27CatchSeq === window._v247WriteSeq)) return _v27CatchP;
+  if (!(FB.benefReplayComplete && FB.advReplayComplete)) return { ok: false, reason: 'not-ready' };
+  if (_v247Busy) return { ok: false, reason: 'in-flight' };   // (review F3) a Refresh is reading the same notes
+  _v27CatchSeq = window._v247WriteSeq; _v27CatchDone = false;
+  const _mine = _v27CatchP = (async function () {
+    try {
+      const own = RecordCache.benef.size * 560 + RecordCache.adv.size * 550;
+      const r = await _v27Refresh6f(u, own, Infinity, true);
+      if (r && r.ok) { _v27F6Renew(u); if (_v27Later) { clearInterval(_v27Later); _v27Later = null; } return { ok: true, added: r.n || 0, removed: 0 }; }
+      return { ok: false, reason: (r && r.reason) || 'notes-unavailable' };
+    } catch (e) { return { ok: false, reason: 'error', error: (e && e.message) || String(e) }; }
+    finally { _v27CatchDone = true; setTimeout(function () { if (_v27CatchP === _mine) _v27CatchP = null; }, 5000); }   // (the second ask, a moment later, gets the same answer)
+  })();
+  return _v27CatchP;
+}
+let _v27Later = null;
+function _v27CatchLater(u) {
+  if (_v27Later) return;
+  let n = 0;
+  _v27Later = setInterval(function () {
+    n++;
+    const cu = (typeof currentUser === 'function') ? currentUser() : null;
+    if (!cu || cu.userId !== u.userId || n > 90) { clearInterval(_v27Later); _v27Later = null; return; }
+    if (FB.benefReplayComplete && FB.advReplayComplete && !_v247Busy && !_v27CatchP) {
+      clearInterval(_v27Later); _v27Later = null;
+      _v27CatchUp6f(cu).then(function () { try { renderCurrentView(); } catch (_) {} }).catch(function () {});
+    }
+  }, 2000);
+}
+async function _v27NgoSync(kind) {
+  const u = (typeof currentUser === 'function') ? currentUser() : null;
+  const z = function (r) { return kind === 'a' ? { ok: r.ok, added: 0, removed: 0, reason: r.reason } : r; };
+  if (u && _v27F6Get(u)) { const c = await _v27CatchUp6f(u); if (c && c.reason === 'not-ready') _v27CatchLater(u); return z(c); }
+  const r = kind === 'a' ? await _advNgoIncrementalSync() : await _ngoIncrementalSync();
+  if (u && _v27IsRefused(r)) { _v27F6Set(u); if (_v27F6Get(u)) return z(await _v27CatchUp6f(u)); }
+  return r;
+}
+// V27 6f: built from _v266Refresh by apply-v27.js - see v27-6f-helpers.js
+async function _v27Refresh6f(u, own, est, atOpen) {
+  try {
+    if (!_V266_ON || !_v266Roles(u) || !u.userId || !FB.db || !_v247DeltaScope(u)) return null;
+    if (RecordCache.benef.size === 0) return null;
+    // ⛔ the budget is what V26.5's way is expected to cost, and only a part of
+    // that: the expectation counts 6 MB a day, a usual day is about 4 MB
+    const budget = own;   // V27 6f: everyone's changes is refused - the notes against the own data only
+    if (!(budget > 0) || !isFinite(budget)) return null;
+    // ⛔ A LOGIN HOLDING A BIG SHARE OF THE DATABASE (a donor with many
+    // partners): its own changes are most of everyone's - V26.5's single
+    // download is the smaller. Not even the notes are asked for.
+    const _v27Big = own > _V266_MAX_SHARE * _V266_FLEET_BYTES;   // V27 6f: notes for every size of login
+    const codes = (u.role === 'scopedViewerByFc') ? _v27TlCodes(u) : _v266Codes(u);   // V27 6f
+    if (!codes.length) return null;
+    const seenB = await _v184GetSeen('benef', u.userId), seenA = await _v184GetSeen('adv', u.userId);
+    if (!(seenB > 0) || !(seenA > 0)) return null;
+    // ⛔ before the new rules are published the database refuses this read:
+    // that is "no notes", never a failed Refresh
+    let m = null;
+    try { m = (await fbRef('_pchg/_m').once('value')).val(); } catch (e) { if (_v266Denied(e)) return null; return { ok: false, reason: 'error', error: 'the change notes could not be read' }; }   // V27: no signal is not 'no notes'
+    if (!m || typeof m !== 'object' || !m.ep || !(Number(m.on) > 0) || !(Number(m.rep) > 0)) return null;
+    const now = _v247Now();   // (already the database's clock)
+    if (now - Number(m.rep) > _V266_REP_MAX_AGE_MS) console.warn('[V27] the office has not checked the notes for a week - using them anyway');
+    if (Number(m.rep) > now + _V266_FUTURE_MS) return null;        // a clock far ahead: not trusted
+    // once a month, the own data again - only when the notes would otherwise be
+    // used (V26.5's way is left exactly as it was). The first time, the clock
+    // starts somewhere in the last two weeks, so the partners do not all take
+    // their own data again in the same week.
+    let F = 0;
+    try { F = Number(await _idbGet('v266-full-' + u.userId)) || 0; } catch (_) {}
+    if (!F) { try { await _idbSet('v266-full-' + u.userId, _v247Now() - Math.floor(Math.random() * 15 * 86400000)); } catch (_) {} }
+    else if (!_v27Big && !atOpen && _v247Now() - F > _V266_HEAL_MS) return { v266Full: true };   // V27: never 180 MB, never on opening
+    const ep = String(m.ep);
+    const W0 = await _v266GetW(u.userId);
+    const same = W0.ep === ep;   // bookmarks made under another run of notes are not trusted
+    const L0 = same ? _v2610CleanL(W0.L, now) : {};
+    const safe0 = W0.ep ? W0.safe : Math.max(W0.safe, Math.min(seenB, seenA));
+    const from = {};
+    let low = false;
+    for (const c of codes) for (const kind of ['b', 'a']) for (const list of [kind, kind + 'r']) {
+      const key = c + '|' + list;
+      // (a list not read yet in this run of notes: from the safe point too)
+      let f = same ? Math.max(Number(L0[key]) || 0, W0.full) : W0.full;
+      if (!(Number(L0[key]) > 0)) f = Math.max(f, safe0);
+      if (f < Number(m.on)) low = true;   // notes are complete only after <on>
+      from[key] = f;
+    }
+    if (low && !(W0.ep && !same && safe0 > 0)) {   // V27 6f (review F4): the notes begin after this device's bookmark - changes
+      // before them are not in the notes, and everyone's changes may not be asked for: the notes cannot be used (never
+      // read from their beginning - that would skip those changes). A smaller login takes its own data again; the big one stops.
+      console.warn('[V27] the notes begin after this device\u2019s bookmark - they cannot be used');
+      return { v27Bail: true };
+    }
+    // V27 6f (review round 2): the office STARTED THE NOTES AGAIN (another laptop, a fresh copy) after this device read
+    // them. Every save's own note from before is still there (notes are never deleted): read on from this device's own
+    // point (above), not from the new start, and not the own data again - that would be every partner's and team
+    // leader's whole data at once. (Only the office's later repairs for that window are missing - see OWNER-CHOICES.)
+    if (low) console.warn('[V27] the office started the notes again - reading on from this device\u2019s own point');
+    // where each list is read from: right after its last note read, when that is its
+    // bookmark; otherwise 5 minutes before the bookmark
+    const K0 = same ? W0.K : {};
+    const BL = await _v27GetBail(u.userId);
+    const rd = {};
+    for (const key in from) {
+      const lk = (typeof K0[key] === 'string' && K0[key] && Number(L0[key]) > 0 && from[key] === Number(L0[key])) ? K0[key] : '';
+      rd[key] = lk ? { st: from[key], lk: lk } : { st: Math.max(1, from[key] - _V184_CLOCK_MARGIN_MS), lk: '' };
+      // ⛔ A GIVE-UP IS PAID ONCE: a list known too busy stops this Refresh before anything is read
+      if (_v266BailCovers(BL[key], rd[key].st)) return { v27Bail: true };
+    }
+    // a record this device already holds at exactly that version is not fetched
+    const held = function (kind, k, x) {
+      const r = (kind === 'b' ? RecordCache.benef : RecordCache.adv).get(k);
+      return !!r && typeof r._lastEditedAt === 'number' && r._lastEditedAt === Number(x.e);
+    };
+    // every note since each list's bookmark (less 5 minutes): the phones' and
+    // the office's, every partner of this login - a list at a time, each capped
+    // at what is left of the budget (the notes, and the records they would fetch)
+    const ent = { b: new Map(), a: new Map() }, maxT = {}, maxK = {};
+    let left = budget, notesLeft = _V266_NOTES_SHARE * budget, lastKey = '', lastV = null;
+    for (const c of codes) {
+      for (const kind of ['b', 'a']) {
+        let nMain = 0;
+        for (const list of [kind, kind + 'r']) {
+          const key = c + '|' + list;
+          maxT[key] = 0; maxK[key] = '';
+          // (as if every note named a record still to fetch - except, in the
+          // office's list, as many as the phones' list already named: those are
+          // mostly the same records again)
+          // (and all the notes of this Refresh together: at most a quarter of the budget)
+          const cap = Math.min(Math.floor(left / (_V266_NOTE_BYTES + _V266_REC_BYTES)) + (list === kind ? 0 : nMain),
+            Math.floor(notesLeft / _V266_NOTE_BYTES));
+          // (the budget used up by the lists before: the last one read is the busy one)
+          if (cap < 1) { if (lastV) await _v27SaveBail(u.userId, BL, lastKey, lastV); return { v27Bail: true }; }
+          const st = rd[key].st, lk = rd[key].lk;
+          let v;
+          try {
+            const q = fbRef('_pchg/' + c + '/' + list).orderByChild('t');
+            v = (await (lk ? q.startAt(st, lk) : q.startAt(st)).limitToFirst(cap + 1 + (lk ? 1 : 0)).once('value')).val() || {};
+          } catch (e) { if (_v266Denied(e)) return null; throw e; }
+          if (lk && v[lk] && Number(v[lk].t) === st) delete v[lk];   // (the last note read before, still the same)
+          const nowQ = _v247Now();   // V26.10: no honest note is stamped later than the database's clock now
+          if (Object.keys(v).length) { lastKey = key; lastV = v; }
+          const ks = Object.keys(v);
+          if (ks.length > cap) { await _v27SaveBail(u.userId, BL, key, v); return { v27Bail: true }; }   // more than the budget leaves room for: V26.5's way is the smaller
+          if (list === kind) nMain = ks.length;
+          left -= ks.length * _V266_NOTE_BYTES;
+          notesLeft -= ks.length * _V266_NOTE_BYTES;
+          for (const k of ks) {
+            const x = v[k];
+            if (!x || typeof x !== 'object') continue;
+            const tt = Number(x.t) || 0;
+            // (a note from the future is still fetched for - harmless - but is not the bookmark)
+            if (tt <= nowQ && (tt > maxT[key] || (tt === maxT[key] && _v266KeyAfter(k, maxK[key])))) { maxT[key] = tt; maxK[key] = k; }
+            const had = ent[kind].get(k);
+            if (!had) { ent[kind].set(k, x); if (!held(kind, k, x)) left -= _V266_REC_BYTES; }
+            else if ((Number(x.e) || 0) > (Number(had.e) || 0)) { if (held(kind, k, had) && !held(kind, k, x)) left -= _V266_REC_BYTES; ent[kind].set(k, x); }
+          }
+          if (left < 0) { await _v27SaveBail(u.userId, BL, key, v); return { v27Bail: true }; }   // ⛔ NEVER MORE THAN V26.5: nothing fetched, V26.5's way decides
+        }
+      }
+    }
+    if (u.role === 'scopedViewerByFc') {   // V27 6f: a team leader keeps only its own coordinators' records
+      // (review F1) the questions are paid from the same budget; a record dropped is not fetched
+      const _p = await _v27TlKeep(u, ent, left);
+      if (_p === false) return { ok: false, reason: 'error' };
+      if (_p.bail) { if (lastV) await _v27SaveBail(u.userId, BL, lastKey, lastV); return { v27Bail: true }; }
+      left += _p.refund - _p.asked * _V27_PROBE_BYTES;
+      if (left < 0) { if (lastV) await _v27SaveBail(u.userId, BL, lastKey, lastV); return { v27Bail: true }; }
+    }
+    const seq0 = window._v247WriteSeq, pendNow = _v247Now();
+    const needB = [];
+    for (const [k, x] of ent.b) if (!held('b', k, x)) needB.push(k);
+    const heldBefore = new Set(needB.filter(function (k) { return RecordCache.benef.has(k); }));
+    const fb = needB.length ? await _v266Fetch('beneficiaries', needB) : { val: {}, bad: 0 };
+    // V27 6f: refused = no longer this login's: a stand-in outside its scope takes it out (cache and last-copy together)
+    for (const k of (fb.denied || [])) fb.val[k] = { id: k, ngo: '\u0000', createdBy: '\u0000' };
+    // ⛔ a save on this device while the records were on their way: what was
+    // fetched may be older than what it saved. Nothing folded, bookmarks kept.
+    if (window._v247WriteSeq !== seq0 || _v247SaveOpen()) return { ok: false, reason: 'save-in-flight' };
+    // (on disk before anything is folded: this device is about to hold records newer than its bookmark)
+    await _v266PutW(u.userId, Object.assign({}, W0, { pend: pendNow }));
+    const rb = await _ngoIncrementalSync({ v266Val: fb.val });
+    if (!rb.ok) return rb;
+    const needA = [];
+    for (const [k, x] of ent.a) if (!held('a', k, x)) needA.push(k);
+    // households that came in from another partner - or new ones - holding no
+    // scheme record here (a new one with none costs one small empty answer)
+    const advBids = new Set();
+    RecordCache.adv.forEach(function (a) { if (a && a.bid) advBids.add(a.bid); });
+    for (const k of ent.a.keys()) advBids.add(String(k).split('__')[0]);
+    const came = [];
+    for (const k of (W0.came || [])) { const h = RecordCache.benef.get(k); if (h && !advBids.has(k) && came.indexOf(k) < 0) came.push(k); }
+    for (const k of needB) {
+      const h = RecordCache.benef.get(k);
+      if (heldBefore.has(k) || !h || advBids.has(k) || came.indexOf(k) >= 0) continue;
+      came.push(k);
+    }
+    // owed until fetched: on disk before anything else can stop this Refresh
+    await _v266PutW(u.userId, Object.assign({}, W0, { came: came.slice(0, 5000), pend: pendNow }));
+    const fa = needA.length ? await _v266Fetch('advocacy', needA) : { val: {}, bad: 0 };
+    for (const k of (fa.denied || [])) fa.val[k] = { __fbk: k, bid: '\u0000', ngo: '\u0000', createdBy: '\u0000' };   // V27 6f
+    // (within the budget too: a big move waits for the monthly own data instead)
+    const cameNow = came.length * _V266_REC_BYTES <= left;
+    const fs = (came.length && cameNow) ? await _v266SchemesOf(came) : { val: {}, bad: 0 };
+    const owed = (cameNow && !fs.bad) ? [] : came.slice(0, 5000);
+    if (window._v247WriteSeq !== seq0 || _v247SaveOpen()) return { ok: false, reason: 'save-in-flight' };
+    const ra = await _advNgoIncrementalSync({ v266Val: Object.assign({}, fs.val, fa.val) });
+    if (!ra.ok) return ra;
+    // some did not answer, twice: what came is kept (each is the database's
+    // own latest), the bookmarks stay, so the next Refresh asks again
+    if (fb.bad || fa.bad || fs.bad) {   // (refused ones were taken out above)
+      console.warn('[V26.6] Refresh from notes: ' + (fb.bad + fa.bad + fs.bad) + ' records did not arrive');
+      return { ok: false, reason: 'error' };
+    }
+    // the bookmarks move only for what is saved on this device
+    const L2 = Object.assign({}, L0), K2 = Object.assign({}, K0);
+    for (const c of codes) for (const kind of ['b', 'a']) for (const list of [kind, kind + 'r']) {
+      const key = c + '|' + list, ok = kind === 'b' ? rb.pantryOk !== false : ra.pantryOk !== false;
+      if (!ok) continue;
+      const was = Number(L2[key]) || 0, nl = Math.max(was, maxT[key] || 0, from[key], low ? Math.min(Number(m.on), now) : 0);   // V27 (review round 3): after a restart every list was read through to now - bookmarked at least at the new start, or the next Refresh would see a gap
+      if (maxT[key] > 0 && nl === maxT[key]) K2[key] = maxK[key];
+      else if (nl !== was) delete K2[key];
+      L2[key] = nl;
+    }
+    const upTo = Math.min(now, Number(m.rep)) - _V184_CLOCK_MARGIN_MS;
+    await _v266PutW(u.userId, Object.assign({}, W0, { ep: ep, L: L2, K: K2, pend: pendNow,
+      safe: (rb.pantryOk !== false && ra.pantryOk !== false) ? Math.max(safe0, upTo) : safe0, came: owed }));
+    // ⛔ everything of this login's changed up to the office's last check is now
+    // here (every list was read from before it): the everyone's-changes bookmark
+    // may move there - and only when the saved copy holds it
+    if (rb.pantryOk !== false && ra.pantryOk !== false && upTo > 0) {
+      await _v184SetSeen('benef', u.userId, upTo);
+      await _v184SetSeen('adv', u.userId, upTo);
+    }
+    console.log('[V27 6f] Refresh from notes: ' + needB.length + ' households, ' + needA.length + ' scheme records, ' + came.length + ' moved-in households’ schemes fetched');
     return { ok: true, how: 'changes', n: (rb.added + rb.removed) + (ra.added + ra.removed), v266: true };
   } catch (e) {
     console.warn('[V26.6] Refresh from notes failed:', e && e.message);
@@ -8475,9 +8913,15 @@ async function _v247DoRefresh(u) {
     if (a && t0 - a < 10 * 60000) return { ok: true, how: 'recent', n: 0, free: true, at: a };
   }
   // V26.6: this login's own changes, by their notes - only when that is the smaller download
+  if (_v27F6Get(u)) return _v27DoRefresh6f(u, own, est);   // V27: this login reads only its own (6f)
   const _v266R = await _v266Refresh(u, own, est);
   if (_v266R && _v266R.v266Full) return _v266Full(u, 'the monthly check');
-  if (_v266R && _v266R.v266Gap) return _v266Gap(u, own, _v266R);
+  if (_v266R && _v266R.v266Gap) {
+    const _g = await _v266Gap(u, own, _v266R);
+    if (_v27IsRefused(_g)) { _v27F6Set(u); if (_v27F6Get(u)) return _v27DoRefresh6f(u, own, est); }   // V27
+    return _g;
+  }
+  if (_v266R && _v266R.ok === false && _v27F6Get(u)) return _v27DoRefresh6f(u, own, est);   // V27
   if (_v266R) return _v266R;
   if (!(est <= own)) return _v266Full(u, 'expected smaller');
   // ⛔ CAPPED. If everyone's changes turn out bigger than the own data after
@@ -8487,8 +8931,10 @@ async function _v247DoRefresh(u) {
   // (no starting point at all - a copy saved before V24.7 holding no scheme
   // records - is answered the same way: the own data again)
   const rb = await _ngoIncrementalSync({ cap: cap });
+  if (_v27IsRefused(rb)) { _v27F6Set(u); if (_v27F6Get(u)) return _v27DoRefresh6f(u, own, est); }   // V27
   if (!rb.ok) return (rb.reason === 'too-big' || rb.reason === 'no-watermark') ? _v266Full(u, rb.reason) : rb;   // V26.6: restarts the monthly clock
   const ra = await _advNgoIncrementalSync({ cap: Math.max(1, cap - (rb.got || 0)) });
+  if (_v27IsRefused(ra)) { _v27F6Set(u); if (_v27F6Get(u)) return _v27DoRefresh6f(u, own, est); }   // V27
   if (!ra.ok) return (ra.reason === 'too-big' || ra.reason === 'no-watermark') ? _v266Full(u, ra.reason) : ra;   // V26.6
   if (rb.pantryOk !== false && ra.pantryOk !== false) await _v266AfterV5(u);   // V26.6: where V26.5's way ended, for the notes
   return { ok: true, how: 'changes', n: (rb.added + rb.removed) + (ra.added + ra.removed) };
@@ -9513,6 +9959,36 @@ window.addEventListener('beforeunload', function(e) {
     }
   } catch(_) {}
 });
+// V27: only the office moves the switch, and only once per value per session. Any other
+// login sending it was refused once the rules close it, and the listener sent it again
+// on every refusal: 768 refused sends in 5 s from one phone (_specs/v27/feas-minver.js).
+const _v27MinTried = {};
+const _V27_CAP_INPUT = 300, _V27_CAP_AREA = 1000;
+// (review round 3) what a field held when it was entered: the limit stops it growing, never shortens it
+const _v27CapStart = new WeakMap();
+try { document.addEventListener('focusin', function (e) { try { const el = e && e.target; if (el && typeof el.value === 'string' && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) _v27CapStart.set(el, el.value.length); } catch (_) {} }, true); } catch (_) {}
+function _v27CapLen(e) {
+  try {
+    const el = e && e.target;
+    if (!el || (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA') || typeof el.value !== 'string') return;
+    if (el.tagName === 'INPUT' && !/^(text|search|tel|url|email|)$/i.test(el.getAttribute('type') || '')) return;
+    const cap = Math.max(el.maxLength > 0 ? el.maxLength : (el.tagName === 'TEXTAREA' ? _V27_CAP_AREA : _V27_CAP_INPUT), _v27CapStart.get(el) || 0);
+    if (el.value.length <= cap) return;   // (nothing else is looked at on an ordinary keystroke)
+    const u = (typeof currentUser === 'function') ? currentUser() : null;
+    if (!u || u.role === 'admin') return;
+    { el.value = el.value.slice(0, cap); try { toast('Text is limited to ' + cap + ' characters.', 'info', 4000); } catch (_) {} }
+  } catch (_) {}
+}
+try { document.addEventListener('input', _v27CapLen, true); } catch (_) {}
+function _v27MayPromote(minVer) {
+  try {
+    const u = (typeof currentUser === 'function') ? currentUser() : null;
+    const k = 'v:' + String(minVer);
+    if (!u || u.role !== 'admin' || _v27MinTried[k]) return false;
+    _v27MinTried[k] = 1;
+    return true;
+  } catch (_) { return false; }
+}
 function _v343VersionCheck() {
   if (_v347VersionListenerAttached) return;
   if (!FB.db) return;
@@ -9532,6 +10008,7 @@ function _v343VersionCheck() {
       if (_v343IsAbsent(minVer)) {
         if (_v343ParseVer(APP_VERSION) &&
             typeof APP_VERSION === 'string' && APP_VERSION.endsWith('-LIVE')) {
+          if (!_v27MayPromote(minVer)) return;   // V27
           console.warn('[V8.5] _minVersion absent — bootstrapping to', APP_VERSION);
           fbRef('_minVersion').set(APP_VERSION).catch(function(e){ console.warn('[V347] min-version write failed:', e); });
         }
@@ -9552,6 +10029,7 @@ function _v343VersionCheck() {
         // production users cannot fetch, force-reloading every real user into
         // a broken loop. APP_VERSION pattern is `V<N>-LIVE` or `V<N>-DEV`.
         if (typeof APP_VERSION === 'string' && APP_VERSION.endsWith('-LIVE')) {
+          if (!_v27MayPromote(minVer)) return;   // V27
           fbRef('_minVersion').set(APP_VERSION).catch(function(e){ console.warn('[V347] min-version write failed:', e); });
         } else {
           console.warn('[V389] Skipping _minVersion self-promotion — not a LIVE build:', APP_VERSION);
@@ -10473,6 +10951,7 @@ async function fbInitialSync() {
 
   // V347: attach real-time version listener — propagates new versions instantly.
   try { _v343VersionCheck(); } catch(_){}
+  try { _v27NoteVersion(); } catch (_) {}   // V27
   // V398: attach the fleet-reset listener (admin "Reset all clients" button).
   try { _v398ResetCheck(); } catch(_){}
   // V350: visibility-aware listener management + reconnect telemetry.
@@ -11545,7 +12024,7 @@ async function _v337BenefOneShotFetch(query, opts) {
         fbUpdatePill();
         console.log('[V347] benef from pantry:', RecordCache.benef.size, 'records');
         try { window._v192Counters.pantryHit += 1; } catch (_) {}
-        if (u.role === 'ngo') _ngoIncrementalSync();
+        if (u.role === 'ngo') _v27NgoSync('b');   // V27
         try { renderCurrentView(); } catch(_){}
         return;
       }
@@ -11860,7 +12339,7 @@ async function _v337AdvOneShotFetch(query, opts) {
         fbUpdatePill();
         console.log('[V347] adv from pantry:', RecordCache.adv.size, 'records');
         try { window._v192Counters.pantryHit += 1; } catch (_) {}
-        if (u.role === 'ngo') _advNgoIncrementalSync();
+        if (u.role === 'ngo') _v27NgoSync('a');   // V27
         // V4.11: neither invalidation call existed on this path before —
         // see the note on _v361InvalidateAggCache for why this matters.
         try { if (typeof _v361InvalidateAggCache === 'function') _v361InvalidateAggCache(); } catch(_){}
@@ -12556,14 +13035,17 @@ async function _v375ScopedAdvMultiFetch(ngos, opts) {
         }
         return n;
       };
-      if (_missing.length > _V223_TOPUP_MAX && u && u.ngo && ngos.length > 1) {
+      let _v27Each = false;   // V27
+      const _v27Whole = _missing.length > _V223_TOPUP_MAX && u && u.ngo && ngos.length > 1 && !_v27F6Get(u);   // V27: decided ONCE (a Refresh may set the mark while the whole-partner read is on its way)
+      if (_v27Whole) {
         console.warn('[V22.3] ' + _missing.length + ' households need a scheme-record lookup - '
           + 'asking for the whole partner instead');
         try {
           const _snap = await fbRef('advocacy').orderByChild('ngo').equalTo(u.ngo).once('value');
           total += _absorb(_snap.val());
-        } catch (e) { _v247TopFail++; console.warn('[V22.3] whole-partner top-up failed:', e && e.message); }
-      } else if (_missing.length) {
+        } catch (e) { if (_v266Denied(e)) { _v27F6Set(u); if (_v27F6Get(u)) _v27Each = true; else _v247TopFail++; } else _v247TopFail++; console.warn('[V22.3] whole-partner top-up failed:', e && e.message); }   // V27
+      }
+      if ((_v27Each || !_v27Whole) && _missing.length) {   // V27: was 'else if'
         let _at = 0, _got = 0;
         const _worker = async function () {
           while (_at < _missing.length) {
@@ -13425,7 +13907,7 @@ async function fbSyncCollection(coll, newArr, idField, lastMapRef, _v265Out) {
     // Rollback FB[lastMapRef] so the next save sees the same diff and retries.
     FB[lastMapRef] = oldLastMap;
     console.warn(`[V310-S2] Write failed for ${coll}:`, e);
-    throw new SaveError('write-failed', e);
+    throw new SaveError(_v266Denied(e) ? 'refused' : 'write-failed', e);   // V27
   } finally {
     FB.pendingWrites--;
     fbUpdatePill();
@@ -13521,7 +14003,7 @@ async function fbWriteChangedRecords(coll, changed, idField, lastMapRef, cacheSe
     await _v266Update(updates, _v266N);   // V26.6: the records, and their change notes
   } catch (e) {
     console.warn(`[V320] fbWriteChangedRecords failed for ${coll}:`, e);
-    throw new SaveError('write-failed', e);
+    throw new SaveError(_v266Denied(e) ? 'refused' : 'write-failed', e);   // V27
   } finally {
     FB.pendingWrites--;
     fbUpdatePill();
@@ -18707,6 +19189,7 @@ async function _advApplyStatus(bid, scheme, remarks, next) {
   // rule: nothing goes out when nothing can, only the changed rows wait, and
   // they are merged into the server's own copy when sent.
   let _v219Queued = false;
+  let _v27Ref = false;   // V27
   try {
     if (!_v196CanReachServer()) {
       _v219Queued = true;
@@ -18717,6 +19200,7 @@ async function _advApplyStatus(bid, scheme, remarks, next) {
   } catch (e) {
     if (typeof _v196IsNetworkError === 'function' && _v196IsNetworkError(e)) {
       _v219Queued = true;
+      _v27Ref = !!(e && e.reason === 'refused');   // V27
     } else {
       toast((e instanceof SaveError) ? e.message : 'Save failed. Please try again.', 'error', 8000);
       return;
@@ -18757,7 +19241,8 @@ async function _advApplyStatus(bid, scheme, remarks, next) {
   renderCurrent();   // the Waiting to send label appears
   auditLog('status_change', 'advocacy', bid, scheme,
     `Advocacy: ${scheme} ${prevDisplay} → ${next} (saved on the phone, sent when online)`, null);
-  toast(`${scheme}: ${next}. Saved on this phone - it will be sent when the internet returns.`, 'pending', 9000);
+  if (_v27Ref) toast(`${scheme}: ${next}. Saved on this phone only: the database refused it. Please tell the office.`, 'error', 12000);   // V27
+  else toast(`${scheme}: ${next}. Saved on this phone - it will be sent when the internet returns.`, 'pending', 9000);
   // renderCurrent() already called above — no second call needed
   return 'queued';   // V22.9: stored on the phone - safe
 }
@@ -19854,11 +20339,13 @@ function _applyEnrollFieldLocks() {
 
   if (u.role === 'coordinator') {
     // Lock BOTH: NGO pinned to user's NGO, coordinator name pinned to user's full name.
-    if (u.ngo) ngoSel.value = u.ngo;
+    // V27: an edit keeps (and shows) the household's own partner
+    const _v27Keep = (typeof editingId !== 'undefined' && editingId) ? ((((getData() || []).find(function (x) { return x && x.id === editingId; })) || RecordCache.benef.get(editingId) || {}).ngo || '') : '';
+    if (_v27Keep) ngoSel.value = _v27Keep; else if (u.ngo) ngoSel.value = u.ngo;
     ngoSel.disabled = true;
     Object.assign(ngoSel.style, lockedStyle);
-    ngoSel.title = 'Locked to your NGO';
-    addLock(ngoSel, `Locked to your NGO: ${u.ngo || ''}`);
+    ngoSel.title = (_v27Keep && _v27Keep !== u.ngo) ? 'Locked to this household\u2019s partner' : 'Locked to your NGO';
+    addLock(ngoSel, (_v27Keep && _v27Keep !== u.ngo) ? `Locked to this household\u2019s partner: ${escHtml(_v27Keep)}` : `Locked to your NGO: ${u.ngo || ''}`);
     if (coordInp) {
       coordInp.value = u.fullName || u.username || '';
       coordInp.disabled = true;
@@ -21746,6 +22233,7 @@ async function _submitEnrollInner() {
       // that would erase real fieldwork and is a worse bug than the one being
       // fixed. Hence `!data[idx].status`, tested against the STORED record.
       if (livOn && !data[idx].status && !fields.status) fields.status = 'Enrolled';
+      if ((currentUser() || {}).role === 'coordinator') { if (data[idx].ngo === undefined) delete fields.ngo; else fields.ngo = data[idx].ngo; }   // V27: a coordinator does not change a household's partner - kept EXACTLY (a missing one stays missing: no change for the family cascade)
       data[idx] = { ...data[idx], ...fields };
       // V24.5: ⛔ endIncome IS BASELINE + EVERY GAIN LOGGED (V4.8), so a
       // corrected baseline must carry it. Left alone, the household's income
@@ -21989,6 +22477,7 @@ async function _submitEnrollInner() {
     // dropdown — matches how other validation failures are presented.
     let id;
     let _v196Offline = false;   // set when this enrolment goes to the waiting line
+    let _v27Ref = false;        // V27: ... because the database refused it
     try {
       // V19.6: the online path is UNCHANGED - the counter still hands out
       // one number, exactly as it does today. What is new is that we no
@@ -22115,6 +22604,7 @@ async function _submitEnrollInner() {
       } catch (e) {
         if (_v196IsNetworkError(e)) {
           _v196Offline = true;
+          _v27Ref = !!(e && e.reason === 'refused');   // V27
           console.log('[V19.6] no connection - queueing this enrolment');
         } else {
           _releaseClaim(id, true);
@@ -22310,7 +22800,8 @@ async function _submitEnrollInner() {
       const _waiting = await _v196OutboxCount();
       _v201SetEnrollBtn('phone', 'Saved on phone');
       if (typeof toast === 'function') {
-        toast('Saved on this phone. ' + _waiting + ' item' + (_waiting === 1 ? '' : 's')
+        if (_v27Ref) toast('Saved on this phone only: the database refused this enrolment. Please tell the office.', 'error', 12000);   // V27
+        else toast('Saved on this phone. ' + _waiting + ' item' + (_waiting === 1 ? '' : 's')
           + ' waiting to send. They will go automatically when the internet returns.', 'pending', 9000);
       }
     } else {
@@ -27047,6 +27538,7 @@ async function _saveAdvocacyInner() {
   // copy when they are sent. Replaying this whole record from a stale copy
   // would mark somebody else's rows deleted.
   let _v197Queued = false;
+  let _v27Ref = false;   // V27
   let _v197NeedsTag = null;   // set when the Advocacy tag could not be saved
   try {
     if (!_v196CanReachServer()) {
@@ -27063,6 +27555,7 @@ async function _saveAdvocacyInner() {
   } catch (e) {
     if (typeof _v196IsNetworkError === 'function' && _v196IsNetworkError(e)) {
       _v197Queued = true;
+      _v27Ref = !!(e && e.reason === 'refused');   // V27
       console.log('[V19.7] no connection - queueing the scheme change');
     } else {
       const msg = (e instanceof SaveError) ? e.message : 'Save failed. Please try again.';
@@ -27101,7 +27594,8 @@ async function _saveAdvocacyInner() {
       // never changes the record count, which is exactly the stale-memo shape.
       if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache();
     } catch (_) {}
-    if (typeof toast === 'function' && _qok === true) {   // V20.2: not on top of "nothing to send"
+    if (typeof toast === 'function' && _qok === true && _v27Ref) toast('Saved on this phone only: the database refused this scheme change. Please tell the office.', 'error', 12000);   // V27
+    else if (typeof toast === 'function' && _qok === true) {   // V20.2: not on top of "nothing to send"
       toast('Saved on this phone. ' + _changed.length + ' scheme change'
         + (_changed.length === 1 ? '' : 's') + ' waiting to send - they will go'
         + ' automatically when the internet returns.', 'pending', 9000);
@@ -30710,8 +31204,8 @@ async function _v373AdminRefresh() {
     const _isNgoRefresh = !!(_ru && _ru.role === 'ngo');
     const [benefResult, advResult] = _isNgoRefresh
       ? await Promise.all([
-          (typeof _ngoIncrementalSync === 'function') ? _ngoIncrementalSync() : { ok: false, reason: 'unavailable' },
-          (typeof _advNgoIncrementalSync === 'function') ? _advNgoIncrementalSync() : { ok: false, reason: 'unavailable' },
+          _v27NgoSync('b'),   // V27
+          _v27NgoSync('a'),   // V27
         ])
       : await Promise.all([
           (typeof _adminIncrementalSync === 'function') ? _adminIncrementalSync() : { ok: false, reason: 'unavailable' },
@@ -40535,6 +41029,23 @@ async function _v11ServerLogin(username, pin) {
 // tighten the database rules — the alternative is guessing, and guessing wrong
 // locks field staff out. Deliberately its own node so it never touches `users`
 // and can never disturb the users cache.
+// V27: the version this phone RUNS, not only the one it signed in on (people stay signed in
+// for weeks while the app updates itself). The existing field v of the person's own entry
+// (read nowhere else; a PIN sign-in writes it too) is brought up to date once per new version
+// per phone and login: about 30 bytes sent, nothing read, the entry no bigger (review F6).
+function _v27NoteVersion() {
+  try {
+    const u = (typeof currentUser === 'function') ? currentUser() : null;
+    if (!u || !u.userId || !(FB && FB.db) || typeof APP_VERSION !== 'string' || !APP_VERSION.endsWith('-LIVE')) return;
+    const k = 'krsf_v27_ver_' + u.userId;
+    let had = null;
+    try { had = localStorage.getItem(k); } catch (_) {}
+    if (had === APP_VERSION) return;
+    fbRef('_v11Seen/' + u.userId).update({ v: APP_VERSION })
+      .then(function () { try { localStorage.setItem(k, APP_VERSION); } catch (_) {} })
+      .catch(function () {});
+  } catch (_) {}
+}
 function _v11RecordSeen(userId, mode) {
   try {
     if (!userId || !(FB && FB.db)) return;
@@ -41249,6 +41760,22 @@ async function _v11ShowAdoption() {
     else                       client++;
   });
 
+  // V27: the version each person's phone runs (v: written at sign-in and by _v27NoteVersion)
+  const _v27Grp = { all: {}, outer: {} }, _v27Not = { all: 0, outer: 0 };
+  all.forEach(u => {
+    if (!u || u.inactive || u.active === false) return;
+    const s = seen[u.id] || {};
+    const ver = String(s.v || 'not seen');
+    const outer = u.role === 'ngo' || u.role === 'scopedViewer' || u.role === 'scopedViewerByFc';
+    _v27Grp.all[ver] = (_v27Grp.all[ver] || 0) + 1;
+    if (outer) _v27Grp.outer[ver] = (_v27Grp.outer[ver] || 0) + 1;
+    if (ver !== APP_VERSION) { _v27Not.all++; if (outer) _v27Not.outer++; }
+  });
+  const _v27Line = g => Object.keys(g).sort(function (a, b) { return g[b] - g[a]; }).map(function (k) { return escHtml(k) + ': ' + g[k]; }).join(' · ');
+  const _v27Html = '<div style="font-size:12.5px;font-weight:700;color:var(--navy);margin:2px 0 5px">Versions in use</div>' +
+    '<div style="font-size:12px;line-height:1.6;margin-bottom:6px">Everyone: ' + _v27Line(_v27Grp.all) + '</div>' +
+    '<div style="font-size:12px;line-height:1.6;margin-bottom:6px">Partners, donors, team leaders: ' + _v27Line(_v27Grp.outer) + '</div>' +
+    '<div style="font-size:12px;color:var(--gray2);margin-bottom:13px">Not on ' + escHtml(APP_VERSION) + ': ' + _v27Not.all + ' people (partners, donors, team leaders: ' + _v27Not.outer + ')</div>';
   const list = pending.slice(0, 60).map(u =>
     '<div style="padding:3px 0;border-bottom:1px solid var(--gray3);font-size:12.5px">' +
       escHtml(u.fullName || u.username) +
@@ -41273,6 +41800,7 @@ async function _v11ShowAdoption() {
           stat('Still on the old check', client, '#F59E0B') +
           stat('Not seen since V11', pending.length, '#6B7280') +
         '</div>' +
+        _v27Html +   // V27
         '<div style="font-size:12.5px;color:var(--gray2);line-height:1.55;margin-bottom:11px">' +
           (pending.length === 0 && client === 0
             ? 'Everyone has signed in through the new server login. Tightening the database rules would now be safe.'
