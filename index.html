@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V27.0-LIVE
+  KRSF Beneficiary Impact Tracker  -  V27.4-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,67 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V27.4-LIVE (2026-11-14 - speed 2: figures kept until the data changes).
+
+    + Office, partner, donor and team-leader logins: choosing a partner or a
+      state no longer throws away figures that do not depend on that choice
+      (the Alerts answer, the whole database's scheme rows). Each scheme
+      record's counted rows are remembered, so a partner's or a state's list
+      is put together instead of copying every row again. The NGO Partners
+      table remembers its partner rows for the same data and filters.
+    + Same rule, same numbers: the rows, their order and every figure are
+      the ones V27.3 counts. Recounted whenever the data changes, as before.
+    + Firebase: nothing added. Field coordinators: unchanged (V27.3's code).
+      Kill switch per device: localStorage _v274Off = '1' + reload.
+
+  V27.3-LIVE (2026-11-14 - a coordinator is told plainly when a change has no signal).
+
+    + Changing a household that already exists (details, income entries,
+      endline, status) with NO signal: the change is not sent at all and
+      the coordinator sees, in their own language (English, Hindi or
+      Gujarati): "Not saved - no signal. Keep this screen open and press
+      Save again when you have signal."
+    + With a WEAK signal, if the save is not finished after 8 seconds a bar
+      says "Still saving - the signal is weak. Keep the app open until this
+      message goes away." It goes when the save finishes.
+    + New enrolments and scheme changes keep their waiting line exactly as
+      before. Office, partner, donor and team-leader logins: unchanged.
+    + Firebase: 0 added reads or writes (the no-signal check uses the
+      phone's own connection flag).
+    + Tests: 117 files. The V27.3 checks are in _specs/v273.
+
+  V27.2-LIVE (2026-11-14 - gentle motion for the office, partners, donors and team leaders).
+
+    + Changing screen: the new screen fades in and the figure boxes rise
+      in one after another. The household panel slides in from the right,
+      pop-up windows grow in, buttons look pressed, and on a computer figure
+      boxes and cards get a soft shadow under the mouse.
+    + Plain styling, no library and nothing loaded from outside; each
+      movement lasts a fifth to a third of a second. Movement plays when a
+      person changes screen, never when data arrives (no flicker).
+    + Only the office, partner, donor and team-leader screen. A
+      coordinator's app is unchanged. Phones set to reduce motion get none
+      of it. A device can switch it off: localStorage _v272Off = 1.
+    + Figures, lists and saves are unchanged. Firebase: 0 added reads or
+      writes.
+    + Tests: 117 files. The V27.2 checks are in _specs/v272.
+
+  V27.1-LIVE (2026-11-13 - lighter screens for the office, partners, donors and team leaders).
+
+    + Changing screen used to copy every household in memory just to
+      refresh the State menu (200,397 households on 10 Nov: 2-4 seconds
+      on every click for the office). The menu now reads them without a
+      copy, and each place name is matched to its state once.
+    + Alerts, Reports, NGO Partners and the admin Partners, Users and
+      Schemes screens read the records without a copy (each checked: they
+      only read). Opening a household copies only that household, its
+      family and its scheme records, not all of them.
+    + Only for office, partner, donor and team-leader logins. A
+      coordinator's app runs exactly as in V27.0 (offline too).
+    + Figures, lists and saves are unchanged. Firebase: 0 added reads or
+      writes. A device can switch it off: localStorage _v271Off = 1.
+    + Tests: 117 files. The V27.1 checks are in _specs/v271.
+
   V27.0-LIVE (2026-11-13 - ready for the next database rules; a refused save says so).
 
     + A save the database refuses is now named as refused ("the database
@@ -631,69 +692,6 @@
       read or written.
     + Tests: 98 files. v245 (income entries) and v246 (these screens) are
       new; v205fctotal follows the new columns and uses a 90-day window.
-
-  V24.5-LIVE (2026-10-01 - partners correct income entries; nothing deleted is lost).
-
-    + A partner login can now edit and delete income entries on its own
-      partner's households, as admin can. The partner is taken from the
-      household. Coordinators still only add entries.
-    + A partner gives a reason for every edit and delete; it shows under the
-      entry. Admin may leave it blank.
-    + A deleted entry is kept on the household under "Deleted entries", out
-      of every total, and admin or that household's partner can restore it.
-    + Changing baseline income in Edit Details now recalculates the endline
-      total (baseline + gains). Before, the household's income screen and
-      the dashboard and reports disagreed by the correction. None of the 181
-      households with income entries in the 26 Sep data disagreed, so no
-      figure changes today.
-    + Nothing new is read. Firebase does not change.
-
-  V24.4-LIVE (2026-09-29 - Hindi on the coordinator forms).
-
-    + Hindi is a third choice on the coordinator's EN / GJ / HI switch: every
-      label, hint, placeholder, button, warning and reminder on the enrolment
-      form, the endline form's text, the success screen, all 36 states and
-      780 district names, and the scheme and livelihood names (Hindi, with
-      the English name small underneath). Admin and viewer screens stay in
-      English. WHAT IS SAVED DOES NOT CHANGE: the app reads scheme and
-      livelihood names off the screen when it saves, so their Hindi is drawn
-      by CSS and the text stays the English name; state and district values
-      stay English. Nothing new is read or written.
-    + The "KRSF" label left the coordinator header to make room for three
-      buttons. Gujarati gains the question numbers the Livelihood reminder
-      refers to, and the scheme-row buttons and titles that were English.
-    + Tests: 91 files. v244 saves the same household in English and in
-      Hindi and compares what is stored.
-
-  V24.3-LIVE (2026-09-27 - "which households?" fetches what it lists; check for missing).
-
-    + V24.2's button said "0 fetched, 3 could not be found" for 3 Idar
-      households that ARE in the database: 457 scheme records of households
-      deleted in June, re-sent by a stale phone on 21/24 Sep with fresh save
-      times, took all 50 places at every start. The net now counts a scheme
-      record as recent by its rows (application or benefit dated this week),
-      newest first; a household the database lacks is remembered and not asked
-      again; the button asks for exactly the households it lists and says what
-      happened (fetched / deleted / offline / still loading).
-    + Bandwidth page: "Check for missing households" - manual; the ID lists
-      (~3.2 + 4.5 MB), compared; only the missing fetched (~1 KB each). Finds
-      livelihood-only households too. Never writes the database.
-    + Tests: 90 files. v243 recreates the 460 and is red on V24.2.
-
-  V24.2-LIVE (2026-09-27 - every save carries the database's own time).
-
-    + A household saved on a weak signal reached the database after the
-      office laptop had caught up past the time the phone stamped on it, and
-      was never fetched (27 Sep: 3 KRSF.Idar households, their schemes under a
-      dash in Today by partner). Every save - ordinary, targeted, owner moves,
-      deletion markers - now sends ServerValue.TIMESTAMP, so the stamp is the
-      moment it ARRIVES. The device keeps its own estimate, as before. Nothing
-      listens to these records, so nothing extra is downloaded.
-    + Admin safety net: a household whose scheme record changed in the last 7
-      days but which the laptop lacks is fetched by ID (max 50, once each).
-    + The dash row in Today by partner: "which households?" lists them and
-      fetches them.
-    + Tests: 89 files. v242 recreates the late arrival and is red on V24.1.
 
   ============================================================================
   Everything before this point lives in CHANGELOG.md, beside this file.
@@ -3349,6 +3347,36 @@ body[data-shell="coord"] .coord-card {
   .rpt-th,.rpt-tbl tbody tr,.rpt-mode button{transition:none}
 }
 </style>
+<style id="v272-motion">
+/* V27.2: gentle motion - office, partner, donor and team-leader screen only (a coordinator's app is untouched).
+   Plain CSS, opacity and transform only (the phone's graphics chip does the work, no re-layout).
+   The V394 "reduce motion" rule above stops all of it on phones that ask for less motion. */
+@keyframes v272Fade{from{opacity:0}to{opacity:1}}
+@keyframes v272Rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes v272Slide{from{opacity:.3;transform:translateX(40px)}to{opacity:1;transform:none}}
+@keyframes v272Grow{from{opacity:0;transform:translateY(10px) scale(.97)}to{opacity:1;transform:none}}
+body.v272[data-shell="manager"] #content>.v272-in{animation:v272Fade .18s ease-out both}
+body.v272[data-shell="manager"] #content>.v272-in .stats>.stat,body.v272[data-shell="manager"] #content>.stats.v272-in>.stat{animation:v272Rise .32s cubic-bezier(.2,.8,.2,1) both}
+body.v272[data-shell="manager"] #content>.v272-in .stats>.stat:nth-child(2),body.v272[data-shell="manager"] #content>.stats.v272-in>.stat:nth-child(2){animation-delay:.04s}
+body.v272[data-shell="manager"] #content>.v272-in .stats>.stat:nth-child(3),body.v272[data-shell="manager"] #content>.stats.v272-in>.stat:nth-child(3){animation-delay:.08s}
+body.v272[data-shell="manager"] #content>.v272-in .stats>.stat:nth-child(4),body.v272[data-shell="manager"] #content>.stats.v272-in>.stat:nth-child(4){animation-delay:.12s}
+body.v272[data-shell="manager"] #content>.v272-in .stats>.stat:nth-child(n+5),body.v272[data-shell="manager"] #content>.stats.v272-in>.stat:nth-child(n+5){animation-delay:.16s}
+body.v272[data-shell="manager"] .drawer.open{animation:v272Slide .24s cubic-bezier(.2,.8,.2,1)}
+body.v272[data-shell="manager"] .drawer-backdrop.open{animation:v272Fade .2s ease-out}
+body.v272[data-shell="manager"] .overlay.open{animation:v272Fade .16s ease-out}
+body.v272[data-shell="manager"] .overlay.open>.modal{animation:v272Grow .22s cubic-bezier(.2,.8,.2,1)}
+body.v272[data-shell="manager"] .btn:active,body.v272[data-shell="manager"] .nav-btn:active{box-shadow:inset 0 2px 4px rgba(15,23,42,.16)}
+body.v272[data-shell="manager"] .tbl tbody tr{transition:background-color .12s}
+@media (hover:hover) and (pointer:fine){
+  body.v272[data-shell="manager"] .stats>.stat{transition:box-shadow .18s}
+  body.v272[data-shell="manager"] .stats>.stat:hover{box-shadow:0 8px 20px rgba(15,23,42,.08)}
+  body.v272[data-shell="manager"] .card{transition:box-shadow .18s}
+  body.v272[data-shell="manager"] .card:hover{box-shadow:0 6px 18px rgba(15,23,42,.06)}
+}
+@media (prefers-reduced-motion: reduce){
+  body.v272[data-shell="manager"] #content>.v272-in,body.v272[data-shell="manager"] #content>.v272-in .stats>.stat,body.v272[data-shell="manager"] #content>.stats.v272-in>.stat,body.v272[data-shell="manager"] .drawer.open,body.v272[data-shell="manager"] .drawer-backdrop.open,body.v272[data-shell="manager"] .overlay.open,body.v272[data-shell="manager"] .overlay.open>.modal{animation:none!important}
+}
+</style>
 </head>
 <body>
 
@@ -3824,7 +3852,7 @@ body[data-shell="coord"] .coord-card {
            default. Without a flex-providing CSS class, align-items + gap would be
            ignored and icon/label would mis-align. Inline-block + margin avoids that. -->
       <button data-admin-only id="topbar-refresh-btn" onclick="_v373AdminRefresh()" title="Refresh: fetch any new records since last sync" style="display:none;padding:5px 11px;background:#DBEAFE;color:#1E40AF;border:1px solid #93C5FD;border-radius:18px;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font);transition:all .15s;margin-right:6px;vertical-align:middle;white-space:nowrap"><span id="topbar-refresh-icon" style="display:inline-block;font-size:14px;line-height:1;margin-right:5px;vertical-align:middle">↻</span><span id="topbar-refresh-label" style="vertical-align:middle">Refresh</span><span id="topbar-refresh-left"></span></button>
-      <select class="fsel" id="state-filter" onchange="_v13RptForgetReturn();stateFilter=this.value;renderCurrent()">
+      <select class="fsel" id="state-filter" onchange="_v13RptForgetReturn();stateFilter=this.value;_v274Filter();renderCurrent()">
         <option value="">All States</option>
         <option>Andhra Pradesh</option><option>Arunachal Pradesh</option><option>Assam</option><option>Bihar</option><option>Chhattisgarh</option><option>Goa</option><option>Gujarat</option><option>Haryana</option><option>Himachal Pradesh</option><option>Jharkhand</option><option>Karnataka</option><option>Kerala</option><option>Madhya Pradesh</option><option>Maharashtra</option><option>Manipur</option><option>Meghalaya</option><option>Mizoram</option><option>Nagaland</option><option>Odisha</option><option>Punjab</option><option>Rajasthan</option><option>Sikkim</option><option>Tamil Nadu</option><option>Telangana</option><option>Tripura</option><option>Uttar Pradesh</option><option>Uttarakhand</option><option>West Bengal</option><option>Andaman & Nicobar Islands</option><option>Chandigarh</option><option>Dadra & Nagar Haveli and Daman & Diu</option><option>Delhi</option><option>Jammu & Kashmir</option><option>Ladakh</option><option>Lakshadweep</option><option>Puducherry</option>
       </select>
@@ -3835,7 +3863,7 @@ body[data-shell="coord"] .coord-card {
     </div>
   </div>
   <div class="mob-filter-row" id="mob-filter-row">
-    <select class="fsel" id="mob-state-filter" onchange="_v13RptForgetReturn();stateFilter=this.value;document.getElementById('state-filter').value=this.value;renderCurrent()"><option value="">All States</option><option>Andhra Pradesh</option><option>Arunachal Pradesh</option><option>Assam</option><option>Bihar</option><option>Chhattisgarh</option><option>Goa</option><option>Gujarat</option><option>Haryana</option><option>Himachal Pradesh</option><option>Jharkhand</option><option>Karnataka</option><option>Kerala</option><option>Madhya Pradesh</option><option>Maharashtra</option><option>Manipur</option><option>Meghalaya</option><option>Mizoram</option><option>Nagaland</option><option>Odisha</option><option>Punjab</option><option>Rajasthan</option><option>Sikkim</option><option>Tamil Nadu</option><option>Telangana</option><option>Tripura</option><option>Uttar Pradesh</option><option>Uttarakhand</option><option>West Bengal</option><option>Andaman & Nicobar Islands</option><option>Chandigarh</option><option>Dadra & Nagar Haveli and Daman & Diu</option><option>Delhi</option><option>Jammu & Kashmir</option><option>Ladakh</option><option>Lakshadweep</option><option>Puducherry</option></select>
+    <select class="fsel" id="mob-state-filter" onchange="_v13RptForgetReturn();stateFilter=this.value;document.getElementById('state-filter').value=this.value;_v274Filter();renderCurrent()"><option value="">All States</option><option>Andhra Pradesh</option><option>Arunachal Pradesh</option><option>Assam</option><option>Bihar</option><option>Chhattisgarh</option><option>Goa</option><option>Gujarat</option><option>Haryana</option><option>Himachal Pradesh</option><option>Jharkhand</option><option>Karnataka</option><option>Kerala</option><option>Madhya Pradesh</option><option>Maharashtra</option><option>Manipur</option><option>Meghalaya</option><option>Mizoram</option><option>Nagaland</option><option>Odisha</option><option>Punjab</option><option>Rajasthan</option><option>Sikkim</option><option>Tamil Nadu</option><option>Telangana</option><option>Tripura</option><option>Uttar Pradesh</option><option>Uttarakhand</option><option>West Bengal</option><option>Andaman & Nicobar Islands</option><option>Chandigarh</option><option>Dadra & Nagar Haveli and Daman & Diu</option><option>Delhi</option><option>Jammu & Kashmir</option><option>Ladakh</option><option>Lakshadweep</option><option>Puducherry</option></select>
     <select class="fsel" id="mob-ngo-filter" onchange="_v262NgoChange(this)"><option value="">All NGOs</option></select>
   </div>
   <!-- Date range filter row. Visible to admin + NGO roles (V318); hidden
@@ -4918,7 +4946,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V27.0-LIVE';
+const APP_VERSION = 'V27.4-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -5038,7 +5066,10 @@ class SaveError extends Error {
       'refused':      'The database refused this change - it was NOT saved. Please tell the office.',
       'stale-copy':   'Not saved: someone changed this record after the copy on this device was saved. The latest version is now on screen \u2014 please make your change again.',
     })[reason] || 'Save failed. Please try again.';
-    super(msg);
+    // V27.3: a coordinator reads 'no signal' plainly, in their own language (others: as before)
+    let _v273m = null;
+    try { if (reason === 'offline' && typeof _v273Text === 'function') _v273m = _v273Text('no'); } catch (_) {}
+    super(_v273m || msg);
     this.name = 'SaveError';
     this.reason = reason;
     this.cause = cause;
@@ -5183,7 +5214,21 @@ function _ensureCachePrimed() {
 // Replace the entire benef cache with the given array. Called from
 // fbInitialSync after the cloud .once() fetch, so the cloud snapshot
 // becomes authoritative over whatever was primed from localStorage.
+// V27.4: speed 2 - office / partner / donor / team leader only (coordinators: V27.3's code). Kill switch per
+// device: localStorage _v274Off = '1' + reload.
+function _v274On() {
+  try { if (localStorage.getItem('_v274Off') === '1') return false; } catch (_) {}
+  try { return typeof _v271On === 'function' && _v271On(); } catch (_) { return false; }
+}
+// V27.4: moves every time the app forgets its scheme figures (here), and whenever _v357DataVersion moves
+// (_v274Epoch). Anything V27.4 remembers is only used inside one value of it.
+var _v274E = 0, _v274SeenVer = -1;
+function _v274Epoch() {
+  try { const v = (typeof _v357DataVersion !== 'undefined') ? _v357DataVersion : -1; if (v !== _v274SeenVer) { _v274SeenVer = v; _v274E++; } } catch (_) { _v274E++; }
+  return _v274E;
+}
 function _invalidateAdvCache() {
+  _v274E++;   // V27.4
   _advLatestRowsCache = null;
   _advLatestRowsCacheLen = -1;
   _v202FullRowsCache = null; _v202FullRowsCacheLen = -1;   // V20.2: both slots
@@ -5388,7 +5433,93 @@ function _v196WaitMs() { return (navigator.onLine === false) ? _V196_WAIT_OFFLIN
 // cancelled - if the connection returns during this page load the SDK still
 // delivers it, and because the replay writes the same id with the same
 // content, arriving twice is harmless.
+// ── V27.3: a coordinator is told plainly when a change has no signal (owner's option A) ──
+// Display only. No read, no write, no queue: the 'no signal' test is the SDK's own local flag.
+const _V273_SLOW_MS = 8000;   // the same 8 s the waiting line gives a slow but real connection
+const _V273_TXT = {
+  no: {
+    en: 'Not saved — no signal. Keep this screen open and press Save again when you have signal.',
+    hi: 'सेव नहीं हुआ — सिग्नल नहीं है। यह स्क्रीन खुली रखें और सिग्नल आने पर फिर से सेव दबाएँ।',
+    gu: 'સેવ થયું નથી — સિગ્નલ નથી. આ સ્ક્રીન ખુલ્લી રાખો અને સિગ્નલ આવે ત્યારે ફરીથી સેવ દબાવો.'
+  },
+  slow: {
+    en: 'Still saving — the signal is weak. Keep the app open until this message goes away.',
+    hi: 'अभी सेव हो रहा है — सिग्नल कमज़ोर है। यह संदेश हटने तक ऐप खुला रखें।',
+    gu: 'હજુ સેવ થઈ રહ્યું છે — સિગ્નલ નબળું છે. આ સંદેશ દૂર થાય ત્યાં સુધી એપ ખુલ્લી રાખો.'
+  }
+};
+function _v273IsFc() {
+  try { const u = (typeof currentUser === 'function') ? currentUser() : null; return !!u && u.role === 'coordinator'; } catch (_) { return false; }
+}
+// the text for a coordinator, in their language; null for everyone else (they keep today's wording)
+function _v273Text(k) {
+  if (!_v273IsFc() || !_V273_TXT[k]) return null;
+  let l = 'en'; try { l = (typeof _effectiveLang === 'function') ? _effectiveLang() : 'en'; } catch (_) {}
+  return _V273_TXT[k][l] || _V273_TXT[k].en;
+}
+// the save saveData is starting right now (only during this tick): _v196Guard marks it as watched
+// ⛔ review 1: the connection flag is also down for a few seconds after the app comes back from the background
+// (it reconnects) and during a short drop. A save then used to wait and go; it must not be refused. So a
+// coordinator is refused only when the phone says offline, or the flag has been down 5 s or more since the
+// app was last on screen. In those first seconds the save is sent as before (and the 8 s bar covers it).
+const _V273_GRACE_MS = 8000;   // review 2: on 2G a reconnect can take longer than 5 s
+var _v273DownSince = 0;   // when the flag went down (0 = up); moved to now when the app comes back on screen
+function _v273Clock() { try { return performance.now(); } catch (_) { return Date.now(); } }   // never jumps with the phone's clock
+function _v273NoSignal() {
+  if (typeof _v196CanReachServer !== 'function' || _v196CanReachServer()) return false;
+  if (navigator.onLine === false) return true;
+  return _v273DownSince > 0 && (_v273Clock() - _v273DownSince) >= _V273_GRACE_MS;
+}
+try { document.addEventListener('visibilitychange', function () { if (!document.hidden && _v273DownSince) _v273DownSince = _v273Clock(); }); } catch (_) {}
+// review 2: after a long drop the SDK waits up to ~30 s between reconnect tries, even when the signal is back.
+// When a coordinator is told 'no signal' while the phone itself says online, ask it to try at once - the same
+// goOffline/goOnline V337 does each time the app comes back on screen. At most once every 30 s. Nothing is
+// sent by it: when the connection is back, the flag turns true and the next Save goes.
+var _v273NudgedAt = -1e9;
+function _v273Nudge() {
+  try {
+    if (navigator.onLine === false || document.hidden) return;
+    const now = _v273Clock(); if (now - _v273NudgedAt < 30000) return;
+    _v273NudgedAt = now;   // (the refusal stands: when it reconnects the flag turns true and Save goes)
+    if (typeof firebase !== 'undefined' && firebase.database) { firebase.database().goOffline(); firebase.database().goOnline(); }
+  } catch (_) {}
+}
+var _v273Now = null;
+const _v273Slow = new Set();
+function _v273Begin() {
+  if (!_v273IsFc()) return null;
+  const tok = { guarded: false, timer: null };
+  _v273Now = tok;
+  Promise.resolve().then(function () { if (_v273Now === tok) _v273Now = null; });
+  tok.timer = setTimeout(function () {
+    tok.timer = null;
+    if (tok.guarded) return;   // the waiting line watches this one and says what happened itself
+    _v273Slow.add(tok); _v273Bar();
+  }, _V273_SLOW_MS);
+  return tok;
+}
+function _v273End(tok) {
+  if (!tok) return;
+  if (tok.timer) { clearTimeout(tok.timer); tok.timer = null; }
+  if (_v273Slow.delete(tok)) _v273Bar();
+}
+function _v273Bar() {
+  try {
+    let el = document.getElementById('v273-slow');
+    if (!_v273Slow.size) { if (el) el.remove(); return; }
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'v273-slow'; el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite');
+      el.style.cssText = 'position:fixed;left:8px;right:8px;top:8px;z-index:2147483000;background:#b91c1c;color:#fff;' +
+        'padding:10px 14px;border-radius:10px;font-size:15px;line-height:1.35;font-weight:600;text-align:center;' +
+        'box-shadow:0 6px 18px rgba(0,0,0,.25);pointer-events:none';
+      document.body.appendChild(el);
+    }
+    el.textContent = _v273Text('slow') || _V273_TXT.slow.en;
+  } catch (_) {}
+}
 function _v196Guard(p, ms) {
+  if (_v273Now) _v273Now.guarded = true;   // V27.3: this save is watched by the waiting line
   return new Promise(function (resolve, reject) {
     let settled = false;
     const t = setTimeout(function () {
@@ -5414,6 +5545,7 @@ function _v196AttachConnected() {
     if (!FB || !FB.db) return;
     FB.db.ref('.info/connected').on('value', function (snap) {
       try { _v196LastConnected = !!(snap && snap.val()); } catch (_) {}
+      try { if (_v196LastConnected) _v273DownSince = 0; else if (!_v273DownSince) _v273DownSince = _v273Clock(); } catch (_) {}   // V27.3
     });
   } catch (_) {}
 }
@@ -14426,6 +14558,12 @@ async function saveData(arr) {
   // the owner's other devices.
   // V26.5: replaced by _v265OwnersOf below, which reads each changed or deleted
   // record's owner from this copy before it is rebuilt - the V10.1 promise kept.
+  // ⛔ V27.3: A COORDINATOR'S CHANGE WITH NO SIGNAL IS NOT SENT AT ALL, AND SAID SO. Before, the write was
+  // issued, hung in the SDK's memory and was lost when the app was closed - with no message. Not issuing it
+  // also means it can never arrive later over a newer change. The flag is local: 0 bytes.
+  // (The waiting-line callers check the same flag first and queue, as before.)
+  if (_v273IsFc() && _v273NoSignal()) { _v273Nudge(); throw new SaveError('offline'); }
+  const _v273Tok = _v273Begin();   // V27.3: a slow save shows the 'keep the app open' bar after 8 s
   const _v265Out = {};
   let _v265Own = null, _v265Before = null, _v265CopyP = null;
   // V24.7: open from here until the cache is rebuilt - see _v247SaveOpen
@@ -14438,7 +14576,7 @@ async function saveData(arr) {
     _hydrateBenefCache(Array.isArray(arr) ? arr : []);
     _v265CopyP = _hydrateBenefCache._v265P;   // V26.5: the saved copy's write
     _v185ReseatLastMap('benef');   // ⛔ see the note on _v185ReseatLastMap
-  } finally { FB._v247Saving--; }
+  } finally { FB._v247Saving--; _v273End(_v273Tok); }
   // V362: queue a summary write (debounced 2 sec) so viewer's numbers stay
   // current within seconds of any save. Admin role only — others can't
   // compute global+per-NGO summaries without full data access.
@@ -16362,6 +16500,59 @@ function getData() {
   return [];
 }
 
+// ── V27.1: reading without copying, for the office, partner, donor and team-leader logins ──
+// loadData()/getData()/loadAdv() hand out a JSON copy of EVERY record on every call (written at
+// 3,500 households; 200,397 on 10 Nov: about 1.2 s per call on a laptop, 2-4 s on every screen change
+// for the office). These helpers give the same records for the places that only READ them.
+// ⛔ The objects are the LIVE ones in RecordCache: a caller must never change them (V17.7 rule; each
+// caller checked line by line, see _specs/v271/REVIEW-NOTES.md). Anything that may change a record
+// still gets its own copy (_v271One / _v271Some copy exactly what they return).
+// ⛔ A coordinator never comes here: _v271On() is false and V27.0's code runs unchanged.
+const _V271_OFF = (function () { try { return localStorage.getItem('_v271Off') === '1'; } catch (_) { return false; } })();
+function _v271On() {
+  if (_V271_OFF) return false;
+  const u = (typeof currentUser === 'function') ? currentUser() : null;
+  return !!(u && (u.role === 'admin' || u.role === 'ngo' || u.role === 'scopedViewer' || u.role === 'scopedViewerByFc'));
+}
+// the households getData() would hand out, same order, as live references - or null (then call getData())
+function _v271Scoped() {
+  if (!_v271On()) return null;
+  const u = currentUser();
+  _ensureCachePrimed();
+  const all = RecordCache.benef.values();
+  if (u.role === 'admin') return Array.from(all);
+  const out = [];
+  if (u.role === 'ngo') { for (const b of all) if (b.ngo === u.ngo) out.push(b); return out; }
+  if (u.role === 'scopedViewer') {
+    const allowed = _v375AllowedNgoSet(u);
+    if (!allowed || allowed.size === 0) return [];
+    for (const b of all) if (allowed.has(b.ngo)) out.push(b);
+    return out;
+  }
+  if (u.role === 'scopedViewerByFc') {
+    const allowed = _v376FcScopeSet(u);
+    if (!allowed || allowed.size === 0) return [];
+    for (const b of all) if (allowed.has(b.createdBy)) out.push(b);
+    return out;
+  }
+  return null;
+}
+const _v271Copy = r => JSON.parse(JSON.stringify(r));   // the very copy loadData() makes
+// = (scoped ? getData() : loadData()).find(x => x.id === id), copying only the one found
+function _v271One(id, scoped) {
+  let src;
+  if (scoped) src = _v271Scoped();
+  else { _ensureCachePrimed(); src = RecordCache.benef.values(); }
+  for (const x of src) if (x.id === id) return _v271Copy(x);
+  return undefined;
+}
+// = getData().filter(test), copying only the ones kept (test only reads)
+function _v271Some(test) {
+  const out = [];
+  for (const x of _v271Scoped()) if (test(x)) out.push(_v271Copy(x));
+  return out;
+}
+
 // One-time migration: tag existing beneficiaries that have no createdBy
 // with the bootstrapped admin's id. After first successful run, we set a
 // flag so subsequent loads skip the loadData() read entirely — the flag
@@ -16681,6 +16872,9 @@ async function _v405HandlePhotoFile(inputEl, bid) {
   if (!_v405CanAddPhoto(preCheck)) { toast('You do not have permission to add photos to this record.', 'error'); inputEl.value = ''; return; }
   if ((preCheck.photos || []).length >= V405_MAX_PHOTOS) { toast('Photo limit reached (' + V405_MAX_PHOTOS + ' photos).', 'error'); inputEl.value = ''; return; }
 
+  if (typeof _v273IsFc === 'function' && _v273IsFc() && _v273NoSignal()) {   // V27.3
+    _v273Nudge(); toast(_v273Text('no'), 'error', 8000); inputEl.value = ''; return;
+  }
   toast('Uploading photo…', '');
   try {
     const rawDataUrl = await new Promise(function(resolve, reject) {
@@ -18583,7 +18777,7 @@ let intSubTab = 'all', intSearch2 = '';
 
 // ── Beneficiary Detail Drawer ─────────────────────────────────────────────
 function openDrawer(id) {
-  const b = getData().find(x => x.id === id);
+  const b = _v271On() ? _v271One(id, true) : getData().find(x => x.id === id);   // V27.1: copies only this one
   if (!b) return;
   document.getElementById('dr-name').textContent = b.name;
   // Drawer subtitle: ID · District · (Created By only for Admin + NGO)
@@ -18615,7 +18809,7 @@ function openDrawer(id) {
   // counts for advocacy purposes, just without a head to navigate to.
   let _familyHeadHtml = '';
   if (b.headId) {
-    const _head = loadData().find(x => x.id === b.headId);
+    const _head = _v271On() ? _v271One(b.headId, false) : loadData().find(x => x.id === b.headId);   // V27.1
     if (_head) {
       // V308.1: full HTML escape via escHtml. Previous partial escape only
       // covered '<' and "'", missing '>', '&', '"' — still XSS-able.
@@ -18681,7 +18875,7 @@ const _hidJs = _v2610js(b.headId);   // V26.10: for the JavaScript string of the
   // matching the records they could otherwise click into anyway).
   let _linkedFamilyHtml = '';
   if (!b.headId) {
-    const _linked = getData().filter(x => x.headId === b.id);
+    const _linked = _v271On() ? _v271Some(x => x.headId === b.id) : getData().filter(x => x.headId === b.id);   // V27.1
     if (_linked.length > 0) {
       // Sort by relation (Wife/Husband first, then children, then others)
       // for a stable, reading-friendly order.
@@ -24821,6 +25015,7 @@ function _computeFcStats(fcUserId, fcDisplayName, benefSet, advAll) {
   };
 }
 
+var _v274NgoRows = null;   // V27.4
 function renderNGO() {
   // Role-scope:
   //   admin       → one row per partner (NGO partners table)
@@ -24828,7 +25023,7 @@ function renderNGO() {
   //   coordinator → one row, their own (kept consistent with prior behaviour)
   const u = currentUser();
   const data = filteredAll();
-  const advAll = loadAdv();
+  const advAll = _v271On() ? _v177AdvRead() : loadAdv();   // V27.1: only _advLatestRowsAll reads it
 
   // Branch on role to decide what each row represents.
   // V376-TL: TL also uses FC-mode so they see their team breakdown
@@ -24921,9 +25116,17 @@ function renderNGO() {
   } else {
     const allPartners = loadPartners().map(p => p.name);
     const partnerList = (u && u.role === 'coordinator' && u.ngo) ? [u.ngo] : allPartners;
-    rows = partnerList
-      .map(n => _computeNgoStats(n, data, advAll))
-      .filter(r => r !== null);
+    // V27.4: the same data (epoch, counts) + the same filters (_v261FilterSig) + the same partners = the
+    // same rows. A copy of the list each time: the sort below reorders it.
+    let _v274k = null;
+    try { if (_v274On()) { const _s = _v261FilterSig(); if (_s !== null) _v274k = [_v274Epoch(), RecordCache.benef.size, RecordCache.adv.size, data.length, advAll.length, _s, partnerList.join('\u0001')].join('\u0002'); } } catch (_) { _v274k = null; }
+    if (_v274k !== null && _v274NgoRows && _v274NgoRows.k === _v274k) rows = _v274NgoRows.rows.slice();
+    else {
+      rows = partnerList
+        .map(n => _computeNgoStats(n, data, advAll))
+        .filter(r => r !== null);
+      _v274NgoRows = (_v274k !== null) ? { k: _v274k, rows: rows.slice() } : null;
+    }
   }
 
   // ── Portfolio totals (V16.0.9) ──
@@ -25129,14 +25332,18 @@ let _v221Stuck = { people: 0, rows: 0 };
 // called it on EVERY render of several screens. The result only changes when
 // the data changes, and _v357DataVersion already counts exactly that.
 let _v221AlertCache = null;
-function getAlerts() {
-  // the answer depends on the version, on how many records are loaded (a cold
-  // boot fills the caches without always bumping the version), and on the day
-  // itself - every rule counts days since something happened.
-  const _ver = ((typeof _v357DataVersion !== 'undefined') ? _v357DataVersion : -1)
+// the answer depends on the version, on how many records are loaded (a cold
+// boot fills the caches without always bumping the version), and on the day
+// itself - every rule counts days since something happened.
+// V27.4: the key moved into its own function, unchanged, so a filter change can carry the answer over.
+function _v221AlertVer() {
+  return ((typeof _v357DataVersion !== 'undefined') ? _v357DataVersion : -1)
     + '|' + ((typeof RecordCache === 'object' && RecordCache.benef) ? RecordCache.benef.size : -1)
     + '|' + ((typeof RecordCache === 'object' && RecordCache.adv) ? RecordCache.adv.size : -1)
     + '|' + new Date().toISOString().slice(0, 10);
+}
+function getAlerts() {
+  const _ver = _v221AlertVer();
   if (_v221AlertCache && _v221AlertCache.ver === _ver) {
     _v221Stuck = _v221AlertCache.stuck;
     return _v221AlertCache.alerts;
@@ -25153,7 +25360,7 @@ function _getAlertsInner() {
   // how KRSF actually operates today: stuck pipeline stages, advocacy-tagged
   // but empty records, zero-rupee "received" schemes (data quality), and flat
   // endlines (suspiciously equal to baseline).
-  const data = getData();
+  const data = _v271Scoped() || getData();   // V27.1: read only (checked)
   const advAll = _v177AdvRead();
   const alerts = [];
   const today = new Date();
@@ -26682,7 +26889,11 @@ async function saveAdv(arr) {
   // see the stale value lingering on the dashboard until they logged out.
   try { if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache(); } catch(_) {}
 }
-function getAdvFor(bid) { return loadAdv().filter(a => a.bid === bid); }
+function getAdvFor(bid) {
+  // V27.1: copies only this household's scheme records (the same copies loadAdv() makes)
+  if (_v271On()) { _ensureCachePrimed(); const out = []; for (const a of RecordCache.adv.values()) if (a.bid === bid) out.push(_v271Copy(a)); return out; }
+  return loadAdv().filter(a => a.bid === bid);
+}
 
 // V16.0.6: seedAdvIfEmpty() neutered. Previously seeded 60 hardcoded sample
 // advocacy records whenever the advocacy store was empty — same ghost-data
@@ -27118,6 +27329,58 @@ function _v260SameList(a, b) {
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
   return true;
 }
+// ⛔ V27.4: EACH RECORD'S COUNTED ROWS, REMEMBERED. Building the rows copies every scheme row (3.4 lakh on
+// the 10 Nov data, ~1.3 s) and every partner / state choice built them again for its own list. A row's key
+// starts with the household id, so two records of DIFFERENT households never touch each other's rows: the
+// answer for a list is each record's own answer, one after the other in the same sorted order - exactly
+// what the loop below gives. A list holding two records of one household goes the old way (null).
+// A record's answer is used again only for the same record object, the same rows list (same objects, same
+// length), the same household / dates / owner / partner, and inside one _v274Epoch().
+// A plain Map by household id, emptied whenever the epoch moves (review 1: a WeakMap of 2 lakh records made
+// the browser's clean-up slower - one whole copy of the scheme records took 2.3 s instead of 1.4 s).
+const _v274RecRows = new Map();
+let _v274RecE = -1;
+let _v274FullE = -1;   // the epoch the whole-database slot was built in
+function _v274RowsOf(recs) {
+  const e = _v274Epoch();
+  if (_v274RecE !== e) { _v274RecRows.clear(); _v274RecE = e; }
+  const seen = new Set();
+  const out = [];
+  for (let i = 0; i < recs.length; i++) {
+    const a = recs[i];
+    if (!a || typeof a !== 'object') return null;   // the old way (and its error) for anything odd
+    if (!a.bid) continue;                             // V19.9: names no person -> no rows (as the loop)
+    if (seen.has(a.bid)) return null;
+    if (typeof a.bid !== 'string' || a.bid.indexOf(':') >= 0) return null;   // keys could meet: the old way
+    seen.add(a.bid);
+    const sr = a.schemeRows;
+    if (sr != null && !Array.isArray(sr)) return null;
+    const ts = a.updatedAt || a.createdAt;
+    let c = _v274RecRows.get(a.bid);
+    let ok = !!(c && c.a === a && c.e === e && c.sr === sr && c.bid === a.bid && c.ca === a.createdAt && c.cb === a.createdBy
+      && c.ngo === a.ngo && c.ts === ts && c.refs.length === (sr ? sr.length : 0));
+    if (ok && sr) for (let j = 0; j < sr.length; j++) if (c.refs[j] !== sr[j]) { ok = false; break; }
+    if (!ok) {
+      const byKey = {};
+      (sr || []).forEach(r => {
+        if (!r || !r.scheme) return;
+        const key = a.bid + '::' + r.scheme + '::' + (r.remarks || '');
+        byKey[key] = Object.assign({}, r, {
+          __bid: a.bid,
+          __createdAt: a.createdAt,
+          __createdBy: a.createdBy,
+          __ngo: a.ngo,
+          __ts: a.updatedAt || a.createdAt,
+        });
+      });
+      c = { a, e, sr, bid: a.bid, ca: a.createdAt, cb: a.createdBy, ngo: a.ngo, ts, refs: sr ? sr.slice() : [],
+        out: Object.values(byKey).filter(r => !r._deleted) };
+      _v274RecRows.set(a.bid, c);
+    }
+    for (let j = 0; j < c.out.length; j++) out.push(c.out[j]);
+  }
+  return out;
+}
 function _advLatestRowsAll(allAdv) {
   const src = allAdv || loadAdv();
   const isFull = !!(allAdv && typeof RecordCache === 'object' && RecordCache.adv && src.length === RecordCache.adv.size);
@@ -27129,6 +27392,14 @@ function _advLatestRowsAll(allAdv) {
   }
   const recs = src.slice();
   recs.sort((a,b) => (a.createdAt||'') < (b.createdAt||'') ? -1 : (a.createdAt||'') > (b.createdAt||'') ? 1 : 0);
+  // V27.4: the remembered answer per record (office / partner / donor / team leader)
+  let _v274R = null;
+  try { if (_v274On()) _v274R = _v274RowsOf(recs); } catch (_) { _v274R = null; }
+  if (_v274R) {
+    if (isFull) { _v202FullRowsCache = _v274R; _v202FullRowsCacheLen = src.length; _v274FullE = _v274Epoch(); }
+    else if (allAdv) { _advLatestRowsCache = _v274R; _advLatestRowsCacheLen = src.length; _v260RowsSrc = src.slice(); }
+    return _v274R;
+  }
   const byKey = {};
   recs.forEach(a => (a.schemeRows || []).forEach(r => {
     if (!r || !r.scheme) return;
@@ -27191,7 +27462,7 @@ function _advLatestRowsAll(allAdv) {
   // remarks) key is a tombstone, the entry is treated as deleted.
   const result = Object.values(byKey).filter(r => !r._deleted);
   // Store in cache
-  if (isFull) { _v202FullRowsCache = result; _v202FullRowsCacheLen = src.length; }
+  if (isFull) { _v202FullRowsCache = result; _v202FullRowsCacheLen = src.length; try { _v274FullE = _v274Epoch(); } catch (_) {} }
   else if (allAdv) { _advLatestRowsCache = result; _advLatestRowsCacheLen = src.length; _v260RowsSrc = src.slice(); }   // V26.0: a copy - a caller may reuse its array
   return result;
 }
@@ -27231,7 +27502,7 @@ function _v187RowsForBids(allAdv, bidSet) {
 
 // Latest row per scheme for one beneficiary — used to pre-fill the modal.
 function _advLatestRowsForBeneficiary(bid) {
-  return _advLatestRowsAll(loadAdv()).filter(r => r.__bid === bid);
+  return _advLatestRowsAll(_v271On() ? _v177AdvRead() : loadAdv()).filter(r => r.__bid === bid);   // V27.1: rows are copies either way
 }
 
 // V22.4: like openEnroll, this is reached by a button rather than nav(), so it
@@ -31657,7 +31928,7 @@ window.openDrawer = function(id) {
     // Bail if the drawer now shows a different beneficiary (rapid re-open).
     const subEl = document.getElementById('dr-sub');
     if (subEl && !subEl.textContent.startsWith(capturedId)) return;
-    const b=getData().find(x=>x.id===capturedId); if (!b) return;
+    const b = _v271On() ? _v271One(capturedId, true) : getData().find(x=>x.id===capturedId); if (!b) return;   // V27.1
     const body=document.getElementById('dr-body'); if (!body) return;
     // Advocacy section — show only the latest row per scheme (status updates
     // supersede older entries). Original records still stored for history.
@@ -33751,6 +34022,7 @@ function _v262Apply(list) {
   fcFilter = '';
   _v262SyncNgoSelects(true);
   _rebuildStateFilterOptions();
+  _v274Filter();   // V27.4: a choice, not a data change
   renderCurrent();
 }
 function _v262ClosePicker() { const p = document.getElementById('v262-pick'); if (p) p.remove(); document.removeEventListener('mousedown', _v262Outside, true); document.removeEventListener('keydown', _v262Key, true); }
@@ -34477,7 +34749,7 @@ function renderReports() {
   // ⚠️ NOT loadUsers(). See _rptScopedUsers — the roster is the only Reports
   // input that is not already scoped by the Firebase query.
   const users = _v256D ? [] : _rptScopedUsers(u);
-  const advParents = _v256D ? [] : loadAdv();
+  const advParents = _v256D ? [] : (_v271On() ? _v177AdvRead() : loadAdv());   // V27.1: only _advLatestRowsAll reads it
   // V12.6: rptRange 0 = all time. Infinity makes _rptAggregate's ALL_TIME
   // branch fire, which counts undated records too.
   const _w212 = _v212Win();   // V21.2: month or day-window, decided in one place
@@ -34898,6 +35170,7 @@ function _v357WrapRoute(view, originalFn) {
     if (el && _v361HeavyViews.has(view)) {
       try { el.innerHTML = _v361LoadingSkeleton(view); } catch(_) {}
       const args = arguments, self = this;
+      const _v272FromNav = (typeof _v272InNav !== 'undefined' && _v272InNav);   // V27.2
       requestAnimationFrame(function() {
         try { originalFn.apply(self, args); }
         catch(e) { console.warn('[V361] render failed for ' + view + ':', e); }
@@ -34907,6 +35180,7 @@ function _v357WrapRoute(view, originalFn) {
             _v357TabCache.set(view, { sig: _v357ComputeSig(view), html: elAfter.innerHTML });
           }
         } catch(_) {}
+        if (_v272FromNav) { try { _v272Mark(); } catch (_) {} }   // V27.2: display only
       });
       return;
     }
@@ -34947,6 +35221,26 @@ if (document.readyState !== 'complete') {
   });
 }
 
+// V27.2: motion switch (per device: localStorage _v272Off = '1' turns it off) and the screen-change mark.
+// Called by nav() right AFTER it has drawn the new screen: marks the pieces it drew, so they fade in.
+// A redraw later (data arrived) makes new, unmarked pieces: they do not move. Display only - no data, no Firebase.
+// The motion styles all hang on body.v272, set here: office/partner/donor/team-leader screen only, never a coordinator.
+const _V272_OFF = (function () { try { return localStorage.getItem('_v272Off') === '1'; } catch (_) { return false; } })();
+// _v272InNav is true only while nav() itself is drawing the new screen. The office's heavy screens draw a
+// 'loading' placeholder and the real screen one frame later; that later draw is marked only if nav() started it.
+var _v272InNav = false;
+function _v272Mark() {
+  const u = (typeof currentUser === 'function') ? currentUser() : null;
+  const on = !_V272_OFF && document.body.dataset.shell === 'manager' && !!u && u.role !== 'coordinator';
+  document.body.classList.toggle('v272', on);
+  const c = document.getElementById('content');
+  if (!on || !c) return;
+  // a very large block (the office's Reports: ~9,600 pieces, 35,000 px tall) is never faded: fading it froze
+  // the page for ~9 s in a test (regression test v212). Small blocks only (<= 3,000 pieces each).
+  const kids = Array.from(c.children).filter(function (k) { return k.getElementsByTagName('*').length <= 3000; });
+  kids.forEach(function (k) { k.classList.add('v272-in'); });
+  setTimeout(function () { kids.forEach(function (k) { k.classList.remove('v272-in'); }); }, 700);
+}
 window.nav=function(v){
   // Guard admin routes — non-admins get bounced to dashboard
   if (v.startsWith('admin_') && !isAdmin()) { v = 'dashboard'; }
@@ -35019,7 +35313,9 @@ window.nav=function(v){
   document.getElementById('page-title').textContent=titles[v]||v;
   document.getElementById('page-count').style.display=(v==='list'||v==='beneficiaries')?'block':'none';
   closeDrawer();
-  (_navRoutes_v32[v]||renderDashboard)();
+  _v272InNav = true;   // V27.2
+  try { (_navRoutes_v32[v]||renderDashboard)(); } finally { _v272InNav = false; }
+  try { _v272Mark(); } catch (_) {}   // V27.2: the screen just drawn fades in (display only)
   // Refresh NGO dropdowns from the partner list on every render so newly
   // added partners appear in topbar filter, mobile filter, and any page-level
   // NGO selectors without requiring a reload. Must run BEFORE _applyRoleVisibility
@@ -35064,7 +35360,34 @@ function _v261ClearFc() {
   try { renderCurrent(); } catch (_) {}
 }
 window._v261ClearFc = _v261ClearFc;
+// ⛔ V27.4: A PARTNER / STATE CHOICE IS NOT A DATA CHANGE. renderCurrent is the data-change path (V357) and
+// threw away every figure - so each choice recounted the whole database's scheme rows (~0.9 s) and the
+// Alerts (~1 s) on top of its own screen. The filter handlers mark the render (_v274Filter); the parts that
+// do not depend on any filter are put back right after the forgetting, only if they were valid for the
+// data as it is (same epoch, same record counts). The screen itself is drawn afresh as before.
+var _v274FilterOnly = false;
+function _v274Filter() { try { _v274FilterOnly = _v274On(); } catch (_) { _v274FilterOnly = false; } }
+window._v274Filter = _v274Filter;
+function _v274Keep() {
+  const e = _v274Epoch();
+  return { e,
+    bs: RecordCache.benef.size, as: RecordCache.adv.size,
+    fr: (_v202FullRowsCache && _v274FullE === e) ? _v202FullRowsCache : null, frl: _v202FullRowsCacheLen,
+    fb: (_v202FullByBidCache && _v202FullByBidSrc === _v202FullRowsCache) ? _v202FullByBidCache : null,
+    al: (_v221AlertCache && _v221AlertCache.ver === _v221AlertVer()) ? _v221AlertCache : null };
+}
+function _v274Restore(k) {
+  if (!k || RecordCache.benef.size !== k.bs || RecordCache.adv.size !== k.as) return;
+  _v274E = k.e;
+  _v274SeenVer = (typeof _v357DataVersion !== 'undefined') ? _v357DataVersion : -1;   // this render's own bump
+  if (k.fr) {
+    _v202FullRowsCache = k.fr; _v202FullRowsCacheLen = k.frl; _v274FullE = k.e;
+    if (k.fb) { _v202FullByBidCache = k.fb; _v202FullByBidSrc = k.fr; }
+  }
+  if (k.al) _v221AlertCache = { ver: _v221AlertVer(), alerts: k.al.alerts, stuck: k.al.stuck };
+}
 window.renderCurrent=function(){
+  const _v274F = _v274FilterOnly; _v274FilterOnly = false;   // V27.4: one render only
   // v21.0 shell dispatch — coordinator shell has its own list renderer,
   // bypassing the nav-routes table (which is manager-shell territory).
   if (document.body.dataset.shell === 'coord') {
@@ -35076,7 +35399,10 @@ window.renderCurrent=function(){
   // route so the route sees fresh data and re-renders. Tab switching uses
   // nav() which calls routes directly (bypassing renderCurrent) — those
   // still hit the cache for instant tab switches.
+  let _v274K = null;
+  try { if (_v274F && _v274On()) _v274K = _v274Keep(); } catch (_) { _v274K = null; }   // V27.4
   try { if (typeof _v357InvalidateTabCache === 'function') _v357InvalidateTabCache(); } catch(_){}
+  try { if (_v274K) _v274Restore(_v274K); } catch (_) {}   // V27.4
   (_navRoutes_v32[currentView]||renderDashboard)();
   // Refresh admin date-range summary chip after every render so the live
   // match count stays accurate as other filters (state/NGO) also tighten.
@@ -35182,7 +35508,7 @@ async function savePartners(arr) {
 function renderAdminPartners() {
   const partners = loadPartners();
   const users = loadUsers();
-  const allB = loadData();
+  const allB = _v271On() ? _readCacheDirect() : loadData();   // V27.1: counts only
   // Count coordinators + NGO users + beneficiaries per partner
   const coordCount = {}, ngoUserCount = {}, benefCount = {};
   partners.forEach(p => { coordCount[p.name] = 0; ngoUserCount[p.name] = 0; benefCount[p.name] = 0; });
@@ -35716,7 +36042,7 @@ function renderAdminUsers() {
   const allUsers = loadUsers();
   const me = currentUser();
   // Count beneficiaries owned per user for the "records" column
-  const allB = loadData();
+  const allB = _v271On() ? _readCacheDirect() : loadData();   // V27.1: counts only
   const ownedCount = {};
   allB.forEach(b => { if (b.createdBy) ownedCount[b.createdBy] = (ownedCount[b.createdBy]||0)+1; });
 
@@ -36451,7 +36777,7 @@ async function adminDeleteLivType(idx) {
 function renderAdminSchemes() {
   const schemes = getSchemes();
   const meta = getSchemesMeta();   // V322
-  const allAdv = (typeof loadAdv === 'function') ? loadAdv() : [];
+  const allAdv = _v271On() ? _v177AdvRead() : ((typeof loadAdv === 'function') ? loadAdv() : []);   // V27.1: counts only
   const usage = {};
   schemes.forEach(s => { usage[s] = 0; });
   allAdv.forEach(rec => {
@@ -37314,6 +37640,12 @@ async function _undoBulkStatusForBeneficiary(bid) {
 // Helper used by the drawer to know whether to render the undo banner.
 // Returns the snapshot of the most-recent batch (depth 1) or null.
 function _getBulkStatusSnapshotForBeneficiary(bid) {
+  // V27.1: find it without copying every record; hand back the same copy loadAdv() would
+  if (_v271On()) {
+    _ensureCachePrimed();
+    for (const r of RecordCache.adv.values()) if (r.bid === bid && r._preBulkStatusSnapshot) return _v271Copy(r._preBulkStatusSnapshot);
+    return null;
+  }
   const adv = loadAdv();
   for (const r of adv) {
     if (r.bid === bid && r._preBulkStatusSnapshot) return r._preBulkStatusSnapshot;
@@ -38261,8 +38593,30 @@ function _rebuildStateFilterOptions() {
 // means it does NOT become a property on `window`. We access it by its
 // bare name instead, and use typeof guarding so this function is safe
 // to call from code paths that run before the `let` has been evaluated.
+// V27.1: the state a place name belongs to = the FIRST of ALL_STATE_NAMES it contains (the loop below),
+// worked out once per distinct name instead of once per household
+const _v271StateOf = new Map();
+function _v271PlaceState(d) {
+  let s = _v271StateOf.get(d);
+  if (s === undefined) { s = null; for (const x of ALL_STATE_NAMES) { if (d.includes(x)) { s = x; break; } } _v271StateOf.set(d, s); }
+  return s;
+}
 function _statesWithBeneficiariesForCurrentFilter() {
   const present = new Set();
+  // V27.1: office, partner, donor, team leader - the same households, read without copying them
+  try {
+    const live = _v271Scoped();
+    if (live) {
+      const ngo = (typeof ngoFilter !== 'undefined' ? ngoFilter : '') || '';
+      for (const b of live) {
+        if (ngo && !_v262NgoHas(ngo, b.ngo)) continue;
+        if (!b || !b.district) continue;
+        if (typeof b.district === 'string') { const s = _v271PlaceState(b.district); if (s) present.add(s); continue; }
+        for (const s of ALL_STATE_NAMES) { if (b.district.includes(s)) { present.add(s); break; } }   // not text: as before
+      }
+      return present;
+    }
+  } catch (_) { present.clear(); }
   try {
     let data = getData();
     const ngo = (typeof ngoFilter !== 'undefined' ? ngoFilter : '') || '';
