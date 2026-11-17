@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V27.4-LIVE
+  KRSF Beneficiary Impact Tracker  -  V27.5-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,28 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V27.5-LIVE (2026-11-16 - donors see beneficiaries in Reports).
+
+    + A donor's Reports now show the beneficiaries beside each Advocacy
+      figure ("1,745 beneficiaries · 5,206 schemes"), for every date chip,
+      on both the FC Performance and the Partners tab - the same people the
+      office counts for the same partners.
+    + How: the office laptop, which already prepares each partner's Reports
+      pages for donors, adds three numbers per page (surveyed, applied and
+      received beneficiaries). A household belongs to one partner, so the
+      donor adds them up across its partners. A page from an older office
+      laptop has none: then no beneficiaries are shown (never "0").
+    + Firebase: about 15-30 bytes more per page. The office first opening
+      V27.5 rewrites every page once; each donor's next Refresh reads its
+      pages once more (until then a donor's saved pages have no counts and
+      show no beneficiaries - never a wrong one), then as before. Nothing
+      else changes for anyone: office, partners, team leaders and
+      coordinators read and write what V27.4 does.
+    + Every office device should open V27.5 the same evening: an office
+      device still on V27.4 rewrites pages without the counts.
+    + Kill switch per device: localStorage _v275Off = '1' + reload (hides the
+      donor's beneficiaries again).
+
   V27.4-LIVE (2026-11-14 - speed 2: figures kept until the data changes).
 
     + Office, partner, donor and team-leader logins: choosing a partner or a
@@ -672,26 +694,6 @@
       for this partner's households; Refresh on the dashboard works.
     + "Data saved on <date, time>" under the list titles for those roles.
     + Tests: 101 files. v247 is new.
-
-  V24.6-LIVE (2026-10-01 - Reports: two programmes on the leaderboard; scheme-wise).
-
-    + Coordinator leaderboard and its cards: ADVOCACY Surveyed / Applied /
-      Benefits received (scheme entries) and LIVELIHOOD Enrolled /
-      Intervention / Endline (households), each following the date chip.
-      Surveyed = every entry logged, any status. Intervention counts
-      households that reached that step, completed ones included. Endline
-      follows the one endline rule. "Enrollments" and Data quality are gone.
-      The CSV carries the six window figures, the six all-time figures and
-      the household total.
-    + Advocacy Pipeline: "Scheme-wise" card - every scheme on the scheme list
-      plus one row for names coordinators typed themselves (955 different
-      ones on 26 Sep), by scheme or by partner, with its own date window. Its
-      CSV has one row per partner and scheme name. "Scheme success rates"
-      stays below it, for its estimated rupees.
-    + Same rows and same dates as every other advocacy figure. Nothing new is
-      read or written.
-    + Tests: 98 files. v245 (income entries) and v246 (these screens) are
-      new; v205fctotal follows the new columns and uses a 90-day window.
 
   ============================================================================
   Everything before this point lives in CHANGELOG.md, beside this file.
@@ -4946,7 +4948,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V27.4-LIVE';
+const APP_VERSION = 'V27.5-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -33833,7 +33835,12 @@ const _RPT_ICONS = {
 // row (review: +130 ms a draw for admin). rows is kept for the callers' shape only.
 // Donor logins read stored figures, which carry no households: null (nothing shown).
 function _v26People(rows, fell, all) {
-  if (typeof _v256IsDonor === 'function' && _v256IsDonor()) return null;
+  // V27.5: a donor's aggregate is rebuilt from the office's blocks; its people are the counts those
+  // blocks carry, added up (_v256MakeA). Both tabs pass their aggregate's Map - for a donor, read A instead.
+  if (typeof _v256IsDonor === 'function' && _v256IsDonor()) {
+    const _A = (typeof _v256ExpA === 'function') ? _v256ExpA() : null;
+    return (_A && _A._v275P) ? _A._v275P : null;
+  }
   // an aggregate with no households behind it (one rebuilt from the stored donor figures) has
   // no people to count: nothing is shown, never "| 0 ben"
   if (!(all instanceof Map)) return null;
@@ -34214,6 +34221,20 @@ function _v256Fp(s) {
 const _V256_ISO = /^\d{4}-\d{2}-\d{2}$/;
 function _v256Day(s) { return _V256_ISO.test(s) ? Math.round(Date.parse(s) / 86400000) : String(s); }
 function _v256Iso(n) { return (typeof n === 'number') ? new Date(n * 86400000).toISOString().slice(0, 10) : String(n); }
+// V27.5: the people behind a donor's cards. Counted by the office from the SAME Map its own cards read
+// (_rptAggregate's _v26all: household -> bits; see _v26People). win 0 = all-time [surveyed, applied, received];
+// win 1 = in the window [surveyed, applied, received] (received = the true windowed count: bit 32 is set only
+// by a dated benefit inside the window, or at all-time). null when the aggregate has no Map.
+function _v275Pp(A, win) {
+  const all = A && A._v26all;
+  if (!(all instanceof Map)) return null;
+  const c = [0, 0, 0, 0, 0, 0];
+  all.forEach(function (k) { for (let i = 0; i < 6; i++) if (k & (1 << i)) c[i]++; });
+  return win ? [c[1], c[3], c[5]] : [c[0], c[2], c[4]];
+}
+function _v275On() {   // V27.5: the donor side only (the office always writes the counts)
+  try { return localStorage.getItem('_v275Off') !== '1'; } catch (_) { return true; }
+}
 function _v256BuildBase(A, ngo, held, nowMs) {
   const N = _v256N;
   const fc = [], fcIdx = new Map();
@@ -34252,6 +34273,7 @@ function _v256BuildBase(A, ngo, held, nowMs) {
     byNgoLiv: _v256Entries(A.byNgoLiv).map(([k, g]) => [String(k || '—'), N(g.n), N(g.base), N(g.end)]),
     nw: _v256Entries(A.ngoWin).map(([k, g]) => [String(k || ''), N(g.n), g.fcs ? g.fcs.size : 0]),
     tot: [N(A.totalEverEnrolled), N(A.advTotal)],
+    ...((function () { const p = _v275Pp(A, 0); return p ? { pp: p } : {}; })()),   // V27.5 (no key when none: Firebase refuses undefined)
     _fcIdx: fcIdx, _nameIdx: nameIdx, _partIdx: partIdx
   };
 }
@@ -34281,6 +34303,7 @@ function _v256BuildWin(A, base) {
     }));
   return {
     v: _V256_VER, fc, off, pa, sch, enr: N(A.enrolledWinTotal),
+    ...((function () { const p = _v275Pp(A, 1); return p ? { pp: p } : {}; })()),   // V27.5
     nw: _v256Entries(A.ngoWin).map(([k, g]) => [String(k || ''), N(g.n), g.fcs ? g.fcs.size : 0])
   };
 }
@@ -34562,6 +34585,7 @@ function _v256MakeA(packs, d) {
   const suspects = [];
   let livN = 0, endN = 0, sumBase = 0, sumEnd = 0, upliftBase = 0, upliftAdded = 0, overdue = 0;
   let enrolledWinTotal = 0, totalEverEnrolled = 0, advTotal = 0, susN = 0;
+  let _v275Ok = packs.length > 0; const _v275S = [0, 0, 0, 0, 0, 0];   // V27.5: s, sw, a, aw, b, bw
   const addSch = (m, r) => {
     let pm = m.get(r[0]); if (!pm) { pm = new Map(); m.set(r[0], pm); }
     const c = pm.get(r[1]) || [0, 0, 0, 0];
@@ -34617,6 +34641,10 @@ function _v256MakeA(packs, d) {
     _v256L(b.sch).forEach(r => addSch(schAll, named(r)));
     _v256L(w.sch).forEach(r => addSch(schWin, named(r)));
     const T = _v256L(b.tot); totalEverEnrolled += _v256N(T[0]); advTotal += _v256N(T[1]);
+    // V27.5: the people, only when EVERY block in view carries them (an older office laptop: none shown)
+    const _bp = _v256L(b.pp), _wp = d ? _v256L(w.pp) : _bp;
+    if (_bp.length !== 3 || _wp.length !== 3) _v275Ok = false;
+    else for (let i = 0; i < 3; i++) { _v275S[2 * i] += _v256N(_bp[i]); _v275S[2 * i + 1] += _v256N(_wp[i]); }
     enrolledWinTotal += _v256N(w.enr);
     _v256L(w.nw).forEach(r => { const g = ngoWin.get(r[0]) || { n: 0, fcs: { size: 0 } }; g.n += _v256N(r[1]); g.fcs.size += _v256N(r[2]); ngoWin.set(r[0], g); });
   });
@@ -34656,6 +34684,9 @@ function _v256MakeA(packs, d) {
     latestRows: [], bById: new Map(), inWin: inWin, fcs: fcs, allTime: ALL, benefitsFellBack: benefitsFellBack,
     fcTotal: fcs.length, _v256: { at: nowMs, partners: packs.length }, __v256sch: schWin
   };
+  // V27.5: the shape _v26People returns; received in a window that fell back = all-time (as its column)
+  A._v275P = (_v275Ok && _v275On()) ? { s: _v275S[0], sw: _v275S[1], a: _v275S[2], aw: _v275S[3], b: _v275S[4],
+    bw: benefitsFellBack ? _v275S[4] : _v275S[5] } : null;
   A._v25p = Array.from(paBy.values()).filter(r => r.surveyed || r.livelihood || r.ngo !== '—')
     .sort((x, y) => String(x.ngo).localeCompare(String(y.ngo)));   // the order _v25PartnerAgg returns since V25.6
   return A;
