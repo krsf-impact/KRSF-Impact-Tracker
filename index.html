@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 
-  KRSF Beneficiary Impact Tracker  -  V27.5-LIVE
+  KRSF Beneficiary Impact Tracker  -  V27.6-LIVE
   ============================================================================
 
   FULL HISTORY: see CHANGELOG.md next to this file. It used to live here and
@@ -9,6 +9,39 @@
   browser reads. The releases since V19.5 are kept below; V20.2 moved
   V17.8-V19.4 out again after the header had grown back to 104 KB.
   ============================================================================
+  V27.6-LIVE (2026-11-18 - security fixes, one release: offline enrolments, office summary, office screens, sign-in on the phone).
+
+    + Offline enrolment (NV-03): an enrolment typed with no signal is no
+      longer thrown away when someone else put a household at its number
+      first. It counts as "already arrived" only when the household there is
+      the same one (same enrolment date and the same name or phone).
+      Otherwise it stays on the phone, marked "cannot be sent", and the
+      coordinator sees a message to tell the office. Nothing is lost or
+      overwritten.
+    + Office summary (NV-01, 02, 10, 23, 33): one odd partner name (a hidden
+      character, a very long name, a name like "toString", or two names that
+      become the same key) no longer stops or mixes up the figures - that one
+      name is skipped and logged. A partner's stored figures can no longer
+      stay frozen at a wrong or old number when the office holds every
+      household. Old summary blocks that no household, partner or login
+      names any more are removed (the office then reads less).
+    + Office screens (NV-06, 07, 08, 11, 12, 13, 35, 39): stored text is
+      shown as plain text on Log Income, endline batch and duplicate-ID
+      screens; an odd value no longer blanks the Audit Log or Users screen;
+      repair "Undo" and duplicate relink trust only genuine office rows and
+      matching households; a forged "(Admin)" label shows the person's real
+      role; Excel/CSV cells that start like a formula get an apostrophe.
+    + Sign-in on the phone (NV-16): a PIN copy on the phone that the server
+      says is out of date (after an office PIN reset) or that belongs to an
+      account marked inactive is removed, so an old PIN no longer opens the
+      app (except while the account is locked after too many tries - then
+      the phone checks its own copy, as in V27.5). Typos keep the copy. Everything else about signing in, online and
+      offline, is exactly as in V27.5.
+    + Firebase: 0 bytes more for anyone (the office reads a little less).
+    + Kill switches per device (localStorage, then reload): _v276Off = '1'
+      (offline-enrolment check and summary changes back to V27.5),
+      _v276DevOff = '1' (sign-in on the phone back to V27.5).
+
   V27.5-LIVE (2026-11-16 - donors see beneficiaries in Reports).
 
     + A donor's Reports now show the beneficiaries beside each Advocacy
@@ -646,54 +679,6 @@
       tapped is the one changed; a household re-sent from an old copy is not
       treated as brand new by the check.
     + Tests: 107 files. v249 is new.
-
-  V24.8-LIVE (2026-10-02 - coordinators correct their own income entries).
-
-    + GURU: coordinators edit and delete income entries too - only the ones
-      they typed, on their own households. An entry typed by the partner or
-      the office shows "Locked" on their phone and stays theirs to change.
-    + Same rules as partners: a reason for every edit and delete, shown under
-      the entry; a deleted entry is kept under "Deleted entries", out of
-      every total, and the coordinator can put back what they deleted.
-    + On the phone, a pencil and a bin sit at the end of each entry's second
-      line - no extra row - and editing stays on the phone layout.
-    + The check before saving now covers coordinators: a save from an older
-      copy on the phone is stopped and the latest comes on screen, so a
-      partner's or the office's newer work is never wiped. About 0.6 MB a day
-      for all coordinators together. A save with no signal is refused as
-      before, so no work typed offline is ever dropped by the check. A
-      scheme plan for a household this device has just created is not
-      looked up first, so enrolments are no slower.
-    + Edit, Delete and Restore find their entry again just before saving; a
-      sync arriving while the person types can no longer move the change
-      onto a different entry. An entry being edited keeps its own
-      interventions on offer, even one since taken off the household.
-    + Tests: 104 files. v248 is new.
-
-  V24.7-LIVE (2026-10-02 - Refresh for every login that reads; check before save).
-
-    + GURU: an edit made from an old copy erased newer work. Proved on V24.6:
-      a partner correcting one income entry wiped a coordinator's Rs 6,000
-      entry saved after the partner's copy; a phone-number change wiped a
-      Rs 2,000 one. Before a partner or the admin saves, the app now reads
-      those records from the database (about 0.5 KB each) and stops when
-      somebody else saved one after this copy: nothing is written, the latest
-      replaces the copy on screen, and a message says who, when, and what to
-      type again. A record last saved by the same login is never stopped.
-      Coordinators are not checked in this release.
-    + Refresh for donors and team leaders, and a daily limit shown on the
-      button: partner 2, team leader 1, donor 2 ("2 left today"). Opening the
-      app still downloads nothing.
-    + A Refresh never costs more than the login's own data: everyone's
-      changes since the last Refresh, or the own data again when that is
-      smaller (team leaders: always their own). A fresh login sets the
-      starting point; the first Refresh after one took 53 MB for a quiet
-      partner. A full download is built beside the old copy, so a Refresh
-      that fails changes nothing.
-    + Partner Refresh keeps scheme records typed by another partner's staff
-      for this partner's households; Refresh on the dashboard works.
-    + "Data saved on <date, time>" under the list titles for those roles.
-    + Tests: 101 files. v247 is new.
 
   ============================================================================
   Everything before this point lives in CHANGELOG.md, beside this file.
@@ -4948,7 +4933,7 @@ const APPCHECK_RECAPTCHA_SITE_KEY = '6Lfxl1UtAAAAAJ07Y5keUqqE0OcWs58PaQ-Ypla1';
 
 // V318: single source of truth for the app version, rendered in sidebar footer
 // and exposed on window for DevTools introspection. Bump on every release.
-const APP_VERSION = 'V27.5-LIVE';
+const APP_VERSION = 'V27.6-LIVE';
 
 // ── V13.1: dates are IST, not UTC ──────────────────────────────────────────
 // Every date in this app was stamped with new Date().toISOString(), which is
@@ -6091,6 +6076,25 @@ window._v196Counters = { queued: 0, sent: 0, blocked: 0, failed: 0 };
 
 // Put one finished enrolment - the person, their scheme plan and their photo,
 // kept together as ONE unit - into the waiting line.
+// V27.6: kill switch per device (localStorage _v276Off = '1' + reload) for the waiting-line check and
+// the summary guard below. Never touches the network.
+function _v276On() {
+  try { return localStorage.getItem('_v276Off') !== '1'; } catch (_) { return true; }
+}
+// V27.6 (security test NV-03): is the household the database holds at this number the SAME enrolment
+// as the one waiting on this phone? Same enrolment date and the same name or phone number - things only
+// the person who typed it knows. A household put there by someone else first (same coordinator named as
+// owner) used to count as 'already arrived', and the typed enrolment was thrown away. A correction made
+// online in the minute between arriving and this check could make it say no: the enrolment then stays
+// on the phone as 'cannot be sent' - kept, never lost, never written over anything.
+function _v276SameEnrol(srv, q) {
+  if (!_v276On()) return true;   // V27.5
+  if (!srv || !q) return false;
+  const s = x => (x == null) ? '' : String(x).trim();
+  if (s(srv.enrollDate) !== s(q.enrollDate)) return false;
+  const nm = s(q.name), ph = s(q.phone);
+  return (!!nm && s(srv.name) === nm) || (!!ph && s(srv.phone) === ph);
+}
 async function _v196Queue(benef, advRec, photoDataUrl) {
   const u = (typeof currentUser === 'function') ? currentUser() : null;
   if (!u || !u.userId || !benef || !benef.id) return false;
@@ -6708,6 +6712,16 @@ async function _v196Pump() {
           if (g2.timedOut) break;                    // no answer - try again later
           srv = g2.value && g2.value.val();
         } catch (e) { break; }
+        // V27.6 (NV-03): the same owner is not enough - it must be this enrolment. If not, keep it here.
+        if (srv && srv.createdBy === item.benef.createdBy && FB.pendingWrites === 0 && !_v276SameEnrol(srv, item.benef)) {
+          item.blocked = true;
+          item.blockedReason = 'that ID already holds a different household';
+          window._v196Counters.blocked += 1;
+          await _idbSet(_v196ItemKey(u.userId, iid), item);
+          console.error('[V27.6] REFUSING to treat ' + bid + ' as arrived - the household there is not this '
+            + 'enrolment. Nothing was overwritten; it stays on this phone. Tell the administrator.');
+          continue;
+        }
         if (srv && srv.createdBy === item.benef.createdBy && FB.pendingWrites === 0) {
           const rec = Object.assign({}, srv, { id: srv.id || bid });
           RecordCache.benef.set(bid, rec);
@@ -7442,6 +7456,48 @@ async function _advPantryClear(userId) {
 
 // V347: global users pantry (not per-user — users collection is shared).
 const _USERS_PANTRY_KEY = 'users-pantry-global';
+// ════════════════════════════════════════════════════════════════════════════
+// V27.6 (security NV-16): when the SERVER says a phone's PIN copy ('krsf_v269_pv_<id>') can no longer be
+// trusted, the phone forgets it - the account is inactive, or the server refused a PIN that this copy still
+// accepts (the office reset the PIN). Nothing else changes: 'locked', no signal, other people's copies and
+// the saved staff list behave exactly as V27.5. No Firebase reads or writes.
+// Kill switch per device: localStorage _v276DevOff = '1'.
+// ════════════════════════════════════════════════════════════════════════════
+const _V276_PV = 'krsf_v269_pv_';          // same text as _V269_PV (that const is defined further down)
+function _v276DevOn() { try { return localStorage.getItem('_v276DevOff') !== '1'; } catch (_) { return true; } }
+function _v276FindUid(username) {
+  try {
+    // same as the server: the typed name in lower case, else exactly as typed (review note 4)
+    const ty = String(username || ''), lu = ty.toLowerCase();
+    for (const r of RecordCache.users.values()) if (r && r.id && r.username && (String(r.username) === lu || String(r.username) === ty)) return String(r.id);
+  } catch (_) {}
+  return null;
+}
+function _v276ForgetDevicePin(uid) {
+  if (!uid || !_v276DevOn()) return;
+  try { localStorage.removeItem(_V276_PV + uid); } catch (_) {}
+}
+// The server REJECTED this PIN. Only if the phone's copy would have ACCEPTED it is that copy stale - then forget
+// it. A typo matches nothing and keeps the copy, so the coordinator still signs in offline later. Runs in the
+// background; never delays the message.
+async function _v276OnRejected(username, pin) {
+  if (!_v276DevOn()) return false;
+  const uid = _v276FindUid(username);
+  if (!uid || !pin) return false;
+  let s = null;
+  try { s = localStorage.getItem(_V276_PV + uid); } catch (_) {}
+  if (!s) return false;
+  const q = s.split('$');
+  if (q.length !== 4 || q[0] !== 'p2') return false;
+  let match = false;
+  try { match = (await _v269Pbkdf(pin, q[2], parseInt(q[1], 10))) === q[3]; } catch (_) {}
+  // a sign-in that finished meanwhile wrote a NEW copy - leave it alone
+  let cur = null; try { cur = localStorage.getItem(_V276_PV + uid); } catch (_) {}
+  if (!match || cur !== s) return false;
+  _v276ForgetDevicePin(uid);
+  console.log('[V27.6] the server refused a PIN this phone still accepted - phone copy removed');
+  return true;
+}
 async function _usersPantryWrite(users) {
   await _idbSet(_USERS_PANTRY_KEY, {
     schemaVersion: PANTRY_SCHEMA_VERSION, ts: Date.now(),
@@ -11379,7 +11435,7 @@ function mergeAuditLogs(cloud, local) {
   const seen = new Map();
   for (const e of cloud) { if (e && e.id) seen.set(e.id, e); }
   for (const e of local) { if (e && e.id && !seen.has(e.id)) seen.set(e.id, e); }
-  const merged = Array.from(seen.values()).sort((a,b) => (a.ts||'').localeCompare(b.ts||''));
+  const merged = Array.from(seen.values()).sort((a,b) => String(a.ts||'').localeCompare(String(b.ts||'')));   // V27.6 (NV-11)
   const cap = (typeof AUDIT_CAP !== 'undefined') ? AUDIT_CAP : 5000;
   return merged.length > cap ? merged.slice(merged.length - cap) : merged;
 }
@@ -24375,7 +24431,7 @@ function _renderLogIncomeBody(b) {
         </div>
         <div class="fg">
           <label style="color:var(--navy);font-weight:600">Additional Amount (₹) *</label>
-          <input type="number" id="li-amount" min="0" placeholder="e.g. 3000" value="${formAmount}"
+          <input type="number" id="li-amount" min="0" placeholder="e.g. 3000" value="${escHtml(String(formAmount))}"
                  style="font-size:17px;font-weight:600;padding:10px 12px;border:2px solid var(--navy3);background:#fff"
                  onfocus="this.style.borderColor='var(--navy)';this.style.boxShadow='0 0 0 3px rgba(46,90,160,0.15)'"
                  onblur="this.style.borderColor='var(--navy3)';this.style.boxShadow='none'">
@@ -29247,7 +29303,7 @@ function _v224TopNgoAgg(list, advLatest) {
     }
   });
   // Aggregate per NGO
-  const byNgo = {};
+  const byNgo = Object.create(null);   // V27.6 (NV-02): '__proto__' used to change every object's count
   list.forEach(b => {
     const k = b.ngo || '(unassigned)';
     if (!byNgo[k]) byNgo[k] = {name: k, count: 0, income: 0, schemes: 0};
@@ -30422,8 +30478,9 @@ function _renderDashboardRecentUpdates(list) {
   // to the event's stored username if the user was later deleted. Built once
   // per render rather than per-row to avoid re-reading localStorage 15 times.
   const fullNameById = {};
+  const _v276RoleById = new Map();   // V27.6 (NV-35)
   try {
-    loadUsers().forEach(u => { if (u.id) fullNameById[u.id] = u.fullName || u.username; });
+    loadUsers().forEach(u => { if (u.id) { fullNameById[u.id] = u.fullName || u.username; _v276RoleById.set(u.id, u.role || ''); } });
   } catch(e) {}
 
   let audit = [];
@@ -30682,7 +30739,9 @@ function _renderDashboardRecentUpdates(list) {
       ? 'Advocacy record' + (_v267SyncScheme(e) ? ' (' + _v267SyncScheme(e) + ')' : '') + ': ' : '';
     const summary = escHtml(_v267Sc + _v258AuditText(e.summary||'') + _v267WithText(_v267F.extra.get(e) || 0));   // V25.8, V26.7
     const displayName = (e.userId && fullNameById[e.userId]) || e.username || '—';
-    const who = escHtml(displayName + (e.role==='admin'?' (Admin)':e.role==='ngo'?' (NGO)':e.role==='coordinator'?' (FC)':''));
+    // V27.6 (NV-35): the row's saved role as before, EXCEPT an admin claim the users list contradicts
+    const _v276R = (e.role === 'admin' && e.userId && _v276RoleById.has(e.userId) && _v276RoleById.get(e.userId) !== 'admin') ? _v276RoleById.get(e.userId) : e.role;
+    const who = escHtml(displayName + (_v276R==='admin'?' (Admin)':_v276R==='ngo'?' (NGO)':_v276R==='coordinator'?' (FC)':''));
     const ebid = bid ? escHtml(bid) : '';
     return `<tr ${bid?`onclick="openDrawer('${_v2610js(bid)}')" style="cursor:pointer"`:''}>
       <td style="font-size:12px;color:var(--gray2);white-space:nowrap">${ago(e.ts)}</td>
@@ -33044,7 +33103,7 @@ function _rptRenderFc(A, nowMs, rowScope) {
   const bestFc = rptFcSort === 0 ? null : board[0];
 
   const rows = board.map(a => {
-    const nm = a.u.fullName || a.u.username || '\u2014';
+    const nm = String(a.u.fullName || a.u.username || '\u2014');   // V27.6 (NV-11)
     const inits = nm.split(/\s+/).map(w => w[0] || '').join('').slice(0, 2).toUpperCase();
     const stale = a.last && (now - a.last) > 30 * 86400000;
     // V4.9: click-through to this FC's beneficiary list — reuses the same
@@ -33081,7 +33140,7 @@ function _rptRenderFc(A, nowMs, rowScope) {
     </tr>`).join('');
 
   const inactiveRows = inactiveFcs.slice(0, 10).map(a => `<tr>
-      <td><div class="rpt-person"><span class="rpt-av" style="background:${_rptNgoColor(a.u.ngo)}">${esc((a.u.fullName || a.u.username || '\u2014').split(/\s+/).map(w => w[0] || '').join('').slice(0, 2).toUpperCase())}</span><span><span class="rpt-pname">${esc(a.u.fullName || a.u.username)}</span><span class="rpt-psub">${esc(a.u.ngo || '\u2014')}</span></span></div></td>
+      <td><div class="rpt-person"><span class="rpt-av" style="background:${_rptNgoColor(a.u.ngo)}">${esc(String(a.u.fullName || a.u.username || '\u2014').split(/\s+/).map(w => w[0] || '').join('').slice(0, 2).toUpperCase())}</span><span><span class="rpt-pname">${esc(a.u.fullName || a.u.username)}</span><span class="rpt-psub">${esc(a.u.ngo || '\u2014')}</span></span></div></td>
       <td><span class="rpt-warn">${_rptAgoLabelPlain(a.last)}</span>${_v215Inactive(a.u) ? _V215_CHIP : ''}</td>
       <td>${a.tot.toLocaleString('en-IN')}</td>
     </tr>`).join('');
@@ -36098,9 +36157,9 @@ function renderAdminUsers() {
   if (_adminUserSearch) {
     const q = _adminUserSearch.toLowerCase();
     users = users.filter(u =>
-      (u.fullName || '').toLowerCase().includes(q) ||
-      (u.username || '').toLowerCase().includes(q) ||
-      (u.ngo      || '').toLowerCase().includes(q)
+      String(u.fullName || '').toLowerCase().includes(q) ||   // V27.6 (NV-11)
+      String(u.username || '').toLowerCase().includes(q) ||
+      String(u.ngo      || '').toLowerCase().includes(q)
     );
   }
 
@@ -36323,7 +36382,7 @@ function _v376TLPopulateFcs() {
       const me = users.find(u => u.id === editingId);
       if (me && Array.isArray(me.assignedFcIds)) preChecked = new Set(me.assignedFcIds);
     }
-    fcs.sort((a, b) => (a.fullName || a.username).localeCompare(b.fullName || b.username));
+    fcs.sort((a, b) => String(a.fullName || a.username || '').localeCompare(String(b.fullName || b.username || '')));   // V27.6 (NV-11)
     let html = '';
     for (const fc of fcs) {
       const checked = preChecked.has(fc.id) ? ' checked' : '';
@@ -37891,12 +37950,12 @@ function _formatAuditTs(iso) {
 
 // Apply the current filters to the full audit array, returning a newest-first slice.
 function _filteredAudit() {
-  const all = loadAudit().slice().sort((a,b) => (b.ts||'').localeCompare(a.ts||''));
+  const all = loadAudit().slice().sort((a,b) => String(b.ts||'').localeCompare(String(a.ts||'')));   // V27.6 (NV-11)
   const f = _auditFilters;
   return all.filter(e => {
     if (f.action     && e.action     !== f.action)     return false;
     if (f.recordType && e.recordType !== f.recordType) return false;
-    if (f.user       && (e.username||'').toLowerCase() !== f.user.toLowerCase()) return false;
+    if (f.user       && String(e.username||'').toLowerCase() !== f.user.toLowerCase()) return false;
     if (f.from) {
       const fromTs = f.from + 'T00:00:00';
       if ((e.ts||'') < fromTs) return false;
@@ -38368,7 +38427,7 @@ function renderAdminAuditLog() {
   // Unique values for dropdowns — drawn from the FULL log, not just filtered,
   // so changing one filter doesn't strip options from other dropdowns.
   const allEntries = loadAudit();
-  const uniqActions = [...new Set(allEntries.map(e => e.action))].sort();
+  const uniqActions = [...new Set(allEntries.map(e => e.action))].filter(a => a != null).sort();   // V27.6 (NV-11): a row with no action stopped this screen
   const uniqTypes   = [...new Set(allEntries.map(e => e.recordType))].sort();
   const uniqUsers   = [...new Set(allEntries.map(e => e.username).filter(Boolean))].sort();
 
@@ -38376,7 +38435,8 @@ function renderAdminAuditLog() {
   // current users table so renames propagate; falls back to the event's
   // stored username if the user has since been deleted.
   const fullNameById = {};
-  try { loadUsers().forEach(u => { if (u.id) fullNameById[u.id] = u.fullName || u.username; }); } catch(e) {}
+  const _v276RoleById = new Map();   // V27.6 (NV-35)
+  try { loadUsers().forEach(u => { if (u.id) { fullNameById[u.id] = u.fullName || u.username; _v276RoleById.set(u.id, u.role || ''); } }); } catch(e) {}
 
   const rowsHtml = pageRows.length === 0
     ? '<tr><td colspan="6" style="padding:40px;text-align:center;color:var(--gray2)">No audit entries match.</td></tr>'
@@ -38390,7 +38450,8 @@ function renderAdminAuditLog() {
         const rtype = _auditRecordTypeLabel(e.recordType);
         const displayName = (e.userId && fullNameById[e.userId]) || e.username || '(system)';
         const usernameHint = (displayName !== e.username && e.username) ? ` <span style="font-size:10px;color:var(--gray2)">(${escHtml(e.username)})</span>` : '';
-        const who = escHtml(displayName) + usernameHint + (e.role ? ` <span style="font-size:10px;color:var(--gray2)">· ${escHtml(e.role)}${e.ngo?' · '+escHtml(e.ngo):''}</span>` : '');
+        const _v276R = (e.role === 'admin' && e.userId && _v276RoleById.has(e.userId) && _v276RoleById.get(e.userId) !== 'admin') ? _v276RoleById.get(e.userId) : e.role;   // V27.6 (NV-35)
+        const who = escHtml(displayName) + usernameHint + (_v276R ? ` <span style="font-size:10px;color:var(--gray2)">· ${escHtml(_v276R)}${e.ngo?' · '+escHtml(e.ngo):''}</span>` : '');
         const summary = escHtml(_v258AuditText(e.summary || ''));   // V25.8
         const recordLabel = escHtml(e.recordLabel||e.recordId||'');
         return `<tr>
@@ -39569,7 +39630,7 @@ function _auditCacheAppend(entry) {
   if (_auditCache.some(e => e.id === entry.id)) return;
   _auditCache.push(entry);
   // Sort by timestamp ascending so callers can take last N.
-  _auditCache.sort((a, b) => (a.ts || '').localeCompare(b.ts || ''));
+  _auditCache.sort((a, b) => String(a.ts || '').localeCompare(String(b.ts || '')));   // V27.6 (NV-11)
   // Cap at AUDIT_CAP — drop oldest if we exceed.
   if (_auditCache.length > AUDIT_CAP) {
     _auditCache.splice(0, _auditCache.length - AUDIT_CAP);
@@ -39625,7 +39686,10 @@ function auditLog(action, recordType, recordId, recordLabel, summary, changes) {
     // V308.2: append to in-memory cache immediately so the dashboard's
     // Recent Updates panel reflects the action even before the Firebase
     // round-trip completes.
-    _auditCacheAppend(entry);
+    // V27.6 (NV-11): one bad row already in the cache must not silently stop this session's audit writes.
+    try { _auditCacheAppend(entry); } catch (_v276e) { console.warn('[V27.6] audit cache step failed:', _v276e && _v276e.message); }
+    // V27.6 (NV-12): rows THIS session wrote - the scheme-owner Undo trusts only these.
+    try { (window._v276MyAudit || (window._v276MyAudit = new Set())).add(entry.id); } catch (_) {}
 
     // Push to Firebase (or queue if offline)
     _fbPushAudit(entry);
@@ -39701,7 +39765,12 @@ function _canExport() {
 // null/undefined instead of "null".
 function _csvEsc(v) {
   if (v === null || v === undefined) return '';
-  const s = String(v);
+  let s = String(v);
+  // V27.6 (NV-39): a text starting with = + - @ TAB or CR would run as a formula in a spreadsheet - put an
+  // apostrophe in front. Plain numbers ("-5", "-1,200", "+3.5"), real numbers and dash-only placeholders
+  // ("-", "--", " - ") are written exactly as before.
+  if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s) && !/^[+-]?\d[\d,]*(\.\d+)?$/.test(s)
+      && !/^[-\s]+$/.test(s)) s = "'" + s;
   if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
   return s;
 }
@@ -40074,7 +40143,7 @@ function openTransferTool() {
   const groups = Object.keys(byNgo).sort().map(n =>
     `<optgroup label="${escHtml(n)}">` + byNgo[n]
       .sort((a, b) => _v215GroupCmp(_v215Inactive(a), _v215Inactive(b))
-                      || (a.fullName || a.username).localeCompare(b.fullName || b.username))
+                      || String(a.fullName || a.username || '').localeCompare(String(b.fullName || b.username || '')))   // V27.6 (NV-11)
       .map(c => `<option value="${escHtml(c.id)}">${escHtml(c.fullName || c.username)}${_v215Inactive(c) ? ' \u2014 inactive' : ''}</option>`).join('') + '</optgroup>'
   ).join('');
   document.getElementById('transfer-src').innerHTML = `<option value="">— Select source FC —</option>${groups}`;
@@ -40105,7 +40174,7 @@ function _transferSrcChanged() {
   // the whole point of this release and stays available above.
   const targets = loadUsers().filter(x => x.role === 'coordinator' && x.id !== srcId
       && x.ngo === (src && src.ngo) && !_v215Inactive(x))
-    .sort((a, b) => (a.fullName || a.username).localeCompare(b.fullName || b.username));
+    .sort((a, b) => String(a.fullName || a.username || '').localeCompare(String(b.fullName || b.username || '')));   // V27.6 (NV-11)
   document.getElementById('transfer-dst').innerHTML = targets.length
     ? `<option value="">— Select target FC —</option>` + targets.map(c => `<option value="${escHtml(c.id)}">${escHtml(c.fullName || c.username)}</option>`).join('')
     : '<option value="">No other active coordinators in ' + escHtml((src && src.ngo) || 'this NGO') + '</option>';
@@ -40281,7 +40350,7 @@ function _bulkAssignNgoChanged() {
   // V21.5: active coordinators only — handing families to somebody who cannot
   // sign in would leave them invisible to everybody in the field.
   const targets = loadUsers().filter(x => x.role === 'coordinator' && x.ngo === ngo && !_v215Inactive(x))
-    .sort((a, b) => (a.fullName || a.username).localeCompare(b.fullName || b.username));
+    .sort((a, b) => String(a.fullName || a.username || '').localeCompare(String(b.fullName || b.username || '')));   // V27.6 (NV-11)
   document.getElementById('bulkassign-dst').innerHTML = targets.length
     ? `<option value="">— Select target FC —</option>` + targets.map(c => `<option value="${escHtml(c.id)}">${escHtml(c.fullName || c.username)}</option>`).join('')
     : '<option value="">No coordinators in ' + escHtml(ngo) + '</option>';
@@ -40443,7 +40512,7 @@ function openMoveFcTool() {
   coords.forEach(c => { (byNgo[c.ngo || '(no NGO)'] = byNgo[c.ngo || '(no NGO)'] || []).push(c); });
   const groups = Object.keys(byNgo).sort().map(n =>
     `<optgroup label="${escHtml(n)}">` + byNgo[n]
-      .sort((a, b) => (a.fullName || a.username).localeCompare(b.fullName || b.username))
+      .sort((a, b) => String(a.fullName || a.username || '').localeCompare(String(b.fullName || b.username || '')))   // V27.6 (NV-11)
       .map(c => `<option value="${escHtml(c.id)}">${escHtml(c.fullName || c.username)}</option>`).join('') + '</optgroup>'
   ).join('');
   document.getElementById('movefc-src').innerHTML = `<option value="">— Select Field Coordinator —</option>${groups}`;
@@ -41482,6 +41551,9 @@ async function _v11FinishServerLogin(res, typedUsername, typedPin) {
         auditLog('login_blocked', 'session', user.id, user.username,
           'Sign-in refused: account marked inactive (server path)', null);
       } catch (_) {}
+      // V27.6 (NV-16): this person may not sign in - not here with signal, and not offline later either.
+      // only when the SERVER says inactive - not when only this phone's own old list does (review note 3)
+      if (user && user.inactive) { try { _v276ForgetDevicePin(user.id ? String(user.id) : _v276FindUid(typedUsername)); } catch (_) {} }
       // true, so the caller stops rather than falling through to the client
       // path and signing this person in the old way.
       return true;
@@ -42294,6 +42366,7 @@ async function _doLoginInner() {
         // Authoritative: computed from live data, so it beats any cached list.
         // Recorded locally too, so the existing client lockout still applies on
         // top of the server's own.
+        try { _v276OnRejected(u, p).catch(function () {}); } catch (_) {}   // V27.6 NV-16 (background, no Firebase)
         const _f = _recordLoginFailure(u);
         try {
           auditLog('login_failed', 'session', '(none)', u,
@@ -43682,7 +43755,7 @@ function _v362ComputeOneSummary(records, advRecords, ngoScope, prefiltered) {
   ).length;
 
   // ---- Date-wise progress (last 12 weeks) ----
-  const weekBuckets = {};
+  const weekBuckets = Object.create(null);   // V27.6 (NV-02): no built-in names
   function _weekKey(dateStr) {
     if (!dateStr) return null;
     const d = new Date(dateStr);
@@ -43720,7 +43793,7 @@ function _v362ComputeOneSummary(records, advRecords, ngoScope, prefiltered) {
   const last12 = allWeeks.slice(-12);
 
   // ---- Top FCs (only meaningful for global) ----
-  const byFc = {};
+  const byFc = Object.create(null);   // V27.6 (NV-02)
   if (!ngoScope) {
     for (const b of recs) {
       const cb = b.createdBy || 'unknown';
@@ -43729,7 +43802,7 @@ function _v362ComputeOneSummary(records, advRecords, ngoScope, prefiltered) {
   }
   const fcEntries = Object.entries(byFc).sort((a,b) => b[1] - a[1]).slice(0, 5);
   // Resolve names via the users collection if available
-  let userMap = {};
+  let userMap = Object.create(null);   // V27.6 (NV-02)
   try {
     const allUsers = (typeof loadUsers === 'function') ? loadUsers() : [];
     for (const u of allUsers) userMap[u.id] = u.fullName || u.username || u.id;
@@ -43755,7 +43828,7 @@ function _v362ComputeOneSummary(records, advRecords, ngoScope, prefiltered) {
     const d = new Date(Date.now() + istOffsetMs - 86400000);
     return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
   })();
-  const ngoMap = {};
+  const ngoMap = Object.create(null);   // V27.6 (NV-02): '__proto__' used to give every object a total
   for (const b of recs) {
     if (!b || !b.ngo) continue;
     if (!ngoMap[b.ngo]) ngoMap[b.ngo] = { name: b.ngo, total: 0, today: 0, yesterday: 0 };
@@ -43888,10 +43961,13 @@ async function _v400ComputeAllSummaries(records, advRecords) {
     return { scope: scope, n: 0, states: new Set(), dists: new Set(),
       totalIncome: 0, liv: 0, withEnd: 0, advBid: new Set(), advTagged: 0,
       livOnly: 0, dual: 0, advOnly: 0, needApply: 0, applied: 0, rejected: 0,
-      received: 0, totalAmt: 0, weeks: {}, byFc: {}, ngoMap: {}, recIds: new Set() };
+      received: 0, totalAmt: 0, weeks: Object.create(null), byFc: Object.create(null),   // V27.6 (NV-02): no built-in names
+      ngoMap: Object.create(null), recIds: new Set() };
   }
   const global = newCtx(null);
-  const byNgo = {};   // ngoName -> ctx (created only for NGOs present in records — mirrors V366's ngoSet)
+  // V27.6 (NV-02): a dictionary with no built-in members - a partner called 'toString' or '__proto__' used to
+  // find a built-in here, and the whole office summary write failed every time.
+  const byNgo = Object.create(null);   // ngoName -> ctx (created only for NGOs present in records — mirrors V366's ngoSet)
   // ---- Pass 1 (records): scope membership + everything not needing advBid ----
   for (let i = 0; i < records.length; i++) {
     if (i > 0 && i % CHUNK === 0) await _v400Yield();
@@ -43968,8 +44044,8 @@ async function _v400ComputeAllSummaries(records, advRecords) {
   }
   // ⛔ V18.7: ONE de-duplication rule - _advLatestRowsAll itself, never a second copy.
   const _v187Shared = _advLatestRowsAll(advRecords);
-  const gRows = {};                    // global byKey
-  const nRows = {};                    // ngoName -> byKey
+  const gRows = Object.create(null);   // global byKey (V27.6: no built-in names)
+  const nRows = Object.create(null);   // ngoName -> byKey
   for (let i = 0; i < _v187Shared.length; i++) {
     if (i > 0 && i % CHUNK === 0) await _v400Yield();
     const r = _v187Shared[i];
@@ -44056,7 +44132,7 @@ async function _v400ComputeAllSummaries(records, advRecords) {
     await _v400Yield();
   }
   // ---- Assemble (identical shape/values to _v362ComputeOneSummary) ----
-  let userMap = {};
+  let userMap = Object.create(null);   // V27.6 (NV-02)
   try {
     const allUsers = (typeof loadUsers === 'function') ? loadUsers() : [];
     for (const u of allUsers) userMap[u.id] = u.fullName || u.username || u.id;
@@ -44065,7 +44141,9 @@ async function _v400ComputeAllSummaries(records, advRecords) {
   // the screen's own counters can run over each partner in turn. References,
   // not copies - the streaming pass exists to avoid a second walk, not to
   // avoid pointing at the same objects twice.
-  const _v224Recs = { __global__: records };
+  // V27.6 (NV-02): per partner only, with no built-in names; the whole list is `records` (a partner
+  // called '__global__' used to replace it).
+  const _v224Recs = Object.create(null);
   for (const n in byNgo) _v224Recs[n] = [];
   for (const b of records) {
     if (b && b.ngo && _v224Recs[b.ngo]) _v224Recs[b.ngo].push(b);
@@ -44074,7 +44152,7 @@ async function _v400ComputeAllSummaries(records, advRecords) {
   // ⛔ RAW scheme records per scope, not the flattened 'latest rows'. Today's
   // card reads each record's own edit stamp and its scheme rows, and both are
   // gone by the time the rows have been reduced to one per household.
-  const _v224Adv = { __global__: advRecords };
+  const _v224Adv = Object.create(null);   // V27.6 (NV-02): per partner only; the whole list is `advRecords`
   for (const n in byNgo) _v224Adv[n] = [];
   {
     const _own = new Map();
@@ -44094,7 +44172,8 @@ async function _v400ComputeAllSummaries(records, advRecords) {
     const topFCs = fcEntries.map(function(e){ return { name: userMap[e[0]] || e[0], count: e[1] }; });
     const ngoBreakdown = Object.values(c.ngoMap).sort(function(a, b){ return b.total - a.total; });
     const _scopeName = c.scope || 'global';
-    const _list = (_scopeName === 'global') ? _v224Recs.__global__ : (_v224Recs[_scopeName] || []);
+    // V27.6 (NV-02): the overall scope is the one with no partner (a partner called 'global' got everybody's)
+    const _list = (c.scope === null) ? records : (_v224Recs[c.scope] || []);
     return {
       dash: _v224BuildDashPayload(_list, _v224AdvLatest),
       // ⛔ COUNTED BY THE CARD'S OWN FUNCTION, over this scope. A session
@@ -44103,7 +44182,7 @@ async function _v400ComputeAllSummaries(records, advRecords) {
       today: (function () {
         try {
           return _v401TodayStats(_list,
-            (_scopeName === 'global') ? _v224Adv.__global__ : (_v224Adv[_scopeName] || []));
+            (c.scope === null) ? advRecords : (_v224Adv[c.scope] || []));   // V27.6 (NV-02)
         } catch (e) {
           console.warn('[V22.4] today payload failed:', e && e.message);
           return null;
@@ -44125,7 +44204,7 @@ async function _v400ComputeAllSummaries(records, advRecords) {
       ngoBreakdown: ngoBreakdown,
     };
   }
-  const out = { global: assemble(global), ngo: {} };
+  const out = { global: assemble(global), ngo: Object.create(null) };   // V27.6 (NV-02)
   for (const n in byNgo) out.ngo[n] = assemble(byNgo[n]);
   return out;
 }
@@ -44219,7 +44298,7 @@ function _v363ComputeFcSlice(records, advAll, user) {
     const monday = new Date(d.getTime() + diff*86400000);
     return monday.toISOString().slice(0,10);
   }
-  const wk = {};
+  const wk = Object.create(null);   // V27.6 (NV-02)
   for (const b of recs) {
     const w = _wk(b.enrollDate); if (!w) continue;
     if (!wk[w]) wk[w] = { week:w, enrolled:0, applied:0, received:0, rejected:0 };
@@ -44252,7 +44331,7 @@ function _v363ComputeFcSlice(records, advAll, user) {
     const d = new Date(Date.now() + ((5 * 60 + 30) * 60 * 1000) - 86400000);
     return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2,'0') + '-' + String(d.getUTCDate()).padStart(2,'0');
   })();
-  const fcNgoMap = {};
+  const fcNgoMap = Object.create(null);   // V27.6 (NV-02)
   for (const b of recs) {
     if (!b || !b.ngo) continue;
     if (!fcNgoMap[b.ngo]) fcNgoMap[b.ngo] = { name: b.ngo, total: 0, today: 0, yesterday: 0 };
@@ -44457,12 +44536,14 @@ async function _v362WriteAllSummaries() {
       // partial-cache catastrophe (cache=7985, summary=97038, ratio=8%).
       // Failure of this read is non-fatal — write proceeds (better to risk
       // a stale summary than block a legitimate write on a network blip).
+      let _v276GlobalPrev = -1;   // V27.6: the office's last overall count (-1 = not read)
       try {
         const existingSnap = await fbRef('_summary/global').once('value');
         const existing = existingSnap.val();
         const existingRecordsInScope = existing && existing.meta
           && typeof existing.meta.recordsInScope === 'number'
           ? existing.meta.recordsInScope : 0;
+        _v276GlobalPrev = existingRecordsInScope;
         if (existingRecordsInScope > 0
             && cacheBenefSize < existingRecordsInScope * 0.8) {
           console.warn('[V374 guard #3] admin summary write blocked — would shrink summary from '
@@ -44484,7 +44565,7 @@ async function _v362WriteAllSummaries() {
       // drop below 80% of its stored value. Read failure is non-fatal — same
       // policy as guard #3. An NGO entirely absent from cache is never in the
       // loop, so its fuller summary is left intact (not zeroed).
-      const _existingNgoScope = {};
+      const _existingNgoScope = Object.create(null);   // V27.6 (NV-02): stored keys, no built-in names
       try {
         const _ngoSnap = await fbRef('_summary/ngo').once('value');
         const _ngoVal = _ngoSnap.val() || {};
@@ -44509,8 +44590,28 @@ async function _v362WriteAllSummaries() {
       try {
         const _all = await _v400ComputeAllSummaries(records, adv);
         update['_summary/global'] = _all.global;
+        // V27.6 (NV-33): two partner names can become the SAME stored key (P.S and P_S both -> P_S) and
+        // the later one replaced the other's figures, which that partner's donors then read. One name per
+        // key: a configured partner before a name found only on households, otherwise the first.
+        const _v276KeyOwner = Object.create(null);
+        if (_v276On()) {
+          let _v276Cfg;
+          try { _v276Cfg = new Set(((typeof loadPartners === 'function') ? (loadPartners() || []) : []).map(p => p && p.name).filter(Boolean)); }
+          catch (_) { _v276Cfg = new Set(); }
+          for (const _nm of Object.keys(_all.ngo)) {
+            const _k = _v363SafeKey(_nm), _was = _v276KeyOwner[_k];
+            if (_was === undefined || (_v276Cfg.has(_nm) && !_v276Cfg.has(_was))) _v276KeyOwner[_k] = _nm;
+          }
+        }
         for (const ngoName of Object.keys(_all.ngo)) {
           const _ngoKey = _v363SafeKey(ngoName);
+          // V27.6 (NV-01): one key the database refuses (control character, or too long) made it refuse
+          // the WHOLE update - every partner's figures and the overall ones froze. Skip that one only.
+          if (!_ngoKey || _ngoKey.length > 200 || /[\u0000-\u001f\u007f]/.test(_ngoKey)) {
+            console.warn('[V27.6] summary: skipped a partner name the database would refuse: '
+              + JSON.stringify(String(ngoName).slice(0, 60)));
+            continue;
+          }
           const _ngoSummary = _all.ngo[ngoName];
           // V390 [Fix 5.2]: skip overwriting a fuller per-NGO summary with a
           // partial one (leaves the existing node untouched this cycle).
@@ -44518,14 +44619,55 @@ async function _v362WriteAllSummaries() {
             && typeof _ngoSummary.meta.recordsInScope === 'number')
             ? _ngoSummary.meta.recordsInScope : 0;
           const _prevNgoScope = _existingNgoScope[_ngoKey] || 0;
-          if (_prevNgoScope > 0 && _newNgoScope < _prevNgoScope * 0.8) {
+          // V27.6 (NV-10): the guard is for a PARTIAL set of records. When the office holds at least as
+          // many households as its last overall summary, nothing is missing: a partner that shrank really
+          // shrank (households moved), or its stored count was wrong - write it.
+          const _v276Whole = _v276On() && _v276GlobalPrev > 0 && !FB.benefCachePartial && !FB.advCachePartial
+            && _all.global && _all.global.meta
+            && typeof _all.global.meta.recordsInScope === 'number' && _all.global.meta.recordsInScope >= _v276GlobalPrev;
+          if (_prevNgoScope > 0 && _newNgoScope < _prevNgoScope * 0.8 && !_v276Whole) {
             console.warn('[V390 per-NGO guard] skip ' + ngoName + ' — would shrink summary from '
               + _prevNgoScope + ' to ' + _newNgoScope + ' records ('
               + Math.round(_newNgoScope / _prevNgoScope * 100) + '%). Keeping existing.');
             continue;
           }
+          if (_v276KeyOwner[_ngoKey] !== undefined && _v276KeyOwner[_ngoKey] !== ngoName) {   // V27.6 (NV-33)
+            console.warn('[V27.6] summary: ' + JSON.stringify(String(ngoName).slice(0, 60)) + ' and '
+              + JSON.stringify(String(_v276KeyOwner[_ngoKey]).slice(0, 60)) + ' share the stored key ' + _ngoKey
+              + ' - kept the figures of ' + JSON.stringify(String(_v276KeyOwner[_ngoKey]).slice(0, 60)) + ', skipped the other.');
+            continue;
+          }
+          if (_ngoKey === '__proto__') {   // V27.6 (NV-02): could never be read back as a stored key
+            console.warn('[V27.6] summary: skipped a partner named __proto__');
+            continue;
+          }
           update['_summary/ngo/' + _ngoKey] = _ngoSummary;
         }
+        // V27.6 (NV-23): a stored partner block that nobody names any more (no household, no configured
+        // partner, no login's partner) was never rewritten and never removed, and the office downloaded
+        // it on every run. Removed in this same update - only from a whole set of records (at least as
+        // many households as the last overall summary), with the snapshot above read and the partner and
+        // user lists loaded. A configured partner with no households keeps its block. Any doubt: keep.
+        try {
+          const _v276Gp = (typeof _v276GlobalPrev === 'number') ? _v276GlobalPrev : -1;
+          const _v276Now = (_all.global && _all.global.meta && typeof _all.global.meta.recordsInScope === 'number')
+            ? _all.global.meta.recordsInScope : -1;
+          if (_v276On() && !FB.benefCachePartial && !FB.advCachePartial && _v276Gp > 0 && _v276Now >= _v276Gp) {
+            const _v276P = (typeof loadPartners === 'function') ? (loadPartners() || []) : [];
+            const _v276U = (typeof loadUsers === 'function') ? (loadUsers() || []) : [];
+            if (_v276P.length && _v276U.length) {
+              const _keep = new Set();
+              const _add = n => { if (n) _keep.add(_v363SafeKey(n)); };
+              Object.keys(_all.ngo).forEach(_add);
+              _v276P.forEach(p => { if (p) _add(p.name); });
+              _v276U.forEach(x => { if (!x) return; _add(x.ngo); if (Array.isArray(x.assignedNgos)) x.assignedNgos.forEach(_add); });
+              const _gone = Object.keys(_existingNgoScope).filter(k => !_keep.has(k));
+              for (const k of _gone) update['_summary/ngo/' + k] = null;
+              if (_gone.length) console.warn('[V27.6] summary: removed ' + _gone.length + ' stored partner block(s) nobody names any more: '
+                + _gone.slice(0, 10).map(k => JSON.stringify(k.slice(0, 40))).join(', '));
+            }
+          }
+        } catch (e) { console.warn('[V27.6] summary: old-block check skipped:', e && e.message); }
         await fbRef('').update(update);
         _v400LastAdminSummaryWrite = Date.now();
         try { _v256Schedule(false); } catch (_) {}   // V25.6: donors' Reports, at most hourly, in the background
@@ -50472,6 +50614,9 @@ async function _v222UndoStampFix(batchId) {
   if (_v222Busy) return;
   if (!isAdmin()) { toast('Admin only.', 'error'); return; }
   const batch = _v222FindBatch(batchId);
+  // V27.6 (NV-12): put back only scheme records that exist here - never create one from a list.
+  if (batch && Array.isArray(batch.moves)) batch.moves = batch.moves.filter(function (m) {
+    return m && typeof m.key === 'string' && m.key && m.from && RecordCache.adv.has(m.key); });
   if (!batch || !Array.isArray(batch.moves) || !batch.moves.length) { toast('Nothing recorded for that batch.', 'error'); return; }
   if (!await showConfirmModal('Put ' + batch.moves.length + ' scheme record'
       + (batch.moves.length === 1 ? '' : 's') + ' back to the partner they had before?',
@@ -50509,11 +50654,24 @@ async function _v222UndoStampFix(batchId) {
 
 // The corrections this session knows about, newest first: the audit entry
 // carries what each record used to say, so a batch can be put back from it.
+// V27.6 (NV-12): ids of the office (admin) accounts in the users list this device already holds.
+// Any staff login can add an audit row with any content under its own id; a repair tool may act on a row
+// only if an office account wrote it. No read - the users list is already here.
+function _v276AdminIds() {
+  const s = new Set();
+  try {
+    if (typeof _ensureCachePrimed === 'function') _ensureCachePrimed();
+    for (const r of RecordCache.users.values()) if (r && r.id && r.role === 'admin') s.add(r.id);
+  } catch (_) {}
+  return s;
+}
 function _v222Batches() {
   const rows = [];
   try {
+    const _v276Adm = _v276AdminIds();   // V27.6 (NV-12)
     (loadAudit() || []).forEach(function (a) {
       if (!a || !a.changes || !a.changes.stampFix) return;
+      if (!_v276Adm.has(a.userId)) return;   // V27.6 (NV-12): written by the office only
       rows.push({ id: a.recordId || a.id, at: a.at || a.ts || 0,
         by: a.userName || a.user || '', moves: a.changes.stampFix.length });
     });
@@ -50522,8 +50680,9 @@ function _v222Batches() {
 }
 function _v222FindBatch(batchId) {
   try {
+    const _v276Adm = _v276AdminIds();   // V27.6 (NV-12)
     const hit = (loadAudit() || []).find(function (a) {
-      return a && a.changes && a.changes.stampFix && (a.recordId === batchId || a.id === batchId); });
+      return a && a.changes && a.changes.stampFix && _v276Adm.has(a.userId) && (a.recordId === batchId || a.id === batchId); });
     return hit ? { moves: hit.changes.stampFix } : null;
   } catch (_) { return null; }
 }
@@ -50785,7 +50944,9 @@ function _v240BatchMoves(batchId) {
   const out = [];
   try {
     (loadAudit() || []).forEach(function (a) {
-      if (a && a.recordId === batchId && a.changes && Array.isArray(a.changes.ownerFix)) out.push.apply(out, a.changes.ownerFix);
+      // V27.6 (NV-12): only rows THIS session wrote (the Undo button exists only for this session's run)
+      if (a && a.recordId === batchId && a.changes && Array.isArray(a.changes.ownerFix)
+          && window._v276MyAudit && window._v276MyAudit.has(a.id)) out.push.apply(out, a.changes.ownerFix);
     });
   } catch (_) {}
   return out;
@@ -52699,7 +52860,11 @@ function _renderEndlineUndoReview() {
     // conflict state on first render (below in the main flow).
     const keepLabel = isExcluded ? 'Skip this record (keep batch values)' : 'Restore this record';
     const keepColor = isExcluded ? 'var(--gray2)' : 'var(--green)';
-    const fmtMoney = n => n != null ? '₹'+n.toLocaleString('en-IN') : '—';
+    // V27.6 (NV-07): a number prints as before; a text that is a number once commas/spaces are removed
+    // ("5,000", "12,500.50") prints exactly as before; anything else - or any markup character - is not
+    // money and prints '—' (a stored text used to go into the page as markup).
+    const fmtMoney = n => (typeof n === 'number' && isFinite(n)) ? '₹'+n.toLocaleString('en-IN')
+      : (typeof n === 'string' && !/[<>&"']/.test(n) && /^[+-]?\d+(\.\d+)?$/.test(n.replace(/[,\s]/g, ''))) ? '₹'+n : '—';
     return `
       <tr style="border-top:1px solid var(--gray3);${r.hasConflict?'background:#FFFBEB':''}">
         <td style="padding:8px;font-size:11px;font-family:var(--mono,monospace);color:var(--gray1)">${escHtml(r.bid)}</td>
@@ -53779,11 +53944,11 @@ function renderAdminDedupIds() {
             style="width:16px;height:16px;cursor:pointer"
             ${v.alreadyFixed ? 'checked' : ''}>
         </td>` : ''}
-        <td style="font-size:11px;color:var(--gray2)">${dupId}</td>
+        <td style="font-size:11px;color:var(--gray2)">${escHtml(dupId)}</td>
         <td><strong>${escHtml(v.name)}</strong></td>
         <td style="font-size:12px">${escHtml(v.ngo)}</td>
         <td style="font-size:12px">${escHtml(v.coord)}</td>
-        <td style="font-size:12px;color:var(--gray2)">${(v.auditTs||'').substring(0,10)}</td>
+        <td style="font-size:12px;color:var(--gray2)">${escHtml(String(v.auditTs||'').substring(0,10))}</td>
         <td>${v.alreadyFixed
           ? `<span style="background:#D1FAE5;color:#065F46;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">✓ Fixed → ${escHtml(v.recoveredAs||'new ID')}</span>`
           : `<span style="background:#FEF3C7;color:#92400E;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">⚠ Needs Fix</span>`
@@ -53920,11 +54085,13 @@ async function _dedupRelinkAdvocacy() {
     // Only include recovered beneficiaries (those with _recoveredFrom set)
     const allBenefs = getData();
     const recoveredByName = {};
+    const _v276RecBy = Object.create(null);   // V27.6 (NV-13): '<recovered from>\u0001<name>' -> {id, ngo}
     allBenefs.forEach(b => {
       if (b._recoveredFrom && b.name) {
         const key = (b.name||'').trim().toLowerCase();
         // If multiple recovered records share a name (unlikely), last one wins
         recoveredByName[key] = b.id;
+        _v276RecBy[String(b._recoveredFrom) + '\u0001' + key] = { id: b.id, ngo: b.ngo || '' };   // V27.6 (NV-13)
       }
     });
     _dedupLog('Recovered beneficiaries indexed: ' + Object.keys(recoveredByName).length);
@@ -53955,7 +54122,10 @@ async function _dedupRelinkAdvocacy() {
 
         // Try to match by bname
         const nameKey = (rec.bname || '').trim().toLowerCase();
-        const newBid  = recoveredByName[nameKey];
+        // V27.6 (NV-13): only a household recovered FROM this ID (not any household of that name). The scheme
+        // record's partner is NOT compared - that copy goes stale when a household moves partner.
+        const _v276Hit = _v276RecBy[dupId + '\u0001' + nameKey];
+        const newBid  = _v276Hit ? _v276Hit.id : null;
 
         if (!newBid) {
           // No matching recovered beneficiary — this is the LIVE record at
